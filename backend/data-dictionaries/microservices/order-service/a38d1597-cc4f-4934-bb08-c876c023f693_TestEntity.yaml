@@ -1,0 +1,17 @@
+id: order-service.TestEntity
+name: TestEntity
+description: A test entity for debugging purposes
+microservice: order-service
+version: 1.0.0
+attributes:
+  - name: ID
+    description: ID
+    type: string
+    required: false
+    unique: false
+    uuid: 8e69e870-8812-4688-a789-ae1488da51e9
+relationships: []
+metadata: {}
+createdAt: 2025-05-23T13:20:34.217Z
+updatedAt: 2025-05-23T13:35:52.397Z
+uuid: a38d1597-cc4f-4934-bb08-c876c023f693

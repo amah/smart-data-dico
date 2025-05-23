@@ -1,0 +1,23 @@
+id: order-service.Test
+name: Test
+description: Test3
+microservice: order-service
+version: 1.0.0
+attributes:
+  - name: ID
+    description: Unique idenitifier
+    type: string
+    required: false
+    unique: false
+    uuid: 8f7a8979-13c5-4fc8-a0e9-30d6708e41ab
+  - name: name
+    description: Name
+    type: string
+    required: false
+    unique: false
+    uuid: 0587da2c-e744-479a-a9fd-4125b444cee8
+relationships: []
+metadata: {}
+createdAt: 2025-05-23T13:22:00.756Z
+updatedAt: 2025-05-23T13:29:53.798Z
+uuid: 4e08ca72-6dd5-46ad-8745-99c2931e2475

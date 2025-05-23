@@ -1,0 +1,19 @@
+{
+  "name": "log-analyzer",
+  "version": "1.0.0",
+  "description": "Performance analysis tools for Smart Data Dictionary application",
+  "type": "module",
+  "scripts": {
+    "demo": "node generate-test-logs.js 50 | node log-analyzer.js",
+    "analyze": "./analyze-performance.sh"
+  },
+  "keywords": [
+    "log",
+    "analysis",
+    "performance",
+    "monitoring"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {}
+}

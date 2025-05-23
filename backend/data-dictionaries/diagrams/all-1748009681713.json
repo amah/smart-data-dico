@@ -1,0 +1,25 @@
+{
+  "id": "all-1748009681713",
+  "name": "Test Layout for Demo",
+  "entities": {
+    "4e08ca72-6dd5-46ad-8745-99c2931e2475": {
+      "x": 100,
+      "y": 100,
+      "showProperties": false,
+      "name": "order-service.Test"
+    },
+    "a38d1597-cc4f-4934-bb08-c876c023f693": {
+      "x": 400,
+      "y": 100,
+      "showProperties": false,
+      "name": "order-service.TestEntity"
+    }
+  },
+  "zoom": 1,
+  "pan": {
+    "x": 0,
+    "y": 0
+  },
+  "createdAt": "2025-05-23T14:14:41.795Z",
+  "updatedAt": "2025-05-23T14:14:41.795Z"
+}

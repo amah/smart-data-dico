@@ -1,0 +1,75 @@
+id: review-reply-1
+name: ReviewReply
+description: Reply to a product review
+microservice: product-service
+version: 1.0.0
+attributes:
+  - name: id
+    description: Unique identifier for the review reply
+    type: string
+    required: true
+    unique: true
+    metadata:
+      isPrimaryKey: true
+    uuid: a2a5e00a-a1e3-4784-bbab-edcc3a9ed8d5
+  - name: reviewId
+    description: ID of the review being replied to
+    type: string
+    required: true
+    metadata:
+      isForeignKey: true
+    uuid: 7eed5943-4cee-4344-a0b6-84ccc8462861
+  - name: userId
+    description: ID of the user who wrote the reply
+    type: string
+    required: true
+    metadata:
+      isForeignKey: true
+    uuid: 50314e55-8fba-4bb6-9595-f5ff891292b6
+  - name: content
+    description: Reply content
+    type: string
+    required: true
+    minLength: 5
+    maxLength: 2000
+    uuid: 0816d051-65b3-4b47-8b8f-0053ab7e7882
+  - name: isFromVendor
+    description: Whether the reply is from the product vendor
+    type: boolean
+    required: true
+    defaultValue: false
+    uuid: 80c39abd-a5b1-4d9b-a066-5ed1dee137ba
+  - name: isApproved
+    description: Whether the reply is approved for display
+    type: boolean
+    required: true
+    defaultValue: false
+    uuid: 0a3596e2-12ec-4ace-9adb-537472774c28
+  - name: createdAt
+    description: Timestamp when the reply was created
+    type: datetime
+    required: true
+    uuid: dc8bc37d-9406-4508-9be3-10465ae2904a
+  - name: updatedAt
+    description: Timestamp when the reply was last updated
+    type: datetime
+    required: true
+    uuid: 2a0525fb-bd95-4708-b0a7-a4bc6a010516
+relationships:
+  - name: review
+    description: Review this reply belongs to
+    type: belongsTo
+    target: product-service.Review
+    inverseName: replies
+    required: true
+    foreignKey: reviewId
+    uuid: 5cd75f76-ff3b-43a6-bc7d-e2286fb2256f
+  - name: user
+    description: User who wrote the reply
+    type: belongsTo
+    target: user-service.User
+    inverseName: reviewReplies
+    required: true
+    foreignKey: userId
+    uuid: 5303ad02-038c-465d-80d0-ab7cedd3a082
+uuid: 588e9463-ca61-4d76-9e10-279b4a4dc53c
