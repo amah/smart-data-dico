@@ -4,9 +4,14 @@ name: Quote
 description: ""
 microservice: order-service
 version: 1.0.0
-attributes: []
+attributes:
+  - uuid: cd018dcb-2328-4fd7-960a-874e14aa2e87
+    name: UUID
+    description: Unique ID
+    type: string
+    required: true
 relationships: []
 metadata:
   package: order-service
 createdAt: 2025-05-28T16:35:13.210Z
-updatedAt: 2025-05-28T16:35:13.210Z
+updatedAt: 2025-05-28T16:35:42.706Z
