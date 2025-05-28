@@ -202,4 +202,11 @@ relationships:
     inverseName: order
     required: true
     uuid: 62d1bfdb-c92c-4a7a-9749-75fd0959212b
+  - uuid: 3722f33b-c382-4ba9-88b3-44a602e26fa8
+    name: items
+    description: ""
+    type: hasMany
+    target: order-service/OrderItem
+    required: false
 uuid: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
+updatedAt: 2025-05-28T18:03:27.130Z
