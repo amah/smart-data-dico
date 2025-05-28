@@ -1,0 +1,12 @@
+uuid: 2e47ea53-9c5c-4dee-8948-49391355d73b
+id: 2e47ea53-9c5c-4dee-8948-49391355d73b
+name: Quote
+description: ""
+microservice: order-service
+version: 1.0.0
+attributes: []
+relationships: []
+metadata:
+  package: order-service
+createdAt: 2025-05-28T16:35:13.210Z
+updatedAt: 2025-05-28T16:35:13.210Z
