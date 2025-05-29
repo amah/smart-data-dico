@@ -2,6 +2,9 @@ import fs from 'fs/promises';
 import path from 'path';
 import { logger } from '../utils/logger';
 
+// Use the same base directory as in fileOperations.ts
+const DATA_DICTIONARIES_BASE = path.join(process.cwd(), '..', 'data-dictionaries');
+
 export interface DiagramLayout {
   id: string;
   name: string;
@@ -23,7 +26,7 @@ export interface DiagramLayout {
   updatedAt: string;
 }
 
-const DIAGRAMS_DIR = path.join(process.cwd(), 'data-dictionaries', 'diagrams');
+const DIAGRAMS_DIR = path.join(DATA_DICTIONARIES_BASE, 'diagrams');
 
 export class DiagramService {
   private async ensureDiagramsDirectory(): Promise<void> {

@@ -75,7 +75,7 @@ const EntityList = () => {
     <div className="container mx-auto px-4 sm:px-6 lg:px-8">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
         <h1 className="text-2xl font-bold">{service} Entities</h1>
-        <Link to={`/services/${service}/entities/create`} className="btn btn-primary w-full sm:w-auto">
+        <Link to={`/services/${service}/entities/create`} className="btn btn-outline w-full sm:w-auto">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
           </svg>
@@ -95,7 +95,7 @@ const EntityList = () => {
             </div>
           </div>
           <div className="flex-none">
-            <Link to={`/services/${service}/entities/create`} className="btn btn-sm btn-primary">
+            <Link to={`/services/${service}/entities/create`} className="btn btn-sm btn-outline">
               Create Entity
             </Link>
           </div>
@@ -152,6 +152,26 @@ const EntityList = () => {
                           <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
                         </svg>
                       </Link>
+                      <div className="dropdown dropdown-end">
+                        <label tabIndex={0} className="btn btn-sm btn-ghost btn-square" title="More actions">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                          </svg>
+                        </label>
+                        <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-52">
+                          <li>
+                            <button
+                              onClick={() => {
+                                // TODO: Implement add to package logic
+                                console.log(`Add ${entity.name} to package`);
+                              }}
+                              aria-label={`Add ${entity.name} to package`}
+                            >
+                              <span className="font-mono">+P</span> Add to Package
+                            </button>
+                          </li>
+                        </ul>
+                      </div>
                     </div>
                   </td>
                 </tr>
@@ -195,11 +215,29 @@ const EntityList = () => {
                     </Link>
                     <Link
                       to={`/services/${service}/entities/${entity.name}/edit`}
-                      className="btn btn-sm btn-primary"
+                      className="btn btn-sm btn-outline"
                       aria-label={`Edit ${entity.name}`}
                     >
                       Edit
                     </Link>
+                    <div className="dropdown dropdown-end">
+                      <label tabIndex={0} className="btn btn-sm btn-ghost">
+                        More
+                      </label>
+                      <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-52">
+                        <li>
+                          <button
+                            onClick={() => {
+                              // TODO: Implement add to package logic
+                              console.log(`Add ${entity.name} to package`);
+                            }}
+                            aria-label={`Add ${entity.name} to package`}
+                          >
+                            <span className="font-mono">+P</span> Add to Package
+                          </button>
+                        </li>
+                      </ul>
+                    </div>
                   </div>
                 </div>
               </div>

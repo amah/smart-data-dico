@@ -1,36 +1,12 @@
 import { Router } from 'express';
-import { login, getCurrentUser } from '../controllers/authController';
-import {
-  getDictionaries,
-  getDictionaryById,
-  getDictionaryEntries,
-  getEntityAttributes,
-  saveEntity,
-  getRelatedEntities,
-  createDictionary
-} from '../controllers/dictionaryController';
 
-import {
-  getAllServices,
-  getServiceEntities,
-  getEntitySchema,
-  createEntity,
-  updateEntity,
-  deleteEntity,
-  searchEntities,
-  getGraphData
-} from '../controllers/serviceController';
-
-import {
-  commitChanges,
-  getCommitHistory,
-  revertToCommit
-} from '../controllers/versionController';
-
+import { getCurrentUser, login } from '../controllers/authController';
 import { diagramController } from '../controllers/diagramController';
-
+import { createDictionary, getDictionaries, getDictionaryById, getDictionaryEntries, getEntityAttributes, getPackageByPath, getPackageHierarchy, getRelatedEntities, getTabularData, saveEntity, listAllPackagesAndEntities, getFlatEntitiesAndAttributes, getEntityHierarchy } from '../controllers/dictionaryController';
+import { createEntity, deleteEntity, getAllServices, getEntitySchema, getGraphData, getServiceEntities, searchEntities, updateEntity } from '../controllers/serviceController';
+import { commitChanges, getCommitHistory, revertToCommit } from '../controllers/versionController';
 import { authenticate, UserRole } from '../middleware/auth';
-import { verifyToken, authorizeJwt } from '../middleware/jwtAuth';
+import { authorizeJwt, verifyToken } from '../middleware/jwtAuth';
 
 const router = Router();
 
@@ -38,6 +14,10 @@ const router = Router();
 router.get('/api/status', (req, res) => {
   res.json({ status: 'operational' });
 });
+
+router.get('/api/packages/hierarchy/:rootPackage', getPackageHierarchy);
+router.get('/api/packages/tabular/:rootPackage', getTabularData);
+router.get('/api/packages/:rootPackage/path/*', getPackageByPath);
 
 // Auth routes
 router.post('/api/auth/login', login);
@@ -51,6 +31,11 @@ router.get('/api/dictionaries/:id/entries', getDictionaryEntries);
 router.get('/api/entities/:microservice/:entityName/attributes', getEntityAttributes);
 router.get('/api/entities/:microservice/:entityName/related', getRelatedEntities);
 router.post('/api/entities', saveEntity);
+
+// Data Dictionary/Entity/Package API extensions
+router.get('/api/packages/all', listAllPackagesAndEntities);
+router.get('/api/entities/flat', getFlatEntitiesAndAttributes);
+router.get('/api/entities/hierarchy/:microservice/:entityName', getEntityHierarchy);
 
 // New Service/Entity API routes
 router.get('/api/services', getAllServices);

@@ -1,21 +1,8 @@
-import React, { useCallback, useState } from 'react';
-import ReactFlow, {
-  MiniMap,
-  Controls,
-  Background,
-  addEdge,
-  applyNodeChanges,
-  applyEdgeChanges,
-  Connection,
-  Edge,
-  Node,
-  NodeChange,
-  EdgeChange,
-  NodeTypes,
-  Position,
-  MarkerType,
-  Handle,
-} from 'reactflow';
+import React, { useCallback, useEffect, useState } from 'react';
+import ReactFlow, { addEdge, applyEdgeChanges, applyNodeChanges, Background, Connection, Controls, Edge, EdgeChange, Handle, MarkerType, MiniMap, Node, NodeChange, NodeTypes, Position } from 'reactflow';
+
+import { Entity, Package } from '../types';
+
 import 'reactflow/dist/style.css';
 
 // Style constants for React Flow site look
@@ -27,82 +14,6 @@ const nodeShadow = '0 2px 8px 0 rgba(60,60,60,0.07)';
 const headerBg = '#fff';
 const headerText = '#22223b';
 const dividerColor = '#e0e7ef';
-
-const initialNodes: Node[] = [
-  {
-    id: 'Person',
-    type: 'classNode',
-    data: { label: 'Person', attributes: [
-      'title: String',
-      'givenName: String',
-      'middleName: String',
-      'familyName: String',
-      'name: FullName',
-      'birthDate: Date',
-      'gender: Gender',
-      'homeAddress: Address',
-      'phone: Phone'
-    ] },
-    position: { x: 0, y: 0 }
-  },
-  {
-    id: 'Patient',
-    type: 'classNode',
-    data: { label: 'Patient', attributes: [
-      'id: String',
-      'name: FullName',
-      'gender: Gender',
-      'birthDate: Date',
-      'age: Integer',
-      'accepted: Date',
-      'sickness: History',
-      'prescriptions: String(array)',
-      'allergies: String(array)',
-      'specialReqs: String(array)'
-    ] },
-    position: { x: 300, y: 0 }
-  },
-  {
-    id: 'Staff',
-    type: 'classNode',
-    data: { label: 'Staff', attributes: [
-      'joined: Date',
-      'education: String(array)',
-      'certification: String(array)',
-      'languages: String(array)'
-    ] },
-    position: { x: 0, y: 250 }
-  },
-  {
-    id: 'Hospital',
-    type: 'classNode',
-    data: { label: 'Hospital', attributes: [
-      'name: String',
-      'address: Address',
-      'phone: Phone'
-    ] },
-    position: { x: 600, y: 0 }
-  },
-  {
-    id: 'Department',
-    type: 'classNode',
-    data: { label: 'Department', attributes: [] },
-    position: { x: 600, y: 200 }
-  },
-  // Add more nodes for hierarchy (OperationsStaff, Doctor, etc.) as needed
-];
-
-const initialEdges: Edge[] = [
-  // Inheritance
-  { id: 'Person-Patient', source: 'Person', target: 'Patient', label: 'inherits', animated: false, style: { stroke: primaryColor, strokeDasharray: '6 6', strokeWidth: 2 } },
-  { id: 'Person-Staff', source: 'Person', target: 'Staff', label: 'inherits', animated: false, style: { stroke: primaryColor, strokeDasharray: '6 6', strokeWidth: 2 } },
-  // Composition
-  { id: 'Hospital-Department', source: 'Hospital', target: 'Department', label: 'has', animated: false, style: { stroke: borderColor, strokeDasharray: '6 6', strokeWidth: 2 } },
-  { id: 'Department-Staff', source: 'Department', target: 'Staff', label: 'employs', animated: false, style: { stroke: borderColor, strokeDasharray: '6 6', strokeWidth: 2 } },
-  // Person-Hospital association
-  { id: 'Person-Hospital', source: 'Person', target: 'Hospital', label: '', animated: false, style: { stroke: borderColor, strokeDasharray: '6 6', strokeWidth: 2 } },
-  // Add more edges for hierarchy as needed
-];
 
 // Custom node for React Flow site style
 const ClassNode = ({ data }: any) => (
@@ -159,9 +70,85 @@ const nodeTypes: NodeTypes = {
   classNode: ClassNode,
 };
 
-const OrganizationDiagramEditor: React.FC = () => {
-  const [nodes, setNodes] = useState<Node[]>(initialNodes);
-  const [edges, setEdges] = useState<Edge[]>(initialEdges);
+// Utility to flatten package/entity hierarchy into nodes and edges
+function flattenPackagesToDiagram(packages: Package[], x = 0, y = 0, level = 0) {
+  const nodes: Node[] = [];
+  const edges: Edge[] = [];
+  let offsetY = y;
+
+  for (const pkg of packages) {
+    const pkgNodeId = `pkg-${pkg.id}`;
+    nodes.push({
+      id: pkgNodeId,
+      type: 'classNode',
+      data: { label: pkg.name, attributes: [pkg.description || ''] },
+      position: { x: x + level * 200, y: offsetY },
+    });
+
+    // Add entity nodes
+    if (pkg.entities) {
+      for (const entity of pkg.entities) {
+        const entityNodeId = `entity-${entity.uuid}`;
+        nodes.push({
+          id: entityNodeId,
+          type: 'classNode',
+          data: {
+            label: entity.name,
+            attributes: entity.attributes?.map(a => `${a.name}: ${a.type}`) || [],
+          },
+          position: { x: x + (level + 1) * 200, y: offsetY },
+        });
+        // Edge from package to entity
+        edges.push({
+          id: `${pkgNodeId}-${entityNodeId}`,
+          source: pkgNodeId,
+          target: entityNodeId,
+          label: 'contains',
+          animated: false,
+          style: { stroke: borderColor, strokeDasharray: '6 6', strokeWidth: 2 }
+        });
+        offsetY += 120;
+      }
+    }
+
+    // Recurse into sub-packages
+    if (pkg.subPackages && pkg.subPackages.length > 0) {
+      const { nodes: subNodes, edges: subEdges } = flattenPackagesToDiagram(pkg.subPackages, x, offsetY, level + 1);
+      nodes.push(...subNodes);
+      edges.push(...subEdges);
+      offsetY += subNodes.length * 120;
+      // Edge from parent package to sub-packages
+      for (const subPkg of pkg.subPackages) {
+        edges.push({
+          id: `${pkgNodeId}-pkg-${subPkg.id}`,
+          source: pkgNodeId,
+          target: `pkg-${subPkg.id}`,
+          label: 'sub-package',
+          animated: false,
+          style: { stroke: primaryColor, strokeDasharray: '6 6', strokeWidth: 2 }
+        });
+      }
+    } else {
+      offsetY += 120;
+    }
+  }
+
+  return { nodes, edges };
+}
+
+interface OrganizationDiagramEditorProps {
+  packages: Package[];
+}
+
+const OrganizationDiagramEditor: React.FC<OrganizationDiagramEditorProps> = ({ packages }) => {
+  const [nodes, setNodes] = useState<Node[]>([]);
+  const [edges, setEdges] = useState<Edge[]>([]);
+
+  useEffect(() => {
+    const { nodes, edges } = flattenPackagesToDiagram(packages);
+    setNodes(nodes);
+    setEdges(edges);
+  }, [packages]);
 
   const onConnect = useCallback(
     (connection: Connection) => setEdges((eds) => addEdge({ ...connection, style: { stroke: primaryColor, strokeDasharray: '6 6', strokeWidth: 2 } }, eds)),

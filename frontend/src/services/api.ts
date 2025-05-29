@@ -1,5 +1,29 @@
 import axios from 'axios';
-import { Entity, CommitInfo } from '../types';
+
+import { CommitInfo, Entity } from '../types';
+import { Package } from '../types';
+
+/**
+ * Fetch the hierarchical package structure (tree).
+ */
+export const getPackageTree = async (): Promise<Package[]> => {
+  const response = await api.get('/packages'); // Adjust endpoint if needed
+  return response.data;
+};
+/**
+ * Fetch the hierarchical package structure for all microservices.
+ */
+export const getAllPackageHierarchies = async (): Promise<Package[]> => {
+  const microservices = ['order-service', 'product-service', 'user-service'];
+  const results = await Promise.all(
+    microservices.map(async (ms) => {
+      const response = await api.get(`/packages/hierarchy/${ms}`);
+      // The backend returns { message: 'Success', data: hierarchy }
+      return response.data.data;
+    })
+  );
+  return results;
+};
 
 // Create an axios instance with default config
 const api = axios.create({
@@ -209,6 +233,33 @@ export const authApi = {
   // Check if user is authenticated
   isAuthenticated: () => {
     return !!localStorage.getItem('auth_token');
+  },
+};
+
+/**
+ * Entity/Package API endpoints for navigation, flat, and hierarchical views
+ */
+export const entityApi = {
+  // Get all packages and their entities
+  getAllPackages: async (): Promise<Package[]> => {
+    const response = await api.get('/packages/all');
+    return response.data.data; // Unwrap the data from the API response
+  },
+
+  // Get flat list of entities/attributes with optional filters
+  getFlatEntities: async (params?: { name?: string; type?: string; package?: string }): Promise<Entity[]> => {
+    const query = new URLSearchParams();
+    if (params?.name) query.append('name', params.name);
+    if (params?.type) query.append('type', params.type);
+    if (params?.package) query.append('package', params.package);
+    const response = await api.get(`/entities/flat${query.toString() ? '?' + query.toString() : ''}`);
+    return response.data.data; // Unwrap the data from the API response
+  },
+
+  // Get hierarchical view for a given aggregate root/entity
+  getEntityHierarchy: async (microservice: string, entityName: string): Promise<any> => {
+    const response = await api.get(`/entities/hierarchy/${encodeURIComponent(microservice)}/${encodeURIComponent(entityName)}`);
+    return response.data.data; // Unwrap the data from the API response
   },
 };
 

@@ -83,6 +83,10 @@ export interface EntityRelationship {
 /**
  * Interface for entity definition
  */
+/**
+ * Interface for entity definition.
+ * Now supports an optional packageId to indicate the parent package.
+ */
 export interface Entity {
   uuid: string;
   id: string; // Keep for backward compatibility, but UUID is primary reference
@@ -90,6 +94,10 @@ export interface Entity {
   description: string;
   microservice: string;
   version: string;
+  /**
+   * Optional: the ID of the parent package this entity belongs to.
+   */
+  packageId?: string;
   attributes: EntityAttribute[];
   relationships?: EntityRelationship[];
   metadata?: Record<string, any>;

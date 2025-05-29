@@ -1,29 +1,73 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { servicesApi } from '../services/api';
+
+import { getAllPackageHierarchies } from '../services/api';
+import { Entity, Package } from '../types';
+import OrganizationDiagramEditor from './OrganizationDiagramEditor';
+import EntityFlatTable from './EntityFlatTable';
+
+type ViewMode = 'table' | 'tree' | 'diagram';
 
 const ServiceList = () => {
-  const [services, setServices] = useState<string[]>([]);
+  const [packages, setPackages] = useState<Package[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>('tree');
+  const [tableTreeToggle, setTableTreeToggle] = useState<'table' | 'tree'>('tree');
 
   useEffect(() => {
-    const fetchServices = async () => {
+    const fetchPackages = async () => {
       try {
         setLoading(true);
-        const response = await servicesApi.getAllServices();
-        setServices(response.data);
+        const data = await getAllPackageHierarchies();
+        setPackages(data);
         setError(null);
       } catch (err) {
-        console.error('Error fetching services:', err);
-        setError('Failed to load services. Please try again later.');
+        console.error('Error fetching package tree:', err);
+        setError('Failed to load package hierarchy. Please try again later.');
       } finally {
         setLoading(false);
       }
     };
 
-    fetchServices();
+    fetchPackages();
   }, []);
+
+  const renderTree = (pkgs: Package[], level = 0) => (
+    <ul className={`pl-${level * 4}`}>
+      {pkgs.map((pkg) => (
+        <li key={pkg.id} className="mb-2">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold">{pkg.name}</span>
+            {pkg.description && (
+              <span className="text-xs text-gray-500">({pkg.description})</span>
+            )}
+            <Link to={`/packages/${pkg.id}`} className="btn btn-xs btn-outline ml-2">
+              Details
+            </Link>
+          </div>
+          {/* Entities in this package */}
+          {pkg.entities && pkg.entities.length > 0 && (
+            <ul className="ml-6 mt-1">
+              {pkg.entities.map((entity: Entity) => (
+                <li key={entity.uuid} className="flex items-center gap-2">
+                  <Link
+                    to={`/services/${entity.microservice}/entities/${entity.name}`}
+                    className="link"
+                  >
+                    {entity.name}
+                  </Link>
+                  <span className="text-xs text-gray-400">{entity.description}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {/* Sub-packages */}
+          {pkg.subPackages && pkg.subPackages.length > 0 && renderTree(pkg.subPackages, level + 1)}
+        </li>
+      ))}
+    </ul>
+  );
 
   if (loading) {
     return (
@@ -44,48 +88,49 @@ const ServiceList = () => {
     );
   }
 
-  if (services.length === 0) {
-    return (
-      <div className="alert alert-info">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" className="stroke-current shrink-0 w-6 h-6">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-        </svg>
-        <span>No services found. Create a new service to get started.</span>
-      </div>
-    );
-  }
-
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      {services.map((service) => (
-        <div key={service} className="card bg-base-100 shadow-xl hover:shadow-2xl transition-shadow">
-          <div className="card-body">
-            <h2 className="card-title">{service}</h2>
-            <p className="text-sm opacity-70">Microservice</p>
-            <div className="card-actions justify-end mt-4">
-              <Link to={`/services/${service}`} className="btn btn-primary">
-                View Entities
-              </Link>
-            </div>
-          </div>
-        </div>
-      ))}
-      
-      {/* Add new service card */}
-      <div className="card bg-base-100 shadow-xl border-2 border-dashed border-base-300 hover:border-primary hover:shadow-2xl transition-all">
-        <div className="card-body items-center text-center">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-          <h2 className="card-title mt-2">Add New Service</h2>
-          <p className="text-sm opacity-70">Create a new microservice</p>
-          <div className="card-actions mt-4">
-            <Link to="/services/create" className="btn btn-outline btn-primary">
-              Create Service
-            </Link>
-          </div>
+    <div>
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-2xl font-bold">Package Hierarchy</h1>
+        <div className="flex gap-2">
+          <button
+            className={`btn btn-sm ${viewMode !== 'diagram' ? 'btn-outline' : 'btn-ghost'}`}
+            onClick={() => {
+              // Toggle between table and tree
+              const newMode = viewMode === 'table' ? 'tree' : 'table';
+              setViewMode(newMode);
+              setTableTreeToggle(newMode);
+            }}
+          >
+            {viewMode === 'table' ? 'Table View' : 'Tree View'}
+          </button>
+          <button
+            className={`btn btn-sm ${viewMode === 'diagram' ? 'btn-outline' : 'btn-ghost'}`}
+            onClick={() => setViewMode('diagram')}
+          >
+            Diagram View
+          </button>
         </div>
       </div>
+      {viewMode === 'table' ? (
+        <div className="overflow-x-auto">
+          <EntityFlatTable />
+        </div>
+      ) : viewMode === 'tree' ? (
+        <div className="overflow-x-auto">
+          {packages.length === 0 ? (
+            <div className="alert alert-info">
+              <span>No packages found. Create a new package to get started.</span>
+            </div>
+          ) : (
+            renderTree(packages)
+          )}
+        </div>
+      ) : (
+        <div className="h-[700px]">
+          <OrganizationDiagramEditor packages={packages} />
+        </div>
+      )}
     </div>
   );
 };

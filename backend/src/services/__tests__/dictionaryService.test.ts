@@ -1,5 +1,5 @@
+import { listMicroserviceEntities, listMicroservices } from '../../utils/fileOperations';
 import { dictionaryService } from '../dictionaryService';
-import { listMicroservices, listMicroserviceEntities } from '../../utils/fileOperations';
 import { entityService } from '../entityService';
 
 // Mock dependencies
@@ -33,6 +33,46 @@ describe('DictionaryService', () => {
       expect(listMicroservices).toHaveBeenCalledTimes(1);
       expect(dictionaries).toHaveLength(0);
     });
+describe('Hierarchical Structure', () => {
+    it('should load and represent hierarchical packages and entities', async () => {
+      // Mock a hierarchical structure: rootPackage -> subpackage -> subpackage -> entity
+      (listMicroservices as jest.Mock).mockResolvedValueOnce([
+        {
+          id: 'analytics-service',
+          name: 'analytics-service',
+          rootPackage: {
+            id: 'root',
+            name: 'Root',
+            entities: [],
+            subpackages: [
+              {
+                id: 'core',
+                name: 'Core',
+                entities: [],
+                subpackages: [
+                  {
+                    id: 'metrics',
+                    name: 'Metrics',
+                    entities: [
+                      { id: 'event', name: 'Event', type: 'entity' }
+                    ],
+                    subpackages: []
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]);
+      // No need to mock listMicroserviceEntities for this test
+
+      const dictionaries = await dictionaryService.getAllDictionaries();
+      expect(dictionaries).toHaveLength(1);
+      expect(
+        dictionaries[0].rootPackage.subpackages[0].subpackages[0].entities[0].name
+      ).toBe('Event');
+    });
+  });
   });
 
   describe('getDictionaryById', () => {

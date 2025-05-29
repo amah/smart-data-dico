@@ -18,6 +18,11 @@ import VisualizationComponent from './components/VisualizationComponent';
 
 // Search Component
 import SearchComponent from './components/SearchComponent';
+import EntityFlatTable from './components/EntityFlatTable';
+import EntityHierarchyView from './components/EntityHierarchyView';
+import PackageFlatTable from './components/PackageFlatTable';
+import AttributeFlatTable from './components/AttributeFlatTable';
+import EntityTreeTable from './components/EntityTreeTable';
 
 // Version Control Components
 import CommitChanges from './components/CommitChanges';
@@ -64,6 +69,7 @@ function App() {
                     <EntityDetail />
                   </AuthGuard>
                 } />
+                <Route path="hierarchy" element={<EntityHierarchyView />} />
                 <Route path="attributes">
                   <Route path="create" element={
                     <AuthGuard roles={['admin', 'editor']}>
@@ -119,7 +125,14 @@ function App() {
         {/* Search */}
         <Route path="search" element={<SearchComponent />} />
         
+        {/* Flat Views */}
+        <Route path="entities/flat" element={<EntityFlatTable />} />
+        <Route path="flat/packages" element={<PackageFlatTable />} />
+        <Route path="flat/entities" element={<EntityFlatTable />} />
+        <Route path="flat/attributes" element={<AttributeFlatTable />} />
+
         {/* Version Control */}
+        <Route path="tree/hierarchy" element={<EntityTreeTable />} />
         <Route path="version">
           <Route path="history" element={<CommitHistory />} />
           <Route path="commit" element={

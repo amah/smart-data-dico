@@ -1,9 +1,10 @@
 import { Request, Response } from 'express';
+
+import { Dictionary } from '../models/Dictionary';
+import { Entity } from '../models/EntitySchema';
 import { dictionaryService } from '../services/dictionaryService';
 import { entityService } from '../services/entityService';
 import { logger } from '../utils/logger';
-import { Entity } from '../models/EntitySchema';
-import { Dictionary } from '../models/Dictionary';
 
 // Dictionary controller methods
 export const getDictionaries = async (req: Request, res: Response) => {
@@ -181,5 +182,145 @@ export const createDictionary = async (req: Request, res: Response) => {
   } catch (error) {
     logger.error(`Error in createDictionary: ${error}`);
     res.status(500).json({ message: 'Error creating dictionary', error });
+  }
+};
+export const getPackageHierarchy = async (req: Request, res: Response) => {
+  try {
+    const { rootPackage } = req.params;
+    const hierarchy = await dictionaryService.getPackageHierarchy(rootPackage);
+    res.json({ message: 'Success', data: hierarchy });
+  } catch (error) {
+    logger.error('Error fetching package hierarchy', error);
+    res.status(500).json({ message: 'Error fetching package hierarchy', error });
+  }
+};
+export const getTabularData = async (req: Request, res: Response) => {
+  try {
+    const { rootPackage } = req.params;
+    const tabularData = await dictionaryService.getTabularData(rootPackage);
+    res.json({ message: 'Success', data: tabularData });
+  } catch (error) {
+    logger.error('Error fetching tabular data', error);
+    res.status(500).json({ message: 'Error fetching tabular data', error });
+  }
+};
+export const getPackageByPath = async (req: Request, res: Response) => {
+  try {
+    const { rootPackage } = req.params;
+    // The rest of the path after /path/ is the package path, split by '/'
+    const packagePath = req.params[0]?.split('/').filter(Boolean) || [];
+    const pkg = await dictionaryService.getPackageByPath(rootPackage, packagePath);
+    if (!pkg) {
+      return res.status(404).json({ message: 'Package not found' });
+    }
+    res.json({ message: 'Success', data: pkg });
+  } catch (error) {
+    logger.error('Error fetching package by path', error);
+    res.status(500).json({ message: 'Error fetching package by path', error });
+  }
+}
+export const listAllPackagesAndEntities = async (req: Request, res: Response) => {
+  try {
+    const result = await dictionaryService.listAllPackagesAndEntities();
+    res.json({ message: 'Success', data: result });
+  } catch (error) {
+    logger.error('Error listing all packages and entities', error);
+    res.status(500).json({ message: 'Error listing all packages and entities', error });
+  }
+};
+
+/**
+ * Create a new package (subpackage) at the given path.
+ * POST /api/packages/:rootPackage/path/*
+ */
+export const createPackageAtPath = async (req: Request, res: Response) => {
+  try {
+    const { rootPackage } = req.params;
+    const packagePath = req.params[0]?.split('/').filter(Boolean) || [];
+    const packageData = req.body;
+    const result = await dictionaryService.createPackageAtPath(rootPackage, packagePath, packageData);
+    if (!result.success) {
+      return res.status(400).json({ message: 'Failed to create package', errors: result.errors });
+    }
+    res.status(201).json({ message: 'Package created successfully', data: result.package });
+  } catch (error) {
+    logger.error('Error creating package', error);
+    res.status(500).json({ message: 'Error creating package', error });
+  }
+};
+
+/**
+ * Update a package's metadata at the given path.
+ * PUT /api/packages/:rootPackage/path/*
+ */
+export const updatePackageAtPath = async (req: Request, res: Response) => {
+  try {
+    const { rootPackage } = req.params;
+    const packagePath = req.params[0]?.split('/').filter(Boolean) || [];
+    const packageData = req.body;
+    const result = await dictionaryService.updatePackageAtPath(rootPackage, packagePath, packageData);
+    if (!result.success) {
+      return res.status(400).json({ message: 'Failed to update package', errors: result.errors });
+    }
+    res.status(200).json({ message: 'Package updated successfully', data: result.package });
+  } catch (error) {
+    logger.error('Error updating package', error);
+    res.status(500).json({ message: 'Error updating package', error });
+  }
+};
+
+/**
+ * Delete a package (and all its contents) at the given path.
+ * DELETE /api/packages/:rootPackage/path/*
+ */
+export const deletePackageAtPath = async (req: Request, res: Response) => {
+  try {
+    const { rootPackage } = req.params;
+    const packagePath = req.params[0]?.split('/').filter(Boolean) || [];
+    const result = await dictionaryService.deletePackageAtPath(rootPackage, packagePath);
+    if (!result.success) {
+      return res.status(400).json({ message: 'Failed to delete package', errors: result.errors });
+    }
+    res.status(200).json({ message: 'Package deleted successfully' });
+  } catch (error) {
+    logger.error('Error deleting package', error);
+    res.status(500).json({ message: 'Error deleting package', error });
+  }
+};
+
+/**
+ * Flat list of all entities/attributes, with filtering (by name, type, package)
+ * Query params: name, type, package
+ */
+export const getFlatEntitiesAndAttributes = async (req: Request, res: Response) => {
+  try {
+    const { name, type, package: pkg } = req.query;
+    const filters: any = {};
+    if (name) filters.name = String(name);
+    if (type) filters.type = String(type);
+    if (pkg) filters.package = String(pkg);
+    const result = await dictionaryService.getFlatEntitiesAndAttributes(filters);
+    res.json({ message: 'Success', data: result });
+  } catch (error) {
+    logger.error('Error getting flat entities/attributes', error);
+    res.status(500).json({ message: 'Error getting flat entities/attributes', error });
+  }
+};
+
+/**
+ * Hierarchical view for a given aggregate root/entity.
+ * Params: microservice, entityName
+ */
+export const getEntityHierarchy = async (req: Request, res: Response) => {
+  try {
+    const { microservice, entityName } = req.params;
+    const result = await dictionaryService.getEntityHierarchy(microservice, entityName);
+    if (!result) {
+      return res.status(404).json({ message: 'Entity not found' });
+    }
+    res.json({ message: 'Success', data: result });
+  } catch (error) {
+    logger.error('Error getting entity hierarchy', error);
+    res.status(500).json({ message: 'Error getting entity hierarchy', error });
   }
 };

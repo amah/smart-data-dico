@@ -2,6 +2,7 @@ id: order-service.Test
 name: Test
 description: Test3
 microservice: order-service
+packageId: order-service
 version: 1.0.0
 attributes:
   - name: ID

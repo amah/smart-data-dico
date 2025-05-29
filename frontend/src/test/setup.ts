@@ -3,16 +3,7 @@ import { afterEach, beforeAll, afterAll, vi } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
-
-// Add type definitions
-type Params = {
-  [key: string]: string;
-};
-
-interface RequestInfo {
-  request: Request;
-  params: Params;
-}
+import { handlers } from './handlers';
 
 // Mock data for API responses
 const mockDictionaries = [
@@ -38,8 +29,8 @@ export const server = setupServer(
     return HttpResponse.json(mockDictionaries);
   }),
   
-  http.get('/api/dictionaries/:id', ({ params }: RequestInfo) => {
-    const { id } = params;
+  http.get('/api/dictionaries/:id', ({ params }) => {
+    const id = params.id;
     const dictionary = mockDictionaries.find(d => d.id === id);
     
     if (dictionary) {
@@ -54,16 +45,17 @@ export const server = setupServer(
     return HttpResponse.json(mockDictionaries);
   }),
   
-  http.get('/api/services/:service/entities', ({ params }: RequestInfo) => {
-    const { service } = params;
+  http.get('/api/services/:service/entities', ({ params }) => {
+    const service = params.service;
     const entities = mockEntities[service as keyof typeof mockEntities] || [];
     
     return HttpResponse.json(entities);
   }),
   
   // Entity endpoints
-  http.get('/api/services/:service/entities/:entity', ({ params }: RequestInfo) => {
-    const { service, entity } = params;
+  http.get('/api/services/:service/entities/:entity', ({ params }) => {
+    const service = params.service;
+    const entity = params.entity;
     const entities = mockEntities[service as keyof typeof mockEntities] || [];
     const foundEntity = entities.find(e => e.id === entity);
     
@@ -87,7 +79,7 @@ export const server = setupServer(
   }),
   
   // Search endpoint
-  http.get('/api/search', ({ request }: RequestInfo) => {
+  http.get('/api/search', ({ request }) => {
     const url = new URL(request.url);
     const query = url.searchParams.get('q') || '';
     
@@ -100,7 +92,10 @@ export const server = setupServer(
     ] : [];
     
     return HttpResponse.json(results);
-  })
+  }),
+  
+  // Include the handlers from handlers.ts
+  ...handlers
 );
 
 // Start server before all tests

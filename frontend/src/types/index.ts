@@ -18,7 +18,21 @@ export interface DictionaryEntry {
   required?: boolean;
   defaultValue?: any;
   examples?: string[];
+}
+
+/**
+ * Hierarchical package structure for nested packages and entities.
+ */
+export interface Package {
+  id: string;
+  name: string;
+  description?: string;
+  parentId?: string;
+  subPackages?: Package[];
+  entities?: Entity[];
   metadata?: Record<string, any>;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 // API response types
@@ -61,7 +75,8 @@ export enum AttributeType {
   ENUM = 'enum',
   OBJECT = 'object',
   ARRAY = 'array',
-  REFERENCE = 'reference'
+  REFERENCE = 'reference',
+  RELATIONSHIP = 'relationship'
 }
 
 /**

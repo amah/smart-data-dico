@@ -1,7 +1,8 @@
+import { NextFunction, Request, Response } from 'express';
 import request from 'supertest';
-import app from '../../server';
+
 import { UserRole } from '../../middleware/auth';
-import { Request, Response, NextFunction } from 'express';
+import app from '../../server';
 
 // Extend Request type to include user property
 declare global {
@@ -75,6 +76,17 @@ describe('API Integration Tests', () => {
       
       expect(response.status).toBe(200);
       expect(Array.isArray(response.body)).toBe(true);
+it('should return hierarchical structure in dictionary response', async () => {
+      // This test assumes the test environment is seeded with a hierarchical dictionary
+      const response = await request(app).get('/api/dictionaries/analytics-service');
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('rootPackage');
+      expect(response.body.rootPackage).toHaveProperty('subpackages');
+      // Check for nested subpackages and entities
+      expect(
+        response.body.rootPackage.subpackages[0].subpackages[0].entities[0].name
+      ).toBe('Event');
+    });
     });
   });
 

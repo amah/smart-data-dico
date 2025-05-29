@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import EntityList from '../EntityList';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { servicesApi } from '../../services/api';
 import { AttributeType } from '../../types';
+import EntityList from '../EntityList';
 
 // Mock the API service
 vi.mock('../../services/api', () => ({
@@ -160,5 +161,50 @@ describe('EntityList Component', () => {
     );
 
     expect(screen.getByText('Service name is required')).toBeInTheDocument();
+  });
+it('should render hierarchical packages and entities', async () => {
+    const hierarchicalEntities = [
+      {
+        id: 'core',
+        name: 'Core',
+        type: 'package',
+        subpackages: [
+          {
+            id: 'metrics',
+            name: 'Metrics',
+            type: 'package',
+            entities: [
+              {
+                id: 'event',
+                name: 'Event',
+                description: 'Event entity',
+                type: 'entity'
+              }
+            ],
+            subpackages: []
+          }
+        ],
+        entities: []
+      }
+    ];
+    // Mock API to return hierarchical structure
+    vi.mocked(servicesApi.getServiceEntities).mockResolvedValue({
+      data: hierarchicalEntities
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/services/analytics-service/entities']}>
+        <Routes>
+          <Route path="/services/:service/entities" element={<EntityList />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Wait for hierarchical data to load and check for nested entity
+    await waitFor(() => {
+      expect(screen.getByText('Core')).toBeInTheDocument();
+      expect(screen.getByText('Metrics')).toBeInTheDocument();
+      expect(screen.getByText('Event')).toBeInTheDocument();
+    });
   });
 });

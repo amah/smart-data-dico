@@ -2,6 +2,7 @@ id: order-service.TestEntity
 name: TestEntity
 description: A test entity for debugging purposes
 microservice: order-service
+packageId: order-service
 version: 1.0.0
 attributes:
   - name: ID

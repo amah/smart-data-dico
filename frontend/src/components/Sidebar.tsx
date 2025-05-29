@@ -3,12 +3,19 @@ import { Link, useLocation } from 'react-router-dom';
 import { servicesApi, diagramApi } from '../services/api';
 import { DiagramLayout } from '../types';
 
+import { entityApi } from '../services/api';
+import { Package, Entity } from '../types';
+
 const Sidebar = () => {
   const [services, setServices] = useState<string[]>([]);
+  const [packages, setPackages] = useState<Package[]>([]);
+  const [expandedPackages, setExpandedPackages] = useState<Record<string, boolean>>({});
   const [diagrams, setDiagrams] = useState<DiagramLayout[]>([]);
   const [loading, setLoading] = useState(true);
+  const [packagesLoading, setPackagesLoading] = useState(true);
   const [diagramsLoading, setDiagramsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [packagesError, setPackagesError] = useState<string | null>(null);
   const [diagramsError, setDiagramsError] = useState<string | null>(null);
   const location = useLocation();
 
@@ -48,6 +55,24 @@ const Sidebar = () => {
     fetchDiagrams();
   }, []);
 
+  // Fetch packages for navigation
+  useEffect(() => {
+    const fetchPackages = async () => {
+      try {
+        setPackagesLoading(true);
+        const response = await entityApi.getAllPackages();
+        setPackages(response);
+        setPackagesError(null);
+      } catch (err) {
+        console.error('Error fetching packages:', err);
+        setPackagesError('Failed to load packages');
+      } finally {
+        setPackagesLoading(false);
+      }
+    };
+    fetchPackages();
+  }, []);
+
   // Listen for diagram updates
   useEffect(() => {
     const handleDiagramUpdate = () => {
@@ -67,6 +92,59 @@ const Sidebar = () => {
     return location.pathname.startsWith(path);
   };
 
+  // Toggle expand/collapse for package tree
+  const togglePackage = (pkgId: string) => {
+    setExpandedPackages((prev) => ({
+      ...prev,
+      [pkgId]: !prev[pkgId],
+    }));
+  };
+
+  // Recursive render for package tree
+  const renderPackageTree = (pkgs: Package[]) => {
+    if (!Array.isArray(pkgs)) return <ul />;
+    return (
+      <ul>
+        {pkgs.map((pkg) => (
+          <li key={pkg.id}>
+            <div className="flex items-center">
+              {(pkg.subPackages && pkg.subPackages.length > 0) || (pkg.entities && pkg.entities.length > 0) ? (
+                <button
+                  className="mr-1 btn btn-xs btn-ghost"
+                  onClick={() => togglePackage(pkg.id)}
+                  aria-label={expandedPackages[pkg.id] ? 'Collapse' : 'Expand'}
+                  type="button"
+                >
+                  {expandedPackages[pkg.id] ? '▼' : '▶'}
+                </button>
+              ) : null}
+              <span className="font-semibold">{pkg.name}</span>
+            </div>
+            {expandedPackages[pkg.id] && (
+              <div className="ml-4">
+                {pkg.entities && pkg.entities.length > 0 && (
+                  <ul>
+                    {pkg.entities.map((entity) => (
+                      <li key={entity.uuid}>
+                        <Link
+                          to={`/entities/${entity.microservice}/${entity.name}`}
+                          className={isActive(`/entities/${entity.microservice}/${entity.name}`) ? 'active' : ''}
+                        >
+                        {entity.name}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {pkg.subPackages && pkg.subPackages.length > 0 && renderPackageTree(pkg.subPackages)}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
   return (
     <div className="h-full flex flex-col">
       <div className="p-4 border-b border-base-300">
@@ -76,8 +154,8 @@ const Sidebar = () => {
       <nav className="flex-1 overflow-y-auto p-2">
         <ul className="menu menu-md p-0 [--tw-bg-opacity:0.05]">
           <li>
-            <Link 
-              to="/" 
+            <Link
+              to="/"
               className={isActive('/') && !isActive('/services') ? 'active' : ''}
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -85,6 +163,25 @@ const Sidebar = () => {
               </svg>
               Home
             </Link>
+          </li>
+
+          <li className="mt-2">
+            <h2 className="menu-title">Packages</h2>
+            {packagesLoading ? (
+              <div className="flex justify-center p-4">
+                <span className="loading loading-spinner loading-md"></span>
+              </div>
+            ) : packagesError ? (
+              <div className="text-error p-2 text-sm">{packagesError}</div>
+            ) : (
+              <div className="ml-2">
+                {packages.length === 0 ? (
+                  <div className="text-base-content/60 p-2 text-sm">No packages found</div>
+                ) : (
+                  renderPackageTree(packages)
+                )}
+              </div>
+            )}
           </li>
           
           <li className="mt-2">
@@ -99,7 +196,7 @@ const Sidebar = () => {
               <ul>
                 {services.map((service) => (
                   <li key={service}>
-                    <Link 
+                    <Link
                       to={`/services/${service}`}
                       className={isActive(`/services/${service}`) ? 'active' : ''}
                     >
@@ -115,8 +212,8 @@ const Sidebar = () => {
             <h2 className="menu-title">Tools</h2>
             <ul>
               <li>
-                <Link 
-                  to="/search" 
+                <Link
+                  to="/search"
                   className={isActive('/search') ? 'active' : ''}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -126,14 +223,73 @@ const Sidebar = () => {
                 </Link>
               </li>
               <li>
-                <Link 
-                  to="/visualization" 
+                <Link
+                  to="/visualization"
                   className={isActive('/visualization') ? 'active' : ''}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                     <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
                   </svg>
                   Visualization
+                </Link>
+              </li>
+<li>
+                <Link
+                  to="/entities/flat"
+                  className={isActive('/entities/flat') ? 'active font-bold' : ''}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1 inline" viewBox="0 0 20 20" fill="currentColor">
+                    <rect x="3" y="5" width="14" height="2" rx="1" />
+                    <rect x="3" y="9" width="14" height="2" rx="1" />
+                    <rect x="3" y="13" width="14" height="2" rx="1" />
+                  </svg>
+                  Flat Entity Table
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/flat/packages"
+                  className={isActive('/flat/packages') ? 'active font-bold' : ''}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1 inline" viewBox="0 0 20 20" fill="currentColor">
+                    <rect x="3" y="5" width="14" height="2" rx="1" />
+                  </svg>
+                  Flat Package List
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/flat/entities"
+                  className={isActive('/flat/entities') ? 'active font-bold' : ''}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1 inline" viewBox="0 0 20 20" fill="currentColor">
+                    <rect x="3" y="9" width="14" height="2" rx="1" />
+                  </svg>
+                  Flat Entity List
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/flat/attributes"
+                  className={isActive('/flat/attributes') ? 'active font-bold' : ''}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1 inline" viewBox="0 0 20 20" fill="currentColor">
+                    <rect x="3" y="13" width="14" height="2" rx="1" />
+                  </svg>
+                  Flat Attribute List
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/tree/hierarchy"
+                  className={isActive('/tree/hierarchy') ? 'active font-bold' : ''}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1 inline" viewBox="0 0 20 20" fill="currentColor">
+                    <rect x="3" y="5" width="14" height="2" rx="1" />
+                    <rect x="3" y="9" width="8" height="2" rx="1" />
+                    <rect x="11" y="13" width="6" height="2" rx="1" />
+                  </svg>
+                  Tree Table Hierarchy
                 </Link>
               </li>
             </ul>
