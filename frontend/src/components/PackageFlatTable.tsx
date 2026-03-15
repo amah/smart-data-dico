@@ -33,7 +33,7 @@ const PackageFlatTable = () => {
       ) : error ? (
         <div className="alert alert-error">{error}</div>
       ) : (
-        <div className="overflow-x-auto bg-white rounded-lg shadow p-1 flex-1 min-h-0">
+        <div className="overflow-x-auto bg-base-100 rounded-lg shadow p-1 flex-1 min-h-0">
           <table className="table table-zebra w-full">
             <thead>
               <tr>

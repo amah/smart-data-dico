@@ -200,7 +200,7 @@ const EntityFlatTable = () => {
       ) : error ? (
         <div className="alert alert-error">{error}</div>
       ) : (
-        <div className="overflow-x-auto bg-white rounded-lg shadow p-1 flex-1 min-h-0">
+        <div className="overflow-x-auto bg-base-100 rounded-lg shadow p-1 flex-1 min-h-0">
           <table className="table table-zebra w-full">
             <thead>
               <tr>
@@ -281,7 +281,7 @@ const EntityFlatTable = () => {
       {/* Create Entity Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
+          <div className="bg-base-100 p-6 rounded-lg shadow-lg w-full max-w-md">
             <h2 className="text-xl font-bold mb-4">Create New Entity</h2>
             
             {error && <div className="alert alert-error mb-4">{error}</div>}
@@ -373,7 +373,7 @@ const EntityFlatTable = () => {
       {/* Edit Entity Modal */}
       {isEditModalOpen && currentEntity && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
+          <div className="bg-base-100 p-6 rounded-lg shadow-lg w-full max-w-md">
             <h2 className="text-xl font-bold mb-4">Edit Entity</h2>
             
             {error && <div className="alert alert-error mb-4">{error}</div>}
@@ -466,7 +466,7 @@ const EntityFlatTable = () => {
       {/* Delete Confirmation Modal */}
       {isDeleteModalOpen && currentEntity && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
+          <div className="bg-base-100 p-6 rounded-lg shadow-lg w-full max-w-md">
             <h2 className="text-xl font-bold mb-4">Delete Entity</h2>
             
             <p className="mb-4">
