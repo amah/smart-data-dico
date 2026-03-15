@@ -101,7 +101,7 @@ const EntityList = () => {
           </div>
         </div>
       ) : (
-        <div className="overflow-x-auto bg-white rounded-lg shadow p-1"> {/* Added p-1 padding to the container */}
+        <div className="overflow-x-auto bg-base-100 rounded-lg shadow p-1"> {/* Added p-1 padding to the container */}
           <div className="hidden sm:block">
             <table className="table table-zebra w-full" aria-label={`Entities in ${service}`}>
               <thead>

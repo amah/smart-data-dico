@@ -1154,7 +1154,7 @@ const EntityTreeTable = () => {
       ) : error ? (
         <div className="alert alert-error">{error}</div>
       ) : (
-        <div className="overflow-x-auto bg-white rounded-lg shadow p-1 flex-1 min-h-0">
+        <div className="overflow-x-auto bg-base-100 rounded-lg shadow p-1 flex-1 min-h-0">
           <table className="table table-zebra w-full">
             <thead>
               <tr>
@@ -1175,7 +1175,7 @@ const EntityTreeTable = () => {
       {/* Add Package Modal */}
       {isAddPackageModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
+          <div className="bg-base-100 p-6 rounded-lg shadow-lg w-full max-w-md">
             <h2 className="text-xl font-bold mb-4">
               {parentPackageId ? 'Add Subpackage' : 'Add Package'}
             </h2>
@@ -1243,7 +1243,7 @@ const EntityTreeTable = () => {
       {/* Edit Package Modal */}
       {isEditPackageModalOpen && currentPackage && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
+          <div className="bg-base-100 p-6 rounded-lg shadow-lg w-full max-w-md">
             <h2 className="text-xl font-bold mb-4">Edit Package</h2>
             
             {error && <div className="alert alert-error mb-4">{error}</div>}
@@ -1309,7 +1309,7 @@ const EntityTreeTable = () => {
       {/* Delete Package Modal */}
       {isDeletePackageModalOpen && currentPackage && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
+          <div className="bg-base-100 p-6 rounded-lg shadow-lg w-full max-w-md">
             <h2 className="text-xl font-bold mb-4">Delete Package</h2>
             
             <p className="mb-4">
@@ -1359,7 +1359,7 @@ const EntityTreeTable = () => {
       {/* Add Entity Modal */}
       {isAddEntityModalOpen && currentPackage && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
+          <div className="bg-base-100 p-6 rounded-lg shadow-lg w-full max-w-md">
             <h2 className="text-xl font-bold mb-4">Add Entity to {currentPackage.name}</h2>
             
             {error && <div className="alert alert-error mb-4">{error}</div>}
@@ -1451,7 +1451,7 @@ const EntityTreeTable = () => {
       {/* Edit Entity Modal */}
       {isEditEntityModalOpen && currentEntity && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
+          <div className="bg-base-100 p-6 rounded-lg shadow-lg w-full max-w-md">
             <h2 className="text-xl font-bold mb-4">Edit Entity</h2>
             
             {error && <div className="alert alert-error mb-4">{error}</div>}
@@ -1544,7 +1544,7 @@ const EntityTreeTable = () => {
       {/* Delete Entity Modal */}
       {isDeleteEntityModalOpen && currentEntity && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
+          <div className="bg-base-100 p-6 rounded-lg shadow-lg w-full max-w-md">
             <h2 className="text-xl font-bold mb-4">Delete Entity</h2>
             
             <p className="mb-4">
@@ -1588,7 +1588,7 @@ const EntityTreeTable = () => {
       {/* Add Attribute Modal */}
       {isAddAttributeModalOpen && currentEntity && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
+          <div className="bg-base-100 p-6 rounded-lg shadow-lg w-full max-w-md">
             <h2 className="text-xl font-bold mb-4">Add Attribute to {currentEntity.name}</h2>
             
             {error && <div className="alert alert-error mb-4">{error}</div>}
@@ -1684,7 +1684,7 @@ const EntityTreeTable = () => {
       {/* Edit Attribute Modal */}
       {isEditAttributeModalOpen && currentAttribute && currentEntity && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
+          <div className="bg-base-100 p-6 rounded-lg shadow-lg w-full max-w-md">
             <h2 className="text-xl font-bold mb-4">Edit Attribute</h2>
             
             {error && <div className="alert alert-error mb-4">{error}</div>}
@@ -1781,7 +1781,7 @@ const EntityTreeTable = () => {
       {/* Delete Attribute Modal */}
       {isDeleteAttributeModalOpen && currentAttribute && currentEntity && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
+          <div className="bg-base-100 p-6 rounded-lg shadow-lg w-full max-w-md">
             <h2 className="text-xl font-bold mb-4">Delete Attribute</h2>
             
             <p className="mb-4">
@@ -1825,7 +1825,7 @@ const EntityTreeTable = () => {
       {/* Add Relationship Modal */}
       {isAddRelationshipModalOpen && currentEntity && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
+          <div className="bg-base-100 p-6 rounded-lg shadow-lg w-full max-w-md">
             <h2 className="text-xl font-bold mb-4">Add Relationship to {currentEntity.name}</h2>
             
             {error && <div className="alert alert-error mb-4">{error}</div>}
@@ -1944,7 +1944,7 @@ const EntityTreeTable = () => {
       {/* Edit Relationship Modal */}
       {isEditRelationshipModalOpen && currentRelationship && currentEntity && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
+          <div className="bg-base-100 p-6 rounded-lg shadow-lg w-full max-w-md">
             <h2 className="text-xl font-bold mb-4">Edit Relationship</h2>
             
             {error && <div className="alert alert-error mb-4">{error}</div>}
@@ -2065,7 +2065,7 @@ const EntityTreeTable = () => {
       {/* Delete Relationship Modal */}
       {isDeleteRelationshipModalOpen && currentRelationship && currentEntity && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
+          <div className="bg-base-100 p-6 rounded-lg shadow-lg w-full max-w-md">
             <h2 className="text-xl font-bold mb-4">Delete Relationship</h2>
             
             <p className="mb-4">
