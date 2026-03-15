@@ -50,7 +50,7 @@ const AttributeFlatTable = () => {
   }, []);
 
   return (
-    <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="container mx-auto px-4 sm:px-6 lg:px-8 flex-1 flex flex-col min-h-0">
       <h1 className="text-2xl font-bold mb-4">Attributes (Flat View)</h1>
       {loading ? (
         <div className="flex justify-center items-center h-32">
@@ -59,7 +59,7 @@ const AttributeFlatTable = () => {
       ) : error ? (
         <div className="alert alert-error">{error}</div>
       ) : (
-        <div className="overflow-x-auto bg-white rounded-lg shadow p-1">
+        <div className="overflow-x-auto bg-white rounded-lg shadow p-1 flex-1 min-h-0">
           <table className="table table-zebra w-full">
             <thead>
               <tr>

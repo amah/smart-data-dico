@@ -61,7 +61,7 @@ const ShellLayout: React.FC = () => {
           <div className="px-4 md:px-6 pt-3">
             <Breadcrumbs />
           </div>
-          <div className="flex-1 px-4 md:px-6 pb-4 pt-2">
+          <div className="flex-1 px-4 md:px-6 pb-4 pt-2 min-h-0 flex flex-col">
             <Outlet />
           </div>
         </main>
