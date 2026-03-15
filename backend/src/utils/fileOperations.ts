@@ -1,18 +1,32 @@
 import fs from 'fs';
 import path from 'path';
 import YAML from 'yaml';
-import simpleGit from 'simple-git';
 import { logger } from './logger.js';
 import { Entity, validateEntity } from '../models/EntitySchema.js';
 import { Dictionary } from '../models/Dictionary.js';
 import { generateEntityFilename, extractUUIDFromFilename } from './uuid.js';
+import { config } from '../kernel/config.js';
 
 // Base directory for data dictionaries
-// Use path relative to project root instead of current working directory
-const DATA_DICTIONARIES_DIR = path.join(process.cwd(), '..', 'data-dictionaries');
+const DATA_DICTIONARIES_DIR = config.dataDir;
 
-// Git instance
-const git = simpleGit();
+// Lazy-loaded git service from @hamak/ui-remote-git-fs-backend
+let gitServiceInstance: any = null;
+
+async function getGitService() {
+  if (gitServiceInstance) return gitServiceInstance;
+  try {
+    const gitModule = await import('@hamak/ui-remote-git-fs-backend');
+    const workspaceRoots = new Map<string, string>([
+      ['dictionaries', DATA_DICTIONARIES_DIR],
+    ]);
+    gitServiceInstance = gitModule.createGitService(workspaceRoots);
+    return gitServiceInstance;
+  } catch {
+    logger.warn('Git service not available');
+    return null;
+  }
+}
 
 /**
  * Ensures the data dictionaries directory structure exists
@@ -279,21 +293,21 @@ export async function listMicroservices(): Promise<string[]> {
 }
 
 /**
- * Commits changes to git
+ * Commits changes to git via @hamak/ui-remote-git-fs-backend
  * @param filePath Path to the file that was changed
  * @param message Commit message
  */
 async function commitChanges(filePath: string, message: string): Promise<void> {
+  if (!config.git.autoCommit) return;
+
   try {
-    const isRepo = await git.checkIsRepo();
-    
-    if (!isRepo) {
-      logger.warn('Not a git repository, skipping commit');
+    const gitService = await getGitService();
+    if (!gitService) {
+      logger.warn('Git service not available, skipping commit');
       return;
     }
-    
-    await git.add(filePath);
-    await git.commit(message);
+
+    await gitService.commit('dictionaries', '.', { message, paths: [filePath] });
     logger.info(`Changes committed: ${message}`);
   } catch (error) {
     logger.error(`Git error: ${error}`);
