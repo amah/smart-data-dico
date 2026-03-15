@@ -1295,160 +1295,119 @@ const VisualizationComponent = ({
   };
 
   return (
-    <div className="card bg-base-100 shadow-xl">
-      <div className="card-body">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="card-title text-2xl">
+    <div className="card bg-base-100 shadow-xl h-full">
+      <div className="card-body p-4 flex flex-col">
+        {/* Toolbar row */}
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <h2 className="card-title text-lg mr-auto">
             {service && entity
-              ? `Entity Relationship Diagram: ${entity}`
+              ? `ER Diagram: ${entity}`
               : service
-                ? `Entity Relationship Diagram: ${service}`
+                ? `ER Diagram: ${service}`
                 : 'Entity Relationship Diagram'
             }
           </h2>
-          
-          <div className="flex gap-2">
-            {/* Diagram mode toggle */}
+
+          {/* Primary controls */}
+          <div className="flex items-center gap-1">
             <button
-              className={`btn btn-sm ${useMermaid ? 'btn-primary' : 'btn-outline'}`}
+              className={`btn btn-xs ${useMermaid ? 'btn-primary' : 'btn-outline'}`}
               onClick={toggleDiagramMode}
-              title="Toggle Diagram Mode"
+              title={useMermaid ? 'Switch to Interactive' : 'Switch to Mermaid'}
             >
               {useMermaid ? 'Mermaid' : 'Interactive'}
             </button>
 
-            {/* Show/Hide attributes toggle */}
             <button
-              className={`btn btn-sm ${showAttributes ? 'btn-primary' : 'btn-outline'}`}
+              className={`btn btn-xs btn-square ${showAttributes ? 'btn-primary' : 'btn-outline'}`}
               onClick={toggleShowAttributes}
-              title="Toggle Attributes Visibility"
+              title={showAttributes ? 'Hide Attributes' : 'Show Attributes'}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
               </svg>
-              {showAttributes ? 'Hide' : 'Show'} Attributes
             </button>
 
-            {/* Layout algorithm dropdown (only in interactive mode) */}
             {!useMermaid && (
-              <div className="dropdown dropdown-end">
-                <label tabIndex={0} className="btn btn-sm btn-outline">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+              <>
+                {/* Layout algorithm dropdown */}
+                <div className="dropdown dropdown-end">
+                  <label tabIndex={0} className="btn btn-xs btn-outline">
+                    {layoutAlgorithm.charAt(0).toUpperCase() + layoutAlgorithm.slice(1)}
+                  </label>
+                  <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-44">
+                    <li><a onClick={() => setLayoutAlgorithm('grid')} className={layoutAlgorithm === 'grid' ? 'active' : ''}>Grid</a></li>
+                    <li><a onClick={() => setLayoutAlgorithm('circular')} className={layoutAlgorithm === 'circular' ? 'active' : ''}>Circular</a></li>
+                    <li><a onClick={() => setLayoutAlgorithm('force')} className={layoutAlgorithm === 'force' ? 'active' : ''}>Force-Directed</a></li>
+                  </ul>
+                </div>
+
+                <button
+                  className={`btn btn-xs btn-square ${showMicroserviceGroups ? 'btn-primary' : 'btn-outline'}`}
+                  onClick={() => setShowMicroserviceGroups(!showMicroserviceGroups)}
+                  title="Toggle Microservice Grouping"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
                   </svg>
-                  Layout: {layoutAlgorithm.charAt(0).toUpperCase() + layoutAlgorithm.slice(1)}
-                </label>
-                <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-52">
-                  <li><a onClick={() => setLayoutAlgorithm('grid')} className={layoutAlgorithm === 'grid' ? 'active' : ''}>Grid</a></li>
-                  <li><a onClick={() => setLayoutAlgorithm('circular')} className={layoutAlgorithm === 'circular' ? 'active' : ''}>Circular</a></li>
-                  <li><a onClick={() => setLayoutAlgorithm('force')} className={layoutAlgorithm === 'force' ? 'active' : ''}>Force-Directed</a></li>
-                </ul>
-              </div>
-            )}
-            
-            {/* Microservice grouping toggle (only in interactive mode) */}
-            {!useMermaid && (
-              <button
-                className={`btn btn-sm ${showMicroserviceGroups ? 'btn-primary' : 'btn-outline'}`}
-                onClick={() => setShowMicroserviceGroups(!showMicroserviceGroups)}
-                title="Toggle Microservice Grouping"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                  <path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-                </svg>
-                Groups
-              </button>
-            )}
-            
-            {/* Reset layout button (only in interactive mode) */}
-            {!useMermaid && (
-              <button
-                className="btn btn-sm btn-outline"
-                onClick={resetLayout}
-                title="Reset Layout"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
-                </svg>
-                Reset
-              </button>
-            )}
-            
-            {/* Save/Load layout dropdown (only in interactive mode) */}
-            {!useMermaid && (
-              <div className="dropdown dropdown-end">
-                <label tabIndex={0} className="btn btn-sm btn-outline">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                </button>
+
+                <button
+                  className="btn btn-xs btn-square btn-outline"
+                  onClick={resetLayout}
+                  title="Reset Layout"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
                   </svg>
-                  Layouts
-                </label>
-                <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-52">
-                  <li className="menu-title">
-                    <span>Save Current Layout</span>
-                  </li>
-                  <li>
-                    <a onClick={() => {
-                      const name = prompt('Enter layout name:');
-                      if (name) saveCurrentLayout(name);
-                    }}>
-                      Save As...
-                    </a>
-                  </li>
-                  
-                  {savedLayouts.length > 0 && (
-                    <>
-                      <li className="menu-title">
-                        <span>Load Layout</span>
-                      </li>
-                      {savedLayouts.map(layout => (
-                        <li key={layout.id}>
-                          <a
-                            onClick={() => loadLayout(layout.id)}
-                            className={currentLayoutId === layout.id ? 'active' : ''}
-                          >
-                            {layout.name}
-                          </a>
+                </button>
+
+                {/* Save/Load layout dropdown */}
+                <div className="dropdown dropdown-end">
+                  <label tabIndex={0} className="btn btn-xs btn-square btn-outline" title="Layouts">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                  </label>
+                  <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-52">
+                    <li className="menu-title">
+                      <span>Save Current Layout</span>
+                    </li>
+                    <li>
+                      <a onClick={() => {
+                        const name = prompt('Enter layout name:');
+                        if (name) saveCurrentLayout(name);
+                      }}>
+                        Save As...
+                      </a>
+                    </li>
+
+                    {savedLayouts.length > 0 && (
+                      <>
+                        <li className="menu-title">
+                          <span>Load Layout</span>
                         </li>
-                      ))}
-                    </>
-                  )}
-                </ul>
-              </div>
+                        {savedLayouts.map(layout => (
+                          <li key={layout.id}>
+                            <a
+                              onClick={() => loadLayout(layout.id)}
+                              className={currentLayoutId === layout.id ? 'active' : ''}
+                            >
+                              {layout.name}
+                            </a>
+                          </li>
+                        ))}
+                      </>
+                    )}
+                  </ul>
+                </div>
+              </>
             )}
-
-            <button
-              className="btn btn-circle btn-sm"
-              onClick={handleZoomOut}
-              title="Zoom Out"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M5 10a1 1 0 011-1h8a1 1 0 110 2H6a1 1 0 01-1-1z" clipRule="evenodd" />
-              </svg>
-            </button>
-            <button
-              className="btn btn-circle btn-sm"
-              onClick={handleResetZoom}
-              title="Reset Zoom"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
-              </svg>
-            </button>
-            <button
-              className="btn btn-circle btn-sm"
-              onClick={handleZoomIn}
-              title="Zoom In"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
-              </svg>
-            </button>
           </div>
         </div>
 
         {loading ? (
-          <div className="flex justify-center items-center h-64">
+          <div className="flex justify-center items-center flex-1 min-h-[400px]">
             <span className="loading loading-spinner loading-lg"></span>
           </div>
         ) : error ? (
@@ -1459,7 +1418,38 @@ const VisualizationComponent = ({
             <span>{error}</span>
           </div>
         ) : (
-          <div className="relative overflow-auto border border-base-300 rounded-lg p-4">
+          <div className="relative overflow-auto border border-base-300 rounded-lg p-4 flex-1 min-h-[400px]">
+            {/* Zoom controls - bottom-right overlay */}
+            <div className="absolute bottom-3 right-3 z-10 flex items-center gap-1 bg-base-100/90 backdrop-blur-sm rounded-lg border border-base-300 p-1 shadow-sm">
+              <button
+                className="btn btn-circle btn-xs btn-ghost"
+                onClick={handleZoomOut}
+                title="Zoom Out"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M5 10a1 1 0 011-1h8a1 1 0 110 2H6a1 1 0 01-1-1z" clipRule="evenodd" />
+                </svg>
+              </button>
+              <span className="text-xs font-mono min-w-[3ch] text-center">{Math.round(zoom * 100)}%</span>
+              <button
+                className="btn btn-circle btn-xs btn-ghost"
+                onClick={handleZoomIn}
+                title="Zoom In"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
+                </svg>
+              </button>
+              <button
+                className="btn btn-circle btn-xs btn-ghost"
+                onClick={handleResetZoom}
+                title="Reset Zoom"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
             {useMermaid ? (
               <div
                 ref={diagramRef}
