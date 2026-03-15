@@ -23,5 +23,5 @@ module.exports = {
     }],
     'no-console': ['warn', { allow: ['warn', 'error'] }],
   },
-  ignorePatterns: ['dist', 'node_modules', 'jest.config.js', '.eslintrc.js'],
+  ignorePatterns: ['dist', 'node_modules', 'jest.config.cjs', '.eslintrc.cjs'],
 };

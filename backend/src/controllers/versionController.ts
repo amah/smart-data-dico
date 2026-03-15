@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
-import { versionService } from '../services/versionService';
-import { logger } from '../utils/logger';
+import { versionService } from '../services/versionService.js';
+import { logger } from '../utils/logger.js';
 
 /**
  * @swagger

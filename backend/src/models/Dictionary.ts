@@ -1,4 +1,4 @@
-import { Entity } from './EntitySchema';
+import { Entity } from './EntitySchema.js';
 
 /**
  * Represents a hierarchical package, which can contain subpackages and/or entities.

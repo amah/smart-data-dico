@@ -1,6 +1,6 @@
 import simpleGit, { SimpleGit } from 'simple-git';
 import path from 'path';
-import { logger } from '../utils/logger';
+import { logger } from '../utils/logger.js';
 
 /**
  * Interface for commit information

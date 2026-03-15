@@ -1,7 +1,7 @@
 #!/usr/bin/env ts-node
 
-import { runAllMigrations } from '../utils/migration';
-import { logger } from '../utils/logger';
+import { runAllMigrations } from '../utils/migration.js';
+import { logger } from '../utils/logger.js';
 
 /**
  * Migration script to convert existing entities to UUID format

@@ -1,5 +1,5 @@
 // Mock implementation of file operations for testing
-import { Entity, AttributeType } from '../../models/EntitySchema';
+import { Entity, AttributeType } from '../../models/EntitySchema.js';
 
 // Mock data
 const mockMicroservices = ['user-service', 'product-service', 'order-service'];
@@ -106,3 +106,11 @@ export const deleteEntityFile = jest.fn().mockImplementation(async (microservice
 export const createDirectory = jest.fn().mockImplementation(async (path: string) => {
   return Promise.resolve(true);
 });
+
+export const ensureDirectoryStructure = jest.fn().mockResolvedValue(undefined);
+
+export const listAllDictionaries = jest.fn().mockResolvedValue([]);
+
+export const writeDictionaryMetadata = jest.fn().mockResolvedValue(undefined);
+
+export const commitChanges = jest.fn().mockResolvedValue({ success: true });

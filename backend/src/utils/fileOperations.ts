@@ -2,10 +2,10 @@ import fs from 'fs';
 import path from 'path';
 import YAML from 'yaml';
 import simpleGit from 'simple-git';
-import { logger } from './logger';
-import { Entity, validateEntity } from '../models/EntitySchema';
-import { Dictionary } from '../models/Dictionary';
-import { generateEntityFilename, extractUUIDFromFilename } from './uuid';
+import { logger } from './logger.js';
+import { Entity, validateEntity } from '../models/EntitySchema.js';
+import { Dictionary } from '../models/Dictionary.js';
+import { generateEntityFilename, extractUUIDFromFilename } from './uuid.js';
 
 // Base directory for data dictionaries
 // Use path relative to project root instead of current working directory

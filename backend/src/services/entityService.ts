@@ -1,6 +1,6 @@
-import { Entity, EntityRelationship, RelationshipType, validateEntity } from '../models/EntitySchema';
-import { readEntityFile, writeEntityFile, listAllEntities } from '../utils/fileOperations';
-import { logger } from '../utils/logger';
+import { Entity, EntityRelationship, RelationshipType, validateEntity } from '../models/EntitySchema.js';
+import { readEntityFile, writeEntityFile, listAllEntities } from '../utils/fileOperations.js';
+import { logger } from '../utils/logger.js';
 
 /**
  * Service for managing entities and their relationships

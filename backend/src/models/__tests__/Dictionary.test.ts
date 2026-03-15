@@ -1,4 +1,4 @@
-import { Dictionary, DictionaryEntry } from '../Dictionary';
+import { Dictionary, DictionaryEntry } from '../Dictionary.js';
 
 describe('Dictionary Model', () => {
   describe('Dictionary Interface', () => {
@@ -10,6 +10,7 @@ describe('Dictionary Model', () => {
         version: '1.0.0',
         createdAt: new Date(),
         updatedAt: new Date(),
+        rootPackage: { id: 'root', name: 'Root', entities: [], subPackages: [] },
       };
 
       expect(dictionary).toBeDefined();
@@ -25,6 +26,7 @@ describe('Dictionary Model', () => {
       const dictionary: Dictionary = {
         id: 'test-dict-2',
         name: 'Minimal Dictionary',
+        rootPackage: { id: 'root', name: 'Root', entities: [], subPackages: [] },
       };
 
       expect(dictionary).toBeDefined();

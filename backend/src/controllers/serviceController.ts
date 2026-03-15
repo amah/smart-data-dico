@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
-import { serviceService } from '../services/serviceService';
-import { logger } from '../utils/logger';
-import { Entity } from '../models/EntitySchema';
+import { serviceService } from '../services/serviceService.js';
+import { logger } from '../utils/logger.js';
+import { Entity } from '../models/EntitySchema.js';
 
 /**
  * @swagger

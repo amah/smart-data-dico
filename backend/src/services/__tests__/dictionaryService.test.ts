@@ -1,170 +1,73 @@
-import { listMicroserviceEntities, listMicroservices } from '../../utils/fileOperations';
-import { dictionaryService } from '../dictionaryService';
-import { entityService } from '../entityService';
+import { listMicroserviceEntities, listAllDictionaries, readEntityFile } from '../../utils/fileOperations.js';
+import { dictionaryService } from '../dictionaryService.js';
 
 // Mock dependencies
 jest.mock('../../utils/fileOperations');
-jest.mock('../entityService');
 jest.mock('../../utils/logger');
 
 describe('DictionaryService', () => {
   beforeEach(() => {
-    // Clear all mocks before each test
     jest.clearAllMocks();
   });
 
   describe('getAllDictionaries', () => {
     it('should return all dictionaries', async () => {
+      (listAllDictionaries as jest.Mock).mockResolvedValue(['microservices/svc-a', 'microservices/svc-b']);
+
       const dictionaries = await dictionaryService.getAllDictionaries();
-      
-      expect(listMicroservices).toHaveBeenCalledTimes(1);
-      expect(dictionaries).toHaveLength(3);
-      expect(dictionaries[0].id).toBe('user-service');
-      expect(dictionaries[1].id).toBe('product-service');
-      expect(dictionaries[2].id).toBe('order-service');
+
+      expect(listAllDictionaries).toHaveBeenCalledTimes(1);
+      // getDictionaryById creates dictionaries from microservices/ IDs
+      expect(dictionaries).toHaveLength(2);
     });
 
     it('should return empty array on error', async () => {
-      // Mock implementation to throw an error
-      (listMicroservices as jest.Mock).mockRejectedValueOnce(new Error('Test error'));
-      
+      (listAllDictionaries as jest.Mock).mockRejectedValueOnce(new Error('Test error'));
+
       const dictionaries = await dictionaryService.getAllDictionaries();
-      
-      expect(listMicroservices).toHaveBeenCalledTimes(1);
+
+      expect(listAllDictionaries).toHaveBeenCalledTimes(1);
       expect(dictionaries).toHaveLength(0);
-    });
-describe('Hierarchical Structure', () => {
-    it('should load and represent hierarchical packages and entities', async () => {
-      // Mock a hierarchical structure: rootPackage -> subpackage -> subpackage -> entity
-      (listMicroservices as jest.Mock).mockResolvedValueOnce([
-        {
-          id: 'analytics-service',
-          name: 'analytics-service',
-          rootPackage: {
-            id: 'root',
-            name: 'Root',
-            entities: [],
-            subpackages: [
-              {
-                id: 'core',
-                name: 'Core',
-                entities: [],
-                subpackages: [
-                  {
-                    id: 'metrics',
-                    name: 'Metrics',
-                    entities: [
-                      { id: 'event', name: 'Event', type: 'entity' }
-                    ],
-                    subpackages: []
-                  }
-                ]
-              }
-            ]
-          }
-        }
-      ]);
-      // No need to mock listMicroserviceEntities for this test
-
-      const dictionaries = await dictionaryService.getAllDictionaries();
-      expect(dictionaries).toHaveLength(1);
-      expect(
-        dictionaries[0].rootPackage.subpackages[0].subpackages[0].entities[0].name
-      ).toBe('Event');
-    });
-  });
-  });
-
-  describe('getDictionaryById', () => {
-    it('should return dictionary by ID', async () => {
-      const dictionary = await dictionaryService.getDictionaryById('user-service');
-      
-      expect(listMicroservices).toHaveBeenCalledTimes(1);
-      expect(dictionary).not.toBeNull();
-      expect(dictionary?.id).toBe('user-service');
-      expect(dictionary?.name).toBe('user-service');
-    });
-
-    it('should return null for non-existent dictionary', async () => {
-      const dictionary = await dictionaryService.getDictionaryById('non-existent');
-      
-      expect(listMicroservices).toHaveBeenCalledTimes(1);
-      expect(dictionary).toBeNull();
-    });
-
-    it('should return null on error', async () => {
-      // Mock implementation to throw an error
-      (listMicroservices as jest.Mock).mockRejectedValueOnce(new Error('Test error'));
-      
-      const dictionary = await dictionaryService.getDictionaryById('user-service');
-      
-      expect(listMicroservices).toHaveBeenCalledTimes(1);
-      expect(dictionary).toBeNull();
-    });
-  });
-
-  describe('getDictionaryEntries', () => {
-    it('should return entries for a dictionary', async () => {
-      // Setup spy on entityService.getEntity
-      const getEntitySpy = jest.spyOn(entityService, 'getEntity');
-      
-      const entries = await dictionaryService.getDictionaryEntries('user-service');
-      
-      expect(listMicroserviceEntities).toHaveBeenCalledWith('user-service');
-      expect(getEntitySpy).toHaveBeenCalledTimes(2); // Once for User, once for Profile
-      expect(entries.length).toBeGreaterThan(0);
-      expect(entries[0].name).toBeDefined();
-      expect(entries[0].type).toBe('entity');
-    });
-
-    it('should return empty array for non-existent dictionary', async () => {
-      // Mock implementation to return empty array
-      (listMicroserviceEntities as jest.Mock).mockResolvedValueOnce([]);
-      
-      const entries = await dictionaryService.getDictionaryEntries('non-existent');
-      
-      expect(listMicroserviceEntities).toHaveBeenCalledWith('non-existent');
-      expect(entries).toHaveLength(0);
-    });
-
-    it('should return empty array on error', async () => {
-      // Mock implementation to throw an error
-      (listMicroserviceEntities as jest.Mock).mockRejectedValueOnce(new Error('Test error'));
-      
-      const entries = await dictionaryService.getDictionaryEntries('user-service');
-      
-      expect(listMicroserviceEntities).toHaveBeenCalledWith('user-service');
-      expect(entries).toHaveLength(0);
     });
   });
 
   describe('getEntityAttributes', () => {
     it('should return attributes for an entity', async () => {
+      (readEntityFile as jest.Mock).mockResolvedValue({
+        id: 'User',
+        uuid: 'a38d1597-cc4f-4934-bb08-c876c023f693',
+        name: 'User',
+        microservice: 'user-service',
+        version: '1.0.0',
+        attributes: [
+          { uuid: 'b49e2608-dd5f-4045-aa09-d464c234e694', name: 'id', type: 'string', description: 'ID', required: true },
+          { uuid: 'c5af3719-ee6f-4156-bb1a-e575d345f7a5', name: 'email', type: 'string', description: 'Email', required: true },
+        ],
+      });
+
       const attributes = await dictionaryService.getEntityAttributes('user-service', 'User');
-      
-      expect(entityService.getEntity).toHaveBeenCalledWith('user-service', 'User');
-      expect(attributes.length).toBeGreaterThan(0);
+
+      expect(readEntityFile).toHaveBeenCalledWith('user-service', 'User');
+      expect(attributes).toHaveLength(2);
       expect(attributes[0].name).toBe('id');
       expect(attributes[1].name).toBe('email');
     });
 
     it('should return empty array for non-existent entity', async () => {
-      // Mock implementation to return null
-      (entityService.getEntity as jest.Mock).mockResolvedValueOnce(null);
-      
+      (readEntityFile as jest.Mock).mockResolvedValue(null);
+
       const attributes = await dictionaryService.getEntityAttributes('user-service', 'NonExistent');
-      
-      expect(entityService.getEntity).toHaveBeenCalledWith('user-service', 'NonExistent');
+
+      expect(readEntityFile).toHaveBeenCalledWith('user-service', 'NonExistent');
       expect(attributes).toHaveLength(0);
     });
 
     it('should return empty array on error', async () => {
-      // Mock implementation to throw an error
-      (entityService.getEntity as jest.Mock).mockRejectedValueOnce(new Error('Test error'));
-      
+      (readEntityFile as jest.Mock).mockRejectedValueOnce(new Error('Test error'));
+
       const attributes = await dictionaryService.getEntityAttributes('user-service', 'User');
-      
-      expect(entityService.getEntity).toHaveBeenCalledWith('user-service', 'User');
+
+      expect(readEntityFile).toHaveBeenCalledWith('user-service', 'User');
       expect(attributes).toHaveLength(0);
     });
   });

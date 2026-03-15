@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import jwt, { SignOptions } from 'jsonwebtoken';
-import { logger } from '../utils/logger';
-import { User, UserRole } from '../middleware/auth';
+import { logger } from '../utils/logger.js';
+import { User, UserRole } from '../middleware/auth.js';
 
 // Mock user database - imported from auth middleware
 // In a real application, this would be in a separate database module

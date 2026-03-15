@@ -1,16 +1,19 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import routes from './routes';
-import { setupSwagger } from './utils/swagger';
-import { logger } from './utils/logger';
+import routes from './routes/index.js';
+import { setupSwagger } from './utils/swagger.js';
+import { logger } from './utils/logger.js';
+import { config } from './kernel/config.js';
+import { initializeFileSystem, getFileRouter } from './adapters/EntityFileAdapter.js';
+import { createYamlFileInfoEnricher } from './adapters/YamlFileInfoEnricher.js';
 
 // Load environment variables
 dotenv.config();
 
 // Initialize Express app
 const app = express();
-const port = process.env.PORT || 3001;
+const port = config.port;
 
 // Middleware
 app.use(cors());
@@ -48,19 +51,77 @@ app.use(routes);
 // Setup Swagger documentation
 setupSwagger(app);
 
+// =============================================================================
+// Framework Filesystem & Git Routes (Phase 1)
+// =============================================================================
+
+async function mountFrameworkRoutes() {
+  try {
+    // Initialize filesystem framework
+    const { enricherRegistry } = await initializeFileSystem();
+
+    // Register YAML entity enricher
+    const yamlEnricher = createYamlFileInfoEnricher();
+    enricherRegistry.register(yamlEnricher);
+
+    // Initialize git service and routes
+    try {
+      const gitModule = await import('@hamak/ui-remote-git-fs-backend');
+      const workspaceRoots = new Map<string, string>([
+        ['dictionaries', config.dataDir],
+      ]);
+
+      const gitService = gitModule.createGitService(workspaceRoots);
+      const gitEnricher = gitModule.createGitFileInfoEnricher({
+        gitService,
+        workspaceRoots,
+      });
+      enricherRegistry.register(gitEnricher);
+
+      const gitRoutes = gitModule.createGitRoutes({ gitService, debug: !config.isProduction });
+      app.use('/api/git', gitRoutes as any);
+      app.use('/api/git', gitModule.gitErrorHandler as any);
+
+      logger.info('Git routes mounted at /api/git');
+    } catch (gitError) {
+      logger.warn(`Git integration not available: ${gitError}`);
+    }
+
+    // Mount filesystem routes
+    const fsRouter = getFileRouter();
+    app.use('/fs', fsRouter);
+
+    logger.info('Filesystem routes mounted at /fs');
+  } catch (error) {
+    logger.warn(`Framework filesystem not initialized: ${error}`);
+  }
+}
+
+// Mount framework routes (non-blocking — existing routes work regardless)
+mountFrameworkRoutes().catch((err) => {
+  logger.warn(`Failed to mount framework routes: ${err}`);
+});
+
+
 // Error handling middleware
 app.use((err: any, req: Request, res: Response, next: any) => {
   logger.error(`Unhandled error: ${err.message}`);
   res.status(500).json({
     message: 'Internal server error',
-    error: process.env.NODE_ENV === 'production' ? undefined : err.message
+    error: config.isProduction ? undefined : err.message
   });
 });
 
-// Start server
-app.listen(port, () => {
-  logger.info(`Server running on port ${port}`);
-  logger.info(`API documentation available at http://localhost:${port}/api-docs`);
-});
+// Start server only when run directly (not when imported by tests)
+const isMainModule = process.argv[1] && (
+  process.argv[1].endsWith('server.ts') || process.argv[1].endsWith('server.js')
+);
+
+if (isMainModule) {
+  app.listen(port, () => {
+    logger.info(`Server running on port ${port}`);
+    logger.info(`API documentation available at http://localhost:${port}/api-docs`);
+  });
+}
 
 export default app;

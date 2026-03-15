@@ -1,43 +1,36 @@
-// Mock version service
+// Mock version service matching actual VersionService API
 class VersionServiceMock {
-  async commitChanges(message: string, author: string) {
+  async commitChanges(message: string) {
     return {
-      commitId: 'mock-commit-id',
-      message,
-      author,
-      timestamp: new Date().toISOString(),
-      success: true
+      success: true,
+      errors: [] as string[],
+      commitHash: 'mock-commit-hash-abc123',
+      timestamp: new Date('2026-01-01T12:00:00Z'),
     };
   }
 
-  async getCommitHistory() {
+  async getCommitHistory(limit: number = 10) {
     return [
       {
-        commitId: 'mock-commit-1',
+        hash: 'mock-commit-1',
         message: 'Initial commit',
         author: 'Test User',
-        timestamp: '2023-01-01T12:00:00Z'
+        date: '2023-01-01T12:00:00Z',
       },
       {
-        commitId: 'mock-commit-2',
+        hash: 'mock-commit-2',
         message: 'Update User entity',
         author: 'Test User',
-        timestamp: '2023-01-02T12:00:00Z'
+        date: '2023-01-02T12:00:00Z',
       },
-      {
-        commitId: 'mock-commit-3',
-        message: 'Add Product entity',
-        author: 'Test User',
-        timestamp: '2023-01-03T12:00:00Z'
-      }
     ];
   }
 
-  async revertToCommit(commitId: string) {
+  async revertToCommit(commitHash: string) {
     return {
       success: true,
-      commitId,
-      message: `Reverted to commit ${commitId}`
+      errors: [] as string[],
+      newCommitHash: 'mock-revert-hash-def456',
     };
   }
 }

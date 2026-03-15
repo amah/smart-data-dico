@@ -1,5 +1,5 @@
 import { Validator } from 'jsonschema';
-import { generateUUID, isValidUUID } from '../utils/uuid';
+import { generateUUID, isValidUUID } from '../utils/uuid.js';
 type Schema = any; // Using any as a workaround for missing type definitions
 
 /**

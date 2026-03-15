@@ -1,10 +1,10 @@
 import { Request, Response } from 'express';
 
-import { Dictionary } from '../models/Dictionary';
-import { Entity } from '../models/EntitySchema';
-import { dictionaryService } from '../services/dictionaryService';
-import { entityService } from '../services/entityService';
-import { logger } from '../utils/logger';
+import { Dictionary } from '../models/Dictionary.js';
+import { Entity } from '../models/EntitySchema.js';
+import { dictionaryService } from '../services/dictionaryService.js';
+import { entityService } from '../services/entityService.js';
+import { logger } from '../utils/logger.js';
 
 // Dictionary controller methods
 export const getDictionaries = async (req: Request, res: Response) => {

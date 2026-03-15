@@ -1,12 +1,12 @@
 import { Router } from 'express';
 
-import { getCurrentUser, login } from '../controllers/authController';
-import { diagramController } from '../controllers/diagramController';
-import { createDictionary, getDictionaries, getDictionaryById, getDictionaryEntries, getEntityAttributes, getPackageByPath, getPackageHierarchy, getRelatedEntities, getTabularData, saveEntity, listAllPackagesAndEntities, getFlatEntitiesAndAttributes, getEntityHierarchy } from '../controllers/dictionaryController';
-import { createEntity, deleteEntity, getAllServices, getEntitySchema, getGraphData, getServiceEntities, searchEntities, updateEntity } from '../controllers/serviceController';
-import { commitChanges, getCommitHistory, revertToCommit } from '../controllers/versionController';
-import { authenticate, UserRole } from '../middleware/auth';
-import { authorizeJwt, verifyToken } from '../middleware/jwtAuth';
+import { getCurrentUser, login } from '../controllers/authController.js';
+import { diagramController } from '../controllers/diagramController.js';
+import { createDictionary, getDictionaries, getDictionaryById, getDictionaryEntries, getEntityAttributes, getPackageByPath, getPackageHierarchy, getRelatedEntities, getTabularData, saveEntity, listAllPackagesAndEntities, getFlatEntitiesAndAttributes, getEntityHierarchy } from '../controllers/dictionaryController.js';
+import { createEntity, deleteEntity, getAllServices, getEntitySchema, getGraphData, getServiceEntities, searchEntities, updateEntity } from '../controllers/serviceController.js';
+import { commitChanges, getCommitHistory, revertToCommit } from '../controllers/versionController.js';
+import { authenticate, UserRole } from '../middleware/auth.js';
+import { authorizeJwt, verifyToken } from '../middleware/jwtAuth.js';
 
 const router = Router();
 

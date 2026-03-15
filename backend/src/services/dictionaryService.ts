@@ -2,11 +2,11 @@ import fs from 'fs';
 import path from 'path';
 import YAML from 'yaml';
 
-import { Dictionary, DictionaryEntry, Package } from '../models/Dictionary';
-import { Entity } from '../models/EntitySchema';
-import { ensureDirectoryStructure, listAllDictionaries, listAllEntities, listMicroserviceEntities, listMicroservices, readEntityFile, writeDictionaryMetadata } from '../utils/fileOperations';
-import { logger } from '../utils/logger';
-import { entityService } from './entityService';
+import { Dictionary, DictionaryEntry, Package } from '../models/Dictionary.js';
+import { Entity } from '../models/EntitySchema.js';
+import { ensureDirectoryStructure, listAllDictionaries, listAllEntities, listMicroserviceEntities, listMicroservices, readEntityFile, writeDictionaryMetadata } from '../utils/fileOperations.js';
+import { logger } from '../utils/logger.js';
+import { entityService } from './entityService.js';
 
 // Base directory for data dictionaries - use the same path as in fileOperations.ts
 const DATA_DICTIONARIES_DIR = path.join(process.cwd(), '..', 'data-dictionaries');

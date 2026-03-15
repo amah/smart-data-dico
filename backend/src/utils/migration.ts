@@ -1,9 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import YAML from 'yaml';
-import { logger } from './logger';
-import { generateUUID, generateEntityFilename } from './uuid';
-import { Entity, EntityAttribute, EntityRelationship, createEntityWithUUIDs } from '../models/EntitySchema';
+import { logger } from './logger.js';
+import { generateUUID, generateEntityFilename } from './uuid.js';
+import { Entity, EntityAttribute, EntityRelationship, createEntityWithUUIDs } from '../models/EntitySchema.js';
 
 const DATA_DICTIONARIES_DIR = path.join(process.cwd(), '..', 'data-dictionaries');
 

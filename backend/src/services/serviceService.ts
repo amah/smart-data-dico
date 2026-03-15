@@ -1,5 +1,5 @@
-import { Entity } from '../models/EntitySchema';
-import { logger } from '../utils/logger';
+import { Entity } from '../models/EntitySchema.js';
+import { logger } from '../utils/logger.js';
 import { 
   listMicroservices, 
   listMicroserviceEntities, 
@@ -7,7 +7,7 @@ import {
   writeEntityFile, 
   deleteEntityFile,
   listAllEntities
-} from '../utils/fileOperations';
+} from '../utils/fileOperations.js';
 
 /**
  * Interface for search result

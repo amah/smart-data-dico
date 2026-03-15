@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { logger } from '../utils/logger';
+import { logger } from '../utils/logger.js';
 
 // Use the same base directory as in fileOperations.ts
 const DATA_DICTIONARIES_BASE = path.join(process.cwd(), '..', 'data-dictionaries');

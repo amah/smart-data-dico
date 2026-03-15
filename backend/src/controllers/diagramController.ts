@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
-import { diagramService, DiagramLayout } from '../services/diagramService';
-import { logger } from '../utils/logger';
+import { diagramService, DiagramLayout } from '../services/diagramService.js';
+import { logger } from '../utils/logger.js';
 
 export class DiagramController {
   async saveDiagramLayout(req: Request, res: Response): Promise<void> {
