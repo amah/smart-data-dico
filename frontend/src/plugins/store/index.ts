@@ -1,0 +1,1 @@
+export { createAppStorePlugin } from './storePlugin';

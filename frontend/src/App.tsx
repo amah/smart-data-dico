@@ -1,5 +1,5 @@
 import { Routes, Route } from 'react-router-dom';
-import Layout from './components/Layout';
+import ShellLayout from './plugins/shell/ShellLayout';
 import HomePage from './pages/HomePage';
 import NotFoundPage from './pages/NotFoundPage';
 import CreateDictionaryPage from './pages/CreateDictionaryPage';
@@ -47,7 +47,7 @@ function App() {
       <Route path="/forgot-password" element={<ForgotPassword />} />
       
       {/* Protected Routes */}
-      <Route path="/" element={<Layout />}>
+      <Route path="/" element={<ShellLayout />}>
         {/* Home */}
         <Route index element={<HomePage />} />
         
