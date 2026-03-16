@@ -11,6 +11,7 @@ const EntityDetail = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'attributes' | 'relationships' | 'metadata'>('attributes');
+  const [showInfo, setShowInfo] = useState(false);
   const [isCreateMode, setIsCreateMode] = useState(false);
   const [newEntityName, setNewEntityName] = useState('');
   const [newEntityDescription, setNewEntityDescription] = useState('');
@@ -208,27 +209,40 @@ const EntityDetail = () => {
   }
 
   return (
-    <div>
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-        <div>
-          <h1 className="text-3xl font-bold">{entityData?.name}</h1>
-          <p className="text-base-content/70 mt-1">{entityData?.description}</p>
-        </div>
-        <div className="flex gap-2">
+    <div className="flex-1 flex flex-col min-h-0">
+      {/* Compact header row */}
+      <div className="flex flex-wrap items-center gap-2 mb-2">
+        <h1 className="text-lg font-semibold">{entityData?.name}</h1>
+        <span className="badge badge-sm badge-outline">{entityData?.microservice}</span>
+        <span className="badge badge-sm badge-ghost">v{entityData?.version}</span>
+        <span className="text-xs text-base-content/50">{entityData?.attributes?.length || 0} attrs / {entityData?.relationships?.length || 0} rels</span>
+
+        {/* Info toggle */}
+        <button
+          className="btn btn-ghost btn-xs"
+          onClick={() => setShowInfo(!showInfo)}
+          title={showInfo ? 'Hide details' : 'Show details'}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className={`h-3.5 w-3.5 transition-transform ${showInfo ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+          </svg>
+        </button>
+
+        <div className="ml-auto flex gap-1">
           <Link
             to={`/services/${service}/entities/${entity}/edit`}
-            className="btn btn-primary"
+            className="btn btn-primary btn-sm"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
               <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
             </svg>
-            Edit Entity
+            Edit
           </Link>
           <Link
             to={`/visualization/${service}/${entity}`}
-            className="btn btn-outline"
+            className="btn btn-outline btn-sm"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
               <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
             </svg>
             Visualize
@@ -236,39 +250,48 @@ const EntityDetail = () => {
         </div>
       </div>
 
-      <div className="card bg-base-100 shadow-xl">
-        <div className="card-body">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      {/* Collapsible info section */}
+      {showInfo && (
+        <div className="bg-base-100 rounded-lg border border-base-300 p-3 mb-2">
+          {entityData?.description && (
+            <p className="text-sm text-base-content/70 mb-2">{entityData.description}</p>
+          )}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
             <div>
-              <h3 className="text-sm font-medium text-base-content/70">Microservice</h3>
-              <p className="text-lg">{entityData?.microservice}</p>
+              <span className="text-base-content/50">Microservice</span>
+              <p className="font-medium">{entityData?.microservice}</p>
             </div>
             <div>
-              <h3 className="text-sm font-medium text-base-content/70">Version</h3>
-              <p className="text-lg">{entityData?.version}</p>
+              <span className="text-base-content/50">Version</span>
+              <p className="font-medium">{entityData?.version}</p>
             </div>
             <div>
-              <h3 className="text-sm font-medium text-base-content/70">Attributes</h3>
-              <p className="text-lg">{entityData?.attributes?.length || 0}</p>
+              <span className="text-base-content/50">Attributes</span>
+              <p className="font-medium">{entityData?.attributes?.length || 0}</p>
             </div>
             <div>
-              <h3 className="text-sm font-medium text-base-content/70">Relationships</h3>
-              <p className="text-lg">{entityData?.relationships?.length || 0}</p>
+              <span className="text-base-content/50">Relationships</span>
+              <p className="font-medium">{entityData?.relationships?.length || 0}</p>
             </div>
           </div>
+        </div>
+      )}
 
-          <div className="tabs tabs-bordered">
+      {/* Tabs + content - takes remaining space */}
+      <div className="card bg-base-100 shadow-sm flex-1 min-h-0 flex flex-col">
+        <div className="card-body p-3 flex flex-col min-h-0">
+          <div className="tabs tabs-bordered tabs-sm">
             <button
               className={`tab ${activeTab === 'attributes' ? 'tab-active' : ''}`}
               onClick={() => setActiveTab('attributes')}
             >
-              Attributes
+              Attributes ({entityData?.attributes?.length || 0})
             </button>
             <button
               className={`tab ${activeTab === 'relationships' ? 'tab-active' : ''}`}
               onClick={() => setActiveTab('relationships')}
             >
-              Relationships
+              Relationships ({entityData?.relationships?.length || 0})
             </button>
             <button
               className={`tab ${activeTab === 'metadata' ? 'tab-active' : ''}`}
@@ -278,7 +301,7 @@ const EntityDetail = () => {
             </button>
           </div>
 
-          <div className="mt-4">
+          <div className="mt-2 flex-1 overflow-auto min-h-0">
             {activeTab === 'attributes' && entityData && (
               <AttributeList
                 attributes={entityData.attributes}
