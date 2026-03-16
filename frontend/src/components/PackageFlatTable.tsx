@@ -25,7 +25,7 @@ const PackageFlatTable = () => {
 
   return (
     <div className="container mx-auto px-4 sm:px-6 lg:px-8 flex-1 flex flex-col min-h-0">
-      <h1 className="text-2xl font-bold mb-4">Packages (Flat View)</h1>
+      <h1 className="text-lg font-semibold mb-2">Packages (Flat View)</h1>
       {loading ? (
         <div className="flex justify-center items-center h-32">
           <span className="loading loading-spinner loading-lg"></span>

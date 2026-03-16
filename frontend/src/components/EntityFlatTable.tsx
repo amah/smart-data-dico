@@ -162,8 +162,8 @@ const EntityFlatTable = () => {
 
   return (
     <div className="container mx-auto px-4 sm:px-6 lg:px-8 flex-1 flex flex-col min-h-0">
-      <div className="flex justify-between items-center mb-4">
-        <h1 className="text-2xl font-bold">Entities & Attributes (Flat View)</h1>
+      <div className="flex justify-between items-center mb-2">
+        <h1 className="text-lg font-semibold">Entities & Attributes (Flat View)</h1>
         <button
           className="btn btn-primary"
           onClick={() => setIsModalOpen(true)}
@@ -171,7 +171,7 @@ const EntityFlatTable = () => {
           Add Entity
         </button>
       </div>
-      <form className="flex flex-wrap gap-4 mb-4" onSubmit={handleFilterSubmit}>
+      <form className="flex flex-wrap gap-3 mb-2" onSubmit={handleFilterSubmit}>
         <input
           type="text"
           name="name"

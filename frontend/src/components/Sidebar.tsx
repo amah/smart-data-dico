@@ -210,11 +210,7 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="p-3 border-b border-base-300">
-        <h2 className="text-lg font-bold">Data Dictionary</h2>
-      </div>
-
-      <nav className="flex-1 overflow-y-auto p-2">
+      <nav className="flex-1 overflow-y-auto p-2 pt-3">
         <ul className="menu menu-sm p-0 [--tw-bg-opacity:0.05]">
           <li>
             <Link

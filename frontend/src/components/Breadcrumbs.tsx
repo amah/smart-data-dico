@@ -50,7 +50,7 @@ const Breadcrumbs = () => {
   }
 
   return (
-    <div className="text-sm breadcrumbs">
+    <div className="text-xs breadcrumbs py-0">
       <ul>
         {breadcrumbs.map((breadcrumb, index) => (
           <li key={breadcrumb.path}>
