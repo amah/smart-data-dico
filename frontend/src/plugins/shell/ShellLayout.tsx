@@ -40,7 +40,7 @@ const ShellLayout: React.FC = () => {
         >
           {/* Collapse toggle (desktop only) */}
           <button
-            className="hidden md:flex absolute -right-3 top-4 z-10 btn btn-circle btn-xs bg-base-100 border border-base-300 shadow-sm hover:bg-base-200"
+            className="hidden md:flex absolute -right-3 top-3 z-10 btn btn-circle btn-xs bg-base-100 border border-base-300 shadow-sm hover:bg-base-200"
             onClick={toggleCollapse}
             title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
@@ -57,11 +57,9 @@ const ShellLayout: React.FC = () => {
         </div>
 
         {/* Main content slot */}
-        <main className="flex-1 overflow-auto flex flex-col">
-          <div className="px-4 md:px-6 pt-3">
-            <Breadcrumbs />
-          </div>
-          <div className="flex-1 px-4 md:px-6 pb-4 pt-2 min-h-0 flex flex-col">
+        <main className="flex-1 overflow-auto flex flex-col px-4 md:px-5 py-2">
+          <Breadcrumbs />
+          <div className="flex-1 min-h-0 flex flex-col mt-1">
             <Outlet />
           </div>
         </main>

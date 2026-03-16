@@ -90,8 +90,8 @@ const ServiceList = () => {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-4">
-        <h1 className="text-2xl font-bold">Package Hierarchy</h1>
+      <div className="flex justify-between items-center mb-2">
+        <h1 className="text-lg font-semibold">Package Hierarchy</h1>
         <div className="flex gap-2">
           <button
             className={`btn btn-sm ${viewMode !== 'diagram' ? 'btn-outline' : 'btn-ghost'}`}

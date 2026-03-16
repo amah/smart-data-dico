@@ -1135,8 +1135,8 @@ const EntityTreeTable = () => {
 
   return (
     <div className="container mx-auto px-4 sm:px-6 lg:px-8 flex-1 flex flex-col min-h-0">
-      <div className="flex justify-between items-center mb-4">
-        <h1 className="text-2xl font-bold">Package / Entity / Attribute Hierarchy</h1>
+      <div className="flex justify-between items-center mb-2">
+        <h1 className="text-lg font-semibold">Package / Entity / Attribute Hierarchy</h1>
         <button
           className="btn btn-primary"
           onClick={() => {
