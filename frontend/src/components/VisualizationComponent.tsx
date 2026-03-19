@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import mermaid from 'mermaid';
-import { servicesApi, diagramApi } from '../services/api';
-import { Entity, EntityRelationship, RelationshipType, DiagramLayout } from '../types';
+import { servicesApi, diagramApi, relationshipApi } from '../services/api';
+import { Entity, Relationship, Cardinality, DiagramLayout } from '../types';
 
 interface VisualizationComponentProps {
   serviceName?: string;
@@ -40,6 +40,22 @@ interface DragState {
   hasMoved: boolean;
 }
 
+/** Map entity UUID to its service name for lookups */
+type EntityServiceMap = Record<string, string>;
+
+/**
+ * Format a cardinality label from source/target cardinality values.
+ * Returns e.g. "1:N", "N:1", "1:1", "N:N"
+ */
+const formatCardinalityLabel = (
+  sourceCardinality?: Cardinality | string,
+  targetCardinality?: Cardinality | string
+): string => {
+  const src = sourceCardinality === Cardinality.MANY ? 'N' : '1';
+  const tgt = targetCardinality === Cardinality.MANY ? 'N' : '1';
+  return `${src}:${tgt}`;
+};
+
 const VisualizationComponent = ({
   serviceName,
   entityName,
@@ -49,12 +65,14 @@ const VisualizationComponent = ({
   const navigate = useNavigate();
   const service = serviceName || params.service;
   const entity = entityName || params.entity;
-  
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mermaidDefinition, setMermaidDefinition] = useState<string>('');
   const [zoom, setZoom] = useState(1);
   const [entities, setEntities] = useState<Entity[]>([]);
+  const [relationships, setRelationships] = useState<Relationship[]>([]);
+  const [entityServiceMap, setEntityServiceMap] = useState<EntityServiceMap>({});
   const [tooltip, setTooltip] = useState<EntityTooltip>({ entity: {} as Entity, x: 0, y: 0, visible: false });
   const [contextMenu, setContextMenu] = useState<ContextMenu>({ entity: {} as Entity, x: 0, y: 0, visible: false });
   const [showAttributes, setShowAttributes] = useState(false);
@@ -97,6 +115,30 @@ const VisualizationComponent = ({
     });
   }, []);
 
+  // Helper: get the service name for an entity by UUID
+  const getEntityService = useCallback((entityUuid: string): string => {
+    return entityServiceMap[entityUuid] || service || '';
+  }, [entityServiceMap, service]);
+
+  // Helper: find an entity by UUID
+  const findEntityByUuid = useCallback((uuid: string): Entity | undefined => {
+    return entities.find(e => e.uuid === uuid);
+  }, [entities]);
+
+  // Helper: get the entityId key used for positions (service_name)
+  const getEntityId = useCallback((entityUuid: string): string => {
+    const ent = findEntityByUuid(entityUuid);
+    const svc = getEntityService(entityUuid);
+    return ent ? `${svc}_${ent.name}` : entityUuid;
+  }, [findEntityByUuid, getEntityService]);
+
+  // Helper: get relationships relevant to a given entity
+  const getEntityRelationships = useCallback((entityUuid: string): Relationship[] => {
+    return relationships.filter(
+      rel => rel.source.entity === entityUuid || rel.target.entity === entityUuid
+    );
+  }, [relationships]);
+
   // Generate consistent colors for microservices
   useEffect(() => {
     const generateMicroserviceColors = () => {
@@ -113,22 +155,22 @@ const VisualizationComponent = ({
         '#16a085', // Dark Green
         '#d35400'  // Dark Orange
       ];
-      
-      // Get unique microservices
-      const microservices = [...new Set(entities.map(e => e.microservice))];
-      
-      // Assign colors to each microservice
-      microservices.forEach((service, index) => {
-        colors[service] = baseColors[index % baseColors.length];
+
+      // Get unique services from entity-service map
+      const services = [...new Set(Object.values(entityServiceMap))];
+
+      // Assign colors to each service
+      services.forEach((svc, index) => {
+        colors[svc] = baseColors[index % baseColors.length];
       });
-      
+
       setMicroserviceColors(colors);
     };
-    
+
     if (entities.length > 0) {
       generateMicroserviceColors();
     }
-  }, [entities]);
+  }, [entities, entityServiceMap]);
 
   // Load saved diagram layouts
   useEffect(() => {
@@ -145,7 +187,7 @@ const VisualizationComponent = ({
         console.warn('Could not load saved layouts:', err);
       }
     };
-    
+
     if (service) {
       loadSavedLayouts();
     }
@@ -157,84 +199,129 @@ const VisualizationComponent = ({
       try {
         setLoading(true);
         setError(null);
-        
+
         let fetchedEntities: Entity[] = [];
-        
+        let fetchedRelationships: Relationship[] = [];
+        const svcMap: EntityServiceMap = {};
+
         if (service && entity) {
-          // Fetch single entity and related entities
+          // Fetch single entity and its service's relationships
           const entityResponse = await servicesApi.getEntitySchema(service, entity);
           const mainEntity = entityResponse.data;
           fetchedEntities = [mainEntity];
-          
-          // Fetch related entities
-          if (mainEntity.relationships && mainEntity.relationships.length > 0) {
-            const relatedEntitiesPromises = mainEntity.relationships.map(async (rel: EntityRelationship) => {
-              const [targetService, targetEntity] = rel.target.split('.');
-              if (showCrossServiceRelationships || targetService === service) {
-                try {
-                  const relatedResponse = await servicesApi.getEntitySchema(targetService, targetEntity);
-                  return relatedResponse.data;
-                } catch (err) {
-                  console.warn(`Could not fetch related entity: ${rel.target}`, err);
-                  return null;
+          svcMap[mainEntity.uuid] = service;
+
+          // Fetch relationships at the package level
+          try {
+            fetchedRelationships = await relationshipApi.getPackageRelationships(service);
+          } catch (err) {
+            console.warn('Could not fetch relationships for service:', service, err);
+          }
+
+          // Fetch related entities referenced by relationships
+          const entityRels = fetchedRelationships.filter(
+            rel => rel.source.entity === mainEntity.uuid || rel.target.entity === mainEntity.uuid
+          );
+
+          if (entityRels.length > 0) {
+            const relatedUuids = new Set<string>();
+            entityRels.forEach(rel => {
+              if (rel.source.entity !== mainEntity.uuid) relatedUuids.add(rel.source.entity);
+              if (rel.target.entity !== mainEntity.uuid) relatedUuids.add(rel.target.entity);
+            });
+
+            // For related entities, try to fetch them from the same service first
+            const relatedEntitiesPromises = [...relatedUuids].map(async (uuid) => {
+              try {
+                // Try to find entity within the same service's entities
+                const serviceEntitiesResponse = await servicesApi.getServiceEntities(service);
+                const svcEntities = serviceEntitiesResponse.data || [];
+                const found = svcEntities.find((e: Entity) => e.uuid === uuid);
+                if (found) {
+                  svcMap[found.uuid] = service;
+                  return found;
                 }
+              } catch (err) {
+                console.warn(`Could not fetch related entity: ${uuid}`, err);
               }
               return null;
             });
-            
+
             const relatedEntities = await Promise.all(relatedEntitiesPromises);
-            fetchedEntities = [...fetchedEntities, ...relatedEntities.filter(Boolean)];
+            fetchedEntities = [...fetchedEntities, ...relatedEntities.filter(Boolean) as Entity[]];
           }
         } else if (service) {
           // Fetch all entities for a service
           const entitiesResponse = await servicesApi.getServiceEntities(service);
           fetchedEntities = entitiesResponse.data;
+          fetchedEntities.forEach(e => { svcMap[e.uuid] = service; });
+
+          // Fetch relationships for this service
+          try {
+            fetchedRelationships = await relationshipApi.getPackageRelationships(service);
+          } catch (err) {
+            console.warn('Could not fetch relationships for service:', service, err);
+          }
         } else {
           // No service specified - fetch all services and their entities
           const servicesResponse = await servicesApi.getAllServices();
           const services = servicesResponse.data || servicesResponse;
-          
+
           if (services && services.length > 0) {
-            // Fetch entities for all services
-            const allEntitiesPromises = services.map(async (serviceName: string) => {
+            // Fetch entities and relationships for all services
+            const allDataPromises = services.map(async (svcName: string) => {
               try {
-                const entitiesResponse = await servicesApi.getServiceEntities(serviceName);
-                return entitiesResponse.data || entitiesResponse;
+                const entitiesResponse = await servicesApi.getServiceEntities(svcName);
+                const svcEntities = entitiesResponse.data || entitiesResponse;
+                (svcEntities as Entity[]).forEach(e => { svcMap[e.uuid] = svcName; });
+
+                let svcRelationships: Relationship[] = [];
+                try {
+                  svcRelationships = await relationshipApi.getPackageRelationships(svcName);
+                } catch (err) {
+                  console.warn(`Could not fetch relationships for service: ${svcName}`, err);
+                }
+
+                return { entities: svcEntities as Entity[], relationships: svcRelationships };
               } catch (err) {
-                console.warn(`Could not fetch entities for service: ${serviceName}`, err);
-                return [];
+                console.warn(`Could not fetch entities for service: ${svcName}`, err);
+                return { entities: [], relationships: [] };
               }
             });
-            
-            const allEntitiesArrays = await Promise.all(allEntitiesPromises);
-            fetchedEntities = allEntitiesArrays.flat();
+
+            const allData = await Promise.all(allDataPromises);
+            fetchedEntities = allData.flatMap(d => d.entities);
+            fetchedRelationships = allData.flatMap(d => d.relationships);
           } else {
             throw new Error('No services found');
           }
         }
-        
-        // Store entities for linking functionality
+
+        // Store entities, relationships, and entity-service mapping
         setEntities(fetchedEntities);
-        
+        setRelationships(fetchedRelationships);
+        setEntityServiceMap(svcMap);
+
         // Initialize entity positions if not already set
         const initialPositions: Record<string, EntityPosition> = {};
-        
+
         // Apply layout algorithm
         if (layoutAlgorithm === 'grid') {
-          // Group entities by microservice for better organization
+          // Group entities by service for better organization
           const serviceGroups: Record<string, Entity[]> = {};
-          fetchedEntities.forEach(entity => {
-            if (!serviceGroups[entity.microservice]) {
-              serviceGroups[entity.microservice] = [];
+          fetchedEntities.forEach(ent => {
+            const svc = svcMap[ent.uuid] || 'unknown';
+            if (!serviceGroups[svc]) {
+              serviceGroups[svc] = [];
             }
-            serviceGroups[entity.microservice].push(entity);
+            serviceGroups[svc].push(ent);
           });
-          
-          // Position entities in a grid, grouped by microservice
+
+          // Position entities in a grid, grouped by service
           let rowOffset = 0;
-          Object.entries(serviceGroups).forEach(([service, serviceEntities]) => {
-            serviceEntities.forEach((entity, index) => {
-              const entityId = `${entity.microservice}_${entity.name}`;
+          Object.entries(serviceGroups).forEach(([_svc, serviceEntities]) => {
+            serviceEntities.forEach((ent, index) => {
+              const entityId = `${svcMap[ent.uuid] || 'unknown'}_${ent.name}`;
               if (!entityPositions[entityId]) {
                 initialPositions[entityId] = {
                   x: 100 + (index % 3) * 350,
@@ -243,7 +330,7 @@ const VisualizationComponent = ({
                 };
               }
             });
-            // Add vertical spacing between microservice groups
+            // Add vertical spacing between service groups
             rowOffset += Math.ceil(serviceEntities.length / 3) * 250 + 100;
           });
         } else if (layoutAlgorithm === 'circular') {
@@ -251,9 +338,9 @@ const VisualizationComponent = ({
           const centerX = 600;
           const centerY = 400;
           const radius = Math.min(fetchedEntities.length * 30, 350);
-          
-          fetchedEntities.forEach((entity, index) => {
-            const entityId = `${entity.microservice}_${entity.name}`;
+
+          fetchedEntities.forEach((ent, index) => {
+            const entityId = `${svcMap[ent.uuid] || 'unknown'}_${ent.name}`;
             if (!entityPositions[entityId]) {
               const angle = (index / fetchedEntities.length) * 2 * Math.PI;
               initialPositions[entityId] = {
@@ -266,8 +353,8 @@ const VisualizationComponent = ({
         } else if (layoutAlgorithm === 'force') {
           // Simple force-directed layout
           // Start with random positions
-          fetchedEntities.forEach((entity, index) => {
-            const entityId = `${entity.microservice}_${entity.name}`;
+          fetchedEntities.forEach((ent) => {
+            const entityId = `${svcMap[ent.uuid] || 'unknown'}_${ent.name}`;
             if (!entityPositions[entityId]) {
               initialPositions[entityId] = {
                 x: 100 + Math.random() * 800,
@@ -276,32 +363,32 @@ const VisualizationComponent = ({
               };
             }
           });
-          
+
           // Apply simple force algorithm (just a few iterations)
           for (let iteration = 0; iteration < 10; iteration++) {
             // Repulsive forces between all entities
             for (let i = 0; i < fetchedEntities.length; i++) {
-              const entityId1 = `${fetchedEntities[i].microservice}_${fetchedEntities[i].name}`;
+              const entityId1 = `${svcMap[fetchedEntities[i].uuid] || 'unknown'}_${fetchedEntities[i].name}`;
               const pos1 = initialPositions[entityId1] || { x: 0, y: 0, showAttributes: false };
-              
+
               for (let j = i + 1; j < fetchedEntities.length; j++) {
-                const entityId2 = `${fetchedEntities[j].microservice}_${fetchedEntities[j].name}`;
+                const entityId2 = `${svcMap[fetchedEntities[j].uuid] || 'unknown'}_${fetchedEntities[j].name}`;
                 const pos2 = initialPositions[entityId2] || { x: 0, y: 0, showAttributes: false };
-                
+
                 const dx = pos2.x - pos1.x;
                 const dy = pos2.y - pos1.y;
                 const distance = Math.sqrt(dx * dx + dy * dy) || 1;
                 const force = 5000 / distance;
-                
+
                 const moveX = (dx / distance) * force;
                 const moveY = (dy / distance) * force;
-                
+
                 initialPositions[entityId1] = {
                   ...pos1,
                   x: pos1.x - moveX,
                   y: pos1.y - moveY
                 };
-                
+
                 initialPositions[entityId2] = {
                   ...pos2,
                   x: pos2.x + moveX,
@@ -309,50 +396,48 @@ const VisualizationComponent = ({
                 };
               }
             }
-            
-            // Attractive forces between related entities
-            fetchedEntities.forEach(entity => {
-              const sourceId = `${entity.microservice}_${entity.name}`;
+
+            // Attractive forces between related entities (using package-level relationships)
+            fetchedRelationships.forEach(rel => {
+              const sourceEntity = fetchedEntities.find(e => e.uuid === rel.source.entity);
+              const targetEntity = fetchedEntities.find(e => e.uuid === rel.target.entity);
+              if (!sourceEntity || !targetEntity) return;
+
+              const sourceId = `${svcMap[sourceEntity.uuid] || 'unknown'}_${sourceEntity.name}`;
+              const targetId = `${svcMap[targetEntity.uuid] || 'unknown'}_${targetEntity.name}`;
               const sourcePos = initialPositions[sourceId];
-              
-              if (entity.relationships) {
-                entity.relationships.forEach(rel => {
-                  const [targetService, targetEntity] = rel.target.split('.');
-                  const targetId = `${targetService}_${targetEntity}`;
-                  const targetPos = initialPositions[targetId];
-                  
-                  if (targetPos) {
-                    const dx = targetPos.x - sourcePos.x;
-                    const dy = targetPos.y - sourcePos.y;
-                    const distance = Math.sqrt(dx * dx + dy * dy) || 1;
-                    const force = distance / 10;
-                    
-                    const moveX = (dx / distance) * force;
-                    const moveY = (dy / distance) * force;
-                    
-                    initialPositions[sourceId] = {
-                      ...sourcePos,
-                      x: sourcePos.x + moveX,
-                      y: sourcePos.y + moveY
-                    };
-                    
-                    initialPositions[targetId] = {
-                      ...targetPos,
-                      x: targetPos.x - moveX,
-                      y: targetPos.y - moveY
-                    };
-                  }
-                });
+              const targetPos = initialPositions[targetId];
+
+              if (sourcePos && targetPos) {
+                const dx = targetPos.x - sourcePos.x;
+                const dy = targetPos.y - sourcePos.y;
+                const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+                const force = distance / 10;
+
+                const moveX = (dx / distance) * force;
+                const moveY = (dy / distance) * force;
+
+                initialPositions[sourceId] = {
+                  ...sourcePos,
+                  x: sourcePos.x + moveX,
+                  y: sourcePos.y + moveY
+                };
+
+                initialPositions[targetId] = {
+                  ...targetPos,
+                  x: targetPos.x - moveX,
+                  y: targetPos.y - moveY
+                };
               }
             });
           }
         }
-        
+
         setEntityPositions(prev => ({ ...prev, ...initialPositions }));
-        
+
         // Generate diagram based on mode
         if (useMermaid) {
-          const diagram = generateERDiagram(fetchedEntities);
+          const diagram = generateERDiagram(fetchedEntities, fetchedRelationships, svcMap);
           setMermaidDefinition(diagram);
         }
       } catch (err) {
@@ -362,7 +447,7 @@ const VisualizationComponent = ({
         setLoading(false);
       }
     };
-    
+
     fetchData();
   }, [service, entity, showCrossServiceRelationships, useMermaid]);
 
@@ -380,7 +465,7 @@ const VisualizationComponent = ({
   // Mouse event handlers for dragging entities
   const handleMouseDown = useCallback((e: React.MouseEvent, entityId: string) => {
     if (useMermaid) return; // Disable dragging in Mermaid mode
-    
+
     e.preventDefault();
     e.stopPropagation();
     const rect = diagramRef.current?.getBoundingClientRect();
@@ -453,7 +538,7 @@ const VisualizationComponent = ({
           .then(({ svg }) => {
             if (diagramRef.current) {
               diagramRef.current.innerHTML = svg;
-              
+
               // Enhanced entity interaction
               setupEntityInteractions();
             }
@@ -475,7 +560,7 @@ const VisualizationComponent = ({
 
     // Debug: Log the entire DOM structure
     console.log('Diagram DOM structure:', diagramRef.current.innerHTML);
-    
+
     // Try multiple selectors for different Mermaid versions
     const possibleSelectors = [
       '.er.entityBox',
@@ -491,7 +576,7 @@ const VisualizationComponent = ({
     ];
 
     let entityElements: NodeListOf<Element> | null = null;
-    
+
     for (const selector of possibleSelectors) {
       entityElements = diagramRef.current.querySelectorAll(selector);
       if (entityElements.length > 0) {
@@ -505,13 +590,13 @@ const VisualizationComponent = ({
       console.log('Trying text-based detection...');
       const allTextElements = diagramRef.current.querySelectorAll('text');
       console.log(`Found ${allTextElements.length} text elements`);
-      
+
       const entityTextElements: Element[] = [];
-      
+
       allTextElements.forEach((textEl, index) => {
         const text = textEl.textContent;
         console.log(`Text element ${index}: "${text}"`);
-        
+
         if (text && (text.includes('/') || text.includes('.'))) {
           console.log(`Found entity text: "${text}"`);
           // Find the parent group or rect element that can be clicked
@@ -529,7 +614,7 @@ const VisualizationComponent = ({
           }
         }
       });
-      
+
       if (entityTextElements.length > 0) {
         console.log(`Found ${entityTextElements.length} entities using text-based detection`);
         entityElements = entityTextElements as any;
@@ -542,7 +627,7 @@ const VisualizationComponent = ({
       // Look for any clickable elements that might contain entity information
       const allElements = diagramRef.current.querySelectorAll('*');
       const potentialEntityElements: Element[] = [];
-      
+
       allElements.forEach(el => {
         const text = el.textContent;
         // Check for both slash and dot notation
@@ -552,7 +637,7 @@ const VisualizationComponent = ({
           potentialEntityElements.push(el);
         }
       });
-      
+
       if (potentialEntityElements.length > 0) {
         console.log(`Found ${potentialEntityElements.length} potential entities using aggressive detection`);
         entityElements = potentialEntityElements as any;
@@ -564,7 +649,7 @@ const VisualizationComponent = ({
       // Add a fallback: make the entire diagram clickable areas
       const allRects = diagramRef.current.querySelectorAll('rect');
       console.log(`Found ${allRects.length} rect elements as fallback`);
-      
+
       allRects.forEach((rect, index) => {
         console.log(`Rect ${index}:`, rect);
         // Add basic click handler to each rect
@@ -587,34 +672,37 @@ const VisualizationComponent = ({
         // Try to find text in the element itself if it's a text element
         entityText = element.textContent;
       }
-      
+
       console.log(`Entity ${index}: "${entityText}"`);
-      
+
       if (entityText && (entityText.includes('/') || entityText.includes('.'))) {
         // Support both formats for backward compatibility
         const separator = entityText.includes('.') ? '.' : '/';
-        const [entityService, entityName] = entityText.split(separator);
-        const entityData = entities.find(e => e.microservice === entityService && e.name === entityName);
-        
-        if (entityService && entityName && entityData) {
-          console.log(`Setting up interactions for: ${entityService}${separator}${entityName}`);
-          
+        const [entityService, entName] = entityText.split(separator);
+        const entityData = entities.find(e => {
+          const svc = entityServiceMap[e.uuid];
+          return svc === entityService && e.name === entName;
+        });
+
+        if (entityService && entName && entityData) {
+          console.log(`Setting up interactions for: ${entityService}${separator}${entName}`);
+
           // Add cursor pointer
           (element as HTMLElement).style.cursor = 'pointer';
-          
+
           // Click handler - navigate to entity detail
           element.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
-            console.log(`Navigating to: /services/${entityService}/entities/${entityName}`);
-            navigate(`/services/${entityService}/entities/${entityName}`);
+            console.log(`Navigating to: /services/${entityService}/entities/${entName}`);
+            navigate(`/services/${entityService}/entities/${entName}`);
           });
-          
+
           // Mouse enter - show tooltip
           element.addEventListener('mouseenter', (e) => {
             const rect = element.getBoundingClientRect();
             const containerRect = diagramRef.current!.getBoundingClientRect();
-            
+
             setTooltip({
               entity: entityData,
               x: rect.left - containerRect.left + rect.width / 2,
@@ -622,19 +710,19 @@ const VisualizationComponent = ({
               visible: true
             });
           });
-          
+
           // Mouse leave - hide tooltip
           element.addEventListener('mouseleave', () => {
             setTooltip(prev => ({ ...prev, visible: false }));
           });
-          
+
           // Right click - show context menu
           element.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             e.stopPropagation();
             const rect = element.getBoundingClientRect();
             const containerRect = diagramRef.current!.getBoundingClientRect();
-            
+
             setContextMenu({
               entity: entityData,
               x: rect.left - containerRect.left,
@@ -643,36 +731,37 @@ const VisualizationComponent = ({
             });
           });
         } else {
-          console.log(`No entity data found for: ${entityService}/${entityName}`);
+          console.log(`No entity data found for: ${entityService}/${entName}`);
         }
       }
     });
   };
 
   // Handle context menu actions
-  const handleContextMenuAction = (action: string, entity: Entity) => {
+  const handleContextMenuAction = (action: string, ent: Entity) => {
     setContextMenu(prev => ({ ...prev, visible: false }));
-    
+    const svc = entityServiceMap[ent.uuid] || service || '';
+
     switch (action) {
       case 'view':
-        navigate(`/services/${entity.microservice}/entities/${entity.name}`);
+        navigate(`/services/${svc}/entities/${ent.name}`);
         break;
       case 'edit':
-        navigate(`/services/${entity.microservice}/entities/${entity.name}/edit`);
+        navigate(`/services/${svc}/entities/${ent.name}/edit`);
         break;
       case 'viewService':
-        navigate(`/services/${entity.microservice}`);
+        navigate(`/services/${svc}`);
         break;
       case 'viewRelated':
         // Show only this entity and its relationships
-        navigate(`/diagram/${entity.microservice}/${entity.name}`);
+        navigate(`/diagram/${svc}/${ent.name}`);
         break;
       case 'copyLink':
-        const link = `${window.location.origin}/services/${entity.microservice}/entities/${entity.name}`;
+        const link = `${window.location.origin}/services/${svc}/entities/${ent.name}`;
         navigator.clipboard.writeText(link);
         break;
       case 'toggleAttributes':
-        const entityId = `${entity.microservice}_${entity.name}`;
+        const entityId = `${svc}_${ent.name}`;
         setEntityPositions(prev => ({
           ...prev,
           [entityId]: {
@@ -697,25 +786,37 @@ const VisualizationComponent = ({
   }, [contextMenu.visible]);
 
   // Generate Mermaid ER diagram definition
-  const generateERDiagram = (entities: Entity[]): string => {
+  const generateERDiagram = (
+    diagramEntities: Entity[],
+    diagramRelationships: Relationship[],
+    svcMap: EntityServiceMap
+  ): string => {
     let diagram = 'erDiagram\n';
-    
+
     // Helper function to create valid Mermaid entity IDs
-    const createEntityId = (microservice: string, name: string): string => {
-      return `${microservice}_${name}`.replace(/[^a-zA-Z0-9_]/g, '_');
+    const createEntityId = (svc: string, name: string): string => {
+      return `${svc}_${name}`.replace(/[^a-zA-Z0-9_]/g, '_');
     };
-    
+
+    // Build a UUID-to-entity-id map for relationship rendering
+    const uuidToEntityId: Record<string, string> = {};
+    diagramEntities.forEach(ent => {
+      const svc = svcMap[ent.uuid] || 'unknown';
+      uuidToEntityId[ent.uuid] = createEntityId(svc, ent.name);
+    });
+
     // Add entities (show only entity name, not service/name)
-    entities.forEach(entity => {
-      const entityId = createEntityId(entity.microservice, entity.name);
-      const displayName = entity.name;
-      
+    diagramEntities.forEach(ent => {
+      const svc = svcMap[ent.uuid] || 'unknown';
+      const entityId = createEntityId(svc, ent.name);
+      const displayName = ent.name;
+
       diagram += `  ${entityId}["${displayName}"]`;
-      
+
       // Add attributes only if showAttributes is true
-      if (showAttributes && entity.attributes && entity.attributes.length > 0) {
+      if (showAttributes && ent.attributes && ent.attributes.length > 0) {
         diagram += ` {\n`;
-        entity.attributes.forEach(attr => {
+        ent.attributes.forEach(attr => {
           const required = attr.required ? '*' : '';
           const cleanAttrName = attr.name.replace(/[^a-zA-Z0-9_]/g, '_');
           diagram += `    ${attr.type} ${cleanAttrName}${required}\n`;
@@ -726,45 +827,50 @@ const VisualizationComponent = ({
         diagram += '\n';
       }
     });
-    
-    // Add relationships
-    entities.forEach(entity => {
-      const sourceId = createEntityId(entity.microservice, entity.name);
-      
-      if (entity.relationships) {
-        entity.relationships.forEach(rel => {
-          const [targetService, targetEntity] = rel.target.split('.');
-          const targetId = createEntityId(targetService, targetEntity);
-          
-          // Skip if target entity is not in our diagram (when not showing cross-service relationships)
-          if (!showCrossServiceRelationships && !entities.some(e => createEntityId(e.microservice, e.name) === targetId)) {
-            return;
-          }
-          
-          let relationSymbol: string;
-          
-          switch (rel.type) {
-            case RelationshipType.HAS_ONE:
-              relationSymbol = '||--o|';
-              break;
-            case RelationshipType.HAS_MANY:
-              relationSymbol = '||--|{';
-              break;
-            case RelationshipType.BELONGS_TO:
-              relationSymbol = '|o--||';
-              break;
-            case RelationshipType.MANY_TO_MANY:
-              relationSymbol = '}|--|{';
-              break;
-            default:
-              relationSymbol = '||--o|';
-          }
-          
-          diagram += `  ${sourceId} ${relationSymbol} ${targetId} : "${rel.name}"\n`;
-        });
+
+    // Add relationships using cardinality notation
+    diagramRelationships.forEach(rel => {
+      const sourceId = uuidToEntityId[rel.source.entity];
+      const targetId = uuidToEntityId[rel.target.entity];
+
+      // Skip if source or target entity is not in our diagram
+      if (!sourceId || !targetId) return;
+
+      // Skip cross-service relationships if not showing them
+      if (!showCrossServiceRelationships) {
+        const sourceSvc = svcMap[rel.source.entity];
+        const targetSvc = svcMap[rel.target.entity];
+        if (sourceSvc !== targetSvc) return;
       }
+
+      // Build Mermaid ER relationship symbol from cardinalities
+      // Source cardinality on the left, target cardinality on the right
+      const srcCard = rel.source.cardinality;
+      const tgtCard = rel.target.cardinality;
+
+      let leftSymbol: string;
+      let rightSymbol: string;
+
+      // Left side (source cardinality)
+      if (srcCard === Cardinality.MANY) {
+        leftSymbol = '}|';
+      } else {
+        leftSymbol = '||';
+      }
+
+      // Right side (target cardinality)
+      if (tgtCard === Cardinality.MANY) {
+        rightSymbol = '|{';
+      } else {
+        rightSymbol = 'o|';
+      }
+
+      const relationSymbol = `${leftSymbol}--${rightSymbol}`;
+      const label = rel.description || formatCardinalityLabel(srcCard, tgtCard);
+
+      diagram += `  ${sourceId} ${relationSymbol} ${targetId} : "${label}"\n`;
     });
-    
+
     return diagram;
   };
 
@@ -791,29 +897,30 @@ const VisualizationComponent = ({
   const resetLayout = () => {
     // Apply the current layout algorithm
     const resetPositions: Record<string, EntityPosition> = {};
-    
+
     if (layoutAlgorithm === 'grid') {
-      // Group entities by microservice
+      // Group entities by service
       const serviceGroups: Record<string, Entity[]> = {};
-      entities.forEach(entity => {
-        if (!serviceGroups[entity.microservice]) {
-          serviceGroups[entity.microservice] = [];
+      entities.forEach(ent => {
+        const svc = entityServiceMap[ent.uuid] || 'unknown';
+        if (!serviceGroups[svc]) {
+          serviceGroups[svc] = [];
         }
-        serviceGroups[entity.microservice].push(entity);
+        serviceGroups[svc].push(ent);
       });
-      
-      // Position entities in a grid, grouped by microservice
+
+      // Position entities in a grid, grouped by service
       let rowOffset = 0;
-      Object.entries(serviceGroups).forEach(([service, serviceEntities]) => {
-        serviceEntities.forEach((entity, index) => {
-          const entityId = `${entity.microservice}_${entity.name}`;
+      Object.entries(serviceGroups).forEach(([_svc, serviceEntities]) => {
+        serviceEntities.forEach((ent, index) => {
+          const entityId = `${entityServiceMap[ent.uuid] || 'unknown'}_${ent.name}`;
           resetPositions[entityId] = {
             x: 100 + (index % 3) * 350,
             y: 150 + rowOffset + Math.floor(index / 3) * 250,
             showAttributes: showAttributes
           };
         });
-        // Add vertical spacing between microservice groups
+        // Add vertical spacing between service groups
         rowOffset += Math.ceil(serviceEntities.length / 3) * 250 + 100;
       });
     } else if (layoutAlgorithm === 'circular') {
@@ -821,9 +928,9 @@ const VisualizationComponent = ({
       const centerX = 600;
       const centerY = 400;
       const radius = Math.min(entities.length * 30, 350);
-      
-      entities.forEach((entity, index) => {
-        const entityId = `${entity.microservice}_${entity.name}`;
+
+      entities.forEach((ent, index) => {
+        const entityId = `${entityServiceMap[ent.uuid] || 'unknown'}_${ent.name}`;
         const angle = (index / entities.length) * 2 * Math.PI;
         resetPositions[entityId] = {
           x: centerX + radius * Math.cos(angle),
@@ -833,40 +940,40 @@ const VisualizationComponent = ({
       });
     } else if (layoutAlgorithm === 'force') {
       // Start with random positions
-      entities.forEach((entity, index) => {
-        const entityId = `${entity.microservice}_${entity.name}`;
+      entities.forEach((ent) => {
+        const entityId = `${entityServiceMap[ent.uuid] || 'unknown'}_${ent.name}`;
         resetPositions[entityId] = {
           x: 100 + Math.random() * 800,
           y: 100 + Math.random() * 500,
           showAttributes: showAttributes
         };
       });
-      
+
       // Apply simple force algorithm (just a few iterations)
       for (let iteration = 0; iteration < 10; iteration++) {
         // Repulsive forces between all entities
         for (let i = 0; i < entities.length; i++) {
-          const entityId1 = `${entities[i].microservice}_${entities[i].name}`;
+          const entityId1 = `${entityServiceMap[entities[i].uuid] || 'unknown'}_${entities[i].name}`;
           const pos1 = resetPositions[entityId1];
-          
+
           for (let j = i + 1; j < entities.length; j++) {
-            const entityId2 = `${entities[j].microservice}_${entities[j].name}`;
+            const entityId2 = `${entityServiceMap[entities[j].uuid] || 'unknown'}_${entities[j].name}`;
             const pos2 = resetPositions[entityId2];
-            
+
             const dx = pos2.x - pos1.x;
             const dy = pos2.y - pos1.y;
             const distance = Math.sqrt(dx * dx + dy * dy) || 1;
             const force = 5000 / distance;
-            
+
             const moveX = (dx / distance) * force;
             const moveY = (dy / distance) * force;
-            
+
             resetPositions[entityId1] = {
               ...pos1,
               x: pos1.x - moveX,
               y: pos1.y - moveY
             };
-            
+
             resetPositions[entityId2] = {
               ...pos2,
               x: pos2.x + moveX,
@@ -874,48 +981,46 @@ const VisualizationComponent = ({
             };
           }
         }
-        
+
         // Attractive forces between related entities
-        entities.forEach(entity => {
-          const sourceId = `${entity.microservice}_${entity.name}`;
+        relationships.forEach(rel => {
+          const sourceEntity = entities.find(e => e.uuid === rel.source.entity);
+          const targetEntity = entities.find(e => e.uuid === rel.target.entity);
+          if (!sourceEntity || !targetEntity) return;
+
+          const sourceId = `${entityServiceMap[sourceEntity.uuid] || 'unknown'}_${sourceEntity.name}`;
+          const targetId = `${entityServiceMap[targetEntity.uuid] || 'unknown'}_${targetEntity.name}`;
           const sourcePos = resetPositions[sourceId];
-          
-          if (entity.relationships) {
-            entity.relationships.forEach(rel => {
-              const [targetService, targetEntity] = rel.target.split('.');
-              const targetId = `${targetService}_${targetEntity}`;
-              const targetPos = resetPositions[targetId];
-              
-              if (targetPos) {
-                const dx = targetPos.x - sourcePos.x;
-                const dy = targetPos.y - sourcePos.y;
-                const distance = Math.sqrt(dx * dx + dy * dy) || 1;
-                const force = distance / 10;
-                
-                const moveX = (dx / distance) * force;
-                const moveY = (dy / distance) * force;
-                
-                resetPositions[sourceId] = {
-                  ...sourcePos,
-                  x: sourcePos.x + moveX,
-                  y: sourcePos.y + moveY
-                };
-                
-                resetPositions[targetId] = {
-                  ...targetPos,
-                  x: targetPos.x - moveX,
-                  y: targetPos.y - moveY
-                };
-              }
-            });
+          const targetPos = resetPositions[targetId];
+
+          if (sourcePos && targetPos) {
+            const dx = targetPos.x - sourcePos.x;
+            const dy = targetPos.y - sourcePos.y;
+            const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+            const force = distance / 10;
+
+            const moveX = (dx / distance) * force;
+            const moveY = (dy / distance) * force;
+
+            resetPositions[sourceId] = {
+              ...sourcePos,
+              x: sourcePos.x + moveX,
+              y: sourcePos.y + moveY
+            };
+
+            resetPositions[targetId] = {
+              ...targetPos,
+              x: targetPos.x - moveX,
+              y: targetPos.y - moveY
+            };
           }
         });
       }
     }
-    
+
     setEntityPositions(resetPositions);
   };
-  
+
   // Save current layout
   const saveCurrentLayout = async (layoutName: string) => {
     try {
@@ -923,7 +1028,7 @@ const VisualizationComponent = ({
         name: layoutName,
         service: service,
         entities: Object.entries(entityPositions).reduce((acc, [entityId, position]) => {
-          const [microservice, name] = entityId.split('_');
+          const [_svc, name] = entityId.split('_');
           acc[entityId] = {
             x: position.x,
             y: position.y,
@@ -935,7 +1040,7 @@ const VisualizationComponent = ({
         zoom: zoom,
         pan: { x: 0, y: 0 }
       };
-      
+
       const response = await diagramApi.saveDiagramLayout(layout);
       if (response.data && response.data.id) {
         setCurrentLayoutId(response.data.id);
@@ -945,7 +1050,7 @@ const VisualizationComponent = ({
       console.error('Error saving layout:', err);
     }
   };
-  
+
   // Load a saved layout
   const loadLayout = async (layoutId: string) => {
     try {
@@ -986,124 +1091,115 @@ const VisualizationComponent = ({
         onMouseLeave={handleMouseUp}
       >
         {/* Render relationships first (so they appear behind entities) */}
-        {entities.map(entity => {
-          const sourceId = `${entity.microservice}_${entity.name}`;
+        {relationships.map(rel => {
+          const sourceEntity = entities.find(e => e.uuid === rel.source.entity);
+          const targetEntity = entities.find(e => e.uuid === rel.target.entity);
+          if (!sourceEntity || !targetEntity) return null;
+
+          const sourceSvc = entityServiceMap[sourceEntity.uuid] || 'unknown';
+          const targetSvc = entityServiceMap[targetEntity.uuid] || 'unknown';
+          const sourceId = `${sourceSvc}_${sourceEntity.name}`;
+          const targetId = `${targetSvc}_${targetEntity.name}`;
           const sourcePos = entityPositions[sourceId];
-          if (!sourcePos) return null;
+          const targetPos = entityPositions[targetId];
 
-          return entity.relationships?.map(rel => {
-            const [targetService, targetEntity] = rel.target.split('/');
-            const targetId = `${targetService}_${targetEntity}`;
-            const targetPos = entityPositions[targetId];
-            
-            if (!targetPos || (!showCrossServiceRelationships && targetService !== entity.microservice)) {
-              return null;
-            }
+          if (!sourcePos || !targetPos) return null;
+          if (!showCrossServiceRelationships && sourceSvc !== targetSvc) return null;
 
-            const sourceX = sourcePos.x + 150; // Center of entity box
-            const sourceY = sourcePos.y + 40;
-            const targetX = targetPos.x + 150;
-            const targetY = targetPos.y + 40;
-            
-            // Calculate path for curved lines
-            const dx = targetX - sourceX;
-            const dy = targetY - sourceY;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            
-            // Determine control points for the curve
-            const controlPointOffset = Math.min(distance * 0.2, 100);
-            const midX = (sourceX + targetX) / 2;
-            const midY = (sourceY + targetY) / 2;
-            
-            // Perpendicular offset for control point
-            const perpX = -dy / distance * controlPointOffset;
-            const perpY = dx / distance * controlPointOffset;
-            
-            // Path for the relationship line
-            const path = `M ${sourceX} ${sourceY} Q ${midX + perpX} ${midY + perpY} ${targetX} ${targetY}`;
-            
-            // Determine marker based on relationship type
-            let markerEnd = '';
-            let strokeDasharray = '';
-            let relationshipSymbol = '';
-            
-            switch (rel.type) {
-              case RelationshipType.HAS_ONE:
-                markerEnd = 'url(#arrowhead-one)';
-                relationshipSymbol = '1';
-                break;
-              case RelationshipType.HAS_MANY:
-                markerEnd = 'url(#arrowhead-many)';
-                relationshipSymbol = '*';
-                break;
-              case RelationshipType.BELONGS_TO:
-                markerEnd = 'url(#arrowhead-belongs)';
-                strokeDasharray = '5,5';
-                relationshipSymbol = '1';
-                break;
-              case RelationshipType.MANY_TO_MANY:
-                markerEnd = 'url(#arrowhead-many)';
-                relationshipSymbol = '*';
-                break;
-              default:
-                markerEnd = 'url(#arrowhead)';
-            }
-            
-            // Determine line color based on whether it's cross-service
-            const lineColor = targetService !== entity.microservice
-              ? '#9333ea' // Purple for cross-service
-              : '#6b7280'; // Gray for same service
+          const sourceX = sourcePos.x + 150; // Center of entity box
+          const sourceY = sourcePos.y + 40;
+          const targetX = targetPos.x + 150;
+          const targetY = targetPos.y + 40;
 
-            return (
-              <g key={`${sourceId}-${targetId}-${rel.name}`}>
-                <path
-                  d={path}
-                  fill="none"
-                  stroke={lineColor}
-                  strokeWidth="2"
-                  strokeDasharray={strokeDasharray}
-                  markerEnd={markerEnd}
-                />
-                
-                {/* Relationship name */}
-                <text
-                  x={midX + perpX}
-                  y={midY + perpY - 10}
-                  textAnchor="middle"
-                  fontSize="12"
-                  fill="#374151"
-                  className="pointer-events-none"
-                >
-                  {rel.name}
-                </text>
-                
-                {/* Cardinality indicators */}
-                <text
-                  x={sourceX + dx * 0.15}
-                  y={sourceY + dy * 0.15 - 5}
-                  textAnchor="middle"
-                  fontSize="14"
-                  fontWeight="bold"
-                  fill="#374151"
-                  className="pointer-events-none"
-                >
-                  {rel.type === RelationshipType.BELONGS_TO || rel.type === RelationshipType.MANY_TO_MANY ? '*' : '1'}
-                </text>
-                
-                <text
-                  x={targetX - dx * 0.15}
-                  y={targetY - dy * 0.15 - 5}
-                  textAnchor="middle"
-                  fontSize="14"
-                  fontWeight="bold"
-                  fill="#374151"
-                  className="pointer-events-none"
-                >
-                  {relationshipSymbol}
-                </text>
-              </g>
-            );
-          });
+          // Calculate path for curved lines
+          const dx = targetX - sourceX;
+          const dy = targetY - sourceY;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+
+          // Determine control points for the curve
+          const controlPointOffset = Math.min(distance * 0.2, 100);
+          const midX = (sourceX + targetX) / 2;
+          const midY = (sourceY + targetY) / 2;
+
+          // Perpendicular offset for control point
+          const perpX = -dy / distance * controlPointOffset;
+          const perpY = dx / distance * controlPointOffset;
+
+          // Path for the relationship line
+          const path = `M ${sourceX} ${sourceY} Q ${midX + perpX} ${midY + perpY} ${targetX} ${targetY}`;
+
+          // Determine marker and style based on cardinality
+          const srcCard = rel.source.cardinality;
+          const tgtCard = rel.target.cardinality;
+          let markerEnd = '';
+          let strokeDasharray = '';
+
+          if (tgtCard === Cardinality.MANY) {
+            markerEnd = 'url(#arrowhead-many)';
+          } else {
+            markerEnd = 'url(#arrowhead-one)';
+          }
+
+          // Determine line color based on whether it's cross-service
+          const lineColor = targetSvc !== sourceSvc
+            ? '#9333ea' // Purple for cross-service
+            : '#6b7280'; // Gray for same service
+
+          // Cardinality symbols
+          const srcSymbol = srcCard === Cardinality.MANY ? 'N' : '1';
+          const tgtSymbol = tgtCard === Cardinality.MANY ? 'N' : '1';
+          const cardinalityLabel = formatCardinalityLabel(srcCard, tgtCard);
+
+          return (
+            <g key={`${sourceId}-${targetId}-${rel.uuid}`}>
+              <path
+                d={path}
+                fill="none"
+                stroke={lineColor}
+                strokeWidth="2"
+                strokeDasharray={strokeDasharray}
+                markerEnd={markerEnd}
+              />
+
+              {/* Relationship label (description or cardinality) */}
+              <text
+                x={midX + perpX}
+                y={midY + perpY - 10}
+                textAnchor="middle"
+                fontSize="12"
+                fill="#374151"
+                className="pointer-events-none"
+              >
+                {rel.description || cardinalityLabel}
+              </text>
+
+              {/* Source cardinality indicator */}
+              <text
+                x={sourceX + dx * 0.15}
+                y={sourceY + dy * 0.15 - 5}
+                textAnchor="middle"
+                fontSize="14"
+                fontWeight="bold"
+                fill="#374151"
+                className="pointer-events-none"
+              >
+                {srcSymbol}
+              </text>
+
+              {/* Target cardinality indicator */}
+              <text
+                x={targetX - dx * 0.15}
+                y={targetY - dy * 0.15 - 5}
+                textAnchor="middle"
+                fontSize="14"
+                fontWeight="bold"
+                fill="#374151"
+                className="pointer-events-none"
+              >
+                {tgtSymbol}
+              </text>
+            </g>
+          );
         })}
 
         {/* Arrow marker definitions for different relationship types */}
@@ -1122,8 +1218,8 @@ const VisualizationComponent = ({
               fill="#6b7280"
             />
           </marker>
-          
-          {/* Has-one relationship */}
+
+          {/* One (single) relationship */}
           <marker
             id="arrowhead-one"
             markerWidth="10"
@@ -1137,8 +1233,8 @@ const VisualizationComponent = ({
               fill="#3b82f6"
             />
           </marker>
-          
-          {/* Has-many relationship */}
+
+          {/* Many relationship */}
           <marker
             id="arrowhead-many"
             markerWidth="12"
@@ -1152,26 +1248,12 @@ const VisualizationComponent = ({
               fill="#ef4444"
             />
           </marker>
-          
-          {/* Belongs-to relationship */}
-          <marker
-            id="arrowhead-belongs"
-            markerWidth="10"
-            markerHeight="7"
-            refX="9"
-            refY="3.5"
-            orient="auto"
-          >
-            <polygon
-              points="0 0, 10 3.5, 0 7"
-              fill="#10b981"
-            />
-          </marker>
         </defs>
 
         {/* Render entities */}
-        {entities.map(entity => {
-          const entityId = `${entity.microservice}_${entity.name}`;
+        {entities.map(ent => {
+          const svc = entityServiceMap[ent.uuid] || 'unknown';
+          const entityId = `${svc}_${ent.name}`;
           const position = entityPositions[entityId];
           if (!position) return null;
 
@@ -1180,7 +1262,7 @@ const VisualizationComponent = ({
           const entityBoxHeight = 120;
           const headerHeight = 40;
           const entityHeight = position.showAttributes
-            ? headerHeight + (entity.attributes.length * 20) + 20
+            ? headerHeight + (ent.attributes.length * 20) + 20
             : headerHeight;
 
           return (
@@ -1192,7 +1274,7 @@ const VisualizationComponent = ({
               onClick={(e) => {
                 // Only navigate if the entity wasn't dragged
                 if (!isDraggingRef.current) {
-                  navigate(`/services/${entity.microservice}/entities/${entity.name}`);
+                  navigate(`/services/${svc}/entities/${ent.name}`);
                 }
                 // Reset the dragging flag after click
                 isDraggingRef.current = false;
@@ -1211,7 +1293,7 @@ const VisualizationComponent = ({
                   className="hover:stroke-blue-400 transition-colors"
                 />
               )}
-              
+
               {/* Always render the header */}
               <rect
                 width="300"
@@ -1222,8 +1304,7 @@ const VisualizationComponent = ({
                 rx="8"
                 className="hover:fill-blue-50 transition-colors"
               />
-              
-              {/* Entity title */}
+
               {/* Entity title with truncation and tooltip */}
               <text
                 x={entityBoxWidth / 2 - 20}
@@ -1241,14 +1322,14 @@ const VisualizationComponent = ({
                   display: 'inline-block'
                 }}
               >
-                <title>{entity.microservice}/{entity.name}</title>
-                {`${entity.microservice}/${entity.name}`.length > 28
-                  ? `${entity.name}`.slice(0, 25) + '...'
-                  : `${entity.name}`}
+                <title>{svc}/{ent.name}</title>
+                {`${svc}/${ent.name}`.length > 28
+                  ? `${ent.name}`.slice(0, 25) + '...'
+                  : `${ent.name}`}
               </text>
 
               {/* Attributes */}
-              {position.showAttributes && entity.attributes.map((attr, index) => (
+              {position.showAttributes && ent.attributes.map((attr, index) => (
                 <g key={attr.uuid}>
                   <text
                     x="10"
@@ -1274,7 +1355,7 @@ const VisualizationComponent = ({
                 className="hover:fill-blue-500 transition-colors cursor-pointer"
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleContextMenuAction('toggleAttributes', entity);
+                  handleContextMenuAction('toggleAttributes', ent);
                 }}
               />
               <text
@@ -1292,6 +1373,11 @@ const VisualizationComponent = ({
         })}
       </svg>
     );
+  };
+
+  // Helper to get the service for the tooltip/context-menu entity
+  const getTooltipEntityService = (ent: Entity): string => {
+    return entityServiceMap[ent.uuid] || service || '';
   };
 
   return (
@@ -1473,7 +1559,7 @@ const VisualizationComponent = ({
                 {renderCustomDiagram()}
               </div>
             )}
-            
+
             {/* Entity Tooltip */}
             {tooltip.visible && (
               <div
@@ -1485,7 +1571,7 @@ const VisualizationComponent = ({
                 }}
               >
                 <div className="font-semibold text-sm mb-1">
-                  {tooltip.entity.microservice}/{tooltip.entity.name}
+                  {getTooltipEntityService(tooltip.entity)}/{tooltip.entity.name}
                 </div>
                 <div className="text-xs text-base-content/70 mb-2">
                   {tooltip.entity.description}
@@ -1495,15 +1581,15 @@ const VisualizationComponent = ({
                     <span className="font-medium">Attributes:</span> {tooltip.entity.attributes?.length || 0}
                   </div>
                   <div>
-                    <span className="font-medium">Relationships:</span> {tooltip.entity.relationships?.length || 0}
+                    <span className="font-medium">Relationships:</span> {tooltip.entity.uuid ? getEntityRelationships(tooltip.entity.uuid).length : 0}
                   </div>
                 </div>
                 <div className="text-xs text-primary mt-2">
-                  Click to view details • Right-click for options
+                  Click to view details - Right-click for options
                 </div>
               </div>
             )}
-            
+
             {/* Context Menu */}
             {contextMenu.visible && (
               <div
@@ -1540,7 +1626,7 @@ const VisualizationComponent = ({
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                   </svg>
-                  View Service: {contextMenu.entity.microservice}
+                  View Service: {getTooltipEntityService(contextMenu.entity)}
                 </button>
                 <button
                   className="w-full px-4 py-2 text-left text-sm hover:bg-base-200 flex items-center gap-2"
@@ -1565,12 +1651,12 @@ const VisualizationComponent = ({
             )}
           </div>
         )}
-        
+
         {/* Help text */}
         <div className="text-xs text-base-content/60 mt-2">
-          💡 {useMermaid
+          {useMermaid
             ? 'Click entities to view details, right-click for more options, hover for quick info. Use the "Show/Hide Attributes" button to toggle attribute visibility.'
-            : 'Drag entities to move them around, click to view details, right-click for options. Try different layout algorithms (Grid, Circular, Force-Directed) and toggle microservice grouping for better visualization. Save your layouts for future use. Different relationship types are color-coded with cardinality indicators.'
+            : 'Drag entities to move them around, click to view details, right-click for options. Try different layout algorithms (Grid, Circular, Force-Directed) and toggle microservice grouping for better visualization. Save your layouts for future use. Cardinality indicators (1, N) are shown on relationship lines.'
           }
         </div>
       </div>

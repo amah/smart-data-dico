@@ -13,36 +13,53 @@ export enum AttributeType {
   DATETIME = 'datetime',
   DATE = 'date',
   TIME = 'time',
+  DATE_TIME = 'date-time',
+  TIMESTAMP = 'timestamp',
+  DURATION = 'duration',
   ENUM = 'enum',
   OBJECT = 'object',
-  ARRAY = 'array',
-  REFERENCE = 'reference'
+  ARRAY = 'array'
 }
 
 /**
- * Supported relationship types between entities
+ * Cardinality for relationship ends
  */
-export enum RelationshipType {
-  HAS_ONE = 'hasOne',
-  HAS_MANY = 'hasMany',
-  BELONGS_TO = 'belongsTo',
-  MANY_TO_MANY = 'manyToMany'
+export enum Cardinality {
+  ONE = 'one',
+  MANY = 'many'
 }
 
 /**
- * Interface for entity attribute definition
+ * Metadata value types for typed metadata definitions
  */
-export interface EntityAttribute {
-  uuid: string;
+export enum MetadataValueType {
+  STRING = 'string',
+  NUMBER = 'number',
+  BOOLEAN = 'boolean',
+  DATE = 'date'
+}
+
+/**
+ * A metadata definition (schema for metadata entries)
+ */
+export interface MetadataDefinition {
   name: string;
-  description: string;
-  type: AttributeType;
-  required: boolean;
-  unique?: boolean;
-  defaultValue?: any;
-  examples?: any[];
-  
-  // Type-specific metadata
+  type: MetadataValueType;
+  description?: string;
+}
+
+/**
+ * A typed metadata entry
+ */
+export interface MetadataEntry {
+  name: string;
+  value: string | number | boolean;
+}
+
+/**
+ * Grouped constraint fields for attributes
+ */
+export interface AttributeConstraints {
   minLength?: number;
   maxLength?: number;
   pattern?: string;
@@ -52,72 +69,78 @@ export interface EntityAttribute {
   precision?: number;
   scale?: number;
   enumValues?: string[];
-  
-  // For object and array types
-  items?: EntityAttribute;
-  properties?: Record<string, EntityAttribute>;
-  
-  // Additional metadata
-  metadata?: Record<string, any>;
 }
 
 /**
- * Interface for entity relationship definition
+ * Interface for entity attribute definition
  */
-export interface EntityRelationship {
+export interface Attribute {
   uuid: string;
   name: string;
   description: string;
-  type: RelationshipType;
-  target: string;
-  inverseName?: string;
+  type: AttributeType;
   required: boolean;
-  
-  // Foreign key information
-  foreignKey?: string;
-  
-  // Additional metadata
-  metadata?: Record<string, any>;
+  unique?: boolean;
+  primaryKey?: boolean;
+  defaultValue?: any;
+  examples?: any[];
+  constraints?: AttributeConstraints;
+
+  // For object and array types
+  items?: Attribute;
+  properties?: Attribute[];
+
+  // Typed metadata
+  metadata?: MetadataEntry[];
+}
+
+/**
+ * One end of a relationship
+ */
+export interface RelationshipEnd {
+  entity: string; // UUID of the entity
+  cardinality: Cardinality;
+  name?: string; // Navigation property name
+  referenceAttributes?: string[];
+}
+
+/**
+ * A relationship between two entities, stored at package level
+ */
+export interface Relationship {
+  uuid: string;
+  description?: string;
+  source: RelationshipEnd;
+  target: RelationshipEnd;
+  metadata?: MetadataEntry[];
 }
 
 /**
  * Interface for entity definition
  */
-/**
- * Interface for entity definition.
- * Now supports an optional packageId to indicate the parent package.
- */
 export interface Entity {
   uuid: string;
-  id: string; // Keep for backward compatibility, but UUID is primary reference
   name: string;
-  description: string;
-  microservice: string;
-  version: string;
-  /**
-   * Optional: the ID of the parent package this entity belongs to.
-   */
-  packageId?: string;
-  attributes: EntityAttribute[];
-  relationships?: EntityRelationship[];
-  metadata?: Record<string, any>;
+  description?: string;
+  attributes: Attribute[];
+  metadata?: MetadataEntry[];
   createdAt?: string;
   updatedAt?: string;
 }
+
+// Backward-compatible alias
+export type EntityAttribute = Attribute;
 
 /**
  * JSON Schema for validating entity definitions
  */
 export const entitySchema: Schema = {
   type: 'object',
-  required: ['uuid', 'id', 'name', 'description', 'microservice', 'version', 'attributes'],
+  required: ['uuid', 'name', 'attributes'],
   properties: {
     uuid: { type: 'string', pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' },
-    id: { type: 'string' },
     name: { type: 'string' },
     description: { type: 'string' },
-    microservice: { type: 'string' },
-    version: { type: 'string' },
     attributes: {
       type: 'array',
       items: {
@@ -133,85 +156,113 @@ export const entitySchema: Schema = {
           },
           required: { type: 'boolean' },
           unique: { type: 'boolean' },
+          primaryKey: { type: 'boolean' },
           defaultValue: { },
           examples: { type: 'array' },
-          minLength: { type: 'integer', minimum: 0 },
-          maxLength: { type: 'integer', minimum: 0 },
-          pattern: { type: 'string' },
-          format: { type: 'string' },
-          minimum: { type: 'number' },
-          maximum: { type: 'number' },
-          precision: { type: 'integer', minimum: 0 },
-          scale: { type: 'integer', minimum: 0 },
-          enumValues: {
-            type: 'array',
-            items: { type: 'string' }
+          constraints: {
+            type: 'object',
+            properties: {
+              minLength: { type: 'integer', minimum: 0 },
+              maxLength: { type: 'integer', minimum: 0 },
+              pattern: { type: 'string' },
+              format: { type: 'string' },
+              minimum: { type: 'number' },
+              maximum: { type: 'number' },
+              precision: { type: 'integer', minimum: 0 },
+              scale: { type: 'integer', minimum: 0 },
+              enumValues: {
+                type: 'array',
+                items: { type: 'string' }
+              }
+            }
           },
           items: { type: 'object' },
-          properties: { type: 'object' },
-          metadata: { type: 'object' }
+          properties: { type: 'array' },
+          metadata: { type: 'array' }
         }
       }
     },
-    relationships: {
-      type: 'array',
-      items: {
-        type: 'object',
-        required: ['uuid', 'name', 'description', 'type', 'target', 'required'],
-        properties: {
-          uuid: { type: 'string', pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' },
-          name: { type: 'string' },
-          description: { type: 'string' },
-          type: {
-            type: 'string',
-            enum: Object.values(RelationshipType)
-          },
-          target: { type: 'string' },
-          inverseName: { type: 'string' },
-          required: { type: 'boolean' },
-          foreignKey: { type: 'string' },
-          metadata: { type: 'object' }
-        }
-      }
-    },
-    metadata: { type: 'object' },
+    metadata: { type: 'array' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' }
   }
 };
 
 /**
+ * JSON Schema for validating relationship definitions
+ */
+export const relationshipSchema: Schema = {
+  type: 'object',
+  required: ['uuid', 'source', 'target'],
+  properties: {
+    uuid: { type: 'string', pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' },
+    description: { type: 'string' },
+    source: {
+      type: 'object',
+      required: ['entity', 'cardinality'],
+      properties: {
+        entity: { type: 'string' },
+        cardinality: { type: 'string', enum: Object.values(Cardinality) },
+        name: { type: 'string' },
+        referenceAttributes: { type: 'array', items: { type: 'string' } }
+      }
+    },
+    target: {
+      type: 'object',
+      required: ['entity', 'cardinality'],
+      properties: {
+        entity: { type: 'string' },
+        cardinality: { type: 'string', enum: Object.values(Cardinality) },
+        name: { type: 'string' },
+        referenceAttributes: { type: 'array', items: { type: 'string' } }
+      }
+    },
+    metadata: { type: 'array' }
+  }
+};
+
+/**
  * Validates an entity definition against the schema
- * @param entity Entity to validate
- * @returns Validation result
  */
 export function validateEntity(entity: Entity): { valid: boolean; errors: string[] } {
   const validator = new Validator();
   const result = validator.validate(entity, entitySchema);
-  
+
   const errors: string[] = result.errors.map((error: any) => error.stack);
-  
+
   // Additional UUID validation
   if (!isValidUUID(entity.uuid)) {
     errors.push('Entity UUID is invalid');
   }
-  
+
   // Validate attribute UUIDs
-  entity.attributes.forEach((attr, index) => {
-    if (!isValidUUID(attr.uuid)) {
-      errors.push(`Attribute ${index} UUID is invalid`);
-    }
-  });
-  
-  // Validate relationship UUIDs
-  if (entity.relationships) {
-    entity.relationships.forEach((rel, index) => {
-      if (!isValidUUID(rel.uuid)) {
-        errors.push(`Relationship ${index} UUID is invalid`);
+  if (entity.attributes) {
+    entity.attributes.forEach((attr, index) => {
+      if (!isValidUUID(attr.uuid)) {
+        errors.push(`Attribute ${index} UUID is invalid`);
       }
     });
   }
-  
+
+  return {
+    valid: result.valid && errors.length === 0,
+    errors
+  };
+}
+
+/**
+ * Validates a relationship definition against the schema
+ */
+export function validateRelationship(relationship: Relationship): { valid: boolean; errors: string[] } {
+  const validator = new Validator();
+  const result = validator.validate(relationship, relationshipSchema);
+
+  const errors: string[] = result.errors.map((error: any) => error.stack);
+
+  if (!isValidUUID(relationship.uuid)) {
+    errors.push('Relationship UUID is invalid');
+  }
+
   return {
     valid: result.valid && errors.length === 0,
     errors
@@ -220,12 +271,9 @@ export function validateEntity(entity: Entity): { valid: boolean; errors: string
 
 /**
  * Creates a new entity with UUIDs for all components
- * @param entityData Partial entity data
- * @returns Complete entity with UUIDs
  */
-export function createEntityWithUUIDs(entityData: Omit<Entity, 'uuid' | 'attributes' | 'relationships'> & {
-  attributes: Omit<EntityAttribute, 'uuid'>[];
-  relationships?: Omit<EntityRelationship, 'uuid'>[];
+export function createEntityWithUUIDs(entityData: Omit<Entity, 'uuid' | 'attributes'> & {
+  attributes: Omit<Attribute, 'uuid'>[];
 }): Entity {
   return {
     ...entityData,
@@ -233,18 +281,11 @@ export function createEntityWithUUIDs(entityData: Omit<Entity, 'uuid' | 'attribu
     attributes: entityData.attributes.map(attr => ({
       ...attr,
       uuid: generateUUID(),
-      // Recursively add UUIDs to nested properties if they exist
-      properties: attr.properties ? Object.fromEntries(
-        Object.entries(attr.properties).map(([key, prop]) => [
-          key,
-          { ...prop, uuid: generateUUID() }
-        ])
-      ) : attr.properties,
-      items: attr.items ? { ...attr.items, uuid: generateUUID() } : attr.items
-    })),
-    relationships: entityData.relationships?.map(rel => ({
-      ...rel,
-      uuid: generateUUID()
-    })) || []
+      properties: attr.properties ? attr.properties.map(prop => ({
+        ...prop,
+        uuid: prop.uuid || generateUUID()
+      })) : attr.properties,
+      items: attr.items ? { ...attr.items, uuid: attr.items.uuid || generateUUID() } : attr.items
+    }))
   };
 }

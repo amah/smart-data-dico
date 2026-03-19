@@ -55,7 +55,7 @@ const PackageFlatTable = () => {
                   <tr key={pkg.id}>
                     <td>{pkg.name}</td>
                     <td className="max-w-xs truncate">{pkg.description}</td>
-                    <td>{pkg.metadata?.microservice || '-'}</td>
+                    <td>{pkg.type || '-'}</td>
                     <td>{pkg.entities?.length ?? 0}</td>
                     <td>{pkg.createdAt ? new Date(pkg.createdAt).toLocaleString() : '-'}</td>
                     <td>{pkg.updatedAt ? new Date(pkg.updatedAt).toLocaleString() : '-'}</td>

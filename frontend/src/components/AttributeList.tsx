@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { EntityAttribute, AttributeType } from '../types';
+import { Attribute, AttributeType } from '../types';
 
 interface AttributeListProps {
-  attributes: EntityAttribute[];
+  attributes: Attribute[];
   entityName: string;
   serviceName: string;
 }
@@ -13,12 +13,12 @@ const AttributeList = ({ attributes, entityName, serviceName }: AttributeListPro
   const [filterType, setFilterType] = useState<AttributeType | 'all'>('all');
 
   const filteredAttributes = attributes.filter(attr => {
-    const matchesSearch = searchTerm === '' || 
+    const matchesSearch = searchTerm === '' ||
       attr.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       attr.description.toLowerCase().includes(searchTerm.toLowerCase());
-    
+
     const matchesType = filterType === 'all' || attr.type === filterType;
-    
+
     return matchesSearch && matchesType;
   });
 
@@ -34,14 +34,15 @@ const AttributeList = ({ attributes, entityName, serviceName }: AttributeListPro
       case AttributeType.DATETIME:
       case AttributeType.DATE:
       case AttributeType.TIME:
+      case AttributeType.DATE_TIME:
+      case AttributeType.TIMESTAMP:
+      case AttributeType.DURATION:
         return 'badge-info';
       case AttributeType.ENUM:
         return 'badge-warning';
       case AttributeType.OBJECT:
       case AttributeType.ARRAY:
         return 'badge-success';
-      case AttributeType.REFERENCE:
-        return 'badge-neutral';
       default:
         return 'badge-ghost';
     }
@@ -52,15 +53,15 @@ const AttributeList = ({ attributes, entityName, serviceName }: AttributeListPro
       <div className="flex flex-col md:flex-row gap-4 mb-4">
         <div className="form-control flex-1">
           <div className="input-group">
-            <input 
-              type="text" 
-              placeholder="Search attributes..." 
+            <input
+              type="text"
+              placeholder="Search attributes..."
               className="input input-bordered w-full"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
             {searchTerm && (
-              <button 
+              <button
                 className="btn btn-square"
                 onClick={() => setSearchTerm('')}
               >
@@ -71,8 +72,8 @@ const AttributeList = ({ attributes, entityName, serviceName }: AttributeListPro
             )}
           </div>
         </div>
-        
-        <select 
+
+        <select
           className="select select-bordered"
           value={filterType}
           onChange={(e) => setFilterType(e.target.value as AttributeType | 'all')}
@@ -100,14 +101,19 @@ const AttributeList = ({ attributes, entityName, serviceName }: AttributeListPro
                 <th>Type</th>
                 <th>Description</th>
                 <th>Required</th>
-                <th>Format/Constraints</th>
+                <th>Constraints</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {filteredAttributes.map((attr) => (
                 <tr key={attr.name} className="hover">
-                  <td className="font-medium">{attr.name}</td>
+                  <td className="font-medium">
+                    {attr.name}
+                    {attr.primaryKey && (
+                      <span className="badge badge-xs badge-warning ml-1" title="Primary Key">PK</span>
+                    )}
+                  </td>
                   <td>
                     <span className={`badge ${getTypeColor(attr.type)}`}>
                       {attr.type}
@@ -122,20 +128,21 @@ const AttributeList = ({ attributes, entityName, serviceName }: AttributeListPro
                     )}
                   </td>
                   <td>
-                    {attr.format && <div><span className="font-medium">Format:</span> {attr.format}</div>}
-                    {attr.minLength !== undefined && <div><span className="font-medium">Min Length:</span> {attr.minLength}</div>}
-                    {attr.maxLength !== undefined && <div><span className="font-medium">Max Length:</span> {attr.maxLength}</div>}
-                    {attr.minimum !== undefined && <div><span className="font-medium">Min:</span> {attr.minimum}</div>}
-                    {attr.maximum !== undefined && <div><span className="font-medium">Max:</span> {attr.maximum}</div>}
-                    {attr.pattern && <div><span className="font-medium">Pattern:</span> {attr.pattern}</div>}
-                    {attr.enumValues && attr.enumValues.length > 0 && (
+                    {attr.constraints?.format && <div><span className="font-medium">Format:</span> {attr.constraints.format}</div>}
+                    {attr.constraints?.minLength !== undefined && <div><span className="font-medium">Min Length:</span> {attr.constraints.minLength}</div>}
+                    {attr.constraints?.maxLength !== undefined && <div><span className="font-medium">Max Length:</span> {attr.constraints.maxLength}</div>}
+                    {attr.constraints?.minimum !== undefined && <div><span className="font-medium">Min:</span> {attr.constraints.minimum}</div>}
+                    {attr.constraints?.maximum !== undefined && <div><span className="font-medium">Max:</span> {attr.constraints.maximum}</div>}
+                    {attr.constraints?.pattern && <div><span className="font-medium">Pattern:</span> {attr.constraints.pattern}</div>}
+                    {attr.constraints?.enumValues && attr.constraints.enumValues.length > 0 && (
                       <div>
-                        <span className="font-medium">Values:</span> {attr.enumValues.join(', ')}
+                        <span className="font-medium">Values:</span> {attr.constraints.enumValues.join(', ')}
                       </div>
                     )}
+                    {!attr.constraints && '-'}
                   </td>
                   <td>
-                    <Link 
+                    <Link
                       to={`/services/${serviceName}/entities/${entityName}/attributes/${attr.name}/edit`}
                       className="btn btn-sm btn-ghost btn-square"
                       title="Edit"
@@ -153,7 +160,7 @@ const AttributeList = ({ attributes, entityName, serviceName }: AttributeListPro
       )}
 
       <div className="mt-6">
-        <Link 
+        <Link
           to={`/services/${serviceName}/entities/${entityName}/attributes/create`}
           className="btn btn-primary"
         >

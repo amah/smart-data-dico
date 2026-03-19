@@ -1,14 +1,103 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useForm, Controller } from 'react-hook-form';
-import { EntityAttribute, AttributeType } from '../types';
+import { Attribute, AttributeType, AttributeConstraints } from '../types';
 import { servicesApi } from '../services/api';
 
 interface AttributeEditorProps {
   isEdit?: boolean;
-  initialData?: EntityAttribute;
-  onSave?: (attribute: EntityAttribute) => Promise<void>;
+  initialData?: Attribute;
+  onSave?: (attribute: Attribute) => Promise<void>;
 }
+
+/**
+ * Flatten an Attribute (with nested constraints) into a flat form shape
+ * so that react-hook-form fields stay simple.
+ */
+interface AttributeFormValues {
+  name: string;
+  description: string;
+  type: AttributeType;
+  required: boolean;
+  unique?: boolean;
+  primaryKey?: boolean;
+  defaultValue?: any;
+  examples?: any[];
+  // Constraints – kept flat in the form for convenience
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  format?: string;
+  minimum?: number;
+  maximum?: number;
+  precision?: number;
+  scale?: number;
+  enumValues?: string[];
+  // Metadata as array of {name, value}
+  metadata?: { name: string; value: string | number | boolean }[];
+}
+
+function attributeToFormValues(attr: Attribute): AttributeFormValues {
+  return {
+    name: attr.name,
+    description: attr.description,
+    type: attr.type,
+    required: attr.required,
+    unique: attr.unique,
+    primaryKey: attr.primaryKey,
+    defaultValue: attr.defaultValue,
+    examples: attr.examples,
+    minLength: attr.constraints?.minLength,
+    maxLength: attr.constraints?.maxLength,
+    pattern: attr.constraints?.pattern,
+    format: attr.constraints?.format,
+    minimum: attr.constraints?.minimum,
+    maximum: attr.constraints?.maximum,
+    precision: attr.constraints?.precision,
+    scale: attr.constraints?.scale,
+    enumValues: attr.constraints?.enumValues,
+    metadata: attr.metadata,
+  };
+}
+
+function formValuesToAttribute(data: AttributeFormValues): Attribute {
+  const constraints: AttributeConstraints = {};
+  if (data.minLength !== undefined && !isNaN(data.minLength)) constraints.minLength = data.minLength;
+  if (data.maxLength !== undefined && !isNaN(data.maxLength)) constraints.maxLength = data.maxLength;
+  if (data.pattern) constraints.pattern = data.pattern;
+  if (data.format) constraints.format = data.format;
+  if (data.minimum !== undefined && !isNaN(data.minimum)) constraints.minimum = data.minimum;
+  if (data.maximum !== undefined && !isNaN(data.maximum)) constraints.maximum = data.maximum;
+  if (data.precision !== undefined && !isNaN(data.precision)) constraints.precision = data.precision;
+  if (data.scale !== undefined && !isNaN(data.scale)) constraints.scale = data.scale;
+  if (data.enumValues && data.enumValues.length > 0) constraints.enumValues = data.enumValues;
+
+  const attr: Attribute = {
+    uuid: '', // Will be set by the backend or preserved from initialData
+    name: data.name,
+    description: data.description,
+    type: data.type,
+    required: data.required,
+  };
+
+  if (data.unique) attr.unique = data.unique;
+  if (data.primaryKey) attr.primaryKey = data.primaryKey;
+  if (data.defaultValue !== undefined && data.defaultValue !== '') attr.defaultValue = data.defaultValue;
+  if (data.examples && data.examples.length > 0) attr.examples = data.examples;
+  if (Object.keys(constraints).length > 0) attr.constraints = constraints;
+  if (data.metadata && data.metadata.length > 0) attr.metadata = data.metadata;
+
+  return attr;
+}
+
+const defaultFormValues: AttributeFormValues = {
+  name: '',
+  description: '',
+  type: AttributeType.STRING,
+  required: false,
+  unique: false,
+  primaryKey: false,
+};
 
 const AttributeEditor = ({ isEdit = false, initialData, onSave }: AttributeEditorProps) => {
   const { service, entity } = useParams<{ service: string; entity: string }>();
@@ -19,20 +108,14 @@ const AttributeEditor = ({ isEdit = false, initialData, onSave }: AttributeEdito
     initialData?.type || AttributeType.STRING
   );
 
-  const { register, handleSubmit, control, formState: { errors }, reset, watch } = useForm<EntityAttribute>({
-    defaultValues: initialData || {
-      name: '',
-      description: '',
-      type: AttributeType.STRING,
-      required: false,
-      unique: false
-    }
+  const { register, handleSubmit, control, formState: { errors }, reset, watch } = useForm<AttributeFormValues>({
+    defaultValues: initialData ? attributeToFormValues(initialData) : defaultFormValues
   });
 
   // Reset form when initialData changes
   useEffect(() => {
     if (initialData) {
-      reset(initialData);
+      reset(attributeToFormValues(initialData));
       setSelectedType(initialData.type);
     }
   }, [initialData, reset]);
@@ -43,7 +126,7 @@ const AttributeEditor = ({ isEdit = false, initialData, onSave }: AttributeEdito
     setSelectedType(watchedType as AttributeType);
   }, [watchedType]);
 
-  const onSubmit = async (data: EntityAttribute) => {
+  const onSubmit = async (data: AttributeFormValues) => {
     if (!service || !entity) {
       setError('Service and entity names are required');
       return;
@@ -53,34 +136,11 @@ const AttributeEditor = ({ isEdit = false, initialData, onSave }: AttributeEdito
       setLoading(true);
       setError(null);
 
-      // Clean the data by removing NaN values and undefined optional fields
-      const cleanedData = { ...data };
-      
-      // Remove NaN values for numeric fields
-      const numericFields = ['minLength', 'maxLength', 'minimum', 'maximum', 'precision', 'scale'];
-      numericFields.forEach(field => {
-        if (cleanedData[field as keyof EntityAttribute] !== undefined) {
-          const value = cleanedData[field as keyof EntityAttribute] as number;
-          if (isNaN(value) || value === null) {
-            delete cleanedData[field as keyof EntityAttribute];
-          }
-        }
-      });
+      const cleanedData = formValuesToAttribute(data);
 
-      // Remove empty string values for optional string fields
-      const optionalStringFields = ['pattern', 'format', 'defaultValue'];
-      optionalStringFields.forEach(field => {
-        if (cleanedData[field as keyof EntityAttribute] === '') {
-          delete cleanedData[field as keyof EntityAttribute];
-        }
-      });
-
-      // Remove empty arrays
-      if (cleanedData.examples && cleanedData.examples.length === 0) {
-        delete cleanedData.examples;
-      }
-      if (cleanedData.enumValues && cleanedData.enumValues.length === 0) {
-        delete cleanedData.enumValues;
+      // Preserve uuid from initialData when editing
+      if (initialData?.uuid) {
+        cleanedData.uuid = initialData.uuid;
       }
 
       // If onSave prop is provided, use it
@@ -93,7 +153,7 @@ const AttributeEditor = ({ isEdit = false, initialData, onSave }: AttributeEdito
 
         if (isEdit) {
           // Update existing attribute
-          const index = entityData.attributes.findIndex((attr: EntityAttribute) => attr.name === cleanedData.name);
+          const index = entityData.attributes.findIndex((attr: Attribute) => attr.name === cleanedData.name);
           if (index !== -1) {
             entityData.attributes[index] = cleanedData;
           } else {
@@ -209,7 +269,18 @@ const AttributeEditor = ({ isEdit = false, initialData, onSave }: AttributeEdito
               </label>
             </div>
 
-            {/* Type-specific fields */}
+            <div className="form-control">
+              <label className="label cursor-pointer">
+                <span className="label-text">Primary Key</span>
+                <input
+                  type="checkbox"
+                  className="toggle toggle-primary"
+                  {...register('primaryKey')}
+                />
+              </label>
+            </div>
+
+            {/* Type-specific constraint fields */}
             {(selectedType === AttributeType.STRING) && (
               <>
                 <div className="form-control">

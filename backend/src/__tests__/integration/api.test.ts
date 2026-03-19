@@ -80,11 +80,10 @@ describe('API Integration Tests', () => {
       const response = await request(app)
         .post('/api/services/user-service/entities')
         .send({
+          uuid: 'a38d1597-cc4f-4934-bb08-c876c023f693',
           name: 'NewEntity',
           description: 'A new entity',
-          microservice: 'user-service',
-          version: '1.0.0',
-          attributes: [{ name: 'id', description: 'ID', type: 'string', required: true }],
+          attributes: [{ uuid: 'b49e2608-dd5f-4045-aa09-d464c234e694', name: 'id', description: 'ID', type: 'string', required: true }],
         });
       expect(response.status).toBe(201);
     });
@@ -93,11 +92,10 @@ describe('API Integration Tests', () => {
       const response = await request(app)
         .put('/api/services/user-service/entities/User')
         .send({
+          uuid: 'a38d1597-cc4f-4934-bb08-c876c023f693',
           name: 'User',
           description: 'Updated user',
-          microservice: 'user-service',
-          version: '1.0.1',
-          attributes: [{ name: 'id', description: 'ID', type: 'string', required: true }],
+          attributes: [{ uuid: 'b49e2608-dd5f-4045-aa09-d464c234e694', name: 'id', description: 'ID', type: 'string', required: true }],
         });
       expect(response.status).toBe(200);
     });
@@ -138,6 +136,14 @@ describe('API Integration Tests', () => {
         .post('/api/revert')
         .send({ commitHash: 'mock-commit-1' });
       expect(response.status).toBe(200);
+    });
+  });
+
+  describe('Relationship Endpoints', () => {
+    it('GET /api/packages/:packageName/relationships should return relationships', async () => {
+      const response = await request(app).get('/api/packages/user-service/relationships');
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('data');
     });
   });
 });

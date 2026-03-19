@@ -10,11 +10,10 @@ class ServiceServiceMock {
     const serviceEntities: Record<string, any[]> = {
       'user-service': [
         {
-          id: 'User', uuid: 'a38d1597-cc4f-4934-bb08-c876c023f693',
+          uuid: 'a38d1597-cc4f-4934-bb08-c876c023f693',
           name: 'User', description: 'User entity',
-          microservice: 'user-service', version: '1.0.0',
           attributes: [
-            { uuid: 'b49e2608-dd5f-4045-aa09-d464c234e694', name: 'id', description: 'User ID', type: AttributeType.STRING, required: true },
+            { uuid: 'b49e2608-dd5f-4045-aa09-d464c234e694', name: 'id', description: 'User ID', type: AttributeType.STRING, required: true, primaryKey: true },
             { uuid: 'c5af3719-ee6f-4156-bb1a-e575d345f7a5', name: 'email', description: 'User email', type: AttributeType.STRING, required: true },
           ],
         },
@@ -28,11 +27,10 @@ class ServiceServiceMock {
   async getEntitySchema(service: string, entity: string) {
     if (service === 'user-service' && entity === 'User') {
       return {
-        id: 'User', uuid: 'a38d1597-cc4f-4934-bb08-c876c023f693',
+        uuid: 'a38d1597-cc4f-4934-bb08-c876c023f693',
         name: 'User', description: 'User entity',
-        microservice: 'user-service', version: '1.0.0',
         attributes: [
-          { uuid: 'b49e2608-dd5f-4045-aa09-d464c234e694', name: 'id', description: 'User ID', type: AttributeType.STRING, required: true },
+          { uuid: 'b49e2608-dd5f-4045-aa09-d464c234e694', name: 'id', description: 'User ID', type: AttributeType.STRING, required: true, primaryKey: true },
           { uuid: 'c5af3719-ee6f-4156-bb1a-e575d345f7a5', name: 'email', description: 'User email', type: AttributeType.STRING, required: true },
         ],
       };
@@ -40,11 +38,11 @@ class ServiceServiceMock {
     return null;
   }
 
-  async createEntity(entity: any) {
+  async createEntity(service: string, entity: any) {
     return { success: true, errors: [] };
   }
 
-  async updateEntity(entity: any) {
+  async updateEntity(service: string, entity: any) {
     return { success: true, errors: [] };
   }
 
@@ -68,6 +66,22 @@ class ServiceServiceMock {
         { source: 'User', target: 'Profile', label: 'hasOne' },
       ],
     };
+  }
+
+  async getPackageRelationships(packageName: string) {
+    return [];
+  }
+
+  async createRelationship(packageName: string, relationship: any) {
+    return { success: true, errors: [], relationship };
+  }
+
+  async updateRelationship(packageName: string, uuid: string, relationship: any) {
+    return { success: true, errors: [] };
+  }
+
+  async deleteRelationship(packageName: string, uuid: string) {
+    return { success: true, errors: [] };
   }
 }
 

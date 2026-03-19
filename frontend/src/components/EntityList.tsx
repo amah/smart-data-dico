@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { servicesApi } from '../services/api';
-import { Entity } from '../types';
+import type { Entity } from '../types';
 
 const EntityList = () => {
   const { service } = useParams<{ service: string }>();
@@ -109,14 +109,12 @@ const EntityList = () => {
                   <th>Name</th>
                   <th>Description</th>
                   <th>Attributes</th>
-                  <th>Relationships</th>
-                  <th>Version</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
               {entities.map((entity) => (
-                <tr key={entity.id} className="hover">
+                <tr key={entity.uuid} className="hover">
                   <td>
                     <Link 
                       to={`/services/${service}/entities/${entity.name}`}
@@ -127,8 +125,6 @@ const EntityList = () => {
                   </td>
                   <td className="max-w-xs truncate">{entity.description}</td>
                   <td>{entity.attributes.length}</td>
-                  <td>{entity.relationships?.length || 0}</td>
-                  <td>{entity.version}</td>
                   <td>
                     <div className="flex gap-2">
                       <Link
@@ -183,7 +179,7 @@ const EntityList = () => {
           {/* Mobile view - cards instead of table */}
           <div className="sm:hidden space-y-4 p-4">
             {entities.map((entity) => (
-              <div key={entity.id} className="card bg-base-100 shadow-md">
+              <div key={entity.uuid} className="card bg-base-100 shadow-md">
                 <div className="card-body p-4">
                   <h2 className="card-title text-lg">
                     <Link
@@ -194,15 +190,9 @@ const EntityList = () => {
                     </Link>
                   </h2>
                   <p className="text-sm text-gray-600">{entity.description}</p>
-                  <div className="grid grid-cols-2 gap-2 my-2">
+                  <div className="my-2">
                     <div className="text-xs">
                       <span className="font-semibold">Attributes:</span> {entity.attributes.length}
-                    </div>
-                    <div className="text-xs">
-                      <span className="font-semibold">Relationships:</span> {entity.relationships?.length || 0}
-                    </div>
-                    <div className="text-xs">
-                      <span className="font-semibold">Version:</span> {entity.version}
                     </div>
                   </div>
                   <div className="card-actions justify-end mt-2">

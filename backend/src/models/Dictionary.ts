@@ -1,42 +1,38 @@
-import { Entity } from './EntitySchema.js';
+import { Entity, MetadataDefinition, MetadataEntry, Relationship } from './EntitySchema.js';
+
+/**
+ * Package type annotation
+ */
+export enum PackageType {
+  PROJECT = 'project',
+  MICROSERVICE = 'microservice',
+  MODULE = 'module'
+}
 
 /**
  * Represents a hierarchical package, which can contain subpackages and/or entities.
- * The 'type' annotation distinguishes the package type (e.g., project, microservice, module).
  */
 export interface Package {
   id: string;
   name: string;
   description?: string;
-  type?: string; // Annotation: project, microservice, module, etc.
+  type?: PackageType | string;
   entities: Entity[];
   subPackages: Package[];
-  metadata?: Record<string, any>;
+  relationships: Relationship[];
+  metadata?: MetadataEntry[];
 }
 
 /**
  * Dictionary model interface.
- * Now supports a hierarchy of packages via the rootPackage property.
+ * Supports a hierarchy of packages via the rootPackage property.
  */
 export interface Dictionary {
   id: string;
   name: string;
   description?: string;
-  version?: string;
+  metadataDefinitions?: MetadataDefinition[];
   createdAt?: Date;
   updatedAt?: Date;
   rootPackage: Package;
-}
-
-// Dictionary entry interface (legacy, may be used for flat APIs)
-export interface DictionaryEntry {
-  id: string;
-  name: string;
-  description: string;
-  type: string;
-  format?: string;
-  required?: boolean;
-  defaultValue?: any;
-  examples?: string[];
-  metadata?: Record<string, any>;
 }

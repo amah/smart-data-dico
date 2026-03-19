@@ -1,13 +1,11 @@
 import { useEffect, useState } from 'react';
 import { entityApi } from '../services/api';
-import { EntityAttribute, Package, Entity } from '../types';
+import { Attribute, Package } from '../types';
 
 interface FlatAttribute {
-  attribute: EntityAttribute;
+  attribute: Attribute;
   entityName: string;
   packageName: string;
-  microservice: string;
-  entityVersion: string;
 }
 
 const AttributeFlatTable = () => {
@@ -31,8 +29,6 @@ const AttributeFlatTable = () => {
                     attribute: attr,
                     entityName: entity.name,
                     packageName: pkg.name,
-                    microservice: entity.microservice,
-                    entityVersion: entity.version,
                   });
                 }
               }
@@ -69,17 +65,15 @@ const AttributeFlatTable = () => {
                 <th>Required</th>
                 <th>Entity Name</th>
                 <th>Package Name</th>
-                <th>Microservice</th>
-                <th>Entity Version</th>
               </tr>
             </thead>
             <tbody>
               {attributes.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center text-gray-500">No attributes found.</td>
+                  <td colSpan={6} className="text-center text-gray-500">No attributes found.</td>
                 </tr>
               ) : (
-                attributes.map(({ attribute, entityName, packageName, microservice, entityVersion }) => (
+                attributes.map(({ attribute, entityName, packageName }) => (
                   <tr key={attribute.uuid + entityName + packageName}>
                     <td>{attribute.name}</td>
                     <td>{attribute.type}</td>
@@ -87,8 +81,6 @@ const AttributeFlatTable = () => {
                     <td>{attribute.required ? 'Yes' : 'No'}</td>
                     <td>{entityName}</td>
                     <td>{packageName}</td>
-                    <td>{microservice}</td>
-                    <td>{entityVersion}</td>
                   </tr>
                 ))
               )}

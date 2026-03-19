@@ -143,8 +143,8 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
                     {pkg.entities.map((entity) => (
                       <li key={entity.uuid}>
                         <Link
-                          to={`/services/${entity.microservice}/entities/${entity.name}`}
-                          className={isActive(`/services/${entity.microservice}/entities/${entity.name}`) ? 'active' : ''}
+                          to={`/services/${pkg.name}/entities/${entity.name}`}
+                          className={isActive(`/services/${pkg.name}/entities/${entity.name}`) ? 'active' : ''}
                         >
                         {entity.name}
                         </Link>

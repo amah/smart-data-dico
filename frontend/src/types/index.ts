@@ -3,21 +3,18 @@ export interface Dictionary {
   id: string;
   name: string;
   description?: string;
-  version?: string;
+  metadataDefinitions?: MetadataDefinition[];
   createdAt?: string;
   updatedAt?: string;
 }
 
-// Dictionary entry types
-export interface DictionaryEntry {
-  id: string;
-  name: string;
-  description: string;
-  type: string;
-  format?: string;
-  required?: boolean;
-  defaultValue?: any;
-  examples?: string[];
+/**
+ * Package type annotation
+ */
+export enum PackageType {
+  PROJECT = 'project',
+  MICROSERVICE = 'microservice',
+  MODULE = 'module'
 }
 
 /**
@@ -27,10 +24,12 @@ export interface Package {
   id: string;
   name: string;
   description?: string;
+  type?: PackageType | string;
   parentId?: string;
   subPackages?: Package[];
   entities?: Entity[];
-  metadata?: Record<string, any>;
+  relationships?: Relationship[];
+  metadata?: MetadataEntry[];
   createdAt?: string;
   updatedAt?: string;
 }
@@ -72,37 +71,53 @@ export enum AttributeType {
   DATETIME = 'datetime',
   DATE = 'date',
   TIME = 'time',
+  DATE_TIME = 'date-time',
+  TIMESTAMP = 'timestamp',
+  DURATION = 'duration',
   ENUM = 'enum',
   OBJECT = 'object',
-  ARRAY = 'array',
-  REFERENCE = 'reference',
-  RELATIONSHIP = 'relationship'
+  ARRAY = 'array'
 }
 
 /**
- * Supported relationship types between entities
+ * Cardinality for relationship ends
  */
-export enum RelationshipType {
-  HAS_ONE = 'hasOne',
-  HAS_MANY = 'hasMany',
-  BELONGS_TO = 'belongsTo',
-  MANY_TO_MANY = 'manyToMany'
+export enum Cardinality {
+  ONE = 'one',
+  MANY = 'many'
 }
 
 /**
- * Interface for entity attribute definition
+ * Metadata value types
  */
-export interface EntityAttribute {
-  uuid: string;
+export enum MetadataValueType {
+  STRING = 'string',
+  NUMBER = 'number',
+  BOOLEAN = 'boolean',
+  DATE = 'date'
+}
+
+/**
+ * Metadata definition (schema for metadata entries)
+ */
+export interface MetadataDefinition {
   name: string;
-  description: string;
-  type: AttributeType;
-  required: boolean;
-  unique?: boolean;
-  defaultValue?: any;
-  examples?: any[];
-  
-  // Type-specific metadata
+  type: MetadataValueType;
+  description?: string;
+}
+
+/**
+ * A typed metadata entry
+ */
+export interface MetadataEntry {
+  name: string;
+  value: string | number | boolean;
+}
+
+/**
+ * Grouped constraint fields for attributes
+ */
+export interface AttributeConstraints {
   minLength?: number;
   maxLength?: number;
   pattern?: string;
@@ -112,32 +127,53 @@ export interface EntityAttribute {
   precision?: number;
   scale?: number;
   enumValues?: string[];
-  
-  // For object and array types
-  items?: EntityAttribute;
-  properties?: Record<string, EntityAttribute>;
-  
-  // Additional metadata
-  metadata?: Record<string, any>;
 }
 
 /**
- * Interface for entity relationship definition
+ * Interface for entity attribute definition
  */
-export interface EntityRelationship {
+export interface Attribute {
   uuid: string;
   name: string;
   description: string;
-  type: RelationshipType;
-  target: string;
-  inverseName?: string;
+  type: AttributeType;
   required: boolean;
-  
-  // Foreign key information
-  foreignKey?: string;
-  
-  // Additional metadata
-  metadata?: Record<string, any>;
+  unique?: boolean;
+  primaryKey?: boolean;
+  defaultValue?: any;
+  examples?: any[];
+  constraints?: AttributeConstraints;
+
+  // For object and array types
+  items?: Attribute;
+  properties?: Attribute[];
+
+  // Typed metadata
+  metadata?: MetadataEntry[];
+}
+
+// Backward-compatible alias
+export type EntityAttribute = Attribute;
+
+/**
+ * One end of a relationship
+ */
+export interface RelationshipEnd {
+  entity: string; // UUID of the entity
+  cardinality: Cardinality;
+  name?: string; // Navigation property name
+  referenceAttributes?: string[];
+}
+
+/**
+ * A relationship between two entities, stored at package level
+ */
+export interface Relationship {
+  uuid: string;
+  description?: string;
+  source: RelationshipEnd;
+  target: RelationshipEnd;
+  metadata?: MetadataEntry[];
 }
 
 /**
@@ -145,14 +181,10 @@ export interface EntityRelationship {
  */
 export interface Entity {
   uuid: string;
-  id: string; // Keep for backward compatibility, but UUID is primary reference
   name: string;
-  description: string;
-  microservice: string;
-  version: string;
-  attributes: EntityAttribute[];
-  relationships?: EntityRelationship[];
-  metadata?: Record<string, any>;
+  description?: string;
+  attributes: Attribute[];
+  metadata?: MetadataEntry[];
   createdAt?: string;
   updatedAt?: string;
 }
@@ -163,7 +195,7 @@ export interface Entity {
 export interface SearchResult {
   type: 'entity' | 'attribute' | 'relationship';
   entityName: string;
-  microservice: string;
+  service: string;
   name: string;
   description: string;
   path: string;
@@ -197,7 +229,7 @@ export interface GraphNode {
   id: string;
   label: string;
   type: 'entity';
-  microservice: string;
+  service: string;
   data?: Entity;
 }
 
@@ -206,7 +238,8 @@ export interface GraphEdge {
   source: string;
   target: string;
   label: string;
-  type: RelationshipType;
+  sourceCardinality?: string;
+  targetCardinality?: string;
 }
 
 /**

@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-import { CommitInfo, Entity } from '../types';
+import { CommitInfo, Entity, Relationship } from '../types';
 import { Package } from '../types';
 
 /**
@@ -233,6 +233,29 @@ export const authApi = {
   // Check if user is authenticated
   isAuthenticated: () => {
     return !!localStorage.getItem('auth_token');
+  },
+};
+
+// Relationship API endpoints
+export const relationshipApi = {
+  getPackageRelationships: async (packageName: string): Promise<Relationship[]> => {
+    const response = await api.get(`/packages/${encodeURIComponent(packageName)}/relationships`);
+    return response.data.data;
+  },
+
+  createRelationship: async (packageName: string, relationship: Relationship) => {
+    const response = await api.post(`/packages/${encodeURIComponent(packageName)}/relationships`, relationship);
+    return response.data;
+  },
+
+  updateRelationship: async (packageName: string, uuid: string, relationship: Relationship) => {
+    const response = await api.put(`/packages/${encodeURIComponent(packageName)}/relationships/${uuid}`, relationship);
+    return response.data;
+  },
+
+  deleteRelationship: async (packageName: string, uuid: string) => {
+    const response = await api.delete(`/packages/${encodeURIComponent(packageName)}/relationships/${uuid}`);
+    return response.data;
   },
 };
 
