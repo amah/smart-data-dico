@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { servicesApi } from '../services/api';
-import { Entity, EntityAttribute, EntityRelationship } from '../types';
+import { servicesApi, relationshipApi } from '../services/api';
+import { Entity, Attribute, Relationship } from '../types';
 import AttributeList from './AttributeList';
 import RelationshipList from './RelationshipList';
 
 const EntityDetail = () => {
   const { service, entity } = useParams<{ service: string; entity: string }>();
   const [entityData, setEntityData] = useState<Entity | null>(null);
+  const [relationships, setRelationships] = useState<Relationship[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'attributes' | 'relationships' | 'metadata'>('attributes');
@@ -18,14 +19,9 @@ const EntityDetail = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Check if we're in create mode
-    console.log('EntityDetail useEffect - service:', service, 'entity:', entity);
-    
-    // Check if we're on the create route (entity is undefined and we're on the create path)
     const isCreatePath = window.location.pathname.endsWith('/create');
-    
+
     if (entity === 'create' || (isCreatePath && !entity)) {
-      console.log('Setting create mode to true');
       setIsCreateMode(true);
       setLoading(false);
       return;
@@ -33,11 +29,27 @@ const EntityDetail = () => {
 
     const fetchEntityData = async () => {
       if (!service || !entity) return;
-      
+
       try {
         setLoading(true);
         const response = await servicesApi.getEntitySchema(service, entity);
         setEntityData(response.data);
+
+        // Fetch relationships from package level
+        try {
+          const rels = await relationshipApi.getPackageRelationships(service);
+          // Filter to relationships involving this entity
+          const entityUuid = response.data?.uuid;
+          if (entityUuid) {
+            setRelationships(rels.filter(
+              (r: Relationship) => r.source.entity === entityUuid || r.target.entity === entityUuid
+            ));
+          }
+        } catch {
+          // Relationships may not exist yet
+          setRelationships([]);
+        }
+
         setError(null);
       } catch (err) {
         console.error(`Error fetching entity ${entity} for service ${service}:`, err);
@@ -52,40 +64,30 @@ const EntityDetail = () => {
 
   const handleCreateEntity = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!service || !newEntityName) {
       setError('Service and entity name are required');
       return;
     }
-    
+
     try {
-      console.log('Creating entity:', newEntityName, 'for service:', service);
       setLoading(true);
       const currentDate = new Date().toISOString();
       const newEntity: Entity = {
-        id: `${service}.${newEntityName}`, // Generate ID in format microservice.entityName
+        uuid: crypto.randomUUID(),
         name: newEntityName,
         description: newEntityDescription || `${newEntityName} entity`,
-        microservice: service,
-        version: '1.0.0',
         attributes: [],
-        relationships: [],
-        metadata: {},
+        metadata: [],
         createdAt: currentDate,
         updatedAt: currentDate
       };
-      
-      console.log('Entity data:', newEntity);
-      
+
       try {
-        // Always use createEntity since we're creating a new entity
         const response = await servicesApi.createEntity(service, newEntity);
-        console.log('Create entity response:', response);
         navigate(`/services/${service}/entities/${newEntityName}`);
       } catch (error: any) {
-        console.error('API error creating entity:', error);
         if (error.response) {
-          console.error('API error response:', error.response.data);
           setError(`API error: ${error.response.data?.message || error.message || 'Unknown error'}`);
         } else {
           setError(`Error: ${error.message || 'Unknown error'}`);
@@ -93,7 +95,6 @@ const EntityDetail = () => {
         setLoading(false);
       }
     } catch (err) {
-      console.error('Error in handleCreateEntity:', err);
       setError('Failed to create entity. Please try again.');
       setLoading(false);
     }
@@ -141,11 +142,10 @@ const EntityDetail = () => {
   }
 
   if (isCreateMode) {
-    console.log('Rendering create mode form');
     return (
       <div className="container mx-auto px-4">
         <h1 className="text-2xl font-bold mb-6">Create New Entity</h1>
-        
+
         {error && (
           <div className="alert alert-error mb-4">
             <svg xmlns="http://www.w3.org/2000/svg" className="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
@@ -154,7 +154,7 @@ const EntityDetail = () => {
             <span>{error}</span>
           </div>
         )}
-        
+
         <div className="card bg-base-100 shadow-xl">
           <div className="card-body">
             <form onSubmit={handleCreateEntity}>
@@ -171,7 +171,7 @@ const EntityDetail = () => {
                   required
                 />
               </div>
-              
+
               <div className="form-control mb-6">
                 <label className="label">
                   <span className="label-text">Description</span>
@@ -184,7 +184,7 @@ const EntityDetail = () => {
                   rows={3}
                 />
               </div>
-              
+
               <div className="form-control">
                 <button
                   type="submit"
@@ -213,9 +213,8 @@ const EntityDetail = () => {
       {/* Compact header row */}
       <div className="flex flex-wrap items-center gap-2 mb-2">
         <h1 className="text-lg font-semibold">{entityData?.name}</h1>
-        <span className="badge badge-sm badge-outline">{entityData?.microservice}</span>
-        <span className="badge badge-sm badge-ghost">v{entityData?.version}</span>
-        <span className="text-xs text-base-content/50">{entityData?.attributes?.length || 0} attrs / {entityData?.relationships?.length || 0} rels</span>
+        <span className="badge badge-sm badge-outline">{service}</span>
+        <span className="text-xs text-base-content/50">{entityData?.attributes?.length || 0} attrs / {relationships.length} rels</span>
 
         {/* Info toggle */}
         <button
@@ -256,14 +255,10 @@ const EntityDetail = () => {
           {entityData?.description && (
             <p className="text-sm text-base-content/70 mb-2">{entityData.description}</p>
           )}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
             <div>
-              <span className="text-base-content/50">Microservice</span>
-              <p className="font-medium">{entityData?.microservice}</p>
-            </div>
-            <div>
-              <span className="text-base-content/50">Version</span>
-              <p className="font-medium">{entityData?.version}</p>
+              <span className="text-base-content/50">Package</span>
+              <p className="font-medium">{service}</p>
             </div>
             <div>
               <span className="text-base-content/50">Attributes</span>
@@ -271,13 +266,13 @@ const EntityDetail = () => {
             </div>
             <div>
               <span className="text-base-content/50">Relationships</span>
-              <p className="font-medium">{entityData?.relationships?.length || 0}</p>
+              <p className="font-medium">{relationships.length}</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Tabs + content - takes remaining space */}
+      {/* Tabs + content */}
       <div className="card bg-base-100 shadow-sm flex-1 min-h-0 flex flex-col">
         <div className="card-body p-3 flex flex-col min-h-0">
           <div className="tabs tabs-bordered tabs-sm">
@@ -291,7 +286,7 @@ const EntityDetail = () => {
               className={`tab ${activeTab === 'relationships' ? 'tab-active' : ''}`}
               onClick={() => setActiveTab('relationships')}
             >
-              Relationships ({entityData?.relationships?.length || 0})
+              Relationships ({relationships.length})
             </button>
             <button
               className={`tab ${activeTab === 'metadata' ? 'tab-active' : ''}`}
@@ -306,35 +301,35 @@ const EntityDetail = () => {
               <AttributeList
                 attributes={entityData.attributes}
                 entityName={entityData.name}
-                serviceName={entityData.microservice}
+                serviceName={service || ''}
               />
             )}
-            
+
             {activeTab === 'relationships' && entityData && (
               <RelationshipList
-                relationships={entityData.relationships || []}
+                relationships={relationships}
                 entityName={entityData.name}
-                serviceName={entityData.microservice}
+                serviceName={service || ''}
               />
             )}
-            
+
             {activeTab === 'metadata' && entityData && (
               <div className="overflow-x-auto">
                 <table className="table w-full">
                   <thead>
                     <tr>
-                      <th>Property</th>
+                      <th>Name</th>
                       <th>Value</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {entityData.metadata && Object.entries(entityData.metadata).map(([key, value]) => (
-                      <tr key={key}>
-                        <td className="font-medium">{key}</td>
-                        <td>{JSON.stringify(value)}</td>
+                    {entityData.metadata && Array.isArray(entityData.metadata) && entityData.metadata.map((entry) => (
+                      <tr key={entry.name}>
+                        <td className="font-medium">{entry.name}</td>
+                        <td>{JSON.stringify(entry.value)}</td>
                       </tr>
                     ))}
-                    {(!entityData.metadata || Object.keys(entityData.metadata).length === 0) && (
+                    {(!entityData.metadata || !Array.isArray(entityData.metadata) || entityData.metadata.length === 0) && (
                       <tr>
                         <td colSpan={2} className="text-center text-base-content/70">No metadata available</td>
                       </tr>

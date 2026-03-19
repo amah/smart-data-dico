@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Entity, EntityRelationship, RelationshipType, DiagramLayout } from '../types';
-import { diagramApi } from '../services/api';
+import { Entity, Relationship, Cardinality, DiagramLayout } from '../types';
+import { diagramApi, relationshipApi } from '../services/api';
 
 interface Position {
   x: number;
@@ -16,16 +16,18 @@ interface Connection {
   id: string;
   source: string;
   target: string;
-  relationship: EntityRelationship;
+  relationship: Relationship;
   sourcePoint: Position;
   targetPoint: Position;
 }
 
 interface EntityDiagramEditorProps {
   entities: Entity[];
+  relationships?: Relationship[];
   onEntityUpdate?: (entity: Entity) => void;
   onEntityCreate?: (entity: Partial<Entity>) => void;
   onEntityDelete?: (entityId: string) => void;
+  onRelationshipCreated?: (relationship: Relationship) => void;
   readOnly?: boolean;
   serviceName?: string;
   initialLayoutId?: string | null;
@@ -33,9 +35,11 @@ interface EntityDiagramEditorProps {
 
 const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
   entities,
+  relationships = [],
   onEntityUpdate,
   onEntityCreate,
   onEntityDelete,
+  onRelationshipCreated,
   readOnly = false,
   serviceName,
   initialLayoutId
@@ -61,8 +65,8 @@ const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
   const [relationshipSource, setRelationshipSource] = useState<string | null>(null);
   const [relationshipTarget, setRelationshipTarget] = useState<string | null>(null);
   const [showRelationshipDialog, setShowRelationshipDialog] = useState(false);
-  const [relationshipType, setRelationshipType] = useState<RelationshipType>(RelationshipType.HAS_ONE);
-  const [relationshipName, setRelationshipName] = useState('');
+  const [sourceCardinality, setSourceCardinality] = useState<Cardinality>(Cardinality.ONE);
+  const [targetCardinality, setTargetCardinality] = useState<Cardinality>(Cardinality.MANY);
   const [relationshipDescription, setRelationshipDescription] = useState('');
 
   // Initialize entity nodes with positions
@@ -78,43 +82,37 @@ const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
     setEntityNodes(nodes);
   }, [entities]);
 
-  // Generate connections from relationships
+  // Generate connections from package-level relationships
   useEffect(() => {
     const newConnections: Connection[] = [];
-    
-    entityNodes.forEach(sourceNode => {
-      if (sourceNode.relationships) {
-        sourceNode.relationships.forEach(rel => {
-          const [targetService, targetEntityName] = rel.target.split('/');
-          const targetNode = entityNodes.find(
-            node => node.microservice === targetService && node.name === targetEntityName
-          );
-          
-          if (targetNode) {
-            const sourcePoint = {
-              x: sourceNode.position.x + 150,
-              y: sourceNode.position.y + 40
-            };
-            const targetPoint = {
-              x: targetNode.position.x,
-              y: targetNode.position.y + 40
-            };
-            
-            newConnections.push({
-              id: `${sourceNode.uuid}-${targetNode.uuid}-${rel.uuid}`,
-              source: sourceNode.uuid,
-              target: targetNode.uuid,
-              relationship: rel,
-              sourcePoint,
-              targetPoint
-            });
-          }
+
+    relationships.forEach(rel => {
+      const sourceNode = entityNodes.find(node => node.uuid === rel.source.entity);
+      const targetNode = entityNodes.find(node => node.uuid === rel.target.entity);
+
+      if (sourceNode && targetNode) {
+        const sourcePoint = {
+          x: sourceNode.position.x + 150,
+          y: sourceNode.position.y + 40
+        };
+        const targetPoint = {
+          x: targetNode.position.x,
+          y: targetNode.position.y + 40
+        };
+
+        newConnections.push({
+          id: `${sourceNode.uuid}-${targetNode.uuid}-${rel.uuid}`,
+          source: sourceNode.uuid,
+          target: targetNode.uuid,
+          relationship: rel,
+          sourcePoint,
+          targetPoint
         });
       }
     });
-    
+
     setConnections(newConnections);
-  }, [entityNodes]);
+  }, [entityNodes, relationships]);
 
   const handleEntityMouseDown = useCallback((entityId: string, event: React.MouseEvent) => {
     if (readOnly) return;
@@ -156,11 +154,11 @@ const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
 
   const handleMouseMove = useCallback((event: React.MouseEvent) => {
     if (!svgRef.current) return;
-    
+
     const rect = svgRef.current.getBoundingClientRect();
     const mouseX = (event.clientX - rect.left - pan.x) / zoom;
     const mouseY = (event.clientY - rect.top - pan.y) / zoom;
-    
+
     if (draggedEntity) {
       setEntityNodes(prev => prev.map(entity =>
         entity.uuid === draggedEntity
@@ -219,7 +217,7 @@ const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
         console.error('Error loading saved layouts:', error);
       }
     };
-    
+
     loadSavedLayouts();
   }, [serviceName]);
 
@@ -230,7 +228,7 @@ const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
         try {
           const response = await diagramApi.loadDiagramLayout(initialLayoutId);
           const layout = response.data;
-          
+
           // Apply layout to entities
           setEntityNodes(prev => prev.map(node => {
             const savedPosition = layout.entities[node.uuid];
@@ -243,7 +241,7 @@ const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
             }
             return node;
           }));
-          
+
           // Apply zoom and pan
           setZoom(layout.zoom);
           setPan(layout.pan);
@@ -252,13 +250,13 @@ const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
         }
       }
     };
-    
+
     loadInitialLayout();
   }, [initialLayoutId, entityNodes.length]);
 
   const handleSaveLayout = async () => {
     if (!saveLayoutName.trim()) return;
-    
+
     try {
       const layoutData: Omit<DiagramLayout, 'createdAt' | 'updatedAt'> = {
         id: `${serviceName || 'all'}-${Date.now()}`,
@@ -276,12 +274,12 @@ const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
         zoom,
         pan
       };
-      
+
       const response = await diagramApi.saveDiagramLayout(layoutData);
       setSavedLayouts(prev => [response.data, ...prev]);
       setSaveLayoutName('');
       setShowSaveDialog(false);
-      
+
       // Emit event to refresh sidebar
       window.dispatchEvent(new CustomEvent('diagramSaved'));
     } catch (error) {
@@ -292,11 +290,11 @@ const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
 
   const handleLoadLayout = async () => {
     if (!selectedLayoutId) return;
-    
+
     try {
       const response = await diagramApi.loadDiagramLayout(selectedLayoutId);
       const layout = response.data;
-      
+
       // Apply layout to entities
       setEntityNodes(prev => prev.map(node => {
         const savedPosition = layout.entities[node.uuid];
@@ -309,11 +307,11 @@ const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
         }
         return node;
       }));
-      
+
       // Apply zoom and pan
       setZoom(layout.zoom);
       setPan(layout.pan);
-      
+
       setShowLoadDialog(false);
       setSelectedLayoutId('');
     } catch (error) {
@@ -324,11 +322,11 @@ const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
 
   const handleDeleteLayout = async (layoutId: string) => {
     if (!confirm('Are you sure you want to delete this layout?')) return;
-    
+
     try {
       await diagramApi.deleteDiagramLayout(layoutId);
       setSavedLayouts(prev => prev.filter(layout => layout.id !== layoutId));
-      
+
       // Emit event to refresh sidebar
       window.dispatchEvent(new CustomEvent('diagramDeleted'));
     } catch (error) {
@@ -341,28 +339,74 @@ const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
     const { sourcePoint, targetPoint } = connection;
     const dx = targetPoint.x - sourcePoint.x;
     const dy = targetPoint.y - sourcePoint.y;
-    
+
     // Create curved path for better visualization
     const midX = sourcePoint.x + dx / 2;
     const midY = sourcePoint.y + dy / 2;
     const controlOffset = Math.min(Math.abs(dx), Math.abs(dy)) * 0.3;
-    
+
     return `M ${sourcePoint.x} ${sourcePoint.y} Q ${midX} ${midY - controlOffset} ${targetPoint.x} ${targetPoint.y}`;
   };
 
-  const getRelationshipMarker = (type: RelationshipType): string => {
-    switch (type) {
-      case RelationshipType.HAS_ONE:
+  const getCardinalityMarker = (cardinality: Cardinality): string => {
+    switch (cardinality) {
+      case Cardinality.ONE:
         return 'url(#arrow-one)';
-      case RelationshipType.HAS_MANY:
+      case Cardinality.MANY:
         return 'url(#arrow-many)';
-      case RelationshipType.BELONGS_TO:
-        return 'url(#arrow-belongs)';
-      case RelationshipType.MANY_TO_MANY:
-        return 'url(#arrow-many-many)';
       default:
         return 'url(#arrow-default)';
     }
+  };
+
+  const getCardinalityLabel = (cardinality: Cardinality): string => {
+    switch (cardinality) {
+      case Cardinality.ONE:
+        return '1';
+      case Cardinality.MANY:
+        return '*';
+      default:
+        return '';
+    }
+  };
+
+  const handleCreateRelationship = async () => {
+    if (!relationshipSource || !relationshipTarget || !serviceName) return;
+
+    const sourceEntity = entityNodes.find(e => e.uuid === relationshipSource);
+    const targetEntity = entityNodes.find(e => e.uuid === relationshipTarget);
+    if (!sourceEntity || !targetEntity) return;
+
+    const newRelationship: Relationship = {
+      uuid: crypto.randomUUID(),
+      description: relationshipDescription || undefined,
+      source: {
+        entity: relationshipSource,
+        cardinality: sourceCardinality,
+      },
+      target: {
+        entity: relationshipTarget,
+        cardinality: targetCardinality,
+      },
+    };
+
+    try {
+      const response = await relationshipApi.createRelationship(serviceName, newRelationship);
+      onRelationshipCreated?.(response.data);
+    } catch (error) {
+      console.error('Error creating relationship:', error);
+      alert('Failed to create relationship. Please try again.');
+    }
+
+    // Reset connect mode and dialog
+    setShowRelationshipDialog(false);
+    setConnectMode(false);
+    setRelationshipSource(null);
+    setRelationshipTarget(null);
+    setRelationshipDescription('');
+    setSourceCardinality(Cardinality.ONE);
+    setTargetCardinality(Cardinality.MANY);
+    setSelectedEntity(null);
   };
 
   return (
@@ -413,7 +457,7 @@ const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
             Auto Layout
           </button>
         </div>
-        
+
         <div className="badge badge-info">
           Zoom: {Math.round(zoom * 100)}%
         </div>
@@ -487,13 +531,6 @@ const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
             <path d="M0,0 L0,6 L9,3 z" fill="#666" />
             <circle cx="2" cy="3" r="1" fill="#666" />
           </marker>
-          <marker id="arrow-belongs" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
-            <circle cx="3" cy="3" r="2" fill="none" stroke="#666" strokeWidth="1" />
-          </marker>
-          <marker id="arrow-many-many" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
-            <path d="M0,0 L0,6 L9,3 z" fill="#666" />
-            <path d="M2,1 L2,5" stroke="#666" strokeWidth="1" />
-          </marker>
           <marker id="arrow-default" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
             <path d="M0,0 L0,6 L9,3 z" fill="#666" />
           </marker>
@@ -502,25 +539,51 @@ const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
         {/* Transform group for zoom and pan */}
         <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
           {/* Render connections */}
-          {connections.map(connection => (
-            <g key={connection.id}>
-              <path
-                d={getRelationshipPath(connection)}
-                stroke="#666"
-                strokeWidth="2"
-                fill="none"
-                markerEnd={getRelationshipMarker(connection.relationship.type)}
-              />
-              <text
-                x={(connection.sourcePoint.x + connection.targetPoint.x) / 2}
-                y={(connection.sourcePoint.y + connection.targetPoint.y) / 2 - 10}
-                textAnchor="middle"
-                className="text-xs fill-base-content/60"
-              >
-                {connection.relationship.name}
-              </text>
-            </g>
-          ))}
+          {connections.map(connection => {
+            const srcCard = getCardinalityLabel(connection.relationship.source.cardinality);
+            const tgtCard = getCardinalityLabel(connection.relationship.target.cardinality);
+
+            return (
+              <g key={connection.id}>
+                <path
+                  d={getRelationshipPath(connection)}
+                  stroke="#666"
+                  strokeWidth="2"
+                  fill="none"
+                  markerEnd={getCardinalityMarker(connection.relationship.target.cardinality)}
+                />
+                {/* Source cardinality label */}
+                <text
+                  x={connection.sourcePoint.x + 10}
+                  y={connection.sourcePoint.y - 8}
+                  textAnchor="start"
+                  className="text-xs fill-base-content/80 font-semibold"
+                >
+                  {srcCard}
+                </text>
+                {/* Target cardinality label */}
+                <text
+                  x={connection.targetPoint.x - 10}
+                  y={connection.targetPoint.y - 8}
+                  textAnchor="end"
+                  className="text-xs fill-base-content/80 font-semibold"
+                >
+                  {tgtCard}
+                </text>
+                {/* Relationship description in the middle */}
+                {connection.relationship.description && (
+                  <text
+                    x={(connection.sourcePoint.x + connection.targetPoint.x) / 2}
+                    y={(connection.sourcePoint.y + connection.targetPoint.y) / 2 - 10}
+                    textAnchor="middle"
+                    className="text-xs fill-base-content/60"
+                  >
+                    {connection.relationship.description}
+                  </text>
+                )}
+              </g>
+            );
+          })}
 
           {/* Render entity nodes */}
           {entityNodes.map(entity => {
@@ -564,7 +627,7 @@ const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
                   strokeWidth={isSelected ? "2" : "1"}
                   className="drop-shadow-md"
                 />
-                
+
                 {/* Entity header */}
                 <rect
                   width="300"
@@ -574,7 +637,7 @@ const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
                   stroke="#d1d5db"
                   strokeWidth="1"
                 />
-                
+
                 {/* Entity title */}
                 <text
                   x="150"
@@ -584,9 +647,7 @@ const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
                 >
                   {entity.name}
                 </text>
-                
-                {/* Service badge removed for compactness */}
-                
+
                 {/* Properties toggle button in header (right side) */}
                 <g
                   className="cursor-pointer"
@@ -611,7 +672,7 @@ const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
                     {entity.showProperties ? "−" : "+"}
                   </text>
                 </g>
-                
+
                 {/* Attributes (when expanded) */}
                 {entity.showProperties && (
                   <g>
@@ -661,18 +722,6 @@ const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
             <div className="py-4">
               <div className="form-control mb-2">
                 <label className="label">
-                  <span className="label-text">Relationship Name</span>
-                </label>
-                <input
-                  type="text"
-                  className="input input-bordered"
-                  value={relationshipName}
-                  onChange={e => setRelationshipName(e.target.value)}
-                  placeholder="e.g. hasOrderItems"
-                />
-              </div>
-              <div className="form-control mb-2">
-                <label className="label">
                   <span className="label-text">Description</span>
                 </label>
                 <input
@@ -685,17 +734,28 @@ const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
               </div>
               <div className="form-control mb-2">
                 <label className="label">
-                  <span className="label-text">Relationship Type</span>
+                  <span className="label-text">Source Cardinality</span>
                 </label>
                 <select
                   className="select select-bordered"
-                  value={relationshipType}
-                  onChange={e => setRelationshipType(e.target.value as RelationshipType)}
+                  value={sourceCardinality}
+                  onChange={e => setSourceCardinality(e.target.value as Cardinality)}
                 >
-                  <option value={RelationshipType.HAS_ONE}>Has One</option>
-                  <option value={RelationshipType.HAS_MANY}>Has Many</option>
-                  <option value={RelationshipType.BELONGS_TO}>Belongs To</option>
-                  <option value={RelationshipType.MANY_TO_MANY}>Many To Many</option>
+                  <option value={Cardinality.ONE}>One</option>
+                  <option value={Cardinality.MANY}>Many</option>
+                </select>
+              </div>
+              <div className="form-control mb-2">
+                <label className="label">
+                  <span className="label-text">Target Cardinality</span>
+                </label>
+                <select
+                  className="select select-bordered"
+                  value={targetCardinality}
+                  onChange={e => setTargetCardinality(e.target.value as Cardinality)}
+                >
+                  <option value={Cardinality.ONE}>One</option>
+                  <option value={Cardinality.MANY}>Many</option>
                 </select>
               </div>
               <div className="mt-2 text-sm">
@@ -709,38 +769,8 @@ const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
             <div className="modal-action">
               <button
                 className="btn btn-primary"
-                disabled={!relationshipSource || !relationshipTarget || !relationshipName.trim()}
-                onClick={() => {
-                  // Add relationship to source entity
-                  setEntityNodes(prev =>
-                    prev.map(entity => {
-                      if (entity.uuid === relationshipSource) {
-                        const newRel = {
-                          uuid: `${relationshipSource}-${relationshipTarget}-${Date.now()}`,
-                          name: relationshipName,
-                          description: relationshipDescription,
-                          type: relationshipType,
-                          target: `${entityNodes.find(e => e.uuid === relationshipTarget)?.microservice}/${entityNodes.find(e => e.uuid === relationshipTarget)?.name}`,
-                          required: false,
-                        };
-                        return {
-                          ...entity,
-                          relationships: [...(entity.relationships || []), newRel],
-                        };
-                      }
-                      return entity;
-                    })
-                  );
-                  // Reset connect mode and dialog
-                  setShowRelationshipDialog(false);
-                  setConnectMode(false);
-                  setRelationshipSource(null);
-                  setRelationshipTarget(null);
-                  setRelationshipName('');
-                  setRelationshipDescription('');
-                  setRelationshipType(RelationshipType.HAS_ONE);
-                  setSelectedEntity(null);
-                }}
+                disabled={!relationshipSource || !relationshipTarget}
+                onClick={handleCreateRelationship}
               >
                 Create
               </button>
@@ -749,9 +779,9 @@ const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
                 onClick={() => {
                   setShowRelationshipDialog(false);
                   setRelationshipTarget(null);
-                  setRelationshipName('');
                   setRelationshipDescription('');
-                  setRelationshipType(RelationshipType.HAS_ONE);
+                  setSourceCardinality(Cardinality.ONE);
+                  setTargetCardinality(Cardinality.MANY);
                   setSelectedEntity(relationshipSource);
                 }}
               >
@@ -831,7 +861,7 @@ const EntityDiagramEditor: React.FC<EntityDiagramEditorProps> = ({
                   </select>
                 </div>
               )}
-              
+
               {savedLayouts.length > 0 && (
                 <div className="mt-4">
                   <h4 className="font-semibold mb-2">Saved Layouts</h4>

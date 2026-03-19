@@ -42,7 +42,6 @@ export async function initializeFileSystem(): Promise<{
 
   const baseDirectory = config.dataDir;
 
-  // Configure workspace: 'dictionaries' workspace maps to the data-dictionaries root
   const workspacesConfig: Record<string, string> = {
     dictionaries: '.',
   };
@@ -58,7 +57,6 @@ export async function initializeFileSystem(): Promise<{
 
 /**
  * Get the Express router for the /fs endpoint.
- * Must call initializeFileSystem() first.
  */
 export function getFileRouter(): any {
   if (!fileRouter) {
@@ -89,10 +87,9 @@ export function getWorkspaceManager(): any {
 
 /**
  * Read an entity file using WorkspaceManager.
- * Falls back to scanning files by entity name (matching current behavior).
  */
 export async function readEntityViaAdapter(
-  microservice: string,
+  packageName: string,
   entityName: string
 ): Promise<Entity | null> {
   if (!workspaceManager) {
@@ -100,11 +97,14 @@ export async function readEntityViaAdapter(
   }
 
   try {
-    const dirPath = `microservices/${microservice}`;
+    const dirPath = `microservices/${packageName}`;
     const files = await workspaceManager.listFiles('dictionaries', dirPath);
 
     for (const file of files) {
       if (!file.name.endsWith('.yaml') && !file.name.endsWith('.yml')) {
+        continue;
+      }
+      if (file.name === 'metadata.yaml' || file.name === 'relationships.yaml') {
         continue;
       }
 
@@ -127,7 +127,7 @@ export async function readEntityViaAdapter(
 /**
  * Write an entity file using WorkspaceManager.
  */
-export async function writeEntityViaAdapter(entity: Entity): Promise<boolean> {
+export async function writeEntityViaAdapter(entity: Entity, packageName: string): Promise<boolean> {
   if (!workspaceManager) {
     return false;
   }
@@ -140,7 +140,7 @@ export async function writeEntityViaAdapter(entity: Entity): Promise<boolean> {
     }
 
     const filename = generateEntityFilename(entity.uuid, entity.name);
-    const filePath = `microservices/${entity.microservice}/${filename}`;
+    const filePath = `microservices/${packageName}/${filename}`;
     const yamlContent = YAML.stringify(entity);
 
     await workspaceManager.writeFile('dictionaries', filePath, yamlContent);

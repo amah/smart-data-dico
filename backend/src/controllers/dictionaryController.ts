@@ -24,11 +24,11 @@ export const getDictionaryById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const dictionary = await dictionaryService.getDictionaryById(id);
-    
+
     if (!dictionary) {
       return res.status(404).json({ message: 'Dictionary not found' });
     }
-    
+
     res.json({
       message: 'Success',
       data: dictionary
@@ -39,16 +39,11 @@ export const getDictionaryById = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * Get all entries for a dictionary (entities in a microservice)
- * @param req Express request
- * @param res Express response
- */
 export const getDictionaryEntries = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const entries = await dictionaryService.getDictionaryEntries(id);
-    
+
     res.json({
       message: 'Success',
       data: entries
@@ -59,20 +54,15 @@ export const getDictionaryEntries = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * Get entity details as dictionary entries
- * @param req Express request
- * @param res Express response
- */
 export const getEntityAttributes = async (req: Request, res: Response) => {
   try {
     const { microservice, entityName } = req.params;
     const attributes = await dictionaryService.getEntityAttributes(microservice, entityName);
-    
+
     if (attributes.length === 0) {
       return res.status(404).json({ message: 'Entity not found' });
     }
-    
+
     res.json({
       message: 'Success',
       data: attributes
@@ -83,31 +73,31 @@ export const getEntityAttributes = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * Create or update an entity
- * @param req Express request
- * @param res Express response
- */
 export const saveEntity = async (req: Request, res: Response) => {
   try {
     const entity = req.body as Entity;
-    
+    const packageName = req.body.packageName || req.query.packageName as string;
+
     if (!entity) {
       return res.status(400).json({ message: 'Invalid entity data' });
     }
-    
-    const result = await entityService.saveEntity(entity);
-    
+
+    if (!packageName) {
+      return res.status(400).json({ message: 'packageName is required' });
+    }
+
+    const result = await entityService.saveEntity(entity, packageName);
+
     if (!result.success) {
-      return res.status(400).json({ 
-        message: 'Failed to save entity', 
-        errors: result.errors 
+      return res.status(400).json({
+        message: 'Failed to save entity',
+        errors: result.errors
       });
     }
-    
-    res.status(200).json({ 
+
+    res.status(200).json({
       message: 'Entity saved successfully',
-      data: entity 
+      data: entity
     });
   } catch (error) {
     logger.error(`Error in saveEntity: ${error}`);
@@ -115,16 +105,11 @@ export const saveEntity = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * Get related entities
- * @param req Express request
- * @param res Express response
- */
 export const getRelatedEntities = async (req: Request, res: Response) => {
   try {
     const { microservice, entityName } = req.params;
     const relatedEntities = await entityService.getRelatedEntities(microservice, entityName);
-    
+
     res.json({
       message: 'Success',
       data: relatedEntities
@@ -135,22 +120,16 @@ export const getRelatedEntities = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * Create a new dictionary
- * @param req Express request
- * @param res Express response
- */
 export const createDictionary = async (req: Request, res: Response) => {
   try {
     const dictionaryData = req.body as Dictionary;
-    
+
     if (!dictionaryData || !dictionaryData.name) {
       return res.status(400).json({ message: 'Dictionary name is required' });
     }
-    
+
     const result = await dictionaryService.createDictionary(dictionaryData);
-    
-    // Handle error cases
+
     if (result && 'error' in result) {
       if (result.code === 'DUPLICATE_NAME') {
         logger.warn(`Attempted to create dictionary with duplicate name: ${dictionaryData.name}`);
@@ -170,11 +149,11 @@ export const createDictionary = async (req: Request, res: Response) => {
         });
       }
     }
-    
+
     if (!result) {
       return res.status(500).json({ message: 'Failed to create dictionary due to an unknown error' });
     }
-    
+
     res.status(201).json({
       message: 'Dictionary created successfully',
       data: result
@@ -184,6 +163,7 @@ export const createDictionary = async (req: Request, res: Response) => {
     res.status(500).json({ message: 'Error creating dictionary', error });
   }
 };
+
 export const getPackageHierarchy = async (req: Request, res: Response) => {
   try {
     const { rootPackage } = req.params;
@@ -194,6 +174,7 @@ export const getPackageHierarchy = async (req: Request, res: Response) => {
     res.status(500).json({ message: 'Error fetching package hierarchy', error });
   }
 };
+
 export const getTabularData = async (req: Request, res: Response) => {
   try {
     const { rootPackage } = req.params;
@@ -204,10 +185,10 @@ export const getTabularData = async (req: Request, res: Response) => {
     res.status(500).json({ message: 'Error fetching tabular data', error });
   }
 };
+
 export const getPackageByPath = async (req: Request, res: Response) => {
   try {
     const { rootPackage } = req.params;
-    // The rest of the path after /path/ is the package path, split by '/'
     const packagePath = req.params[0]?.split('/').filter(Boolean) || [];
     const pkg = await dictionaryService.getPackageByPath(rootPackage, packagePath);
     if (!pkg) {
@@ -219,6 +200,7 @@ export const getPackageByPath = async (req: Request, res: Response) => {
     res.status(500).json({ message: 'Error fetching package by path', error });
   }
 }
+
 export const listAllPackagesAndEntities = async (req: Request, res: Response) => {
   try {
     const result = await dictionaryService.listAllPackagesAndEntities();
@@ -229,10 +211,6 @@ export const listAllPackagesAndEntities = async (req: Request, res: Response) =>
   }
 };
 
-/**
- * Create a new package (subpackage) at the given path.
- * POST /api/packages/:rootPackage/path/*
- */
 export const createPackageAtPath = async (req: Request, res: Response) => {
   try {
     const { rootPackage } = req.params;
@@ -249,10 +227,6 @@ export const createPackageAtPath = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * Update a package's metadata at the given path.
- * PUT /api/packages/:rootPackage/path/*
- */
 export const updatePackageAtPath = async (req: Request, res: Response) => {
   try {
     const { rootPackage } = req.params;
@@ -269,10 +243,6 @@ export const updatePackageAtPath = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * Delete a package (and all its contents) at the given path.
- * DELETE /api/packages/:rootPackage/path/*
- */
 export const deletePackageAtPath = async (req: Request, res: Response) => {
   try {
     const { rootPackage } = req.params;
@@ -288,10 +258,6 @@ export const deletePackageAtPath = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * Flat list of all entities/attributes, with filtering (by name, type, package)
- * Query params: name, type, package
- */
 export const getFlatEntitiesAndAttributes = async (req: Request, res: Response) => {
   try {
     const { name, type, package: pkg } = req.query;
@@ -307,10 +273,6 @@ export const getFlatEntitiesAndAttributes = async (req: Request, res: Response) 
   }
 };
 
-/**
- * Hierarchical view for a given aggregate root/entity.
- * Params: microservice, entityName
- */
 export const getEntityHierarchy = async (req: Request, res: Response) => {
   try {
     const { microservice, entityName } = req.params;

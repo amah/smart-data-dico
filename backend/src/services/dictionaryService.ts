@@ -2,11 +2,10 @@ import fs from 'fs';
 import path from 'path';
 import YAML from 'yaml';
 
-import { Dictionary, DictionaryEntry, Package } from '../models/Dictionary.js';
-import { Entity } from '../models/EntitySchema.js';
-import { ensureDirectoryStructure, listAllDictionaries, listAllEntities, listMicroserviceEntities, listMicroservices, readEntityFile, writeDictionaryMetadata } from '../utils/fileOperations.js';
+import { Dictionary, Package } from '../models/Dictionary.js';
+import { Entity, Relationship } from '../models/EntitySchema.js';
+import { ensureDirectoryStructure, listAllDictionaries, listAllEntities, listMicroserviceEntities, listMicroservices, readEntityFile, readRelationshipsFile, writeDictionaryMetadata } from '../utils/fileOperations.js';
 import { logger } from '../utils/logger.js';
-import { entityService } from './entityService.js';
 
 // Base directory for data dictionaries - use the same path as in fileOperations.ts
 const DATA_DICTIONARIES_DIR = path.join(process.cwd(), '..', 'data-dictionaries');
@@ -22,25 +21,21 @@ export class DictionaryService {
    */
   public async createPackageAtPath(rootPackageName: string, packagePath: string[], packageData: Partial<Package>): Promise<{ success: boolean; errors?: string[]; package?: Package }> {
     try {
-      // Compute the directory path for the new package
       const baseDir = path.join(DATA_DICTIONARIES_DIR, 'microservices', rootPackageName, ...packagePath);
       if (!fs.existsSync(baseDir)) {
         fs.mkdirSync(baseDir, { recursive: true });
       } else {
-        // If already exists, fail
         return { success: false, errors: ['Package directory already exists'] };
       }
-      // Write metadata.yaml
       const metaPath = path.join(baseDir, 'metadata.yaml');
       const metaContent = YAML.stringify({
         id: packageData.id || packagePath[packagePath.length - 1],
         name: packageData.name || packagePath[packagePath.length - 1],
         description: packageData.description,
         type: packageData.type,
-        metadata: packageData.metadata || {}
+        metadata: packageData.metadata || []
       });
       fs.writeFileSync(metaPath, metaContent, 'utf8');
-      // Return the created package
       return {
         success: true,
         package: {
@@ -50,7 +45,8 @@ export class DictionaryService {
           type: packageData.type,
           entities: [],
           subPackages: [],
-          metadata: packageData.metadata || {}
+          relationships: [],
+          metadata: packageData.metadata || []
         }
       };
     } catch (error: any) {
@@ -72,9 +68,7 @@ export class DictionaryService {
       if (!fs.existsSync(metaPath)) {
         return { success: false, errors: ['metadata.yaml does not exist'] };
       }
-      // Read existing metadata
       const oldMeta = YAML.parse(fs.readFileSync(metaPath, 'utf8')) || {};
-      // Merge updates
       const newMeta = {
         ...oldMeta,
         ...packageData,
@@ -94,6 +88,7 @@ export class DictionaryService {
           type: newMeta.type,
           entities: [],
           subPackages: [],
+          relationships: [],
           metadata: newMeta.metadata
         }
       };
@@ -112,7 +107,6 @@ export class DictionaryService {
       if (!fs.existsSync(baseDir)) {
         return { success: false, errors: ['Package directory does not exist'] };
       }
-      // Recursively delete the directory
       fs.rmSync(baseDir, { recursive: true, force: true });
       return { success: true };
     } catch (error: any) {
@@ -123,12 +117,9 @@ export class DictionaryService {
 
   /**
    * Recursively builds a Package hierarchy from a directory.
-   * @param dirPath Directory path for the package
-   * @param packageName Name of the package (directory name)
-   * @returns Promise<Package>
+   * Now also reads relationships.yaml at each package level.
    */
   private async buildPackageHierarchy(dirPath: string, packageName: string): Promise<Package> {
-    // If directory does not exist, return an empty package
     if (!fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) {
       return {
         id: packageName,
@@ -137,6 +128,7 @@ export class DictionaryService {
         type: undefined,
         entities: [],
         subPackages: [],
+        relationships: [],
         metadata: undefined
       };
     }
@@ -149,6 +141,9 @@ export class DictionaryService {
       packageMeta = YAML.parse(metaContent) as Partial<Package>;
     }
 
+    // Read relationships from package-level file
+    const relationships = await readRelationshipsFile(dirPath);
+
     // List all files and subdirectories
     const entries = fs.readdirSync(dirPath, { withFileTypes: true });
     const entities: Entity[] = [];
@@ -157,15 +152,14 @@ export class DictionaryService {
     for (const entry of entries) {
       const entryPath = path.join(dirPath, entry.name);
       if (entry.isDirectory()) {
-        // Recursively build subpackage
         const subpkg = await this.buildPackageHierarchy(entryPath, entry.name);
         subPackages.push(subpkg);
       } else if (
         entry.isFile() &&
         entry.name.endsWith('.yaml') &&
-        entry.name !== 'metadata.yaml'
+        entry.name !== 'metadata.yaml' &&
+        entry.name !== 'relationships.yaml'
       ) {
-        // Load entity YAML
         try {
           const fileContent = fs.readFileSync(entryPath, 'utf8');
           const entity = YAML.parse(fileContent) as Entity;
@@ -183,6 +177,7 @@ export class DictionaryService {
       type: packageMeta.type,
       entities,
       subPackages,
+      relationships,
       metadata: packageMeta.metadata
     };
   }
@@ -193,14 +188,14 @@ export class DictionaryService {
     try {
       const dictionaryIds = await listAllDictionaries();
       const dictionaries: Dictionary[] = [];
-      
+
       for (const id of dictionaryIds) {
         const dictionary = await this.getDictionaryById(id);
         if (dictionary) {
           dictionaries.push(dictionary);
         }
       }
-      
+
       return dictionaries;
     } catch (error) {
       logger.error('Error getting all dictionaries', error);
@@ -210,38 +205,35 @@ export class DictionaryService {
 
   public async getDictionaryById(id: string): Promise<Dictionary | null> {
     try {
-      // For microservices, create a dictionary object on the fly
       if (id.includes('microservices')) {
-        // Create an empty package structure
         const rootPackage: Package = {
           id: id,
           name: id.split('/').pop() || id,
           description: `Microservice: ${id}`,
           entities: [],
-          subPackages: []
+          subPackages: [],
+          relationships: []
         };
-        
+
         return {
           id,
           name: id.split('/').pop() || id,
           description: `Microservice: ${id}`,
-          version: '1.0.0',
           createdAt: new Date(),
           updatedAt: new Date(),
           rootPackage
         };
       }
-      
-      // For standalone dictionaries, read metadata.yaml
+
       const metadataPath = path.join(DATA_DICTIONARIES_DIR, id, 'metadata.yaml');
-      
+
       if (!fs.existsSync(metadataPath)) {
         return null;
       }
-      
+
       const metadataContent = fs.readFileSync(metadataPath, 'utf8');
       const metadata = YAML.parse(metadataContent) as Dictionary;
-      
+
       return metadata;
     } catch (error) {
       logger.error(`Error getting dictionary by ID: ${id}`, error);
@@ -249,35 +241,32 @@ export class DictionaryService {
     }
   }
 
-  public async getDictionaryEntries(id: string): Promise<DictionaryEntry[]> {
+  public async getDictionaryEntries(id: string): Promise<any[]> {
     try {
-      // For microservices, get all entities and convert to dictionary entries
       if (id.startsWith('microservices/')) {
         const microservice = id.replace('microservices/', '');
         const entityNames = await listMicroserviceEntities(microservice);
-        const entries: DictionaryEntry[] = [];
-        
+        const entries: any[] = [];
+
         for (const entityName of entityNames) {
           const entity = await readEntityFile(microservice, entityName);
           if (entity) {
-            // Convert entity to dictionary entries (one per attribute)
             for (const attr of entity.attributes || []) {
               entries.push({
                 id: `${entity.uuid || ''}_${attr.name}`,
                 name: attr.name,
                 description: attr.description || '',
                 type: attr.type || 'string',
-                format: attr.format,
+                format: attr.constraints?.format,
                 required: attr.required || false
               });
             }
           }
         }
-        
+
         return entries;
       }
-      
-      // For standalone dictionaries, implement as needed
+
       return [];
     } catch (error) {
       logger.error(`Error getting dictionary entries: ${id}`, error);
@@ -285,21 +274,20 @@ export class DictionaryService {
     }
   }
 
-  public async getEntityAttributes(microservice: string, entityName: string): Promise<DictionaryEntry[]> {
+  public async getEntityAttributes(microservice: string, entityName: string): Promise<any[]> {
     try {
       const entity = await readEntityFile(microservice, entityName);
-      
+
       if (!entity || !entity.attributes) {
         return [];
       }
-      
-      // Convert entity attributes to dictionary entries
+
       return entity.attributes.map((attr: any) => ({
         id: `${entity.uuid || ''}_${attr.name}`,
         name: attr.name,
         description: attr.description || '',
         type: attr.type || 'string',
-        format: attr.format,
+        format: attr.constraints?.format,
         required: attr.required || false
       }));
     } catch (error) {
@@ -310,33 +298,28 @@ export class DictionaryService {
 
   public async createDictionary(dictionaryData: Dictionary): Promise<Dictionary | { error: string; code: string }> {
     try {
-      // Validate dictionary data
       if (!dictionaryData.name) {
         return { error: 'Dictionary name is required', code: 'MISSING_NAME' };
       }
-      
-      // Generate ID from name if not provided
+
       if (!dictionaryData.id) {
         dictionaryData.id = dictionaryData.name.toLowerCase().replace(/\s+/g, '-');
       }
-      
-      // Check if dictionary with this ID already exists
+
       const existingDictionaries = await listAllDictionaries();
       if (existingDictionaries.includes(dictionaryData.id)) {
         return { error: `Dictionary with ID ${dictionaryData.id} already exists`, code: 'DUPLICATE_NAME' };
       }
-      
-      // Set timestamps
+
       dictionaryData.createdAt = new Date();
       dictionaryData.updatedAt = new Date();
-      
-      // Write dictionary metadata
+
       const success = await writeDictionaryMetadata(dictionaryData);
-      
+
       if (!success) {
         return { error: 'Failed to write dictionary metadata', code: 'WRITE_ERROR' };
       }
-      
+
       return dictionaryData;
     } catch (error) {
       logger.error('Error creating dictionary', error);
@@ -363,11 +346,10 @@ export class DictionaryService {
       if (!hierarchy) {
         return [];
       }
-      
-      // Flatten the hierarchy into a tabular format
+
       const result: any[] = [];
       this.flattenHierarchy(hierarchy, result, '');
-      
+
       return result;
     } catch (error) {
       logger.error(`Error getting tabular data: ${rootPackage}`, error);
@@ -377,8 +359,7 @@ export class DictionaryService {
 
   private flattenHierarchy(pkg: Package, result: any[], parentPath: string): void {
     const currentPath = parentPath ? `${parentPath}/${pkg.name}` : pkg.name;
-    
-    // Add package
+
     result.push({
       type: 'package',
       id: pkg.id,
@@ -387,8 +368,7 @@ export class DictionaryService {
       path: currentPath,
       level: parentPath.split('/').length
     });
-    
-    // Add entities
+
     for (const entity of pkg.entities || []) {
       result.push({
         type: 'entity',
@@ -399,8 +379,7 @@ export class DictionaryService {
         level: parentPath.split('/').length + 1
       });
     }
-    
-    // Recursively add subpackages
+
     for (const subpkg of pkg.subPackages || []) {
       this.flattenHierarchy(subpkg, result, currentPath);
     }
@@ -408,30 +387,27 @@ export class DictionaryService {
 
   public async getPackageByPath(rootPackage: string, packagePath: string[]): Promise<Package | null> {
     try {
-      // Get the root package hierarchy
       const rootHierarchy = await this.getPackageHierarchy(rootPackage);
       if (!rootHierarchy) {
         return null;
       }
-      
-      // If no path is provided, return the root package
+
       if (!packagePath.length) {
         return rootHierarchy;
       }
-      
-      // Navigate through the path to find the target package
+
       let currentPackage = rootHierarchy;
-      
+
       for (const segment of packagePath) {
         const subPackage = currentPackage.subPackages?.find(p => p.name === segment);
-        
+
         if (!subPackage) {
-          return null; // Path segment not found
+          return null;
         }
-        
+
         currentPackage = subPackage;
       }
-      
+
       return currentPackage;
     } catch (error) {
       logger.error(`Error getting package by path: ${rootPackage}/${packagePath.join('/')}`, error);
@@ -460,42 +436,32 @@ export class DictionaryService {
     try {
       const microservices = await listMicroservices();
       const result: any[] = [];
-      
+
       for (const microservice of microservices) {
         const entityNames = await listMicroserviceEntities(microservice);
-        
+
         for (const entityName of entityNames) {
           const entity = await readEntityFile(microservice, entityName);
-          
+
           if (!entity) continue;
-          
-          // Filter by name if specified
+
           if (filters.name && !entity.name.toLowerCase().includes(filters.name.toLowerCase())) {
             continue;
           }
-          
-          // Filter by package if specified
-          if (filters.package && entity.packageId !== filters.package) {
-            continue;
-          }
-          
-          // Add entity
+
           result.push({
             type: 'entity',
             id: entity.uuid,
             name: entity.name,
             description: entity.description,
-            microservice: entity.microservice,
-            package: entity.packageId
+            package: microservice
           });
-          
-          // Add attributes
+
           for (const attr of entity.attributes || []) {
-            // Filter by type if specified
             if (filters.type && attr.type !== filters.type) {
               continue;
             }
-            
+
             result.push({
               type: 'attribute',
               id: `${entity.uuid}_${attr.name}`,
@@ -503,14 +469,14 @@ export class DictionaryService {
               description: attr.description,
               dataType: attr.type,
               required: attr.required,
+              primaryKey: attr.primaryKey,
               entity: entity.name,
-              microservice: entity.microservice,
-              package: entity.packageId
+              package: microservice
             });
           }
         }
       }
-      
+
       return result;
     } catch (error) {
       logger.error('Error getting flat entities and attributes', error);
@@ -521,44 +487,59 @@ export class DictionaryService {
   public async getEntityHierarchy(microservice: string, entityName: string): Promise<any> {
     try {
       const entity = await readEntityFile(microservice, entityName);
-      
+
       if (!entity) {
         return null;
       }
-      
-      // Build hierarchy object
+
       const hierarchy: any = {
         id: entity.uuid,
         name: entity.name,
         description: entity.description,
         type: 'entity',
-        microservice: entity.microservice,
+        package: microservice,
         attributes: entity.attributes || [],
         children: [] as any[]
       };
-      
-      // Add related entities as children
-      if (entity.relationships) {
-        const children: any[] = [];
-        for (const rel of entity.relationships) {
-          const [relMicroservice, relEntityName] = rel.target.split('.');
-          const relatedEntity = await readEntityFile(relMicroservice, relEntityName);
-          
+
+      // Read relationships from package-level file
+      const packagePath = path.join(DATA_DICTIONARIES_DIR, 'microservices', microservice);
+      const relationships = await readRelationshipsFile(packagePath);
+
+      const children: any[] = [];
+      for (const rel of relationships) {
+        let targetUuid: string | null = null;
+        let relLabel: string = '';
+
+        if (rel.source.entity === entity.uuid) {
+          targetUuid = rel.target.entity;
+          relLabel = rel.target.name || '';
+        } else if (rel.target.entity === entity.uuid) {
+          targetUuid = rel.source.entity;
+          relLabel = rel.source.name || '';
+        }
+
+        if (targetUuid) {
+          // Find the target entity
+          const entities = await this.getServiceEntities(microservice);
+          const relatedEntity = entities.find(e => e.uuid === targetUuid);
+
           if (relatedEntity) {
             children.push({
               id: relatedEntity.uuid,
               name: relatedEntity.name,
               description: relatedEntity.description,
               type: 'entity',
-              microservice: relatedEntity.microservice,
-              relationshipType: rel.type,
-              relationshipName: rel.name
+              package: microservice,
+              sourceCardinality: rel.source.entity === entity.uuid ? rel.source.cardinality : rel.target.cardinality,
+              targetCardinality: rel.source.entity === entity.uuid ? rel.target.cardinality : rel.source.cardinality,
+              relationshipName: relLabel
             });
           }
         }
-        hierarchy.children = children;
       }
-      
+      hierarchy.children = children;
+
       return hierarchy;
     } catch (error) {
       logger.error(`Error getting entity hierarchy: ${microservice}.${entityName}`, error);
@@ -566,6 +547,14 @@ export class DictionaryService {
     }
   }
 
-// ... rest of the class unchanged ...
+  private async getServiceEntities(service: string): Promise<Entity[]> {
+    const entityNames = await listMicroserviceEntities(service);
+    const entities: Entity[] = [];
+    for (const name of entityNames) {
+      const entity = await readEntityFile(service, name);
+      if (entity) entities.push(entity);
+    }
+    return entities;
+  }
 }
 export const dictionaryService = new DictionaryService();

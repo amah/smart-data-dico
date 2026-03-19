@@ -1,88 +1,58 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { EntityRelationship, RelationshipType } from '../types';
+import { Relationship, Cardinality } from '../types';
 
 interface RelationshipListProps {
-  relationships: EntityRelationship[];
+  relationships: Relationship[];
   entityName: string;
   serviceName: string;
 }
 
 const RelationshipList = ({ relationships, entityName, serviceName }: RelationshipListProps) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState<RelationshipType | 'all'>('all');
+  const [filterCardinality, setFilterCardinality] = useState<string>('all');
+
+  const getCardinalityLabel = (source: string, target: string) => {
+    if (source === Cardinality.ONE && target === Cardinality.ONE) return 'One-to-One';
+    if (source === Cardinality.ONE && target === Cardinality.MANY) return 'One-to-Many';
+    if (source === Cardinality.MANY && target === Cardinality.ONE) return 'Many-to-One';
+    if (source === Cardinality.MANY && target === Cardinality.MANY) return 'Many-to-Many';
+    return `${source}:${target}`;
+  };
+
+  const getCardinalityColor = (source: string, target: string) => {
+    if (source === Cardinality.ONE && target === Cardinality.ONE) return 'badge-primary';
+    if (source === Cardinality.ONE && target === Cardinality.MANY) return 'badge-secondary';
+    if (source === Cardinality.MANY && target === Cardinality.ONE) return 'badge-accent';
+    if (source === Cardinality.MANY && target === Cardinality.MANY) return 'badge-info';
+    return 'badge-ghost';
+  };
 
   const filteredRelationships = relationships.filter(rel => {
-    const matchesSearch = searchTerm === '' || 
-      rel.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      rel.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      rel.target.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesType = filterType === 'all' || rel.type === filterType;
-    
-    return matchesSearch && matchesType;
+    const matchesSearch = searchTerm === '' ||
+      (rel.description || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (rel.source.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (rel.target.name || '').toLowerCase().includes(searchTerm.toLowerCase());
+
+    if (filterCardinality === 'all') return matchesSearch;
+    const cardLabel = getCardinalityLabel(rel.source.cardinality, rel.target.cardinality);
+    return matchesSearch && cardLabel === filterCardinality;
   });
-
-  const getTypeColor = (type: RelationshipType) => {
-    switch (type) {
-      case RelationshipType.HAS_ONE:
-        return 'badge-primary';
-      case RelationshipType.HAS_MANY:
-        return 'badge-secondary';
-      case RelationshipType.BELONGS_TO:
-        return 'badge-accent';
-      case RelationshipType.MANY_TO_MANY:
-        return 'badge-info';
-      default:
-        return 'badge-ghost';
-    }
-  };
-
-  const getTypeIcon = (type: RelationshipType) => {
-    switch (type) {
-      case RelationshipType.HAS_ONE:
-        return (
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
-          </svg>
-        );
-      case RelationshipType.HAS_MANY:
-        return (
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z" />
-          </svg>
-        );
-      case RelationshipType.BELONGS_TO:
-        return (
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" />
-          </svg>
-        );
-      case RelationshipType.MANY_TO_MANY:
-        return (
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-          </svg>
-        );
-      default:
-        return null;
-    }
-  };
 
   return (
     <div>
       <div className="flex flex-col md:flex-row gap-4 mb-4">
         <div className="form-control flex-1">
           <div className="input-group">
-            <input 
-              type="text" 
-              placeholder="Search relationships..." 
+            <input
+              type="text"
+              placeholder="Search relationships..."
               className="input input-bordered w-full"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
             {searchTerm && (
-              <button 
+              <button
                 className="btn btn-square"
                 onClick={() => setSearchTerm('')}
               >
@@ -93,16 +63,17 @@ const RelationshipList = ({ relationships, entityName, serviceName }: Relationsh
             )}
           </div>
         </div>
-        
-        <select 
+
+        <select
           className="select select-bordered"
-          value={filterType}
-          onChange={(e) => setFilterType(e.target.value as RelationshipType | 'all')}
+          value={filterCardinality}
+          onChange={(e) => setFilterCardinality(e.target.value)}
         >
-          <option value="all">All Types</option>
-          {Object.values(RelationshipType).map(type => (
-            <option key={type} value={type}>{type}</option>
-          ))}
+          <option value="all">All Cardinalities</option>
+          <option value="One-to-One">One-to-One</option>
+          <option value="One-to-Many">One-to-Many</option>
+          <option value="Many-to-One">Many-to-One</option>
+          <option value="Many-to-Many">Many-to-Many</option>
         </select>
       </div>
 
@@ -125,47 +96,43 @@ const RelationshipList = ({ relationships, entityName, serviceName }: Relationsh
           <table className="table table-zebra w-full">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Target Entity</th>
+                <th>Source</th>
+                <th>Cardinality</th>
+                <th>Target</th>
                 <th>Description</th>
-                <th>Required</th>
-                <th>Foreign Key</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {filteredRelationships.map((rel) => (
-                <tr key={rel.name} className="hover">
-                  <td className="font-medium">{rel.name}</td>
+                <tr key={rel.uuid} className="hover">
                   <td>
-                    <div className="flex items-center gap-2">
-                      {getTypeIcon(rel.type)}
-                      <span className={`badge ${getTypeColor(rel.type)}`}>
-                        {rel.type}
-                      </span>
+                    <div>
+                      <span className="font-medium">{rel.source.name || rel.source.entity}</span>
+                      <span className="text-xs text-base-content/50 ml-1">({rel.source.cardinality})</span>
                     </div>
-                  </td>
-                  <td>
-                    <Link 
-                      to={`/services/${serviceName}/entities/${rel.target}`}
-                      className="link link-hover link-primary"
-                    >
-                      {rel.target}
-                    </Link>
-                  </td>
-                  <td className="max-w-xs truncate">{rel.description}</td>
-                  <td>
-                    {rel.required ? (
-                      <span className="badge badge-success">Required</span>
-                    ) : (
-                      <span className="badge badge-ghost">Optional</span>
+                    {rel.source.referenceAttributes && rel.source.referenceAttributes.length > 0 && (
+                      <div className="text-xs text-base-content/50">via: {rel.source.referenceAttributes.join(', ')}</div>
                     )}
                   </td>
-                  <td>{rel.foreignKey || '-'}</td>
                   <td>
-                    <Link 
-                      to={`/services/${serviceName}/entities/${entityName}/relationships/${rel.name}/edit`}
+                    <span className={`badge ${getCardinalityColor(rel.source.cardinality, rel.target.cardinality)}`}>
+                      {getCardinalityLabel(rel.source.cardinality, rel.target.cardinality)}
+                    </span>
+                  </td>
+                  <td>
+                    <div>
+                      <span className="font-medium">{rel.target.name || rel.target.entity}</span>
+                      <span className="text-xs text-base-content/50 ml-1">({rel.target.cardinality})</span>
+                    </div>
+                    {rel.target.referenceAttributes && rel.target.referenceAttributes.length > 0 && (
+                      <div className="text-xs text-base-content/50">via: {rel.target.referenceAttributes.join(', ')}</div>
+                    )}
+                  </td>
+                  <td className="max-w-xs truncate">{rel.description || '-'}</td>
+                  <td>
+                    <Link
+                      to={`/services/${serviceName}/entities/${entityName}/relationships/${rel.uuid}/edit`}
                       className="btn btn-sm btn-ghost btn-square"
                       title="Edit"
                     >
@@ -182,7 +149,7 @@ const RelationshipList = ({ relationships, entityName, serviceName }: Relationsh
       )}
 
       <div className="mt-6">
-        <Link 
+        <Link
           to={`/services/${serviceName}/entities/${entityName}/relationships/create`}
           className="btn btn-primary"
         >

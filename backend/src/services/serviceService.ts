@@ -1,13 +1,17 @@
-import { Entity } from '../models/EntitySchema.js';
+import { Entity, Relationship, Cardinality } from '../models/EntitySchema.js';
 import { logger } from '../utils/logger.js';
-import { 
-  listMicroservices, 
-  listMicroserviceEntities, 
-  readEntityFile, 
-  writeEntityFile, 
+import {
+  listMicroservices,
+  listMicroserviceEntities,
+  readEntityFile,
+  writeEntityFile,
   deleteEntityFile,
-  listAllEntities
+  listAllEntities,
+  readRelationshipsFile,
+  writeRelationshipsFile,
+  getPackagePath
 } from '../utils/fileOperations.js';
+import { generateUUID } from '../utils/uuid.js';
 
 /**
  * Interface for search result
@@ -37,7 +41,8 @@ interface GraphEdge {
   source: string;
   target: string;
   label: string;
-  type: string;
+  sourceCardinality: string;
+  targetCardinality: string;
 }
 
 interface GraphData {
@@ -49,42 +54,29 @@ interface GraphData {
  * Service for managing services and entities
  */
 export class ServiceService {
-  /**
-   * Get all services (microservices)
-   * @returns Promise<string[]>
-   */
   async getAllServices(): Promise<string[]> {
     logger.info('Getting all services');
-    
     try {
-      const services = await listMicroservices();
-      return services;
+      return await listMicroservices();
     } catch (error) {
       logger.error(`Error getting all services: ${error}`);
       return [];
     }
   }
 
-  /**
-   * Get all entities for a specific service
-   * @param service Service name
-   * @returns Promise<Entity[]>
-   */
   async getServiceEntities(service: string): Promise<Entity[]> {
     logger.info(`Getting entities for service: ${service}`);
     const startTime = process.hrtime();
-    
+
     try {
-      // Measure time to list entity names
       const listStartTime = process.hrtime();
       const entityNames = await listMicroserviceEntities(service);
       const listEndTime = process.hrtime(listStartTime);
       const listTimeMs = Number((listEndTime[0] * 1e3 + listEndTime[1] / 1e6).toFixed(2));
       logger.info(`Listed ${entityNames.length} entity names for service ${service} in ${listTimeMs}ms`);
-      
+
       const entities: Entity[] = [];
-      
-      // Measure time to read all entity files
+
       const readStartTime = process.hrtime();
       for (const entityName of entityNames) {
         const entity = await readEntityFile(service, entityName);
@@ -95,12 +87,11 @@ export class ServiceService {
       const readEndTime = process.hrtime(readStartTime);
       const readTimeMs = Number((readEndTime[0] * 1e3 + readEndTime[1] / 1e6).toFixed(2));
       logger.info(`Read ${entities.length} entity files for service ${service} in ${readTimeMs}ms`);
-      
-      // Total execution time
+
       const endTime = process.hrtime(startTime);
       const totalTimeMs = Number((endTime[0] * 1e3 + endTime[1] / 1e6).toFixed(2));
       logger.info(`Total time to get entities for service ${service}: ${totalTimeMs}ms (list: ${listTimeMs}ms, read: ${readTimeMs}ms)`);
-      
+
       return entities;
     } catch (error) {
       logger.error(`Error getting service entities: ${error}`);
@@ -108,49 +99,33 @@ export class ServiceService {
     }
   }
 
-  /**
-   * Get entity schema by service and entity name
-   * @param service Service name
-   * @param entityName Entity name
-   * @returns Promise<Entity | null>
-   */
   async getEntitySchema(service: string, entityName: string): Promise<Entity | null> {
     logger.info(`Getting entity schema: ${service}.${entityName}`);
-    
     try {
-      const entity = await readEntityFile(service, entityName);
-      return entity;
+      return await readEntityFile(service, entityName);
     } catch (error) {
       logger.error(`Error getting entity schema: ${error}`);
       return null;
     }
   }
 
-  /**
-   * Create a new entity
-   * @param entity Entity to create
-   * @returns Promise<{ success: boolean; errors: string[] }>
-   */
-  async createEntity(entity: Entity): Promise<{ success: boolean; errors: string[] }> {
-    logger.info(`Creating entity: ${entity.microservice}.${entity.name}`);
-    
+  async createEntity(service: string, entity: Entity): Promise<{ success: boolean; errors: string[] }> {
+    logger.info(`Creating entity: ${service}.${entity.name}`);
+
     try {
-      // Check if entity already exists
-      const existingEntity = await readEntityFile(entity.microservice, entity.name);
+      const existingEntity = await readEntityFile(service, entity.name);
       if (existingEntity) {
         return {
           success: false,
-          errors: [`Entity ${entity.microservice}.${entity.name} already exists`]
+          errors: [`Entity ${service}.${entity.name} already exists`]
         };
       }
-      
-      // Set creation and update timestamps
+
       entity.createdAt = new Date().toISOString();
       entity.updatedAt = new Date().toISOString();
-      
-      // Write entity to file
-      const result = await writeEntityFile(entity);
-      
+
+      const result = await writeEntityFile(entity, service);
+
       return {
         success: result,
         errors: result ? [] : ['Failed to write entity file']
@@ -164,31 +139,23 @@ export class ServiceService {
     }
   }
 
-  /**
-   * Update an existing entity
-   * @param entity Entity to update
-   * @returns Promise<{ success: boolean; errors: string[] }>
-   */
-  async updateEntity(entity: Entity): Promise<{ success: boolean; errors: string[] }> {
-    logger.info(`Updating entity: ${entity.microservice}.${entity.name}`);
-    
+  async updateEntity(service: string, entity: Entity): Promise<{ success: boolean; errors: string[] }> {
+    logger.info(`Updating entity: ${service}.${entity.name}`);
+
     try {
-      // Check if entity exists
-      const existingEntity = await readEntityFile(entity.microservice, entity.name);
+      const existingEntity = await readEntityFile(service, entity.name);
       if (!existingEntity) {
         return {
           success: false,
-          errors: [`Entity ${entity.microservice}.${entity.name} not found`]
+          errors: [`Entity ${service}.${entity.name} not found`]
         };
       }
-      
-      // Preserve creation timestamp and update the update timestamp
+
       entity.createdAt = existingEntity.createdAt;
       entity.updatedAt = new Date().toISOString();
-      
-      // Write entity to file
-      const result = await writeEntityFile(entity);
-      
+
+      const result = await writeEntityFile(entity, service);
+
       return {
         success: result,
         errors: result ? [] : ['Failed to write entity file']
@@ -202,17 +169,10 @@ export class ServiceService {
     }
   }
 
-  /**
-   * Delete an entity
-   * @param service Service name
-   * @param entityName Entity name
-   * @returns Promise<{ success: boolean; errors: string[] }>
-   */
   async deleteEntity(service: string, entityName: string): Promise<{ success: boolean; errors: string[] }> {
     logger.info(`Deleting entity: ${service}.${entityName}`);
-    
+
     try {
-      // Check if entity exists
       const existingEntity = await readEntityFile(service, entityName);
       if (!existingEntity) {
         return {
@@ -220,22 +180,25 @@ export class ServiceService {
           errors: [`Entity ${service}.${entityName} not found`]
         };
       }
-      
-      // Check if entity has relationships from other entities
-      const relatedEntities = await this.getEntitiesWithRelationshipsTo(service, entityName);
-      if (relatedEntities.length > 0) {
+
+      // Check if entity is referenced in package-level relationships
+      const packagePath = getPackagePath(service);
+      const relationships = await readRelationshipsFile(packagePath);
+      const referencingRels = relationships.filter(
+        rel => rel.source.entity === existingEntity.uuid || rel.target.entity === existingEntity.uuid
+      );
+
+      if (referencingRels.length > 0) {
         return {
           success: false,
           errors: [
-            `Cannot delete entity ${service}.${entityName} because it has relationships from other entities:`,
-            ...relatedEntities.map(e => `- ${e.microservice}.${e.name}`)
+            `Cannot delete entity ${service}.${entityName} because it is referenced in ${referencingRels.length} relationship(s). Remove the relationships first.`
           ]
         };
       }
-      
-      // Delete entity file
+
       const result = await deleteEntityFile(service, entityName);
-      
+
       return {
         success: result,
         errors: result ? [] : ['Failed to delete entity file']
@@ -249,85 +212,126 @@ export class ServiceService {
     }
   }
 
-  /**
-   * Get entities that have relationships to the specified entity
-   * @param service Service name
-   * @param entityName Entity name
-   * @returns Promise<Entity[]>
-   */
-  private async getEntitiesWithRelationshipsTo(service: string, entityName: string): Promise<Entity[]> {
-    const allEntities = await listAllEntities();
-    const relatedEntities: Entity[] = [];
-    const fullName = `${service}.${entityName}`;
-    
-    for (const entityInfo of allEntities) {
-      if (entityInfo.microservice === service && entityInfo.name === entityName) {
-        continue; // Skip the entity itself
-      }
-      
-      const entity = await readEntityFile(entityInfo.microservice, entityInfo.name);
-      
-      if (entity && entity.relationships && entity.relationships.some(rel => rel.target === fullName)) {
-        relatedEntities.push(entity);
-      }
-    }
-    
-    return relatedEntities;
+  // --- Relationship CRUD ---
+
+  async getPackageRelationships(packageName: string): Promise<Relationship[]> {
+    const packagePath = getPackagePath(packageName);
+    return await readRelationshipsFile(packagePath);
   }
 
-  /**
-   * Search for entities and attributes by keyword
-   * @param query Search query
-   * @returns Promise<SearchResult[]>
-   */
+  async createRelationship(packageName: string, relationship: Relationship): Promise<{ success: boolean; errors: string[]; relationship?: Relationship }> {
+    try {
+      if (!relationship.uuid) {
+        relationship.uuid = generateUUID();
+      }
+
+      const packagePath = getPackagePath(packageName);
+      const relationships = await readRelationshipsFile(packagePath);
+      relationships.push(relationship);
+
+      const result = await writeRelationshipsFile(packagePath, relationships);
+      return {
+        success: result,
+        errors: result ? [] : ['Failed to write relationships file'],
+        relationship: result ? relationship : undefined
+      };
+    } catch (error) {
+      logger.error(`Error creating relationship: ${error}`);
+      return { success: false, errors: [`Error creating relationship: ${error}`] };
+    }
+  }
+
+  async updateRelationship(packageName: string, uuid: string, relationship: Relationship): Promise<{ success: boolean; errors: string[] }> {
+    try {
+      const packagePath = getPackagePath(packageName);
+      const relationships = await readRelationshipsFile(packagePath);
+      const index = relationships.findIndex(r => r.uuid === uuid);
+
+      if (index === -1) {
+        return { success: false, errors: [`Relationship ${uuid} not found`] };
+      }
+
+      relationships[index] = { ...relationship, uuid };
+      const result = await writeRelationshipsFile(packagePath, relationships);
+      return {
+        success: result,
+        errors: result ? [] : ['Failed to write relationships file']
+      };
+    } catch (error) {
+      logger.error(`Error updating relationship: ${error}`);
+      return { success: false, errors: [`Error updating relationship: ${error}`] };
+    }
+  }
+
+  async deleteRelationship(packageName: string, uuid: string): Promise<{ success: boolean; errors: string[] }> {
+    try {
+      const packagePath = getPackagePath(packageName);
+      const relationships = await readRelationshipsFile(packagePath);
+      const index = relationships.findIndex(r => r.uuid === uuid);
+
+      if (index === -1) {
+        return { success: false, errors: [`Relationship ${uuid} not found`] };
+      }
+
+      relationships.splice(index, 1);
+      const result = await writeRelationshipsFile(packagePath, relationships);
+      return {
+        success: result,
+        errors: result ? [] : ['Failed to write relationships file']
+      };
+    } catch (error) {
+      logger.error(`Error deleting relationship: ${error}`);
+      return { success: false, errors: [`Error deleting relationship: ${error}`] };
+    }
+  }
+
+  // --- Search ---
+
   async searchEntities(query: string): Promise<SearchResult[]> {
     logger.info(`Searching entities with query: ${query}`);
-    
+
     try {
       const results: SearchResult[] = [];
       const allEntities = await listAllEntities();
       const searchTerms = query.toLowerCase().split(/\s+/);
-      
+
       for (const entityInfo of allEntities) {
         const entity = await readEntityFile(entityInfo.microservice, entityInfo.name);
-        
+
         if (!entity) continue;
-        
-        // Search in entity name and description
+
         const entityNameMatch = this.calculateMatchScore(entity.name, searchTerms);
-        const entityDescMatch = this.calculateMatchScore(entity.description, searchTerms);
-        
+        const entityDescMatch = this.calculateMatchScore(entity.description || '', searchTerms);
+
         if (entityNameMatch > 0 || entityDescMatch > 0) {
           results.push({
             type: 'entity',
-            service: entity.microservice,
+            service: entityInfo.microservice,
             entityName: entity.name,
-            description: entity.description,
-            path: `${entity.microservice}.${entity.name}`,
-            score: Math.max(entityNameMatch * 2, entityDescMatch) // Name matches are more important
+            description: entity.description || '',
+            path: `${entityInfo.microservice}.${entity.name}`,
+            score: Math.max(entityNameMatch * 2, entityDescMatch)
           });
         }
-        
-        // Search in attributes
+
         for (const attr of entity.attributes) {
           const attrNameMatch = this.calculateMatchScore(attr.name, searchTerms);
           const attrDescMatch = this.calculateMatchScore(attr.description, searchTerms);
-          
+
           if (attrNameMatch > 0 || attrDescMatch > 0) {
             results.push({
               type: 'attribute',
-              service: entity.microservice,
+              service: entityInfo.microservice,
               entityName: entity.name,
               attributeName: attr.name,
               description: attr.description,
-              path: `${entity.microservice}.${entity.name}.${attr.name}`,
-              score: Math.max(attrNameMatch * 1.5, attrDescMatch) // Name matches are more important
+              path: `${entityInfo.microservice}.${entity.name}.${attr.name}`,
+              score: Math.max(attrNameMatch * 1.5, attrDescMatch)
             });
           }
         }
       }
-      
-      // Sort results by score (descending)
+
       return results.sort((a, b) => b.score - a.score);
     } catch (error) {
       logger.error(`Error searching entities: ${error}`);
@@ -335,78 +339,68 @@ export class ServiceService {
     }
   }
 
-  /**
-   * Calculate match score for a text against search terms
-   * @param text Text to search in
-   * @param searchTerms Search terms
-   * @returns Match score
-   */
   private calculateMatchScore(text: string, searchTerms: string[]): number {
     if (!text) return 0;
-    
+
     const normalizedText = text.toLowerCase();
     let score = 0;
-    
+
     for (const term of searchTerms) {
       if (normalizedText.includes(term)) {
-        // Exact match
         score += 1;
-        
-        // Bonus for word boundary matches
         const regex = new RegExp(`\\b${term}\\b`, 'i');
         if (regex.test(normalizedText)) {
           score += 0.5;
         }
       }
     }
-    
+
     return score;
   }
 
   /**
-   * Get graph data for visualization
-   * @param service Service name
-   * @returns Promise<GraphData>
+   * Get graph data for visualization - reads relationships from package-level file
    */
   async getGraphData(service: string): Promise<GraphData> {
     logger.info(`Generating graph data for service: ${service}`);
-    
+
     try {
       const graphData: GraphData = {
         nodes: [],
         edges: []
       };
-      
-      // Get all entities for the service
+
       const entities = await this.getServiceEntities(service);
-      
-      // Add nodes for each entity
+      const entityUuidToName = new Map<string, string>();
+
       for (const entity of entities) {
+        entityUuidToName.set(entity.uuid, entity.name);
         graphData.nodes.push({
-          id: `${entity.microservice}.${entity.name}`,
+          id: entity.uuid,
           label: entity.name,
           type: 'entity',
-          service: entity.microservice
+          service
         });
       }
-      
-      // Add edges for relationships
-      for (const entity of entities) {
-        if (!entity.relationships) continue;
-        
-        for (const rel of entity.relationships) {
-          const edgeId = `${entity.microservice}.${entity.name}-${rel.type}-${rel.target}`;
-          
-          graphData.edges.push({
-            id: edgeId,
-            source: `${entity.microservice}.${entity.name}`,
-            target: rel.target,
-            label: rel.name,
-            type: rel.type
-          });
-        }
+
+      // Read relationships from package-level file
+      const packagePath = getPackagePath(service);
+      const relationships = await readRelationshipsFile(packagePath);
+
+      for (const rel of relationships) {
+        const sourceName = entityUuidToName.get(rel.source.entity) || rel.source.entity;
+        const targetName = entityUuidToName.get(rel.target.entity) || rel.target.entity;
+
+        graphData.edges.push({
+          id: rel.uuid,
+          source: rel.source.entity,
+          target: rel.target.entity,
+          label: rel.target.name || `${sourceName} -> ${targetName}`,
+          sourceCardinality: rel.source.cardinality,
+          targetCardinality: rel.target.cardinality
+        });
       }
-      
+
       return graphData;
     } catch (error) {
       logger.error(`Error generating graph data: ${error}`);

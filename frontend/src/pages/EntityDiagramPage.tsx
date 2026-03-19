@@ -92,14 +92,12 @@ const EntityDiagramPage: React.FC = () => {
 
   const handleEntityUpdate = async (entity: Entity) => {
     try {
-      await servicesApi.updateEntity(entity.microservice, entity.name, entity);
-      // Refresh entities
-      const response = await servicesApi.getServiceEntities(entity.microservice);
-      const updatedEntities = response.data || response;
-      setEntities(prev => prev.map(e => 
-        e.microservice === entity.microservice && e.name === entity.name 
-          ? entity 
-          : e
+      const svc = selectedService !== 'all' ? selectedService : service || '';
+      await servicesApi.updateEntity(svc, entity.name, entity);
+      const response = await servicesApi.getServiceEntities(svc);
+      const refreshed = response.data || response;
+      setEntities(prev => prev.map(e =>
+        e.uuid === entity.uuid ? entity : e
       ));
     } catch (err) {
       console.error('Error updating entity:', err);

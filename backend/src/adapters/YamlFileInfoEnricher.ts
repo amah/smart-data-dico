@@ -2,7 +2,7 @@
  * YamlFileInfoEnricher
  *
  * FileInfoEnricher that parses .yaml files and adds entity metadata
- * (entity name, uuid, microservice) to the file info response.
+ * (entity name, uuid) to the file info response.
  */
 
 import YAML from 'yaml';
@@ -11,8 +11,6 @@ import { logger } from '../utils/logger.js';
 export interface YamlEnrichedData {
   entityName?: string;
   entityUuid?: string;
-  microservice?: string;
-  entityVersion?: string;
 }
 
 /**
@@ -31,7 +29,6 @@ export function createYamlFileInfoEnricher() {
 
     async enrich(fileInfo: any, context: any): Promise<YamlEnrichedData | null> {
       try {
-        // Read the file content to extract entity metadata
         const content = context?.content;
         if (!content) {
           return null;
@@ -45,8 +42,6 @@ export function createYamlFileInfoEnricher() {
         return {
           entityName: parsed.name,
           entityUuid: parsed.uuid,
-          microservice: parsed.microservice,
-          entityVersion: parsed.version,
         };
       } catch (error) {
         logger.debug(`YamlFileInfoEnricher: could not parse ${fileInfo?.name}: ${error}`);

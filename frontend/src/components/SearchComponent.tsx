@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { servicesApi } from '../services/api';
-import { SearchResult } from '../types';
+import type { SearchResult } from '../types';
 
 const SearchComponent = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -73,7 +73,7 @@ const SearchComponent = () => {
   // Apply filters to results
   const filteredResults = results.filter(result => {
     const matchesType = filters.type === 'all' || result.type === filters.type;
-    const matchesService = filters.service === 'all' || result.microservice === filters.service;
+    const matchesService = filters.service === 'all' || result.service === filters.service;
     return matchesType && matchesService;
   });
 
@@ -216,11 +216,11 @@ const SearchComponent = () => {
                       </div>
                     </td>
                     <td className="font-medium">{highlightText(result.name, query)}</td>
-                    <td>{result.microservice}</td>
+                    <td>{result.service}</td>
                     <td className="max-w-xs truncate">{highlightText(result.description, query)}</td>
                     <td>
                       <Link 
-                        to={`/services/${result.microservice}/entities/${result.entityName}`}
+                        to={`/services/${result.service}/entities/${result.entityName}`}
                         className="btn btn-sm btn-ghost"
                       >
                         View

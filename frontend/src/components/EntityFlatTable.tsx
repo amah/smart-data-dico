@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { entityApi, dictionaryApi, servicesApi } from '../services/api';
-import { Entity, AttributeType, Package } from '../types';
+import { entityApi, servicesApi } from '../services/api';
+import { Entity, Package } from '../types';
 
 const EntityFlatTable = () => {
-  const [entities, setEntities] = useState<Entity[]>([]);
+  const [entities, setEntities] = useState<{ entity: Entity; packageName: string }[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
   const [filters, setFilters] = useState({ name: '', package: '' });
   const [loading, setLoading] = useState(false);
@@ -11,13 +11,11 @@ const EntityFlatTable = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [currentEntity, setCurrentEntity] = useState<Entity | null>(null);
-  const [newEntity, setNewEntity] = useState<Partial<Entity>>({
+  const [currentEntity, setCurrentEntity] = useState<{ entity: Entity; packageName: string } | null>(null);
+  const [newEntity, setNewEntity] = useState<{ name: string; description: string; packageName: string }>({
     name: '',
     description: '',
-    microservice: '',
-    version: '1.0.0',
-    attributes: []
+    packageName: '',
   });
 
   // For package dropdown
@@ -38,11 +36,19 @@ const EntityFlatTable = () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await entityApi.getFlatEntities({
-        name: filters.name,
-        package: filters.package,
-      });
-      setEntities(data);
+      const pkgs: Package[] = await entityApi.getAllPackages();
+      setPackages(pkgs);
+      const flatEntities: { entity: Entity; packageName: string }[] = [];
+      for (const pkg of pkgs) {
+        if (filters.package && pkg.name !== filters.package) continue;
+        if (pkg.entities) {
+          for (const entity of pkg.entities) {
+            if (filters.name && !entity.name.toLowerCase().includes(filters.name.toLowerCase())) continue;
+            flatEntities.push({ entity, packageName: pkg.name });
+          }
+        }
+      }
+      setEntities(flatEntities);
     } catch (err) {
       setError('Failed to load entities. Please try again.');
     } finally {
@@ -66,35 +72,28 @@ const EntityFlatTable = () => {
 
   // Handle creating a new entity
   const handleCreateEntity = async () => {
-    if (!newEntity.name || !newEntity.microservice) {
-      setError('Name and microservice are required');
+    if (!newEntity.name || !newEntity.packageName) {
+      setError('Name and package are required');
       return;
     }
 
     setLoading(true);
     setError(null);
     try {
-      // Generate a UUID for the new entity
       const uuid = crypto.randomUUID();
       const entityToCreate: Entity = {
         uuid,
-        id: uuid, // For backward compatibility
-        name: newEntity.name || '',
-        description: newEntity.description || '',
-        microservice: newEntity.microservice || '',
-        version: newEntity.version || '1.0.0',
+        name: newEntity.name,
+        description: newEntity.description || undefined,
         attributes: [],
-        relationships: []
       };
-      
-      await servicesApi.createEntity(entityToCreate.microservice, entityToCreate);
+
+      await servicesApi.createEntity(newEntity.packageName, entityToCreate);
       setIsModalOpen(false);
       setNewEntity({
         name: '',
         description: '',
-        microservice: '',
-        version: '1.0.0',
-        attributes: []
+        packageName: '',
       });
       // Refresh the entity list
       fetchEntities();
@@ -113,7 +112,7 @@ const EntityFlatTable = () => {
     setLoading(true);
     setError(null);
     try {
-      await servicesApi.updateEntity(currentEntity.microservice, currentEntity.name, currentEntity);
+      await servicesApi.updateEntity(currentEntity.packageName, currentEntity.entity.name, currentEntity.entity);
       setIsEditModalOpen(false);
       setCurrentEntity(null);
       // Refresh the entity list
@@ -133,7 +132,7 @@ const EntityFlatTable = () => {
     setLoading(true);
     setError(null);
     try {
-      await servicesApi.deleteEntity(currentEntity.microservice, currentEntity.name);
+      await servicesApi.deleteEntity(currentEntity.packageName, currentEntity.entity.name);
       setIsDeleteModalOpen(false);
       setCurrentEntity(null);
       // Refresh the entity list
@@ -155,9 +154,9 @@ const EntityFlatTable = () => {
   // Handle input changes for editing entity
   const handleEditEntityChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     if (!currentEntity) return;
-    
+
     const { name, value } = e.target;
-    setCurrentEntity({ ...currentEntity, [name]: value });
+    setCurrentEntity({ ...currentEntity, entity: { ...currentEntity.entity, [name]: value } });
   };
 
   return (
@@ -207,71 +206,52 @@ const EntityFlatTable = () => {
                 <th>Name</th>
                 <th>Package</th>
                 <th>Description</th>
-                <th>Microservice</th>
-                <th>Version</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {entities.filter(
-                (entity) =>
-                  // Only include items that have an attributes array (even if empty) and are not typical attribute names
-                  Array.isArray(entity.attributes) &&
-                  entity.name &&
-                  entity.name.toLowerCase() !== 'id' &&
-                  entity.name.toLowerCase() !== 'name'
-              ).length === 0 ? (
+              {entities.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center text-gray-500">No entities found.</td>
+                  <td colSpan={4} className="text-center text-gray-500">No entities found.</td>
                 </tr>
               ) : (
-                entities
-                  .filter(
-                    (entity) =>
-                      Array.isArray(entity.attributes) &&
-                      entity.name &&
-                      entity.name.toLowerCase() !== 'id' &&
-                      entity.name.toLowerCase() !== 'name'
-                  )
-                  .map((entity) => (
-                    <tr key={entity.uuid}>
-                      <td>{entity.name}</td>
-                      <td>{entity.metadata?.package || '-'}</td>
-                      <td className="max-w-xs truncate">{entity.description}</td>
-                      <td>{entity.microservice}</td>
-                      <td>{entity.version}</td>
-                      <td>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => {
-                              setCurrentEntity(entity);
-                              setIsEditModalOpen(true);
-                            }}
-                            className="btn btn-sm btn-ghost btn-square"
-                            title="Edit"
-                            aria-label={`Edit ${entity.name}`}
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                              <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                            </svg>
-                          </button>
-                          <button
-                            onClick={() => {
-                              setCurrentEntity(entity);
-                              setIsDeleteModalOpen(true);
-                            }}
-                            className="btn btn-sm btn-ghost btn-square text-error"
-                            title="Delete"
-                            aria-label={`Delete ${entity.name}`}
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                              <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                            </svg>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
+                entities.map(({ entity, packageName }) => (
+                  <tr key={entity.uuid}>
+                    <td>{entity.name}</td>
+                    <td>{packageName}</td>
+                    <td className="max-w-xs truncate">{entity.description}</td>
+                    <td>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            setCurrentEntity({ entity, packageName });
+                            setIsEditModalOpen(true);
+                          }}
+                          className="btn btn-sm btn-ghost btn-square"
+                          title="Edit"
+                          aria-label={`Edit ${entity.name}`}
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setCurrentEntity({ entity, packageName });
+                            setIsDeleteModalOpen(true);
+                          }}
+                          className="btn btn-sm btn-ghost btn-square text-error"
+                          title="Delete"
+                          aria-label={`Delete ${entity.name}`}
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                          </svg>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
@@ -283,9 +263,9 @@ const EntityFlatTable = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-base-100 p-6 rounded-lg shadow-lg w-full max-w-md">
             <h2 className="text-xl font-bold mb-4">Create New Entity</h2>
-            
+
             {error && <div className="alert alert-error mb-4">{error}</div>}
-            
+
             <div className="form-control mb-4">
               <label className="label">
                 <span className="label-text">Name</span>
@@ -299,7 +279,7 @@ const EntityFlatTable = () => {
                 required
               />
             </div>
-            
+
             <div className="form-control mb-4">
               <label className="label">
                 <span className="label-text">Description</span>
@@ -311,34 +291,25 @@ const EntityFlatTable = () => {
                 onChange={handleNewEntityChange}
               ></textarea>
             </div>
-            
+
             <div className="form-control mb-4">
               <label className="label">
-                <span className="label-text">Microservice</span>
+                <span className="label-text">Package</span>
               </label>
-              <input
-                type="text"
-                name="microservice"
-                className="input input-bordered"
-                value={newEntity.microservice}
+              <select
+                name="packageName"
+                className="select select-bordered"
+                value={newEntity.packageName}
                 onChange={handleNewEntityChange}
                 required
-              />
+              >
+                <option value="">Select a package</option>
+                {packages.map((pkg) => (
+                  <option key={pkg.id} value={pkg.name}>{pkg.name}</option>
+                ))}
+              </select>
             </div>
-            
-            <div className="form-control mb-4">
-              <label className="label">
-                <span className="label-text">Version</span>
-              </label>
-              <input
-                type="text"
-                name="version"
-                className="input input-bordered"
-                value={newEntity.version}
-                onChange={handleNewEntityChange}
-              />
-            </div>
-            
+
             <div className="flex justify-end gap-2 mt-6">
               <button
                 type="button"
@@ -375,9 +346,9 @@ const EntityFlatTable = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-base-100 p-6 rounded-lg shadow-lg w-full max-w-md">
             <h2 className="text-xl font-bold mb-4">Edit Entity</h2>
-            
+
             {error && <div className="alert alert-error mb-4">{error}</div>}
-            
+
             <div className="form-control mb-4">
               <label className="label">
                 <span className="label-text">Name</span>
@@ -386,12 +357,12 @@ const EntityFlatTable = () => {
                 type="text"
                 name="name"
                 className="input input-bordered"
-                value={currentEntity.name}
+                value={currentEntity.entity.name}
                 onChange={handleEditEntityChange}
                 required
               />
             </div>
-            
+
             <div className="form-control mb-4">
               <label className="label">
                 <span className="label-text">Description</span>
@@ -399,38 +370,23 @@ const EntityFlatTable = () => {
               <textarea
                 name="description"
                 className="textarea textarea-bordered"
-                value={currentEntity.description}
+                value={currentEntity.entity.description || ''}
                 onChange={handleEditEntityChange}
               ></textarea>
             </div>
-            
+
             <div className="form-control mb-4">
               <label className="label">
-                <span className="label-text">Microservice</span>
+                <span className="label-text">Package</span>
               </label>
               <input
                 type="text"
-                name="microservice"
                 className="input input-bordered"
-                value={currentEntity.microservice}
-                onChange={handleEditEntityChange}
-                required
+                value={currentEntity.packageName}
+                disabled
               />
             </div>
-            
-            <div className="form-control mb-4">
-              <label className="label">
-                <span className="label-text">Version</span>
-              </label>
-              <input
-                type="text"
-                name="version"
-                className="input input-bordered"
-                value={currentEntity.version}
-                onChange={handleEditEntityChange}
-              />
-            </div>
-            
+
             <div className="flex justify-end gap-2 mt-6">
               <button
                 type="button"
@@ -468,13 +424,13 @@ const EntityFlatTable = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-base-100 p-6 rounded-lg shadow-lg w-full max-w-md">
             <h2 className="text-xl font-bold mb-4">Delete Entity</h2>
-            
+
             <p className="mb-4">
-              Are you sure you want to delete the entity <strong>{currentEntity.name}</strong>? This action cannot be undone.
+              Are you sure you want to delete the entity <strong>{currentEntity.entity.name}</strong>? This action cannot be undone.
             </p>
-            
+
             {error && <div className="alert alert-error mb-4">{error}</div>}
-            
+
             <div className="flex justify-end gap-2 mt-6">
               <button
                 type="button"

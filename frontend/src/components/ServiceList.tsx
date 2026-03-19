@@ -52,7 +52,7 @@ const ServiceList = () => {
               {pkg.entities.map((entity: Entity) => (
                 <li key={entity.uuid} className="flex items-center gap-2">
                   <Link
-                    to={`/services/${entity.microservice}/entities/${entity.name}`}
+                    to={`/services/${pkg.name}/entities/${entity.name}`}
                     className="link"
                   >
                     {entity.name}
