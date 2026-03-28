@@ -116,47 +116,56 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
     }));
   };
 
-  // Recursive render for package tree
-  const renderPackageTree = (pkgs: Package[]) => {
+  // Recursive render for package tree with accumulated path
+  const renderPackageTree = (pkgs: Package[], parentPath: string[] = []) => {
     if (!Array.isArray(pkgs)) return <ul />;
     return (
       <ul>
-        {pkgs.map((pkg) => (
-          <li key={pkg.id}>
-            <div className="flex items-center">
-              {(pkg.subPackages && pkg.subPackages.length > 0) || (pkg.entities && pkg.entities.length > 0) ? (
-                <button
-                  className="mr-1 btn btn-xs btn-ghost"
-                  onClick={() => togglePackage(pkg.id)}
-                  aria-label={expandedPackages[pkg.id] ? 'Collapse' : 'Expand'}
-                  type="button"
-                >
-                  {expandedPackages[pkg.id] ? '▼' : '▶'}
-                </button>
-              ) : null}
-              <span className="font-semibold">{pkg.name}</span>
-            </div>
-            {expandedPackages[pkg.id] && (
-              <div className="ml-4">
-                {pkg.entities && pkg.entities.length > 0 && (
-                  <ul>
-                    {pkg.entities.map((entity) => (
-                      <li key={entity.uuid}>
-                        <Link
-                          to={`/services/${pkg.name}/entities/${entity.name}`}
-                          className={isActive(`/services/${pkg.name}/entities/${entity.name}`) ? 'active' : ''}
-                        >
-                        {entity.name}
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {pkg.subPackages && pkg.subPackages.length > 0 && renderPackageTree(pkg.subPackages)}
+        {pkgs.map((pkg) => {
+          const currentPath = [...parentPath, pkg.name];
+          const packageUrl = `/packages/${currentPath.join('/')}`;
+          return (
+            <li key={pkg.id}>
+              <div className="flex items-center">
+                {(pkg.subPackages && pkg.subPackages.length > 0) || (pkg.entities && pkg.entities.length > 0) ? (
+                  <button
+                    className="mr-1 btn btn-xs btn-ghost"
+                    onClick={() => togglePackage(pkg.id)}
+                    aria-label={expandedPackages[pkg.id] ? 'Collapse' : 'Expand'}
+                    type="button"
+                  >
+                    {expandedPackages[pkg.id] ? '▼' : '▶'}
+                  </button>
+                ) : null}
+                <Link to={packageUrl} className={`font-semibold ${isActive(packageUrl) ? 'active' : ''}`}>
+                  {pkg.name}
+                </Link>
               </div>
-            )}
-          </li>
-        ))}
+              {expandedPackages[pkg.id] && (
+                <div className="ml-4">
+                  {pkg.entities && pkg.entities.length > 0 && (
+                    <ul>
+                      {pkg.entities.map((entity) => {
+                        const entityUrl = `${packageUrl}/entities/${entity.name}`;
+                        return (
+                          <li key={entity.uuid}>
+                            <Link
+                              to={entityUrl}
+                              className={isActive(entityUrl) ? 'active' : ''}
+                            >
+                              {entity.name}
+                            </Link>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                  {pkg.subPackages && pkg.subPackages.length > 0 && renderPackageTree(pkg.subPackages, currentPath)}
+                </div>
+              )}
+            </li>
+          );
+        })}
       </ul>
     );
   };

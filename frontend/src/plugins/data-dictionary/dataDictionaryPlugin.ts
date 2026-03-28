@@ -14,6 +14,7 @@ export function createDataDictionaryPlugin(): PluginModule {
       // Declare route ownership
       ctx.views.register('routes.data-dictionary', () => ({
         routes: [
+          '/packages/**',
           '/services/**',
           '/dictionaries/**',
           '/create',

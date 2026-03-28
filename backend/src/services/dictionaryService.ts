@@ -19,8 +19,19 @@ export class DictionaryService {
   /**
    * Create a new package (subpackage) at the given path.
    */
+  private validatePackageName(name: string): string | null {
+    if (!name) return 'Package name is required';
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) return 'Package name must be kebab-case (lowercase letters, numbers, hyphens)';
+    return null;
+  }
+
   public async createPackageAtPath(rootPackageName: string, packagePath: string[], packageData: Partial<Package>): Promise<{ success: boolean; errors?: string[]; package?: Package }> {
     try {
+      // Validate package name
+      const nameToValidate = packagePath.length > 0 ? packagePath[packagePath.length - 1] : rootPackageName;
+      const nameError = this.validatePackageName(nameToValidate);
+      if (nameError) return { success: false, errors: [nameError] };
+
       const baseDir = path.join(DATA_DICTIONARIES_DIR, 'microservices', rootPackageName, ...packagePath);
       if (!fs.existsSync(baseDir)) {
         fs.mkdirSync(baseDir, { recursive: true });
@@ -101,12 +112,23 @@ export class DictionaryService {
   /**
    * Delete a package (and all its contents) at the given path.
    */
-  public async deletePackageAtPath(rootPackageName: string, packagePath: string[]): Promise<{ success: boolean; errors?: string[] }> {
+  public async deletePackageAtPath(rootPackageName: string, packagePath: string[], force = false): Promise<{ success: boolean; errors?: string[] }> {
     try {
       const baseDir = path.join(DATA_DICTIONARIES_DIR, 'microservices', rootPackageName, ...packagePath);
       if (!fs.existsSync(baseDir)) {
         return { success: false, errors: ['Package directory does not exist'] };
       }
+
+      // Non-empty check unless force=true
+      if (!force) {
+        const entries = fs.readdirSync(baseDir);
+        const hasEntities = entries.some(e => e.endsWith('.yaml') && e !== 'metadata.yaml' && e !== 'relationships.yaml');
+        const hasSubPackages = entries.some(e => fs.statSync(path.join(baseDir, e)).isDirectory());
+        if (hasEntities || hasSubPackages) {
+          return { success: false, errors: ['Package is not empty. Delete its entities and sub-packages first, or use force=true.'] };
+        }
+      }
+
       fs.rmSync(baseDir, { recursive: true, force: true });
       return { success: true };
     } catch (error: any) {

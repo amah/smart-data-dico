@@ -243,11 +243,29 @@ export const updatePackageAtPath = async (req: Request, res: Response) => {
   }
 };
 
+export const createRootPackage = async (req: Request, res: Response) => {
+  try {
+    const { name, description, type, metadata } = req.body;
+    if (!name) {
+      return res.status(400).json({ message: 'Package name is required' });
+    }
+    const result = await dictionaryService.createPackageAtPath(name, [], { name, description, type, metadata });
+    if (!result.success) {
+      return res.status(400).json({ message: 'Failed to create package', errors: result.errors });
+    }
+    res.status(201).json({ message: 'Package created successfully', data: result.package });
+  } catch (error) {
+    logger.error('Error creating root package', error);
+    res.status(500).json({ message: 'Error creating package', error });
+  }
+};
+
 export const deletePackageAtPath = async (req: Request, res: Response) => {
   try {
     const { rootPackage } = req.params;
     const packagePath = req.params[0]?.split('/').filter(Boolean) || [];
-    const result = await dictionaryService.deletePackageAtPath(rootPackage, packagePath);
+    const force = req.query.force === 'true';
+    const result = await dictionaryService.deletePackageAtPath(rootPackage, packagePath, force);
     if (!result.success) {
       return res.status(400).json({ message: 'Failed to delete package', errors: result.errors });
     }
