@@ -35,6 +35,9 @@ import ForgotPassword from './pages/ForgotPassword';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 
+// Package Navigation
+import PackageRouter from './components/PackageRouter';
+
 // Auth Guard Component
 import AuthGuard from './components/AuthGuard';
 
@@ -54,8 +57,14 @@ function App() {
         {/* Dictionary */}
         <Route path="create" element={<CreateDictionaryPage />} />
         <Route path="dictionaries" element={<ServiceList />} />
-        
-        {/* Services */}
+
+        {/* Packages (nested URL routing) */}
+        <Route path="packages">
+          <Route index element={<ServiceList />} />
+          <Route path="*" element={<PackageRouter />} />
+        </Route>
+
+        {/* Services (legacy — redirects to /packages/) */}
         <Route path="services">
           <Route index element={<ServiceList />} />
           <Route path=":service">

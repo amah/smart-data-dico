@@ -5,8 +5,17 @@ import { Entity, Attribute, Relationship } from '../types';
 import AttributeList from './AttributeList';
 import RelationshipList from './RelationshipList';
 
-const EntityDetail = () => {
-  const { service, entity } = useParams<{ service: string; entity: string }>();
+interface EntityDetailProps {
+  serviceProp?: string;
+  entityProp?: string;
+  packagePath?: string[];
+  editMode?: boolean;
+}
+
+const EntityDetail = ({ serviceProp, entityProp, packagePath }: EntityDetailProps = {}) => {
+  const params = useParams<{ service: string; entity: string }>();
+  const service = serviceProp || params.service;
+  const entity = entityProp || params.entity;
   const [entityData, setEntityData] = useState<Entity | null>(null);
   const [relationships, setRelationships] = useState<Relationship[]>([]);
   const [loading, setLoading] = useState(true);

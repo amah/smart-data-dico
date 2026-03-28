@@ -2,7 +2,7 @@ import { Router } from 'express';
 
 import { getCurrentUser, login } from '../controllers/authController.js';
 import { diagramController } from '../controllers/diagramController.js';
-import { createDictionary, getDictionaries, getDictionaryById, getDictionaryEntries, getEntityAttributes, getPackageByPath, getPackageHierarchy, getRelatedEntities, getTabularData, saveEntity, listAllPackagesAndEntities, getFlatEntitiesAndAttributes, getEntityHierarchy } from '../controllers/dictionaryController.js';
+import { createDictionary, getDictionaries, getDictionaryById, getDictionaryEntries, getEntityAttributes, getPackageByPath, getPackageHierarchy, getRelatedEntities, getTabularData, saveEntity, listAllPackagesAndEntities, getFlatEntitiesAndAttributes, getEntityHierarchy, createRootPackage, createPackageAtPath, updatePackageAtPath, deletePackageAtPath } from '../controllers/dictionaryController.js';
 import { createEntity, deleteEntity, getAllServices, getEntitySchema, getGraphData, getServiceEntities, searchEntities, updateEntity, getPackageRelationships, createRelationship, updateRelationship, deleteRelationship } from '../controllers/serviceController.js';
 import { commitChanges, getCommitHistory, revertToCommit } from '../controllers/versionController.js';
 import { authenticate, UserRole } from '../middleware/auth.js';
@@ -17,6 +17,13 @@ router.get('/api/status', (req, res) => {
 
 router.get('/api/packages/hierarchy/:rootPackage', getPackageHierarchy);
 router.get('/api/packages/tabular/:rootPackage', getTabularData);
+
+// Package CRUD routes
+router.post('/api/packages', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), createRootPackage);
+router.post('/api/packages/:rootPackage/subpackages/*', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), createPackageAtPath);
+router.put('/api/packages/:rootPackage/path/*', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), updatePackageAtPath);
+router.delete('/api/packages/:rootPackage/path/*', authorizeJwt([UserRole.ADMIN]), deletePackageAtPath);
+
 router.get('/api/packages/:rootPackage/path/*', getPackageByPath);
 
 // Auth routes

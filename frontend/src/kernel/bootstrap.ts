@@ -25,6 +25,7 @@ import servicesReducer from '../store/slices/servicesSlice';
 import entityReducer from '../store/slices/entitySlice';
 import dictionaryReducer from '../store/slices/dictionarySlice';
 import diagramReducer from '../store/slices/diagramSlice';
+import packagesReducer from '../store/slices/packagesSlice';
 import versionReducer from '../store/slices/versionSlice';
 import searchReducer from '../store/slices/searchSlice';
 
@@ -59,6 +60,7 @@ export function registerPlugins() {
         reducerRegistry.register('entity', entityReducer);
         reducerRegistry.register('dictionary', dictionaryReducer);
         reducerRegistry.register('diagram', diagramReducer);
+        reducerRegistry.register('packages', packagesReducer);
         reducerRegistry.register('version', versionReducer);
         reducerRegistry.register('search', searchReducer);
       }

@@ -4,25 +4,11 @@ import { CommitInfo, Entity, Relationship } from '../types';
 import { Package } from '../types';
 
 /**
- * Fetch the hierarchical package structure (tree).
- */
-export const getPackageTree = async (): Promise<Package[]> => {
-  const response = await api.get('/packages'); // Adjust endpoint if needed
-  return response.data;
-};
-/**
- * Fetch the hierarchical package structure for all microservices.
+ * Fetch all package hierarchies dynamically.
  */
 export const getAllPackageHierarchies = async (): Promise<Package[]> => {
-  const microservices = ['order-service', 'product-service', 'user-service'];
-  const results = await Promise.all(
-    microservices.map(async (ms) => {
-      const response = await api.get(`/packages/hierarchy/${ms}`);
-      // The backend returns { message: 'Success', data: hierarchy }
-      return response.data.data;
-    })
-  );
-  return results;
+  const response = await api.get('/packages/all');
+  return response.data.data;
 };
 
 // Create an axios instance with default config
@@ -283,6 +269,47 @@ export const entityApi = {
   getEntityHierarchy: async (microservice: string, entityName: string): Promise<any> => {
     const response = await api.get(`/entities/hierarchy/${encodeURIComponent(microservice)}/${encodeURIComponent(entityName)}`);
     return response.data.data; // Unwrap the data from the API response
+  },
+};
+
+// Package CRUD API endpoints
+export const packageApi = {
+  createPackage: async (data: { name: string; description?: string; type?: string; metadata?: any[] }) => {
+    const response = await api.post('/packages', data);
+    return response.data;
+  },
+
+  createSubPackage: async (rootPackage: string, path: string[], data: Partial<Package>) => {
+    const pathStr = path.join('/');
+    const url = pathStr ? `/packages/${encodeURIComponent(rootPackage)}/subpackages/${pathStr}` : `/packages/${encodeURIComponent(rootPackage)}/subpackages/`;
+    const response = await api.post(url, data);
+    return response.data;
+  },
+
+  updatePackage: async (rootPackage: string, path: string[], data: Partial<Package>) => {
+    const pathStr = path.join('/');
+    const url = pathStr ? `/packages/${encodeURIComponent(rootPackage)}/path/${pathStr}` : `/packages/${encodeURIComponent(rootPackage)}/path/`;
+    const response = await api.put(url, data);
+    return response.data;
+  },
+
+  deletePackage: async (rootPackage: string, path: string[], force = false) => {
+    const pathStr = path.join('/');
+    const forceParam = force ? '?force=true' : '';
+    const url = pathStr
+      ? `/packages/${encodeURIComponent(rootPackage)}/path/${pathStr}${forceParam}`
+      : `/packages/${encodeURIComponent(rootPackage)}/path/${forceParam}`;
+    const response = await api.delete(url);
+    return response.data;
+  },
+
+  getPackageByPath: async (rootPackage: string, path: string[]): Promise<Package> => {
+    const pathStr = path.join('/');
+    const url = pathStr
+      ? `/packages/${encodeURIComponent(rootPackage)}/path/${pathStr}`
+      : `/packages/hierarchy/${encodeURIComponent(rootPackage)}`;
+    const response = await api.get(url);
+    return response.data.data;
   },
 };
 
