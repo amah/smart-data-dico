@@ -12,10 +12,10 @@ interface EntityDetailProps {
   editMode?: boolean;
 }
 
-const EntityDetail = ({ serviceProp, entityProp, packagePath }: EntityDetailProps = {}) => {
+const EntityDetail = (props: EntityDetailProps) => {
   const params = useParams<{ service: string; entity: string }>();
-  const service = serviceProp || params.service;
-  const entity = entityProp || params.entity;
+  const service = props.serviceProp || params.service;
+  const entity = props.entityProp || params.entity;
   const [entityData, setEntityData] = useState<Entity | null>(null);
   const [relationships, setRelationships] = useState<Relationship[]>([]);
   const [loading, setLoading] = useState(true);
