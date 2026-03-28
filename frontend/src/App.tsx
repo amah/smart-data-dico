@@ -14,7 +14,7 @@ import AttributeEditor from './components/AttributeEditor';
 import RelationshipEditor from './components/RelationshipEditor';
 
 // Visualization Component
-import VisualizationComponent from './components/VisualizationComponent';
+import CytoscapeGraph from './components/CytoscapeGraph';
 
 // Search Component
 import SearchComponent from './components/SearchComponent';
@@ -107,16 +107,16 @@ function App() {
         
         {/* Visualization */}
         <Route path="visualization">
-          <Route index element={<VisualizationComponent />} />
-          <Route path=":service" element={<VisualizationComponent />} />
-          <Route path=":service/:entity" element={<VisualizationComponent />} />
+          <Route index element={<CytoscapeGraph />} />
+          <Route path=":service" element={<CytoscapeGraph />} />
+          <Route path=":service/:entity" element={<CytoscapeGraph />} />
         </Route>
-        
+
         {/* Entity Diagram Editor */}
         <Route path="diagram">
           <Route index element={<EntityDiagramPage />} />
           <Route path=":service" element={<EntityDiagramPage />} />
-          <Route path=":service/:entity" element={<VisualizationComponent />} />
+          <Route path=":service/:entity" element={<CytoscapeGraph />} />
         </Route>
         
         {/* Organization Class Diagram */}

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 
 import { getAllPackageHierarchies } from '../services/api';
 import { Entity, Package } from '../types';
-import OrganizationDiagramEditor from './OrganizationDiagramEditor';
+import CytoscapeGraph from './CytoscapeGraph';
 import EntityFlatTable from './EntityFlatTable';
 
 type ViewMode = 'table' | 'tree' | 'diagram';
@@ -128,7 +128,7 @@ const ServiceList = () => {
         </div>
       ) : (
         <div className="h-[700px]">
-          <OrganizationDiagramEditor packages={packages} />
+          <CytoscapeGraph mode="organization" packages={packages} />
         </div>
       )}
     </div>
