@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-import { CommitInfo, Entity, Relationship, Stereotype, StereotypeTarget, Perspective, ResolvedPerspective, PerspectiveNode, GraphData } from '../types';
+import { CommitInfo, Entity, Relationship, Stereotype, StereotypeTarget, Perspective, ResolvedPerspective, PerspectiveNode, GraphData, ImpactAnalysis } from '../types';
 import { Package } from '../types';
 
 /**
@@ -70,9 +70,20 @@ export const servicesApi = {
   },
 
   // Search for entities and attributes
-  searchEntities: async (query: string) => {
-    const response = await api.get(`/search?q=${encodeURIComponent(query)}`);
+  searchEntities: async (query: string, filters?: { type?: string; service?: string; stereotype?: string; hasMetadata?: string }) => {
+    const params = new URLSearchParams({ q: query });
+    if (filters?.type) params.append('type', filters.type);
+    if (filters?.service) params.append('service', filters.service);
+    if (filters?.stereotype) params.append('stereotype', filters.stereotype);
+    if (filters?.hasMetadata) params.append('hasMetadata', filters.hasMetadata);
+    const response = await api.get(`/search?${params.toString()}`);
     return response.data;
+  },
+
+  // Impact analysis
+  getImpactAnalysis: async (uuid: string): Promise<ImpactAnalysis> => {
+    const response = await api.get(`/entities/${uuid}/impact`);
+    return response.data.data;
   },
 
   // Get graph data for visualization

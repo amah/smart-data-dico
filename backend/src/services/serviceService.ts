@@ -10,21 +10,37 @@ import {
   listAllEntities,
   readRelationshipsFile,
   writeRelationshipsFile,
-  getPackagePath
+  getPackagePath,
+  getAllRelationships
 } from '../utils/fileOperations.js';
 import { generateUUID } from '../utils/uuid.js';
 
 /**
  * Interface for search result
  */
+interface SearchFilters {
+  type?: string;
+  service?: string;
+  stereotype?: string;
+  hasMetadata?: string;
+}
+
 interface SearchResult {
-  type: 'entity' | 'attribute';
+  type: 'entity' | 'attribute' | 'metadata' | 'relationship' | 'package';
   service: string;
   entityName: string;
   attributeName?: string;
+  name: string;
   description: string;
   path: string;
   score: number;
+  matchContext?: string;
+}
+
+interface ImpactAnalysis {
+  relationships: { uuid: string; description: string; service: string; sourceEntity: string; targetEntity: string }[];
+  perspectives: { uuid: string; name: string; path: string }[];
+  diagrams: { id: string; name: string }[];
 }
 
 /**
@@ -310,47 +326,141 @@ export class ServiceService {
 
   // --- Search ---
 
-  async searchEntities(query: string): Promise<SearchResult[]> {
-    logger.info(`Searching entities with query: ${query}`);
+  async searchEntities(query: string, filters?: SearchFilters): Promise<SearchResult[]> {
+    logger.info(`Searching with query: ${query}, filters: ${JSON.stringify(filters)}`);
 
     try {
       const results: SearchResult[] = [];
       const allEntities = await listAllEntities();
       const searchTerms = query.toLowerCase().split(/\s+/);
+      const microservices = await listMicroservices();
+
+      // Search packages
+      if (!filters?.type || filters.type === 'package') {
+        for (const ms of microservices) {
+          if (filters?.service && filters.service !== ms) continue;
+          const score = this.calculateMatchScore(ms, searchTerms);
+          if (score > 0) {
+            results.push({ type: 'package', service: ms, entityName: '', name: ms, description: '', path: ms, score });
+          }
+        }
+      }
 
       for (const entityInfo of allEntities) {
-        const entity = await readEntityFile(entityInfo.microservice, entityInfo.name);
+        if (filters?.service && filters.service !== entityInfo.microservice) continue;
 
+        const entity = await readEntityFile(entityInfo.microservice, entityInfo.name);
         if (!entity) continue;
 
-        const entityNameMatch = this.calculateMatchScore(entity.name, searchTerms);
-        const entityDescMatch = this.calculateMatchScore(entity.description || '', searchTerms);
+        // Stereotype filter
+        if (filters?.stereotype && entity.stereotype !== filters.stereotype) continue;
 
-        if (entityNameMatch > 0 || entityDescMatch > 0) {
-          results.push({
-            type: 'entity',
-            service: entityInfo.microservice,
-            entityName: entity.name,
-            description: entity.description || '',
-            path: `${entityInfo.microservice}.${entity.name}`,
-            score: Math.max(entityNameMatch * 2, entityDescMatch)
-          });
+        // hasMetadata filter
+        if (filters?.hasMetadata) {
+          const hasIt = entity.metadata?.some(m => m.name === filters.hasMetadata) ||
+            entity.attributes.some(a => a.metadata?.some(m => m.name === filters.hasMetadata));
+          if (!hasIt) continue;
         }
 
-        for (const attr of entity.attributes) {
-          const attrNameMatch = this.calculateMatchScore(attr.name, searchTerms);
-          const attrDescMatch = this.calculateMatchScore(attr.description, searchTerms);
+        // Search entity name/description
+        if (!filters?.type || filters.type === 'entity') {
+          const entityNameMatch = this.calculateMatchScore(entity.name, searchTerms);
+          const entityDescMatch = this.calculateMatchScore(entity.description || '', searchTerms);
+          const stereotypeMatch = entity.stereotype ? this.calculateMatchScore(entity.stereotype, searchTerms) : 0;
 
-          if (attrNameMatch > 0 || attrDescMatch > 0) {
+          if (entityNameMatch > 0 || entityDescMatch > 0 || stereotypeMatch > 0) {
             results.push({
-              type: 'attribute',
-              service: entityInfo.microservice,
-              entityName: entity.name,
-              attributeName: attr.name,
-              description: attr.description,
-              path: `${entityInfo.microservice}.${entity.name}.${attr.name}`,
-              score: Math.max(attrNameMatch * 1.5, attrDescMatch)
+              type: 'entity', service: entityInfo.microservice, entityName: entity.name,
+              name: entity.name, description: entity.description || '',
+              path: `${entityInfo.microservice}/${entity.name}`,
+              score: Math.max(entityNameMatch * 2, entityDescMatch, stereotypeMatch * 1.5),
+              matchContext: stereotypeMatch > 0 ? `stereotype: ${entity.stereotype}` : undefined,
             });
+          }
+        }
+
+        // Search attributes
+        if (!filters?.type || filters.type === 'attribute') {
+          for (const attr of entity.attributes) {
+            const attrNameMatch = this.calculateMatchScore(attr.name, searchTerms);
+            const attrDescMatch = this.calculateMatchScore(attr.description, searchTerms);
+
+            if (attrNameMatch > 0 || attrDescMatch > 0) {
+              results.push({
+                type: 'attribute', service: entityInfo.microservice, entityName: entity.name,
+                attributeName: attr.name, name: attr.name, description: attr.description,
+                path: `${entityInfo.microservice}/${entity.name}/${attr.name}`,
+                score: Math.max(attrNameMatch * 1.5, attrDescMatch),
+              });
+            }
+          }
+        }
+
+        // Search entity metadata
+        if (!filters?.type || filters.type === 'metadata') {
+          for (const m of entity.metadata || []) {
+            const nameMatch = this.calculateMatchScore(m.name, searchTerms);
+            const valueMatch = this.calculateMatchScore(String(m.value), searchTerms);
+
+            if (nameMatch > 0 || valueMatch > 0) {
+              results.push({
+                type: 'metadata', service: entityInfo.microservice, entityName: entity.name,
+                name: m.name, description: `${m.name} = ${m.value}`,
+                path: `${entityInfo.microservice}/${entity.name}`,
+                score: Math.max(nameMatch * 1.5, valueMatch),
+                matchContext: `on entity ${entity.name}`,
+              });
+            }
+          }
+
+          // Search attribute metadata
+          for (const attr of entity.attributes) {
+            for (const m of attr.metadata || []) {
+              const nameMatch = this.calculateMatchScore(m.name, searchTerms);
+              const valueMatch = this.calculateMatchScore(String(m.value), searchTerms);
+
+              if (nameMatch > 0 || valueMatch > 0) {
+                results.push({
+                  type: 'metadata', service: entityInfo.microservice, entityName: entity.name,
+                  attributeName: attr.name, name: m.name, description: `${m.name} = ${m.value}`,
+                  path: `${entityInfo.microservice}/${entity.name}/${attr.name}`,
+                  score: Math.max(nameMatch * 1.5, valueMatch),
+                  matchContext: `on ${entity.name}.${attr.name}`,
+                });
+              }
+            }
+          }
+        }
+      }
+
+      // Search relationships
+      if (!filters?.type || filters.type === 'relationship') {
+        const allRels = await getAllRelationships();
+        // Build entity name map for display
+        const entityNameMap = new Map<string, { name: string; service: string }>();
+        for (const entityInfo of allEntities) {
+          const e = await readEntityFile(entityInfo.microservice, entityInfo.name);
+          if (e) entityNameMap.set(e.uuid, { name: e.name, service: entityInfo.microservice });
+        }
+
+        for (const { packageName, relationships } of allRels) {
+          if (filters?.service && filters.service !== packageName) continue;
+          for (const rel of relationships) {
+            const descMatch = this.calculateMatchScore(rel.description || '', searchTerms);
+            const srcInfo = entityNameMap.get(rel.source.entity);
+            const tgtInfo = entityNameMap.get(rel.target.entity);
+            const srcMatch = srcInfo ? this.calculateMatchScore(srcInfo.name, searchTerms) : 0;
+            const tgtMatch = tgtInfo ? this.calculateMatchScore(tgtInfo.name, searchTerms) : 0;
+
+            if (descMatch > 0 || srcMatch > 0 || tgtMatch > 0) {
+              results.push({
+                type: 'relationship', service: packageName, entityName: srcInfo?.name || rel.source.entity,
+                name: rel.description || rel.uuid,
+                description: `${srcInfo?.name || '?'} → ${tgtInfo?.name || '?'}`,
+                path: `${packageName}/relationships/${rel.uuid}`,
+                score: Math.max(descMatch, srcMatch, tgtMatch),
+              });
+            }
           }
         }
       }
@@ -379,6 +489,62 @@ export class ServiceService {
     }
 
     return score;
+  }
+
+  // --- Impact Analysis ---
+
+  async getImpactAnalysis(entityUuid: string): Promise<ImpactAnalysis> {
+    const impact: ImpactAnalysis = { relationships: [], perspectives: [], diagrams: [] };
+
+    try {
+      // Find relationships referencing this entity
+      const allRels = await getAllRelationships();
+      const allEntities = await listAllEntities();
+      const entityNameMap = new Map<string, string>();
+      for (const info of allEntities) {
+        const e = await readEntityFile(info.microservice, info.name);
+        if (e) entityNameMap.set(e.uuid, e.name);
+      }
+
+      for (const { packageName, relationships } of allRels) {
+        for (const rel of relationships) {
+          if (rel.source.entity === entityUuid || rel.target.entity === entityUuid) {
+            impact.relationships.push({
+              uuid: rel.uuid,
+              description: rel.description || '',
+              service: packageName,
+              sourceEntity: entityNameMap.get(rel.source.entity) || rel.source.entity,
+              targetEntity: entityNameMap.get(rel.target.entity) || rel.target.entity,
+            });
+          }
+        }
+      }
+
+      // Find perspectives containing this entity
+      const { listPerspectives } = await import('../utils/fileOperations.js');
+      const perspectives = await listPerspectives();
+      const { perspectiveService } = await import('./perspectiveService.js');
+      for (const p of perspectives) {
+        const resolved = await perspectiveService.resolve(p.uuid);
+        if (resolved?.resolvedNodes.some(n => n.entityUuid === entityUuid)) {
+          const paths = resolved.resolvedNodes.filter(n => n.entityUuid === entityUuid).map(n => n.path);
+          impact.perspectives.push({ uuid: p.uuid, name: p.name, path: paths[0] });
+        }
+      }
+
+      // Find diagrams referencing this entity
+      const { diagramService } = await import('./diagramService.js');
+      const layouts = await diagramService.listDiagramLayouts();
+      for (const layout of layouts) {
+        if (layout.entities && layout.entities[entityUuid]) {
+          impact.diagrams.push({ id: layout.id, name: layout.name });
+        }
+      }
+    } catch (error) {
+      logger.error(`Error getting impact analysis: ${error}`);
+    }
+
+    return impact;
   }
 
   /**

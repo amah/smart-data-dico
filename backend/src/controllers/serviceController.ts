@@ -203,13 +203,19 @@ export const deleteEntity = async (req: Request, res: Response) => {
  */
 export const searchEntities = async (req: Request, res: Response) => {
   try {
-    const { q } = req.query;
+    const { q, type, service, stereotype, hasMetadata } = req.query;
 
     if (!q || typeof q !== 'string') {
       return res.status(400).json({ message: 'Search query is required' });
     }
 
-    const results = await serviceService.searchEntities(q);
+    const filters: any = {};
+    if (type) filters.type = String(type);
+    if (service) filters.service = String(service);
+    if (stereotype) filters.stereotype = String(stereotype);
+    if (hasMetadata) filters.hasMetadata = String(hasMetadata);
+
+    const results = await serviceService.searchEntities(q, Object.keys(filters).length > 0 ? filters : undefined);
 
     res.json({
       message: 'Success',
@@ -218,6 +224,17 @@ export const searchEntities = async (req: Request, res: Response) => {
   } catch (error) {
     logger.error(`Error searching entities: ${error}`);
     res.status(500).json({ message: 'Error searching entities', error });
+  }
+};
+
+export const getImpactAnalysis = async (req: Request, res: Response) => {
+  try {
+    const { uuid } = req.params;
+    const impact = await serviceService.getImpactAnalysis(uuid);
+    res.json({ message: 'Success', data: impact });
+  } catch (error) {
+    logger.error(`Error getting impact analysis: ${error}`);
+    res.status(500).json({ message: 'Error getting impact analysis', error });
   }
 };
 
