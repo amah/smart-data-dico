@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import YAML from 'yaml';
 import { logger } from './logger.js';
-import { Entity, Relationship, Perspective, validateEntity } from '../models/EntitySchema.js';
+import { Entity, Relationship, Perspective, ReviewComment, validateEntity } from '../models/EntitySchema.js';
 import { Dictionary } from '../models/Dictionary.js';
 import { generateEntityFilename, extractUUIDFromFilename } from './uuid.js';
 import { config } from '../kernel/config.js';
@@ -574,4 +574,29 @@ export async function getAllRelationships(): Promise<{ packageName: string; rela
     logger.error(`Error collecting all relationships: ${error}`);
   }
   return result;
+}
+
+// --- Review comment file operations ---
+
+export async function readComments(service: string, entityUuid: string): Promise<ReviewComment[]> {
+  try {
+    const filePath = path.join(DATA_DICTIONARIES_DIR, 'microservices', service, `${entityUuid}.comments.yaml`);
+    if (!fs.existsSync(filePath)) return [];
+    const content = fs.readFileSync(filePath, 'utf8');
+    return YAML.parse(content) || [];
+  } catch (error) {
+    logger.error(`Error reading comments: ${error}`);
+    return [];
+  }
+}
+
+export async function writeComments(service: string, entityUuid: string, comments: ReviewComment[]): Promise<boolean> {
+  try {
+    const filePath = path.join(DATA_DICTIONARIES_DIR, 'microservices', service, `${entityUuid}.comments.yaml`);
+    fs.writeFileSync(filePath, YAML.stringify(comments), 'utf8');
+    return true;
+  } catch (error) {
+    logger.error(`Error writing comments: ${error}`);
+    return false;
+  }
 }

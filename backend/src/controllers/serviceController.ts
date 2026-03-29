@@ -227,6 +227,86 @@ export const searchEntities = async (req: Request, res: Response) => {
   }
 };
 
+export const submitEntity = async (req: Request, res: Response) => {
+  try {
+    const { service, entity } = req.params;
+    const result = await serviceService.changeEntityStatus(service, entity, 'submitted' as any);
+    if (!result.success) return res.status(400).json({ message: 'Failed to submit', errors: result.errors });
+    res.json({ message: 'Entity submitted for review' });
+  } catch (error) {
+    logger.error('Error submitting entity', error);
+    res.status(500).json({ message: 'Error submitting entity', error });
+  }
+};
+
+export const approveEntity = async (req: Request, res: Response) => {
+  try {
+    const { service, entity } = req.params;
+    const result = await serviceService.changeEntityStatus(service, entity, 'approved' as any);
+    if (!result.success) return res.status(400).json({ message: 'Failed to approve', errors: result.errors });
+    res.json({ message: 'Entity approved' });
+  } catch (error) {
+    logger.error('Error approving entity', error);
+    res.status(500).json({ message: 'Error approving entity', error });
+  }
+};
+
+export const returnEntity = async (req: Request, res: Response) => {
+  try {
+    const { service, entity } = req.params;
+    const result = await serviceService.changeEntityStatus(service, entity, 'returned' as any);
+    if (!result.success) return res.status(400).json({ message: 'Failed to return', errors: result.errors });
+
+    // Add return comment if provided
+    if (req.body.comment) {
+      await serviceService.addComment(service, entity, {
+        author: req.body.author || 'reviewer',
+        message: req.body.comment,
+      });
+    }
+
+    res.json({ message: 'Entity returned for revision' });
+  } catch (error) {
+    logger.error('Error returning entity', error);
+    res.status(500).json({ message: 'Error returning entity', error });
+  }
+};
+
+export const getEntityComments = async (req: Request, res: Response) => {
+  try {
+    const { service, entity } = req.params;
+    const comments = await serviceService.getComments(service, entity);
+    res.json({ message: 'Success', data: comments });
+  } catch (error) {
+    logger.error('Error fetching comments', error);
+    res.status(500).json({ message: 'Error fetching comments', error });
+  }
+};
+
+export const addEntityComment = async (req: Request, res: Response) => {
+  try {
+    const { service, entity } = req.params;
+    const result = await serviceService.addComment(service, entity, req.body);
+    if (!result.success) return res.status(400).json({ message: 'Failed to add comment', errors: result.errors });
+    res.status(201).json({ message: 'Comment added', data: result.comment });
+  } catch (error) {
+    logger.error('Error adding comment', error);
+    res.status(500).json({ message: 'Error adding comment', error });
+  }
+};
+
+export const resolveEntityComment = async (req: Request, res: Response) => {
+  try {
+    const { service, entity, id } = req.params;
+    const result = await serviceService.resolveComment(service, entity, id);
+    if (!result.success) return res.status(400).json({ message: 'Failed to resolve comment', errors: result.errors });
+    res.json({ message: 'Comment resolved' });
+  } catch (error) {
+    logger.error('Error resolving comment', error);
+    res.status(500).json({ message: 'Error resolving comment', error });
+  }
+};
+
 export const getImpactAnalysis = async (req: Request, res: Response) => {
   try {
     const { uuid } = req.params;
