@@ -1,4 +1,4 @@
-import { Entity, Relationship, Cardinality } from '../models/EntitySchema.js';
+import { Entity, Relationship, Cardinality, EntityStatus, ReviewComment } from '../models/EntitySchema.js';
 import { stereotypeService } from './stereotypeService.js';
 import { logger } from '../utils/logger.js';
 import {
@@ -11,7 +11,9 @@ import {
   readRelationshipsFile,
   writeRelationshipsFile,
   getPackagePath,
-  getAllRelationships
+  getAllRelationships,
+  readComments,
+  writeComments
 } from '../utils/fileOperations.js';
 import { generateUUID } from '../utils/uuid.js';
 
@@ -149,6 +151,7 @@ export class ServiceService {
         }
       }
 
+      entity.status = entity.status || EntityStatus.DRAFT;
       entity.createdAt = new Date().toISOString();
       entity.updatedAt = new Date().toISOString();
 
@@ -545,6 +548,69 @@ export class ServiceService {
     }
 
     return impact;
+  }
+
+  // --- Status transitions ---
+
+  async changeEntityStatus(service: string, entityName: string, newStatus: EntityStatus): Promise<{ success: boolean; errors: string[] }> {
+    const entity = await readEntityFile(service, entityName);
+    if (!entity) return { success: false, errors: ['Entity not found'] };
+
+    const current = entity.status || EntityStatus.DRAFT;
+    const validTransitions: Record<string, EntityStatus[]> = {
+      [EntityStatus.DRAFT]: [EntityStatus.SUBMITTED],
+      [EntityStatus.SUBMITTED]: [EntityStatus.APPROVED, EntityStatus.RETURNED],
+      [EntityStatus.RETURNED]: [EntityStatus.SUBMITTED],
+      [EntityStatus.APPROVED]: [EntityStatus.DRAFT], // re-open for editing
+    };
+
+    if (!validTransitions[current]?.includes(newStatus)) {
+      return { success: false, errors: [`Cannot transition from ${current} to ${newStatus}`] };
+    }
+
+    entity.status = newStatus;
+    entity.updatedAt = new Date().toISOString();
+    const result = await writeEntityFile(entity, service);
+    return { success: result, errors: result ? [] : ['Failed to write entity'] };
+  }
+
+  // --- Comments ---
+
+  async getComments(service: string, entityName: string): Promise<ReviewComment[]> {
+    const entity = await readEntityFile(service, entityName);
+    if (!entity) return [];
+    return readComments(service, entity.uuid);
+  }
+
+  async addComment(service: string, entityName: string, comment: Omit<ReviewComment, 'id' | 'timestamp'>): Promise<{ success: boolean; comment?: ReviewComment; errors?: string[] }> {
+    const entity = await readEntityFile(service, entityName);
+    if (!entity) return { success: false, errors: ['Entity not found'] };
+
+    const comments = await readComments(service, entity.uuid);
+    const newComment: ReviewComment = {
+      id: `c-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      author: comment.author,
+      timestamp: new Date().toISOString(),
+      message: comment.message,
+      targetField: comment.targetField,
+      resolved: false,
+    };
+    comments.push(newComment);
+    const ok = await writeComments(service, entity.uuid, comments);
+    return ok ? { success: true, comment: newComment } : { success: false, errors: ['Failed to write comments'] };
+  }
+
+  async resolveComment(service: string, entityName: string, commentId: string): Promise<{ success: boolean; errors?: string[] }> {
+    const entity = await readEntityFile(service, entityName);
+    if (!entity) return { success: false, errors: ['Entity not found'] };
+
+    const comments = await readComments(service, entity.uuid);
+    const comment = comments.find(c => c.id === commentId);
+    if (!comment) return { success: false, errors: ['Comment not found'] };
+
+    comment.resolved = true;
+    const ok = await writeComments(service, entity.uuid, comments);
+    return ok ? { success: true } : { success: false, errors: ['Failed to write comments'] };
   }
 
   /**

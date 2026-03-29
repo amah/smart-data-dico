@@ -105,6 +105,22 @@ export enum RuleSeverity {
   ERROR = 'error',
 }
 
+export enum EntityStatus {
+  DRAFT = 'draft',
+  SUBMITTED = 'submitted',
+  APPROVED = 'approved',
+  RETURNED = 'returned',
+}
+
+export interface ReviewComment {
+  id: string;
+  author: string;
+  timestamp: string;
+  message: string;
+  targetField?: string;
+  resolved?: boolean;
+}
+
 export type StereotypeTarget = 'package' | 'entity' | 'attribute';
 
 /**
@@ -238,6 +254,7 @@ export interface Entity {
   name: string;
   description?: string;
   stereotype?: string;
+  status?: EntityStatus;
   attributes: Attribute[];
   metadata?: MetadataEntry[];
   createdAt?: string;

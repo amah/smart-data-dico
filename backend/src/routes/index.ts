@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { getCurrentUser, login } from '../controllers/authController.js';
 import { diagramController } from '../controllers/diagramController.js';
 import { createDictionary, getDictionaries, getDictionaryById, getDictionaryEntries, getEntityAttributes, getPackageByPath, getPackageHierarchy, getRelatedEntities, getTabularData, saveEntity, listAllPackagesAndEntities, getFlatEntitiesAndAttributes, getEntityHierarchy, createRootPackage, createPackageAtPath, updatePackageAtPath, deletePackageAtPath } from '../controllers/dictionaryController.js';
-import { createEntity, deleteEntity, getAllServices, getEntitySchema, getGraphData, getServiceEntities, searchEntities, updateEntity, getPackageRelationships, createRelationship, updateRelationship, deleteRelationship, getImpactAnalysis } from '../controllers/serviceController.js';
+import { createEntity, deleteEntity, getAllServices, getEntitySchema, getGraphData, getServiceEntities, searchEntities, updateEntity, getPackageRelationships, createRelationship, updateRelationship, deleteRelationship, getImpactAnalysis, submitEntity, approveEntity, returnEntity, getEntityComments, addEntityComment, resolveEntityComment } from '../controllers/serviceController.js';
 import { getAllStereotypes, getStereotype, createStereotype, updateStereotype, deleteStereotype } from '../controllers/stereotypeController.js';
 import { getAllPerspectives, getPerspective, createPerspective, updatePerspective, deletePerspective, resolvePerspective, getPerspectiveGraph, upsertPerspectiveNode } from '../controllers/perspectiveController.js';
 import { commitChanges, getCommitHistory, revertToCommit } from '../controllers/versionController.js';
@@ -53,6 +53,14 @@ router.get('/api/services/:service/entities/:entity', getEntitySchema);
 router.post('/api/services/:service/entities', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), createEntity);
 router.put('/api/services/:service/entities/:entity', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), updateEntity);
 router.delete('/api/services/:service/entities/:entity', authorizeJwt([UserRole.ADMIN]), deleteEntity);
+
+// Entity review workflow
+router.post('/api/services/:service/entities/:entity/submit', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), submitEntity);
+router.post('/api/services/:service/entities/:entity/approve', authorizeJwt([UserRole.ADMIN]), approveEntity);
+router.post('/api/services/:service/entities/:entity/return', authorizeJwt([UserRole.ADMIN]), returnEntity);
+router.get('/api/services/:service/entities/:entity/comments', getEntityComments);
+router.post('/api/services/:service/entities/:entity/comments', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), addEntityComment);
+router.put('/api/services/:service/entities/:entity/comments/:id', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), resolveEntityComment);
 
 // Package-level relationship CRUD routes
 router.get('/api/packages/:packageName/relationships', getPackageRelationships);

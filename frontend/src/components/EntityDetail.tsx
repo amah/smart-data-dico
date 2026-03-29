@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { servicesApi, relationshipApi, stereotypeApi } from '../services/api';
-import { Entity, Attribute, Relationship, Stereotype, ImpactAnalysis } from '../types';
+import { Entity, Attribute, Relationship, Stereotype, ImpactAnalysis, EntityStatus } from '../types';
+import ReviewComments from './ReviewComments';
 import MetadataEditor from './MetadataEditor';
 import AttributeList from './AttributeList';
 import RelationshipList from './RelationshipList';
@@ -21,7 +22,7 @@ const EntityDetail = (props: EntityDetailProps) => {
   const [relationships, setRelationships] = useState<Relationship[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'attributes' | 'relationships' | 'metadata' | 'impact'>('attributes');
+  const [activeTab, setActiveTab] = useState<'attributes' | 'relationships' | 'metadata' | 'comments' | 'impact'>('attributes');
   const [impact, setImpact] = useState<ImpactAnalysis | null>(null);
   const [impactLoading, setImpactLoading] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
@@ -273,6 +274,39 @@ const EntityDetail = (props: EntityDetailProps) => {
             </svg>
             Visualize
           </Link>
+
+          {/* Status badge + review actions */}
+          {entityData && !isCreateMode && (
+            <>
+              <span className={`badge ml-2 ${
+                entityData.status === 'approved' ? 'badge-success' :
+                entityData.status === 'submitted' ? 'badge-warning' :
+                entityData.status === 'returned' ? 'badge-error' :
+                'badge-ghost'
+              }`}>
+                {entityData.status || 'draft'}
+              </span>
+              {(entityData.status === 'draft' || entityData.status === 'returned') && (
+                <button className="btn btn-sm btn-warning" onClick={async () => {
+                  if (!service || !entity) return;
+                  try { await servicesApi.submitEntity(service, entity); const r = await servicesApi.getEntitySchema(service, entity); setEntityData(r.data); } catch {}
+                }}>Submit</button>
+              )}
+              {entityData.status === 'submitted' && (
+                <>
+                  <button className="btn btn-sm btn-success" onClick={async () => {
+                    if (!service || !entity) return;
+                    try { await servicesApi.approveEntity(service, entity); const r = await servicesApi.getEntitySchema(service, entity); setEntityData(r.data); } catch {}
+                  }}>Approve</button>
+                  <button className="btn btn-sm btn-error" onClick={async () => {
+                    const comment = prompt('Return comment (optional):');
+                    if (!service || !entity) return;
+                    try { await servicesApi.returnEntity(service, entity, comment || undefined); const r = await servicesApi.getEntitySchema(service, entity); setEntityData(r.data); } catch {}
+                  }}>Return</button>
+                </>
+              )}
+            </>
+          )}
         </div>
       </div>
 
@@ -335,6 +369,12 @@ const EntityDetail = (props: EntityDetailProps) => {
               }}
             >
               Impact
+            </button>
+            <button
+              className={`tab ${activeTab === 'comments' ? 'tab-active' : ''}`}
+              onClick={() => setActiveTab('comments')}
+            >
+              Comments
             </button>
           </div>
 
@@ -444,6 +484,10 @@ const EntityDetail = (props: EntityDetailProps) => {
                   <p className="text-sm text-base-content/50">Click the Impact tab to load dependency analysis.</p>
                 )}
               </div>
+            )}
+
+            {activeTab === 'comments' && service && entity && (
+              <ReviewComments service={service} entityName={entity} />
             )}
           </div>
         </div>

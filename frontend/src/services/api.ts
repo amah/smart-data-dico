@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-import { CommitInfo, Entity, Relationship, Stereotype, StereotypeTarget, Perspective, ResolvedPerspective, PerspectiveNode, GraphData, ImpactAnalysis } from '../types';
+import { CommitInfo, Entity, Relationship, Stereotype, StereotypeTarget, Perspective, ResolvedPerspective, PerspectiveNode, GraphData, ImpactAnalysis, ReviewComment } from '../types';
 import { Package } from '../types';
 
 /**
@@ -84,6 +84,32 @@ export const servicesApi = {
   getImpactAnalysis: async (uuid: string): Promise<ImpactAnalysis> => {
     const response = await api.get(`/entities/${uuid}/impact`);
     return response.data.data;
+  },
+
+  // Review workflow
+  submitEntity: async (service: string, entity: string) => {
+    const response = await api.post(`/services/${service}/entities/${entity}/submit`);
+    return response.data;
+  },
+  approveEntity: async (service: string, entity: string) => {
+    const response = await api.post(`/services/${service}/entities/${entity}/approve`);
+    return response.data;
+  },
+  returnEntity: async (service: string, entity: string, comment?: string, author?: string) => {
+    const response = await api.post(`/services/${service}/entities/${entity}/return`, { comment, author });
+    return response.data;
+  },
+  getComments: async (service: string, entity: string): Promise<ReviewComment[]> => {
+    const response = await api.get(`/services/${service}/entities/${entity}/comments`);
+    return response.data.data;
+  },
+  addComment: async (service: string, entity: string, data: { author: string; message: string; targetField?: string }) => {
+    const response = await api.post(`/services/${service}/entities/${entity}/comments`, data);
+    return response.data;
+  },
+  resolveComment: async (service: string, entity: string, commentId: string) => {
+    const response = await api.put(`/services/${service}/entities/${entity}/comments/${commentId}`);
+    return response.data;
   },
 
   // Get graph data for visualization
