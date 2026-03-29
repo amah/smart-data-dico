@@ -5,6 +5,7 @@ import NotFoundPage from './pages/NotFoundPage';
 import CreateDictionaryPage from './pages/CreateDictionaryPage';
 import EntityDiagramPage from './pages/EntityDiagramPage';
 import OrganizationDiagramPage from './pages/OrganizationDiagramPage';
+import StereotypesPage from './pages/StereotypesPage';
 
 // Service and Entity Components
 import ServiceList from './components/ServiceList';
@@ -131,6 +132,9 @@ function App() {
         {/* Organization Class Diagram */}
         <Route path="organization-diagram" element={<OrganizationDiagramPage />} />
         
+        {/* Stereotypes */}
+        <Route path="stereotypes" element={<StereotypesPage />} />
+
         {/* Search */}
         <Route path="search" element={<SearchComponent />} />
         

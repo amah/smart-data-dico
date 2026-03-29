@@ -1,0 +1,91 @@
+- id: aggregate-root
+  name: Aggregate Root
+  appliesTo: entity
+  description: Root entity of an aggregate boundary
+  metadataDefinitions:
+    - name: bounded-context
+      type: string
+      required: true
+      description: Name of the bounded context this aggregate belongs to
+    - name: invariants
+      type: rule
+      description: Business invariants enforced by this aggregate
+
+- id: reference-data
+  name: Reference Data
+  appliesTo: entity
+  description: Slowly-changing lookup/reference data
+  metadataDefinitions:
+    - name: cacheable
+      type: flag
+      required: true
+      description: Whether this data can be cached
+    - name: update-frequency
+      type: string
+      description: How often this data changes (daily, weekly, rarely)
+
+- id: event
+  name: Domain Event
+  appliesTo: entity
+  description: An event that represents something that happened in the domain
+  metadataDefinitions:
+    - name: event-source
+      type: string
+      required: true
+      description: The aggregate or service that emits this event
+    - name: idempotent
+      type: flag
+      description: Whether processing this event is idempotent
+
+- id: value-object
+  name: Value Object
+  appliesTo: entity
+  description: An immutable object defined by its attributes rather than identity
+  metadataDefinitions:
+    - name: immutable
+      type: flag
+      required: true
+
+- id: pii
+  name: PII
+  appliesTo: attribute
+  description: Personally Identifiable Information
+  metadataDefinitions:
+    - name: pii-category
+      type: string
+      required: true
+      description: "Category: direct, indirect, or sensitive"
+    - name: retention-days
+      type: number
+      description: Data retention period in days
+    - name: encryption-required
+      type: flag
+      description: Whether this field must be encrypted at rest
+
+- id: indexed
+  name: Indexed
+  appliesTo: attribute
+  description: Database-indexed attribute
+  metadataDefinitions:
+    - name: index-type
+      type: string
+      description: "Index type: btree, hash, gin, gist"
+    - name: unique-index
+      type: flag
+      description: Whether the index enforces uniqueness
+
+- id: deprecated
+  name: Deprecated
+  appliesTo: attribute
+  description: Attribute scheduled for removal
+  metadataDefinitions:
+    - name: deprecated-since
+      type: date
+      required: true
+      description: Date when this attribute was deprecated
+    - name: replacement
+      type: string
+      description: Name of the replacement attribute
+    - name: removal-target
+      type: date
+      description: Target date for removal

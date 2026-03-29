@@ -36,7 +36,15 @@ export enum MetadataValueType {
   STRING = 'string',
   NUMBER = 'number',
   BOOLEAN = 'boolean',
-  DATE = 'date'
+  DATE = 'date',
+  FLAG = 'flag',
+  RULE = 'rule',
+}
+
+export enum RuleSeverity {
+  INFO = 'info',
+  WARNING = 'warning',
+  ERROR = 'error',
 }
 
 /**
@@ -46,6 +54,7 @@ export interface MetadataDefinition {
   name: string;
   type: MetadataValueType;
   description?: string;
+  required?: boolean;
 }
 
 /**
@@ -54,6 +63,17 @@ export interface MetadataDefinition {
 export interface MetadataEntry {
   name: string;
   value: string | number | boolean;
+  severity?: RuleSeverity;
+}
+
+export type StereotypeTarget = 'package' | 'entity' | 'attribute';
+
+export interface Stereotype {
+  id: string;
+  name: string;
+  description?: string;
+  appliesTo: StereotypeTarget;
+  metadataDefinitions: MetadataDefinition[];
 }
 
 /**
@@ -122,6 +142,7 @@ export interface Entity {
   uuid: string;
   name: string;
   description?: string;
+  stereotype?: string;
   attributes: Attribute[];
   metadata?: MetadataEntry[];
   createdAt?: string;

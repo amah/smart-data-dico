@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-import { CommitInfo, Entity, Relationship } from '../types';
+import { CommitInfo, Entity, Relationship, Stereotype, StereotypeTarget } from '../types';
 import { Package } from '../types';
 
 /**
@@ -269,6 +269,35 @@ export const entityApi = {
   getEntityHierarchy: async (microservice: string, entityName: string): Promise<any> => {
     const response = await api.get(`/entities/hierarchy/${encodeURIComponent(microservice)}/${encodeURIComponent(entityName)}`);
     return response.data.data; // Unwrap the data from the API response
+  },
+};
+
+// Stereotype API endpoints
+export const stereotypeApi = {
+  getAll: async (appliesTo?: StereotypeTarget): Promise<Stereotype[]> => {
+    const params = appliesTo ? `?appliesTo=${appliesTo}` : '';
+    const response = await api.get(`/stereotypes${params}`);
+    return response.data.data;
+  },
+
+  getById: async (id: string): Promise<Stereotype> => {
+    const response = await api.get(`/stereotypes/${id}`);
+    return response.data.data;
+  },
+
+  create: async (data: Stereotype) => {
+    const response = await api.post('/stereotypes', data);
+    return response.data;
+  },
+
+  update: async (id: string, data: Partial<Stereotype>) => {
+    const response = await api.put(`/stereotypes/${id}`, data);
+    return response.data;
+  },
+
+  delete: async (id: string) => {
+    const response = await api.delete(`/stereotypes/${id}`);
+    return response.data;
   },
 };
 
