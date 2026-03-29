@@ -6,6 +6,7 @@ import { logger } from '../utils/logger.js';
 interface AdjacencyEntry {
   neighborUuid: string;
   navName: string;
+  relationshipUuid: string;
 }
 
 interface EntityInfo {
@@ -115,19 +116,19 @@ class PerspectiveService {
     const resolvedNodes: ResolvedNode[] = [];
 
     // BFS from each root entity
-    const queue: { entityUuid: string; hopDistance: number; pathSegments: string[] }[] = [];
+    const queue: { entityUuid: string; hopDistance: number; pathSegments: string[]; usedRelationships: Set<string> }[] = [];
 
     for (const rootUuid of perspective.rootEntities) {
       const info = entityMap.get(rootUuid);
       if (!info) continue;
-      queue.push({ entityUuid: rootUuid, hopDistance: 0, pathSegments: [info.name] });
+      queue.push({ entityUuid: rootUuid, hopDistance: 0, pathSegments: [info.name], usedRelationships: new Set() });
     }
 
-    // Track visited paths (not UUIDs — same entity via different paths is allowed)
+    // Track visited paths to avoid duplicate processing
     const visitedPaths = new Set<string>();
 
     while (queue.length > 0) {
-      const { entityUuid, hopDistance, pathSegments } = queue.shift()!;
+      const { entityUuid, hopDistance, pathSegments, usedRelationships } = queue.shift()!;
       const currentPath = pathSegments.join('/');
 
       // Skip if already visited this exact path
@@ -160,22 +161,28 @@ class PerspectiveService {
       // Don't traverse further from frontier nodes
       if (isFrontier) continue;
 
-      // Enqueue neighbors
+      // Enqueue neighbors — skip relationships already used in this path (prevents cycles)
       const neighbors = adjacency.get(entityUuid) || [];
-      for (const { neighborUuid, navName } of neighbors) {
+      for (const { neighborUuid, navName, relationshipUuid } of neighbors) {
+        if (usedRelationships.has(relationshipUuid)) continue;
+
         const neighborInfo = entityMap.get(neighborUuid);
         if (!neighborInfo) continue;
         const newPath = [...pathSegments, navName];
         const newPathStr = newPath.join('/');
 
-        // Check if this path prefix is excluded
+        // Check if this path is excluded
         const prefixNode = nodesByPath.get(newPathStr);
         if (prefixNode?.exclude) continue;
+
+        const newUsed = new Set(usedRelationships);
+        newUsed.add(relationshipUuid);
 
         queue.push({
           entityUuid: neighborUuid,
           hopDistance: hopDistance + 1,
           pathSegments: newPath,
+          usedRelationships: newUsed,
         });
       }
     }
@@ -254,11 +261,11 @@ class PerspectiveService {
 
         // Source → Target (using target nav name or description)
         if (!adjacency.has(srcUuid)) adjacency.set(srcUuid, []);
-        adjacency.get(srcUuid)!.push({ neighborUuid: tgtUuid, navName: tgtNav });
+        adjacency.get(srcUuid)!.push({ neighborUuid: tgtUuid, navName: tgtNav, relationshipUuid: rel.uuid });
 
         // Target → Source (using source nav name or description)
         if (!adjacency.has(tgtUuid)) adjacency.set(tgtUuid, []);
-        adjacency.get(tgtUuid)!.push({ neighborUuid: srcUuid, navName: srcNav });
+        adjacency.get(tgtUuid)!.push({ neighborUuid: srcUuid, navName: srcNav, relationshipUuid: rel.uuid });
       }
     }
 

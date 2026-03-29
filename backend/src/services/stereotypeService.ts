@@ -3,8 +3,9 @@ import * as path from 'path';
 import * as YAML from 'yaml';
 import { Stereotype, StereotypeTarget, MetadataEntry } from '../models/EntitySchema.js';
 import { logger } from '../utils/logger.js';
+import { config } from '../kernel/config.js';
 
-const DATA_DICTIONARIES_DIR = path.join(process.cwd(), 'data-dictionaries');
+const DATA_DICTIONARIES_DIR = config.dataDir;
 const STEREOTYPES_FILE = path.join(DATA_DICTIONARIES_DIR, 'stereotypes.yaml');
 
 class StereotypeService {
