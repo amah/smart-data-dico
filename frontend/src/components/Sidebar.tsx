@@ -325,6 +325,14 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
                 </li>
                 <li>
                   <Link
+                    to="/perspectives"
+                    className={isActive('/perspectives') ? 'active' : ''}
+                  >
+                    Perspectives
+                  </Link>
+                </li>
+                <li>
+                  <Link
                     to="/stereotypes"
                     className={isActive('/stereotypes') ? 'active' : ''}
                   >

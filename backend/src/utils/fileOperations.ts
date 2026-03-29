@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import YAML from 'yaml';
 import { logger } from './logger.js';
-import { Entity, Relationship, validateEntity } from '../models/EntitySchema.js';
+import { Entity, Relationship, Perspective, validateEntity } from '../models/EntitySchema.js';
 import { Dictionary } from '../models/Dictionary.js';
 import { generateEntityFilename, extractUUIDFromFilename } from './uuid.js';
 import { config } from '../kernel/config.js';
@@ -43,6 +43,12 @@ export async function ensureDirectoryStructure(): Promise<void> {
   if (!fs.existsSync(microservicesDir)) {
     fs.mkdirSync(microservicesDir, { recursive: true });
     logger.info(`Created microservices directory: ${microservicesDir}`);
+  }
+
+  const perspectivesDir = path.join(baseDir, 'perspectives');
+  if (!fs.existsSync(perspectivesDir)) {
+    fs.mkdirSync(perspectivesDir, { recursive: true });
+    logger.info(`Created perspectives directory: ${perspectivesDir}`);
   }
 }
 
@@ -492,4 +498,80 @@ export async function listAllDictionaries(): Promise<string[]> {
     logger.error(`Error listing all dictionaries: ${error}`);
     return [];
   }
+}
+
+// --- Perspective file operations ---
+
+const PERSPECTIVES_DIR = path.join(DATA_DICTIONARIES_DIR, 'perspectives');
+
+export async function listPerspectives(): Promise<Perspective[]> {
+  try {
+    if (!fs.existsSync(PERSPECTIVES_DIR)) return [];
+    const files = fs.readdirSync(PERSPECTIVES_DIR).filter(f => f.endsWith('.yaml'));
+    return files.map(f => {
+      const content = fs.readFileSync(path.join(PERSPECTIVES_DIR, f), 'utf8');
+      return YAML.parse(content) as Perspective;
+    }).filter(Boolean);
+  } catch (error) {
+    logger.error(`Error listing perspectives: ${error}`);
+    return [];
+  }
+}
+
+export async function readPerspectiveFile(uuid: string): Promise<Perspective | null> {
+  try {
+    const filePath = path.join(PERSPECTIVES_DIR, `${uuid}.yaml`);
+    if (!fs.existsSync(filePath)) return null;
+    const content = fs.readFileSync(filePath, 'utf8');
+    return YAML.parse(content) as Perspective;
+  } catch (error) {
+    logger.error(`Error reading perspective ${uuid}: ${error}`);
+    return null;
+  }
+}
+
+export async function writePerspectiveFile(perspective: Perspective): Promise<boolean> {
+  try {
+    if (!fs.existsSync(PERSPECTIVES_DIR)) {
+      fs.mkdirSync(PERSPECTIVES_DIR, { recursive: true });
+    }
+    const filePath = path.join(PERSPECTIVES_DIR, `${perspective.uuid}.yaml`);
+    fs.writeFileSync(filePath, YAML.stringify(perspective), 'utf8');
+    return true;
+  } catch (error) {
+    logger.error(`Error writing perspective: ${error}`);
+    return false;
+  }
+}
+
+export async function deletePerspectiveFile(uuid: string): Promise<boolean> {
+  try {
+    const filePath = path.join(PERSPECTIVES_DIR, `${uuid}.yaml`);
+    if (!fs.existsSync(filePath)) return false;
+    fs.unlinkSync(filePath);
+    return true;
+  } catch (error) {
+    logger.error(`Error deleting perspective ${uuid}: ${error}`);
+    return false;
+  }
+}
+
+/**
+ * Collects all relationships from all packages for cross-service BFS traversal.
+ */
+export async function getAllRelationships(): Promise<{ packageName: string; relationships: Relationship[] }[]> {
+  const result: { packageName: string; relationships: Relationship[] }[] = [];
+  try {
+    const microservices = await listMicroservices();
+    for (const ms of microservices) {
+      const pkgPath = path.join(DATA_DICTIONARIES_DIR, 'microservices', ms);
+      const rels = await readRelationshipsFile(pkgPath);
+      if (rels.length > 0) {
+        result.push({ packageName: ms, relationships: rels });
+      }
+    }
+  } catch (error) {
+    logger.error(`Error collecting all relationships: ${error}`);
+  }
+  return result;
 }

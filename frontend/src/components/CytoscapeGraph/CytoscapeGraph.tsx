@@ -10,6 +10,7 @@ import { useCytoscapeLayout } from './useCytoscapeLayout';
 import { useCytoscapeStyles } from './useCytoscapeStyles';
 import { useCytoscapeInteractions } from './useCytoscapeInteractions';
 import { useCytoscapePersistence } from './useCytoscapePersistence';
+import { useCytoscapePerspectiveOverlay } from './useCytoscapePerspectiveOverlay';
 import CytoscapeToolbar from './CytoscapeToolbar';
 import CytoscapeTooltip from './CytoscapeTooltip';
 import CytoscapeInfoPanel from './CytoscapeInfoPanel';
@@ -19,6 +20,7 @@ export default function CytoscapeGraph({
   mode = 'service',
   packages,
   initialLayoutId,
+  perspectiveId,
 }: CytoscapeGraphProps) {
   const params = useParams<{ service?: string; entity?: string }>();
   const navigate = useNavigate();
@@ -86,6 +88,9 @@ export default function CytoscapeGraph({
   // Interactions
   const { tooltip, infoPanel, setInfoPanel, applySearchFilter } =
     useCytoscapeInteractions(cyRef);
+
+  // Perspective overlay
+  useCytoscapePerspectiveOverlay(cyRef, perspectiveId);
 
   // Run layout after elements load (once)
   useEffect(() => {

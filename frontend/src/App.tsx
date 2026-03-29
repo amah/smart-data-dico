@@ -6,6 +6,9 @@ import CreateDictionaryPage from './pages/CreateDictionaryPage';
 import EntityDiagramPage from './pages/EntityDiagramPage';
 import OrganizationDiagramPage from './pages/OrganizationDiagramPage';
 import StereotypesPage from './pages/StereotypesPage';
+import PerspectiveListPage from './pages/PerspectiveListPage';
+import PerspectiveDetailPage from './pages/PerspectiveDetailPage';
+import PerspectiveCreatePage from './pages/PerspectiveCreatePage';
 
 // Service and Entity Components
 import ServiceList from './components/ServiceList';
@@ -132,6 +135,18 @@ function App() {
         {/* Organization Class Diagram */}
         <Route path="organization-diagram" element={<OrganizationDiagramPage />} />
         
+        {/* Perspectives */}
+        <Route path="perspectives">
+          <Route index element={<PerspectiveListPage />} />
+          <Route path="create" element={
+            <AuthGuard roles={['admin', 'editor']}><PerspectiveCreatePage /></AuthGuard>
+          } />
+          <Route path=":id" element={<PerspectiveDetailPage />} />
+          <Route path=":id/edit" element={
+            <AuthGuard roles={['admin', 'editor']}><PerspectiveCreatePage /></AuthGuard>
+          } />
+        </Route>
+
         {/* Stereotypes */}
         <Route path="stereotypes" element={<StereotypesPage />} />
 
