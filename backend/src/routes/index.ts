@@ -4,6 +4,7 @@ import { getCurrentUser, login } from '../controllers/authController.js';
 import { diagramController } from '../controllers/diagramController.js';
 import { createDictionary, getDictionaries, getDictionaryById, getDictionaryEntries, getEntityAttributes, getPackageByPath, getPackageHierarchy, getRelatedEntities, getTabularData, saveEntity, listAllPackagesAndEntities, getFlatEntitiesAndAttributes, getEntityHierarchy, createRootPackage, createPackageAtPath, updatePackageAtPath, deletePackageAtPath } from '../controllers/dictionaryController.js';
 import { createEntity, deleteEntity, getAllServices, getEntitySchema, getGraphData, getServiceEntities, searchEntities, updateEntity, getPackageRelationships, createRelationship, updateRelationship, deleteRelationship } from '../controllers/serviceController.js';
+import { getAllStereotypes, getStereotype, createStereotype, updateStereotype, deleteStereotype } from '../controllers/stereotypeController.js';
 import { commitChanges, getCommitHistory, revertToCommit } from '../controllers/versionController.js';
 import { authenticate, UserRole } from '../middleware/auth.js';
 import { authorizeJwt, verifyToken } from '../middleware/jwtAuth.js';
@@ -57,6 +58,13 @@ router.get('/api/packages/:packageName/relationships', getPackageRelationships);
 router.post('/api/packages/:packageName/relationships', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), createRelationship);
 router.put('/api/packages/:packageName/relationships/:uuid', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), updateRelationship);
 router.delete('/api/packages/:packageName/relationships/:uuid', authorizeJwt([UserRole.ADMIN]), deleteRelationship);
+
+// Stereotype API
+router.get('/api/stereotypes', getAllStereotypes);
+router.get('/api/stereotypes/:id', getStereotype);
+router.post('/api/stereotypes', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), createStereotype);
+router.put('/api/stereotypes/:id', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), updateStereotype);
+router.delete('/api/stereotypes/:id', authorizeJwt([UserRole.ADMIN]), deleteStereotype);
 
 // Search API
 router.get('/api/search', searchEntities);

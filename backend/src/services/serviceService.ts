@@ -1,4 +1,5 @@
 import { Entity, Relationship, Cardinality } from '../models/EntitySchema.js';
+import { stereotypeService } from './stereotypeService.js';
 import { logger } from '../utils/logger.js';
 import {
   listMicroservices,
@@ -121,6 +122,17 @@ export class ServiceService {
         };
       }
 
+      // Validate metadata against stereotype
+      if (entity.stereotype) {
+        const stereotype = await stereotypeService.getStereotype(entity.stereotype);
+        if (stereotype) {
+          const metadataErrors = stereotypeService.validateMetadata(stereotype, entity.metadata);
+          if (metadataErrors.length > 0) {
+            return { success: false, errors: metadataErrors };
+          }
+        }
+      }
+
       entity.createdAt = new Date().toISOString();
       entity.updatedAt = new Date().toISOString();
 
@@ -149,6 +161,17 @@ export class ServiceService {
           success: false,
           errors: [`Entity ${service}.${entity.name} not found`]
         };
+      }
+
+      // Validate metadata against stereotype
+      if (entity.stereotype) {
+        const stereotype = await stereotypeService.getStereotype(entity.stereotype);
+        if (stereotype) {
+          const metadataErrors = stereotypeService.validateMetadata(stereotype, entity.metadata);
+          if (metadataErrors.length > 0) {
+            return { success: false, errors: metadataErrors };
+          }
+        }
       }
 
       entity.createdAt = existingEntity.createdAt;

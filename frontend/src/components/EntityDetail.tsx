@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { servicesApi, relationshipApi } from '../services/api';
-import { Entity, Attribute, Relationship } from '../types';
+import { servicesApi, relationshipApi, stereotypeApi } from '../services/api';
+import { Entity, Attribute, Relationship, Stereotype } from '../types';
+import MetadataEditor from './MetadataEditor';
 import AttributeList from './AttributeList';
 import RelationshipList from './RelationshipList';
 
@@ -25,7 +26,14 @@ const EntityDetail = (props: EntityDetailProps) => {
   const [isCreateMode, setIsCreateMode] = useState(false);
   const [newEntityName, setNewEntityName] = useState('');
   const [newEntityDescription, setNewEntityDescription] = useState('');
+  const [stereotypes, setStereotypes] = useState<Stereotype[]>([]);
+  const [currentStereotype, setCurrentStereotype] = useState<Stereotype | null>(null);
   const navigate = useNavigate();
+
+  // Fetch entity stereotypes
+  useEffect(() => {
+    stereotypeApi.getAll('entity').then(setStereotypes).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const isCreatePath = window.location.pathname.endsWith('/create');
@@ -43,6 +51,14 @@ const EntityDetail = (props: EntityDetailProps) => {
         setLoading(true);
         const response = await servicesApi.getEntitySchema(service, entity);
         setEntityData(response.data);
+
+        // Resolve stereotype
+        if (response.data?.stereotype) {
+          try {
+            const st = await stereotypeApi.getById(response.data.stereotype);
+            setCurrentStereotype(st);
+          } catch { /* ok */ }
+        }
 
         // Fetch relationships from package level
         try {
@@ -323,28 +339,35 @@ const EntityDetail = (props: EntityDetailProps) => {
             )}
 
             {activeTab === 'metadata' && entityData && (
-              <div className="overflow-x-auto">
-                <table className="table w-full">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Value</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {entityData.metadata && Array.isArray(entityData.metadata) && entityData.metadata.map((entry) => (
-                      <tr key={entry.name}>
-                        <td className="font-medium">{entry.name}</td>
-                        <td>{JSON.stringify(entry.value)}</td>
-                      </tr>
+              <div className="space-y-4">
+                {/* Stereotype selector */}
+                <div className="flex items-center gap-3">
+                  <label className="text-sm font-semibold">Stereotype:</label>
+                  <select
+                    className="select select-bordered select-sm w-60"
+                    value={entityData.stereotype || ''}
+                    onChange={(e) => {
+                      const st = stereotypes.find((s) => s.id === e.target.value) || null;
+                      setCurrentStereotype(st);
+                      setEntityData({ ...entityData, stereotype: e.target.value || undefined });
+                    }}
+                  >
+                    <option value="">None</option>
+                    {stereotypes.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
                     ))}
-                    {(!entityData.metadata || !Array.isArray(entityData.metadata) || entityData.metadata.length === 0) && (
-                      <tr>
-                        <td colSpan={2} className="text-center text-base-content/70">No metadata available</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                  </select>
+                  {currentStereotype && (
+                    <span className="text-xs text-base-content/60">{currentStereotype.description}</span>
+                  )}
+                </div>
+
+                {/* Metadata editor */}
+                <MetadataEditor
+                  entries={entityData.metadata || []}
+                  stereotype={currentStereotype}
+                  onChange={(entries) => setEntityData({ ...entityData, metadata: entries })}
+                />
               </div>
             )}
           </div>
