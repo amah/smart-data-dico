@@ -248,13 +248,21 @@ export interface Entity {
  * Interface for search result
  */
 export interface SearchResult {
-  type: 'entity' | 'attribute' | 'relationship';
+  type: 'entity' | 'attribute' | 'metadata' | 'relationship' | 'package';
   entityName: string;
+  attributeName?: string;
   service: string;
   name: string;
   description: string;
   path: string;
+  score?: number;
   matchContext?: string;
+}
+
+export interface ImpactAnalysis {
+  relationships: { uuid: string; description: string; service: string; sourceEntity: string; targetEntity: string }[];
+  perspectives: { uuid: string; name: string; path: string }[];
+  diagrams: { id: string; name: string }[];
 }
 
 /**

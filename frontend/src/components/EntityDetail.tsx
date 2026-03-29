@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { servicesApi, relationshipApi, stereotypeApi } from '../services/api';
-import { Entity, Attribute, Relationship, Stereotype } from '../types';
+import { Entity, Attribute, Relationship, Stereotype, ImpactAnalysis } from '../types';
 import MetadataEditor from './MetadataEditor';
 import AttributeList from './AttributeList';
 import RelationshipList from './RelationshipList';
@@ -21,7 +21,9 @@ const EntityDetail = (props: EntityDetailProps) => {
   const [relationships, setRelationships] = useState<Relationship[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'attributes' | 'relationships' | 'metadata'>('attributes');
+  const [activeTab, setActiveTab] = useState<'attributes' | 'relationships' | 'metadata' | 'impact'>('attributes');
+  const [impact, setImpact] = useState<ImpactAnalysis | null>(null);
+  const [impactLoading, setImpactLoading] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [isCreateMode, setIsCreateMode] = useState(false);
   const [newEntityName, setNewEntityName] = useState('');
@@ -319,6 +321,21 @@ const EntityDetail = (props: EntityDetailProps) => {
             >
               Metadata
             </button>
+            <button
+              className={`tab ${activeTab === 'impact' ? 'tab-active' : ''}`}
+              onClick={() => {
+                setActiveTab('impact');
+                if (!impact && entityData?.uuid) {
+                  setImpactLoading(true);
+                  servicesApi.getImpactAnalysis(entityData.uuid)
+                    .then(setImpact)
+                    .catch(() => {})
+                    .finally(() => setImpactLoading(false));
+                }
+              }}
+            >
+              Impact
+            </button>
           </div>
 
           <div className="mt-2 flex-1 overflow-auto min-h-0">
@@ -368,6 +385,64 @@ const EntityDetail = (props: EntityDetailProps) => {
                   stereotype={currentStereotype}
                   onChange={(entries) => setEntityData({ ...entityData, metadata: entries })}
                 />
+              </div>
+            )}
+
+            {activeTab === 'impact' && (
+              <div>
+                {impactLoading ? (
+                  <div className="flex justify-center py-8"><span className="loading loading-spinner" /></div>
+                ) : impact ? (
+                  <div className="space-y-4">
+                    <div>
+                      <h4 className="font-semibold mb-2">Relationships ({impact.relationships.length})</h4>
+                      {impact.relationships.length === 0 ? (
+                        <p className="text-sm text-base-content/50">No relationships reference this entity.</p>
+                      ) : (
+                        <ul className="space-y-1">
+                          {impact.relationships.map((r) => (
+                            <li key={r.uuid} className="text-sm flex gap-2">
+                              <span className="badge badge-info badge-xs mt-1">rel</span>
+                              <span>{r.sourceEntity} &rarr; {r.targetEntity}</span>
+                              {r.description && <span className="text-base-content/60">({r.description})</span>}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                    <div>
+                      <h4 className="font-semibold mb-2">Perspectives ({impact.perspectives.length})</h4>
+                      {impact.perspectives.length === 0 ? (
+                        <p className="text-sm text-base-content/50">Not included in any perspective.</p>
+                      ) : (
+                        <ul className="space-y-1">
+                          {impact.perspectives.map((p) => (
+                            <li key={p.uuid} className="text-sm">
+                              <Link to={`/perspectives/${p.uuid}`} className="link link-primary">{p.name}</Link>
+                              <span className="text-base-content/60 ml-2 font-mono text-xs">{p.path}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                    <div>
+                      <h4 className="font-semibold mb-2">Diagrams ({impact.diagrams.length})</h4>
+                      {impact.diagrams.length === 0 ? (
+                        <p className="text-sm text-base-content/50">Not used in any diagram.</p>
+                      ) : (
+                        <ul className="space-y-1">
+                          {impact.diagrams.map((d) => (
+                            <li key={d.id} className="text-sm">
+                              <Link to={`/diagram?layout=${d.id}`} className="link link-primary">{d.name}</Link>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-base-content/50">Click the Impact tab to load dependency analysis.</p>
+                )}
               </div>
             )}
           </div>
