@@ -17,6 +17,7 @@ import { createVersionControlPlugin } from '../plugins/version-control/versionCo
 import { createAppRemoteFsPlugin } from '../plugins/remote-fs/remoteFsPlugin';
 import { createAppRemoteGitPlugin } from '../plugins/remote-fs/remoteGitPlugin';
 import { createNotificationPlugin } from '../plugins/notification/notificationPlugin';
+import { createPerspectivePlugin } from '../plugins/perspective/perspectivePlugin';
 import type { IStoreManager } from '@hamak/ui-store-api';
 
 // Domain Redux slices
@@ -27,6 +28,7 @@ import dictionaryReducer from '../store/slices/dictionarySlice';
 import diagramReducer from '../store/slices/diagramSlice';
 import packagesReducer from '../store/slices/packagesSlice';
 import stereotypesReducer from '../store/slices/stereotypesSlice';
+import perspectivesReducer from '../store/slices/perspectivesSlice';
 import versionReducer from '../store/slices/versionSlice';
 import searchReducer from '../store/slices/searchSlice';
 
@@ -63,6 +65,7 @@ export function registerPlugins() {
         reducerRegistry.register('diagram', diagramReducer);
         reducerRegistry.register('packages', packagesReducer);
         reducerRegistry.register('stereotypes', stereotypesReducer);
+        reducerRegistry.register('perspectives', perspectivesReducer);
         reducerRegistry.register('version', versionReducer);
         reducerRegistry.register('search', searchReducer);
       }
@@ -141,6 +144,13 @@ export function registerPlugins() {
     'notification',
     { name: 'notification', version: '1.0.0', entry: '', dependsOn: ['store'] },
     createNotificationPlugin()
+  );
+
+  // Perspective plugin (depends on: store, auth)
+  host.registerPlugin(
+    'perspective',
+    { name: 'perspective', version: '1.0.0', entry: '', dependsOn: ['store', 'auth'] },
+    createPerspectivePlugin()
   );
 }
 

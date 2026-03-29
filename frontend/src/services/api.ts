@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-import { CommitInfo, Entity, Relationship, Stereotype, StereotypeTarget } from '../types';
+import { CommitInfo, Entity, Relationship, Stereotype, StereotypeTarget, Perspective, ResolvedPerspective, PerspectiveNode, GraphData } from '../types';
 import { Package } from '../types';
 
 /**
@@ -269,6 +269,42 @@ export const entityApi = {
   getEntityHierarchy: async (microservice: string, entityName: string): Promise<any> => {
     const response = await api.get(`/entities/hierarchy/${encodeURIComponent(microservice)}/${encodeURIComponent(entityName)}`);
     return response.data.data; // Unwrap the data from the API response
+  },
+};
+
+// Perspective API endpoints
+export const perspectiveApi = {
+  getAll: async (): Promise<Perspective[]> => {
+    const response = await api.get('/perspectives');
+    return response.data.data;
+  },
+  getById: async (id: string): Promise<Perspective> => {
+    const response = await api.get(`/perspectives/${id}`);
+    return response.data.data;
+  },
+  create: async (data: Partial<Perspective>) => {
+    const response = await api.post('/perspectives', data);
+    return response.data;
+  },
+  update: async (id: string, data: Partial<Perspective>) => {
+    const response = await api.put(`/perspectives/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: string) => {
+    const response = await api.delete(`/perspectives/${id}`);
+    return response.data;
+  },
+  resolve: async (id: string): Promise<ResolvedPerspective> => {
+    const response = await api.get(`/perspectives/${id}/resolve`);
+    return response.data.data;
+  },
+  getGraphData: async (id: string): Promise<GraphData> => {
+    const response = await api.get(`/perspectives/${id}/graph`);
+    return response.data.data;
+  },
+  upsertNode: async (id: string, node: PerspectiveNode) => {
+    const response = await api.put(`/perspectives/${id}/nodes`, node);
+    return response.data;
   },
 };
 

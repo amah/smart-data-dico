@@ -77,6 +77,52 @@ export interface Stereotype {
 }
 
 /**
+ * A node in a perspective — annotates, sets frontier, or excludes a path
+ */
+export interface PerspectiveNode {
+  path: string;
+  traverse?: boolean;
+  exclude?: boolean;
+  metadata?: MetadataEntry[];
+}
+
+/**
+ * A perspective is a business view over a subset of the data model
+ */
+export interface Perspective {
+  uuid: string;
+  name: string;
+  description?: string;
+  rootEntities: string[];
+  nodes?: PerspectiveNode[];
+  maxDepth?: number;
+  metadata?: MetadataEntry[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/**
+ * A resolved node from BFS traversal of a perspective
+ */
+export interface ResolvedNode {
+  entityUuid: string;
+  entityName: string;
+  service: string;
+  path: string;
+  hopDistance: number;
+  isRoot: boolean;
+  isFrontier: boolean;
+  isManualInclusion: boolean;
+}
+
+/**
+ * A perspective with its resolved entity graph
+ */
+export interface ResolvedPerspective extends Perspective {
+  resolvedNodes: ResolvedNode[];
+}
+
+/**
  * Grouped constraint fields for attributes
  */
 export interface AttributeConstraints {

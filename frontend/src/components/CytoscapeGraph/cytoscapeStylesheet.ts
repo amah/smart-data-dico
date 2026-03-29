@@ -163,6 +163,31 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
         'font-size': 11,
       } as any,
     },
+    // Perspective overlay styles
+    {
+      selector: '.perspective-root',
+      style: {
+        'border-width': 5,
+        'border-color': '#e74c3c',
+        'border-style': 'double',
+        'z-index': 10,
+      } as any,
+    },
+    {
+      selector: '.perspective-member',
+      style: {
+        'border-width': 3,
+        'border-color': '#2ecc71',
+      } as any,
+    },
+    {
+      selector: '.perspective-frontier',
+      style: {
+        'border-width': 3,
+        'border-color': '#f39c12',
+        'border-style': 'dashed',
+      } as any,
+    },
   ];
 
   // Per-service color selectors

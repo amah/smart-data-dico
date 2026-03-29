@@ -126,6 +126,40 @@ export interface MetadataEntry {
   severity?: RuleSeverity;
 }
 
+export interface PerspectiveNode {
+  path: string;
+  traverse?: boolean;
+  exclude?: boolean;
+  metadata?: MetadataEntry[];
+}
+
+export interface Perspective {
+  uuid: string;
+  name: string;
+  description?: string;
+  rootEntities: string[];
+  nodes?: PerspectiveNode[];
+  maxDepth?: number;
+  metadata?: MetadataEntry[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ResolvedNode {
+  entityUuid: string;
+  entityName: string;
+  service: string;
+  path: string;
+  hopDistance: number;
+  isRoot: boolean;
+  isFrontier: boolean;
+  isManualInclusion: boolean;
+}
+
+export interface ResolvedPerspective extends Perspective {
+  resolvedNodes: ResolvedNode[];
+}
+
 export interface Stereotype {
   id: string;
   name: string;

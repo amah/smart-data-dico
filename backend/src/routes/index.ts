@@ -5,6 +5,7 @@ import { diagramController } from '../controllers/diagramController.js';
 import { createDictionary, getDictionaries, getDictionaryById, getDictionaryEntries, getEntityAttributes, getPackageByPath, getPackageHierarchy, getRelatedEntities, getTabularData, saveEntity, listAllPackagesAndEntities, getFlatEntitiesAndAttributes, getEntityHierarchy, createRootPackage, createPackageAtPath, updatePackageAtPath, deletePackageAtPath } from '../controllers/dictionaryController.js';
 import { createEntity, deleteEntity, getAllServices, getEntitySchema, getGraphData, getServiceEntities, searchEntities, updateEntity, getPackageRelationships, createRelationship, updateRelationship, deleteRelationship } from '../controllers/serviceController.js';
 import { getAllStereotypes, getStereotype, createStereotype, updateStereotype, deleteStereotype } from '../controllers/stereotypeController.js';
+import { getAllPerspectives, getPerspective, createPerspective, updatePerspective, deletePerspective, resolvePerspective, getPerspectiveGraph, upsertPerspectiveNode } from '../controllers/perspectiveController.js';
 import { commitChanges, getCommitHistory, revertToCommit } from '../controllers/versionController.js';
 import { authenticate, UserRole } from '../middleware/auth.js';
 import { authorizeJwt, verifyToken } from '../middleware/jwtAuth.js';
@@ -65,6 +66,16 @@ router.get('/api/stereotypes/:id', getStereotype);
 router.post('/api/stereotypes', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), createStereotype);
 router.put('/api/stereotypes/:id', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), updateStereotype);
 router.delete('/api/stereotypes/:id', authorizeJwt([UserRole.ADMIN]), deleteStereotype);
+
+// Perspective API
+router.get('/api/perspectives', getAllPerspectives);
+router.get('/api/perspectives/:id', getPerspective);
+router.post('/api/perspectives', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), createPerspective);
+router.put('/api/perspectives/:id', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), updatePerspective);
+router.delete('/api/perspectives/:id', authorizeJwt([UserRole.ADMIN]), deletePerspective);
+router.get('/api/perspectives/:id/resolve', resolvePerspective);
+router.get('/api/perspectives/:id/graph', getPerspectiveGraph);
+router.put('/api/perspectives/:id/nodes', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), upsertPerspectiveNode);
 
 // Search API
 router.get('/api/search', searchEntities);
