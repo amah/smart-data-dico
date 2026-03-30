@@ -15,9 +15,10 @@ export default function WorkspacesPage() {
     try {
       setLoading(true);
       const data = await gitApi.getBranches();
+      const currentBranch = typeof data.current === 'object' ? data.current?.name : (data.current || data.branch || 'main');
       setBranches({
-        current: data.current || data.branch || 'main',
-        local: data.local || data.branches || [],
+        current: currentBranch,
+        local: data.local || data.branches || data.all || [],
         remote: data.remote || [],
       });
     } catch {

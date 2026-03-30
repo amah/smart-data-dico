@@ -21,7 +21,9 @@ export default function SavePublishPage() {
 
   const changedFiles = status?.files || [];
   const unsavedCount = changedFiles.length;
-  const ahead = status?.ahead || 0;
+  const branchInfo = typeof status?.branch === 'object' ? status.branch : null;
+  const ahead = branchInfo?.ahead || status?.ahead || 0;
+  const currentBranch = branchInfo?.current || (typeof status?.branch === 'string' ? status.branch : status?.current) || 'main';
 
   const handleSave = async () => {
     setSaving(true);
@@ -94,7 +96,7 @@ export default function SavePublishPage() {
         </div>
         <div className="stat">
           <div className="stat-title">Workspace</div>
-          <div className="stat-value text-lg font-mono">{status?.branch || status?.current || 'main'}</div>
+          <div className="stat-value text-lg font-mono">{currentBranch}</div>
         </div>
       </div>
 
