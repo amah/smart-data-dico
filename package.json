@@ -1,19 +1,41 @@
 {
-  "name": "log-analyzer",
+  "name": "smart-data-dico",
   "version": "1.0.0",
-  "description": "Performance analysis tools for Smart Data Dictionary application",
+  "description": "Collaborative data dictionary management system — model, document, and govern your data landscape",
   "type": "module",
-  "scripts": {
-    "demo": "node generate-test-logs.js 50 | node log-analyzer.js",
-    "analyze": "./analyze-performance.sh"
+  "bin": {
+    "smart-data-dico": "bin/cli.js"
   },
+  "scripts": {
+    "build": "npm run build:frontend && npm run build:backend",
+    "build:frontend": "cd frontend && npm run build",
+    "build:backend": "cd backend && npm run build",
+    "dev": "concurrently \"cd backend && npm run dev\" \"cd frontend && npm run dev\"",
+    "start": "node bin/cli.js",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "bin/",
+    "backend/dist/",
+    "backend/package.json",
+    "frontend/dist/",
+    "data-dictionaries/stereotypes.yaml"
+  ],
   "keywords": [
-    "log",
-    "analysis",
-    "performance",
-    "monitoring"
+    "data-dictionary",
+    "data-modeling",
+    "data-governance",
+    "schema-management",
+    "yaml",
+    "git"
   ],
   "author": "",
   "license": "MIT",
-  "dependencies": {}
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/amah/smart-data-dico.git"
+  }
 }
