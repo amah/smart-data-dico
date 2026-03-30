@@ -47,7 +47,8 @@ class QualityService {
         }
       } catch { /* ok */ }
 
-      for (const name of entityNames) {
+      for (const rawName of entityNames) {
+        const name = rawName.includes('_') ? rawName.split('_').slice(1).join('_') : rawName;
         const entity = await readEntityFile(svc, name);
         if (!entity) continue;
 

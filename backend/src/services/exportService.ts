@@ -23,9 +23,10 @@ class ExportService {
     const entityNames = await listMicroserviceEntities(service);
     const definitions: Record<string, any> = {};
 
-    for (const name of entityNames) {
+    for (const rawName of entityNames) {
+      const name = rawName.includes('_') ? rawName.split('_').slice(1).join('_') : rawName;
       const entity = await readEntityFile(service, name);
-      if (!entity) continue;
+      if (!entity || !Array.isArray(entity.attributes)) continue;
 
       const properties: Record<string, any> = {};
       const required: string[] = [];
@@ -83,7 +84,8 @@ class ExportService {
   async exportToMarkdown(service: string): Promise<string> {
     const entityNames = await listMicroserviceEntities(service);
     const entities: Entity[] = [];
-    for (const name of entityNames) {
+    for (const rawName of entityNames) {
+      const name = rawName.includes('_') ? rawName.split('_').slice(1).join('_') : rawName;
       const entity = await readEntityFile(service, name);
       if (entity) entities.push(entity);
     }

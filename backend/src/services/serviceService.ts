@@ -352,7 +352,9 @@ export class ServiceService {
       for (const entityInfo of allEntities) {
         if (filters?.service && filters.service !== entityInfo.microservice) continue;
 
-        const entity = await readEntityFile(entityInfo.microservice, entityInfo.name);
+        // Extract clean entity name from UUID-prefixed filename (e.g. "uuid_Order" → "Order")
+        const cleanName = entityInfo.name.includes('_') ? entityInfo.name.split('_').slice(1).join('_') : entityInfo.name;
+        const entity = await readEntityFile(entityInfo.microservice, cleanName);
         if (!entity) continue;
 
         // Stereotype filter
@@ -401,7 +403,9 @@ export class ServiceService {
 
         // Search entity metadata
         if (!filters?.type || filters.type === 'metadata') {
-          for (const m of entity.metadata || []) {
+          // Handle metadata as array [{name,value}] or object {key: value}
+          const entityMeta = this.normalizeMetadata(entity.metadata);
+          for (const m of entityMeta) {
             const nameMatch = this.calculateMatchScore(m.name, searchTerms);
             const valueMatch = this.calculateMatchScore(String(m.value), searchTerms);
 
@@ -418,7 +422,8 @@ export class ServiceService {
 
           // Search attribute metadata
           for (const attr of entity.attributes) {
-            for (const m of attr.metadata || []) {
+            const attrMeta = this.normalizeMetadata(attr.metadata);
+            for (const m of attrMeta) {
               const nameMatch = this.calculateMatchScore(m.name, searchTerms);
               const valueMatch = this.calculateMatchScore(String(m.value), searchTerms);
 
@@ -473,6 +478,16 @@ export class ServiceService {
       logger.error(`Error searching entities: ${error}`);
       return [];
     }
+  }
+
+  private normalizeMetadata(metadata: any): Array<{ name: string; value: any }> {
+    if (!metadata) return [];
+    if (Array.isArray(metadata)) return metadata;
+    // Object format: { key: value } → [{name: key, value}]
+    if (typeof metadata === 'object') {
+      return Object.entries(metadata).map(([name, value]) => ({ name, value }));
+    }
+    return [];
   }
 
   private calculateMatchScore(text: string, searchTerms: string[]): number {
