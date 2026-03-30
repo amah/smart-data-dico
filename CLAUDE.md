@@ -29,12 +29,12 @@ Smart Data Dictionary Management System — a full-stack app for creating, editi
 
 ### Monorepo with two apps
 - **`backend/`** — Express + TypeScript (ESM via `tsx`). Layered: controllers → services → models. Data persisted as YAML files under `data-dictionaries/microservices/{service-name}/`.
-- **`frontend/`** — React 18 + Vite + TypeScript (ESM). Styled with Tailwind CSS + DaisyUI. Uses @hamak/app-framework microkernel with Redux store, ReactFlow/D3/Mermaid for visualization.
+- **`frontend/`** — React 18 + Vite + TypeScript (ESM). Styled with Tailwind CSS + DaisyUI. Uses @hamak/app-framework microkernel with Redux store, Cytoscape.js for visualization.
 
 ### Backend layers
-- **Routes** (`src/routes/index.ts`): All API endpoints (~65 routes) defined in one file
-- **Controllers** (`src/controllers/`): Request handlers for auth, dictionaries, services, versions, diagrams
-- **Services** (`src/services/`): Business logic — `dictionaryService.ts` and `serviceService.ts` are the core modules
+- **Routes** (`src/routes/index.ts`): All API endpoints (~90 routes) defined in one file
+- **Controllers** (`src/controllers/`): Request handlers for auth, dictionaries, services, versions, diagrams, stereotypes, perspectives, import/export
+- **Services** (`src/services/`): Business logic — `serviceService.ts` (entities, search, impact), `dictionaryService.ts` (packages), `stereotypeService.ts`, `perspectiveService.ts` (BFS resolution), `importService.ts`, `exportService.ts`, `qualityService.ts`
 - **Models** (`src/models/`): TypeScript interfaces + JSON Schema validation (`EntitySchema.ts`, `Dictionary.ts`)
 - **Middleware** (`src/middleware/`): Basic auth + JWT auth with role-based access (ADMIN, EDITOR, VIEWER)
 - **Kernel** (`src/kernel/config.ts`): Centralized configuration
@@ -45,13 +45,14 @@ Smart Data Dictionary Management System — a full-stack app for creating, editi
 ### Frontend — Microkernel Plugin Architecture
 The frontend uses `@hamak/app-framework` microkernel with these plugins (registered in `src/kernel/bootstrap.ts`):
 
-- **store** — Redux store via `@hamak/ui-store-impl` with 7 domain slices
+- **store** — Redux store via `@hamak/ui-store-impl` with 10 domain slices
 - **shell** — Layout/theming via `@hamak/ui-shell-impl`, synced with DaisyUI themes
 - **auth** — Authentication wrapping existing `authApi`, session restore
-- **data-dictionary** — Routes and commands for `/services/**`, `/dictionaries/**`
-- **visualization** — Routes for `/visualization/**`, `/diagram/**`
+- **data-dictionary** — Routes and commands for `/packages/**`, `/services/**`, `/dictionaries/**`
+- **visualization** — Routes for `/visualization/**`, `/diagram/**` (Cytoscape.js)
 - **search** — Routes for `/search`, `/entities/flat`, `/flat/**`
-- **version-control** — Routes for `/version/**`, commit commands
+- **version-control** — Routes for `/version/**`, save/publish/workspaces/merge
+- **perspective** — Routes for `/perspectives/**`, BFS resolution, graph overlay
 - **remote-fs** — `@hamak/ui-remote-fs-impl` pointing to backend `/fs`
 - **remote-git** — `@hamak/ui-remote-git-fs-impl` pointing to backend `/api/git`
 - **notification** — Toast notifications with command-based API
@@ -59,7 +60,7 @@ The frontend uses `@hamak/app-framework` microkernel with these plugins (registe
 ### Frontend organization
 - **Kernel** (`src/kernel/`): `bootstrap.ts` (Host + plugin registration), `tokens.ts` (DI tokens)
 - **Plugins** (`src/plugins/`): One directory per plugin with plugin factory, services, hooks
-- **Store** (`src/store/slices/`): Redux slices — auth, services, entity, dictionary, diagram, version, search
+- **Store** (`src/store/slices/`): Redux slices — auth, services, entity, dictionary, diagram, packages, stereotypes, perspectives, version, search
 - **Pages** (`src/pages/`): Route-level components
 - **Components** (`src/components/`): Reusable UI
 - **Services** (`src/services/api.ts`): Axios client with organized sub-APIs
@@ -73,9 +74,12 @@ The frontend uses `@hamak/app-framework` microkernel with these plugins (registe
 - Mock dev users: admin/admin123, editor/editor123, viewer/viewer123
 
 ### Data model
-- Entities belong to microservices (packages). Each entity is a YAML file identified by UUID.
-- Entities have attributes (typed fields) and relationships to other entities.
-- Diagrams stored as JSON files in `data-dictionaries/diagrams/`.
+- **Entities** belong to packages. Each entity is a YAML file (`{uuid}_{name}.yaml`) with attributes, metadata, stereotype, and status (draft/submitted/approved/returned).
+- **Relationships** stored at package level in `relationships.yaml` with source/target entity UUIDs and cardinality.
+- **Stereotypes** define metadata schemas per element type. Stored in `data-dictionaries/stereotypes.yaml`.
+- **Perspectives** define business views with BFS entity resolution and path-based annotations. Stored in `data-dictionaries/perspectives/{uuid}.yaml`.
+- **Review comments** stored as sidecar files: `{entityUuid}.comments.yaml`.
+- **Diagrams** stored as JSON files in `data-dictionaries/diagrams/`.
 
 ### Testing
 - **Backend:** Jest + ts-jest (CJS transform with `moduleNameMapper` for `.js` extension stripping) + Supertest. Tests in `src/**/__tests__/`. Config: `jest.config.cjs`.

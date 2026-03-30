@@ -2,64 +2,155 @@
 
 A collaborative data dictionary management system for modeling, documenting, and governing your organization's data landscape. Built on a microkernel plugin architecture for modularity, with file-based persistence (YAML/Git) designed for both technical and non-technical users.
 
+## Core Concepts
+
+### Packages
+
+Packages organize entities into logical groups reflecting your system architecture (microservices, modules, bounded contexts). They are hierarchical -- packages can contain sub-packages, forming a tree that mirrors your application structure.
+
+- Navigable via nested URLs: `/packages/eShop/ordering/entities/Order`
+- Each package has a dashboard with entity counts, relationship counts, and metadata
+- Package names follow kebab-case convention
+
+### Entities & Attributes
+
+Entities are the primary modeling unit -- they represent data structures (tables, documents, events, value objects). Each entity has:
+
+- **Attributes** with types (string, number, integer, boolean, datetime, enum, object, array), constraints (min/max length, pattern, precision), and metadata
+- **Nested attributes** for object and array types (e.g. `shippingAddress.postalCode`)
+- **Status lifecycle**: draft -> submitted -> approved (or returned)
+- **UUID-based identity** for stable cross-references
+
+### Relationships
+
+Relationships connect entities across packages. They are stored at the package level and define:
+
+- **Source and target** entity (by UUID) with cardinality (one/many)
+- **Navigation property names** for path traversal
+- **Metadata** on the relationship itself
+
+### Stereotypes
+
+Stereotypes define metadata schemas that apply to specific element types (entity, attribute, or package). When assigned, they auto-populate required and optional metadata fields, ensuring consistency.
+
+**Predefined stereotypes:**
+
+| Stereotype | Applies To | Required Fields |
+|-----------|-----------|-----------------|
+| Aggregate Root | Entity | bounded-context |
+| Reference Data | Entity | cacheable (flag) |
+| Domain Event | Entity | event-source |
+| Value Object | Entity | immutable (flag) |
+| PII | Attribute | pii-category |
+| Indexed | Attribute | - |
+| Deprecated | Attribute | deprecated-since |
+
+**Metadata types**: string, number, boolean, date, **flag** (semantic boolean rendered as toggle), **rule** (text + severity: info/warning/error).
+
+### Perspectives
+
+A Perspective captures a business view over a subset of the data model scoped to a business process (e.g. "Ordering", "Billing"). It is the core differentiating concept of the application.
+
+**How it works:**
+
+1. Select **root entities** -- the starting points of the business process
+2. The system performs **BFS traversal** through relationships to discover all reachable entities
+3. Each entity is identified by its **relationship path from root** (e.g. `Order/orderItems/product`)
+4. The same entity reached via different paths is treated as separate usages
+
+**Path grammar** -- uniform `/` navigation for all levels:
+```
+Order                              -- root entity
+Order/totalAmount                  -- attribute on root
+Order/orderItems                   -- relationship -> OrderItem
+Order/orderItems/quantity          -- attribute on OrderItem
+Order/orderItems/product/sku       -- deep chain -> attribute
+Order/shippingAddress/postalCode   -- attribute via relationship
+Order/billingAddress/postalCode    -- same attribute, different path
+```
+
+**PerspectiveNode** annotations on any path:
+- **`traverse: false`** -- frontier node (include but stop BFS here)
+- **`exclude: true`** -- prune this path entirely
+- **`metadata`** -- path-scoped annotations (not overrides -- new metadata specific to this perspective usage)
+
+### Review Workflow
+
+Entities go through a status lifecycle for team governance:
+
+```
+draft --> submitted --> approved
+                   \-> returned (with comments) --> submitted
+```
+
+- **Comments** can target specific attributes (e.g. "Missing validation rule on discountRate")
+- **Status transitions** are role-gated (editors submit, admins approve/return)
+- Comments are stored as sidecar YAML files per entity
+
+### Quality Metrics
+
+The quality dashboard tracks documentation completeness:
+
+- **Description coverage** -- % of entities/attributes with descriptions
+- **Metadata compliance** -- % of entities with correct stereotype metadata
+- **Relationship coverage** -- % of entities with at least one relationship
+- **Per-entity scoring** -- weighted composite (30% description, 30% attribute descriptions, 20% relationships, 20% stereotype compliance)
+- **Drill-down** from package level to individual entity gaps
+
 ## User Journeys
 
 ### Journey 1: Model a New Domain (Data Architect)
 
-> *Alice, a data architect, is tasked with documenting the data model for a new e-commerce platform.*
+> *Alice documents the data model for an e-commerce platform.*
 
-1. **Create the package structure** -- Alice creates a top-level `eShop` package, then sub-packages: `Ordering`, `Catalog`, `Billing`.
-2. **Define entities** -- Inside `Ordering`, she creates entities: `Order`, `OrderLine`, `Customer`. For each, she adds a description and attributes (name, type, constraints).
-3. **Define relationships** -- She links `Order` to `OrderLine` (one-to-many), `Order` to `Customer` (many-to-one). Relationships are owned at the package level.
-4. **Assign stereotypes** -- She marks `Order` as `aggregate-root`, `Customer` as `reference-data`. This auto-populates required metadata fields (e.g., lifecycle rules, ownership).
-5. **Add metadata** -- She flags `Customer.email` as PII, adds a business rule "Order total must equal sum of line amounts" on `Order`.
-6. **Visualize** -- She opens the interactive graph to verify the model looks right, adjusts layout, and saves the diagram.
-7. **Save & publish** -- She saves her work (auto-committed to her workspace branch), then publishes to the shared model.
+1. **Create packages** -- `eShop > Ordering`, `Catalog`, `Billing` via the package dashboard
+2. **Define entities** -- `Order`, `OrderLine`, `Customer` with typed attributes and constraints
+3. **Define relationships** -- `Order` to `OrderLine` (one-to-many) at the package level
+4. **Assign stereotypes** -- Mark `Order` as `aggregate-root`, auto-populating `bounded-context` metadata
+5. **Add metadata** -- Flag `Customer.email` as PII, add business rules
+6. **Visualize** -- Open the Cytoscape.js interactive graph, verify the model, save the layout
+7. **Save & publish** -- Save (commit to workspace), publish (push to shared)
 
-### Journey 2: Define a Business Context (Business Analyst)
+### Journey 2: Define a Perspective (Business Analyst)
 
-> *Bob, a business analyst, needs to capture the billing-specific view of the data model.*
+> *Bob captures the billing-specific view of the data model.*
 
-1. **Create a context** -- Bob creates a "Billing" context and selects `Invoice` and `Payment` as root entities.
-2. **Review resolved entities** -- The system walks relationships and pulls in `Order`, `Customer`, `LineItem` transitively. Bob sees the full entity graph for his context.
-3. **Refine scope** -- He excludes `Catalog.Product` (pulled in but not relevant to billing) and includes `TaxRule` (not reachable by relationships but needed).
-4. **Add context-specific metadata** -- In the Billing context, he marks `Customer.email` as `required` and `Customer.taxId` as `mandatory-for-invoicing`. These overrides don't affect the base model.
-5. **Add business rules** -- He adds rules scoped to this context: "Invoices must be generated within 24h of order completion", "Payment retry limited to 3 attempts".
-6. **Search within context** -- He searches for all PII-flagged attributes within Billing to prepare a compliance report.
-7. **Visualize the context** -- On the interactive graph, he switches to "Billing context" view -- only relevant entities are highlighted, others are dimmed.
+1. **Create perspective** -- "Billing" with `Invoice` and `Payment` as root entities
+2. **Review resolved paths** -- BFS walks relationships, discovers `Order`, `Customer`, `LineItem`
+3. **Set frontiers** -- Mark `Product` as frontier (`traverse: false`) -- include but don't follow further
+4. **Exclude paths** -- Exclude `Order/audit` (not relevant to billing)
+5. **Add annotations** -- On `Order/billingAddress/postalCode`, add validation rule "Must match payment country"
+6. **Visualize** -- Graph overlay highlights perspective members, dims others
 
-### Journey 3: Review & Approve Changes (Data Steward)
+### Journey 3: Review & Approve (Data Steward)
 
-> *Carol, a data steward, reviews changes submitted by the team.*
+> *Carol reviews changes submitted by the team.*
 
-1. **Check notifications** -- Carol sees a notification: "Alice submitted 3 entities for review in the Ordering package."
-2. **View the diff** -- She opens the review and sees a side-by-side comparison: `Order` has 2 new attributes, `OrderLine` has a modified constraint.
-3. **Add comments** -- On `Order.discountRate`, she comments: "Missing business rule -- max discount must be defined."
-4. **Return for revision** -- She returns the submission with her comments. Alice gets notified.
-5. **Review revision** -- Alice adds the missing rule, re-submits. Carol approves. The changes move to `approved` status.
-6. **Check quality dashboard** -- Carol checks the completeness dashboard: Ordering is at 92% documentation coverage, up from 85%.
+1. **See pending entities** -- Order is in `submitted` status
+2. **Add comments** -- "Missing description on id field" targeting specific attribute
+3. **Return for revision** -- Status changes to `returned`, author gets notification
+4. **Approve** -- After fixes, approve. Status moves to `approved`
+5. **Check quality** -- Quality dashboard shows 90% for order-service, up from 80%
 
 ### Journey 4: Explore & Discover (Developer)
 
-> *Dave, a backend developer, is implementing the order service and needs to understand the data model.*
+> *Dave needs to understand the data model for implementation.*
 
-1. **Browse packages** -- Dave navigates to `eShop > Ordering`. The URL reads `/packages/eShop/ordering` and the breadcrumb shows his location.
-2. **View package dashboard** -- He sees 8 entities, 12 relationships, 95% documented. Recent changes highlight the new `discountRate` attribute.
-3. **Search** -- He searches "payment status" and finds the `Payment.status` attribute with its enum values and the `PaymentStatusChanged` event entity.
-4. **Check entity detail** -- He opens `Order`, sees attributes, relationships, metadata, and business rules in tabs.
-5. **Impact analysis** -- Before modifying `Customer`, he checks "Where Used" -- it's referenced by 4 relationships, 2 contexts, and 1 diagram. He proceeds carefully.
-6. **Export** -- He exports the `Ordering` package as JSON Schema to auto-generate TypeScript interfaces for his service.
+1. **Browse** -- Navigate `/packages/order-service` to see the dashboard with stats
+2. **Search** -- Search "order" returns 27 results across entities, attributes, metadata, relationships, packages
+3. **Filter** -- Faceted search: filter by type=relationship, service=order-service, stereotype=aggregate-root
+4. **Impact analysis** -- Check "Impact" tab on Order: 2 relationships, 1 perspective reference
+5. **Export** -- Export order-service as JSON Schema for code generation, or Markdown for documentation
 
 ### Journey 5: Version & Collaborate (Team Lead)
 
-> *Eve, a team lead, manages dictionary versioning aligned with application releases.*
+> *Eve manages versioning aligned with application releases.*
 
-1. **Create a workspace** -- Eve starts a workspace for `feature/billing-v2`, aligned with the application's feature branch.
-2. **Team edits** -- Bob and Alice edit entities within this workspace. Each save auto-commits to the workspace branch.
-3. **Sync status** -- Eve sees "5 changes ahead, 2 updates available" in the header. She pulls the latest shared changes.
-4. **Resolve conflicts** -- A conflict on `Customer.yaml`: the shared model added `loyaltyTier`, her workspace modified `creditLimit`. The visual merge tool shows both changes field-by-field. She keeps both.
-5. **Publish** -- She publishes the workspace. All changes merge to the shared model with a summary: "Billing v2: 3 entities added, 5 modified, 2 new contexts."
-6. **Tag release** -- She tags the dictionary at `v2.5` to match the application release.
+1. **Create workspace** -- Creates `workspace/billing-v2` (git branch with friendly name)
+2. **Monitor status** -- Navbar shows "MAIN 8" (branch + unsaved count), dropdown shows ahead/behind
+3. **Save & publish** -- Save page shows changed files, commit with message, push to remote
+4. **Switch workspaces** -- Workspaces page lists branches, switch with one click
+5. **Merge** -- Merge page selects source workspace, previews diff, merges
 
 ## Architecture
 
@@ -67,44 +158,79 @@ A collaborative data dictionary management system for modeling, documenting, and
 
 ```
 smart-data-dico/
-  backend/          Express + TypeScript, layered (controllers > services > models)
-  frontend/         React 18 + Vite + TypeScript + Tailwind CSS + DaisyUI
-  data-dictionaries/  YAML entity files, relationships, diagrams (git-tracked)
+  backend/              Express + TypeScript (controllers > services > models)
+  frontend/             React 18 + Vite + TypeScript + Tailwind CSS + DaisyUI
+  data-dictionaries/    YAML entity files, relationships, perspectives, stereotypes
+  Dockerfile            Multi-stage production build
+  docker-compose.yml    One-command deployment
 ```
 
 ### Microkernel Plugin Architecture
 
-The frontend uses `@hamak/app-framework` with plugins:
+The frontend uses `@hamak/app-framework` with 11 plugins:
 
 | Plugin | Responsibility |
 |--------|---------------|
-| **store** | Redux state management (7 domain slices) |
+| **store** | Redux state management (10 domain slices) |
 | **shell** | Layout, theming (synced with DaisyUI) |
 | **auth** | JWT authentication with Auth0 |
 | **data-dictionary** | Entity, package, relationship CRUD |
-| **visualization** | Interactive graph, diagrams |
+| **visualization** | Interactive Cytoscape.js graph |
 | **search** | Full-text and faceted search |
-| **version-control** | Git operations (save, publish, history) |
-| **remote-fs** | File operations via backend |
-| **remote-git** | Git operations via backend |
+| **version-control** | Save/publish, history |
+| **perspective** | Perspective management and resolution |
+| **remote-fs** | File operations via `@hamak/filesystem-server-impl` |
+| **remote-git** | Git operations via `@hamak/ui-remote-git-fs-impl` |
 | **notification** | Toast notifications |
 
 ### Data Model
 
-- **Packages** contain entities and sub-packages (hierarchical)
-- **Entities** have attributes, metadata, and a stereotype
-- **Attributes** have types, constraints, and metadata
-- **Relationships** are package-owned, with source/target cardinality
-- **Contexts** define business views over a subset of entities with context-specific metadata
-- **Stereotypes** control which metadata applies to which elements
+```
+Package
+  +-- Entity (uuid, name, description, stereotype, status, attributes[], metadata[])
+  |     +-- Attribute (uuid, name, type, required, constraints, metadata[])
+  +-- Relationship (uuid, source, target, cardinality, metadata[])
+  +-- Sub-packages
+
+Stereotype (id, name, appliesTo, metadataDefinitions[])
+Perspective (uuid, name, rootEntities[], nodes[], maxDepth)
+  +-- PerspectiveNode (path, traverse?, exclude?, metadata[])
+  +-- ResolvedNode (entityUuid, path, hopDistance, isRoot, isFrontier)
+```
 
 ### Persistence
 
-- Entity files: `data-dictionaries/microservices/{package}/{uuid}_{name}.yaml`
-- Relationships: `data-dictionaries/microservices/{package}/relationships.yaml`
-- Contexts: `data-dictionaries/contexts/{uuid}.yaml`
-- Diagrams: `data-dictionaries/diagrams/{id}.json`
-- All files git-tracked for versioning
+```
+data-dictionaries/
+  microservices/{package}/
+    {uuid}_{name}.yaml          -- entity files
+    {uuid}.comments.yaml        -- review comments (sidecar)
+    relationships.yaml          -- package-level relationships
+    metadata.yaml               -- package metadata
+  perspectives/{uuid}.yaml      -- perspective definitions
+  stereotypes.yaml              -- stereotype definitions
+  diagrams/{id}.json            -- saved diagram layouts
+```
+
+All files are git-tracked for versioning, branching, and collaboration.
+
+### API Surface
+
+| Area | Endpoints |
+|------|-----------|
+| Entities | CRUD on `/api/services/:service/entities/:entity` |
+| Packages | CRUD on `/api/packages`, hierarchy, path navigation |
+| Relationships | CRUD on `/api/packages/:pkg/relationships` |
+| Stereotypes | CRUD on `/api/stereotypes` |
+| Perspectives | CRUD + resolve + graph on `/api/perspectives` |
+| Search | `GET /api/search?q=...&type=...&service=...&stereotype=...` |
+| Impact | `GET /api/entities/:uuid/impact` |
+| Review | Submit/approve/return + comments on entities |
+| Import | `POST /api/import/json-schema`, `POST /api/import/sql-ddl` |
+| Export | `GET /api/export/json-schema/:service`, `GET /api/export/markdown/:service` |
+| Quality | `GET /api/quality/report` |
+| Git | Full git operations via `/api/git/dictionaries/*` (framework routes) |
+| Version | Commit, history, revert via `/api/commit`, `/api/history` |
 
 ## Getting Started
 
@@ -116,16 +242,25 @@ The frontend uses `@hamak/app-framework` with plugins:
 ### Quick Start
 
 ```bash
-# Backend
-cd backend && npm install && npm run dev
+# Install dependencies
+cd backend && npm install
+cd ../frontend && npm install
 
-# Frontend (in another terminal)
-cd frontend && npm install && npm run dev
+# Start (two terminals)
+cd backend && npm run dev     # port 3001
+cd frontend && npm run dev    # port 3000
 ```
 
 - Frontend: http://localhost:3000
 - Backend API: http://localhost:3001
 - API docs: http://localhost:3001/api-docs
+
+### Docker
+
+```bash
+docker-compose up
+# App available at http://localhost:3001
+```
 
 ### Dev Credentials
 
@@ -135,18 +270,15 @@ cd frontend && npm install && npm run dev
 | editor | editor123 | EDITOR (create/edit) |
 | viewer | viewer123 | VIEWER (read-only) |
 
-## Roadmap
+### Configuration Profiles
 
-See [open issues](https://github.com/amah/smart-data-dico/issues) organized by theme:
+Set via `PROFILE` environment variable:
 
-- **Navigation** -- Package CRUD, nested URLs, breadcrumbs, dashboards
-- **Workflow** -- Review lifecycle, comments, diff, notifications
-- **Search** -- Extended scope, faceted filters, impact analysis
-- **Metadata** -- Stereotypes, flags/rules, templates, validation
-- **Context** -- Business views, entity resolution, context-specific metadata
-- **Git UX** -- Save/publish, workspaces, merge UI, remote sync
-- **Deployment** -- Docker, desktop app, configuration profiles
-- **Interop** -- Import/export, lineage, comparison, quality metrics
+| Profile | Auth | Git | Use Case |
+|---------|------|-----|----------|
+| **local** | None | Local only | Single user, desktop |
+| **team** | Basic/JWT | Remote | Small team sharing a repo |
+| **server** | Auth0/SSO | Remote | Organization-wide deployment |
 
 ## Technologies
 
@@ -155,5 +287,6 @@ See [open issues](https://github.com/amah/smart-data-dico/issues) organized by t
 | Backend | Node.js, Express, TypeScript (ESM), YAML, Git |
 | Frontend | React 18, Vite, TypeScript, Tailwind CSS, DaisyUI, Redux |
 | Framework | @hamak/app-framework (microkernel, DI, plugins) |
-| Visualization | Mermaid, ReactFlow (migrating to Cytoscape.js) |
+| Visualization | Cytoscape.js (dagre + fcose layouts) |
 | Auth | JWT + Auth0 (mock mode for dev) |
+| Deployment | Docker (multi-stage build) |
