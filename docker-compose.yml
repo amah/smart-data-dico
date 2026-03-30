@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./data-dictionaries:/app/data-dictionaries
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - PROFILE=team
+      - JWT_SECRET=change-me-in-production
+      - GIT_AUTO_COMMIT=true
+    restart: unless-stopped

@@ -10,12 +10,19 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 export const config = {
   /** Server port */
   port: parseInt(process.env.PORT || '3001', 10),
 
   /** Base directory for data dictionaries (YAML files) */
-  dataDir: path.join(process.cwd(), '..', 'data-dictionaries'),
+  dataDir: isProduction
+    ? path.join(process.cwd(), 'data-dictionaries')
+    : path.join(process.cwd(), '..', 'data-dictionaries'),
+
+  /** Deployment profile: local | team | server */
+  profile: (process.env.PROFILE || 'local') as 'local' | 'team' | 'server',
 
   /** JWT configuration */
   jwt: {
@@ -31,5 +38,5 @@ export const config = {
 
   /** Environment */
   nodeEnv: process.env.NODE_ENV || 'development',
-  isProduction: process.env.NODE_ENV === 'production',
+  isProduction,
 };
