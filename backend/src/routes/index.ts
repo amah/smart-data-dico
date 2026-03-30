@@ -7,6 +7,7 @@ import { createEntity, deleteEntity, getAllServices, getEntitySchema, getGraphDa
 import { getAllStereotypes, getStereotype, createStereotype, updateStereotype, deleteStereotype } from '../controllers/stereotypeController.js';
 import { getAllPerspectives, getPerspective, createPerspective, updatePerspective, deletePerspective, resolvePerspective, getPerspectiveGraph, upsertPerspectiveNode } from '../controllers/perspectiveController.js';
 import { commitChanges, getCommitHistory, revertToCommit } from '../controllers/versionController.js';
+import { importJsonSchema, importSqlDdl, exportJsonSchema, exportMarkdown, getQualityReport } from '../controllers/importExportController.js';
 import { authenticate, UserRole } from '../middleware/auth.js';
 import { authorizeJwt, verifyToken } from '../middleware/jwtAuth.js';
 
@@ -90,6 +91,15 @@ router.get('/api/search', searchEntities);
 
 // Impact analysis
 router.get('/api/entities/:uuid/impact', getImpactAnalysis);
+
+// Import/Export
+router.post('/api/import/json-schema', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), importJsonSchema);
+router.post('/api/import/sql-ddl', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), importSqlDdl);
+router.get('/api/export/json-schema/:service', exportJsonSchema);
+router.get('/api/export/markdown/:service', exportMarkdown);
+
+// Quality
+router.get('/api/quality/report', getQualityReport);
 
 // Graph API for visualization
 router.get('/api/graph/:service', getGraphData);
