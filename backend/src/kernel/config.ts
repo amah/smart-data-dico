@@ -17,9 +17,10 @@ export const config = {
   port: parseInt(process.env.PORT || '3001', 10),
 
   /** Base directory for data dictionaries (YAML files) */
-  dataDir: isProduction
-    ? path.join(process.cwd(), 'data-dictionaries')
-    : path.join(process.cwd(), '..', 'data-dictionaries'),
+  dataDir: process.env.DATA_DIR
+    || (isProduction
+      ? path.join(process.cwd(), 'data-dictionaries')
+      : path.join(process.cwd(), '..', 'data-dictionaries')),
 
   /** Deployment profile: local | team | server */
   profile: (process.env.PROFILE || 'local') as 'local' | 'team' | 'server',
