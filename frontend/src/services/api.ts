@@ -309,6 +309,31 @@ export const entityApi = {
   },
 };
 
+// Import/Export API
+export const importExportApi = {
+  importJsonSchema: async (schema: any, service: string) => {
+    const response = await api.post('/import/json-schema', { schema, service });
+    return response.data;
+  },
+  importSqlDdl: async (sql: string, service: string) => {
+    const response = await api.post('/import/sql-ddl', { sql, service });
+    return response.data;
+  },
+  exportJsonSchema: async (service: string) => {
+    const response = await api.get(`/export/json-schema/${service}`);
+    return response.data;
+  },
+  exportMarkdown: async (service: string) => {
+    const response = await api.get(`/export/markdown/${service}`, { responseType: 'text' as any });
+    return response.data;
+  },
+  getQualityReport: async (service?: string) => {
+    const params = service ? `?service=${service}` : '';
+    const response = await api.get(`/quality/report${params}`);
+    return response.data.data;
+  },
+};
+
 // Git API (uses @hamak/app-framework routes at /api/git/dictionaries)
 export const gitApi = {
   getStatus: async () => {

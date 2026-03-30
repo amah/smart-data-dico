@@ -339,6 +339,22 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
                     Stereotypes
                   </Link>
                 </li>
+                <li>
+                  <Link
+                    to="/import-export"
+                    className={isActive('/import-export') ? 'active' : ''}
+                  >
+                    Import / Export
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    to="/quality"
+                    className={isActive('/quality') ? 'active' : ''}
+                  >
+                    Quality Dashboard
+                  </Link>
+                </li>
               </ul>
             )}
           </li>

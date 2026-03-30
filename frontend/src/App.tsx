@@ -9,6 +9,8 @@ import StereotypesPage from './pages/StereotypesPage';
 import SavePublishPage from './pages/SavePublishPage';
 import WorkspacesPage from './pages/WorkspacesPage';
 import MergePage from './pages/MergePage';
+import ImportExportPage from './pages/ImportExportPage';
+import QualityDashboardPage from './pages/QualityDashboardPage';
 import PerspectiveListPage from './pages/PerspectiveListPage';
 import PerspectiveDetailPage from './pages/PerspectiveDetailPage';
 import PerspectiveCreatePage from './pages/PerspectiveCreatePage';
@@ -149,6 +151,10 @@ function App() {
             <AuthGuard roles={['admin', 'editor']}><PerspectiveCreatePage /></AuthGuard>
           } />
         </Route>
+
+        {/* Import/Export + Quality */}
+        <Route path="import-export" element={<ImportExportPage />} />
+        <Route path="quality" element={<QualityDashboardPage />} />
 
         {/* Stereotypes */}
         <Route path="stereotypes" element={<StereotypesPage />} />
