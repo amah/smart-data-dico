@@ -268,7 +268,7 @@ export async function listAllEntities(): Promise<Array<{ microservice: string; n
     for (const microservice of microservices) {
       const microservicePath = path.join(microservicesDir, microservice);
       const files = fs.readdirSync(microservicePath)
-        .filter((file: string) => (file.endsWith('.yaml') || file.endsWith('.yml')) && file !== 'metadata.yaml' && file !== 'relationships.yaml');
+        .filter((file: string) => (file.endsWith('.yaml') || file.endsWith('.yml')) && file !== 'metadata.yaml' && file !== 'relationships.yaml' && !file.endsWith('.comments.yaml'));
 
       for (const file of files) {
         const name = path.basename(file, path.extname(file));
@@ -306,7 +306,7 @@ export async function listMicroserviceEntities(microservice: string): Promise<st
 
     const processStartTime = process.hrtime();
     const files = allFiles
-      .filter((file: string) => (file.endsWith('.yaml') || file.endsWith('.yml')) && file !== 'metadata.yaml' && file !== 'relationships.yaml')
+      .filter((file: string) => (file.endsWith('.yaml') || file.endsWith('.yml')) && file !== 'metadata.yaml' && file !== 'relationships.yaml' && !file.endsWith('.comments.yaml'))
       .map((file: string) => path.basename(file, path.extname(file)));
     const processEndTime = process.hrtime(processStartTime);
     const processTimeMs = Number((processEndTime[0] * 1e3 + processEndTime[1] / 1e6).toFixed(2));
