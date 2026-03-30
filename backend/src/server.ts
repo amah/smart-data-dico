@@ -1,4 +1,5 @@
 import express, { Request, Response } from 'express';
+import path from 'path';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import routes from './routes/index.js';
@@ -111,6 +112,18 @@ app.use((err: any, req: Request, res: Response, next: any) => {
     error: config.isProduction ? undefined : err.message
   });
 });
+
+// Serve frontend static files in production
+if (config.isProduction) {
+  const publicDir = path.join(process.cwd(), 'public');
+  app.use(express.static(publicDir));
+  app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api') && !req.path.startsWith('/fs') && !req.path.startsWith('/api-docs')) {
+      res.sendFile(path.join(publicDir, 'index.html'));
+    }
+  });
+  logger.info(`Serving frontend from ${publicDir}`);
+}
 
 // Start server only when run directly (not when imported by tests)
 const isMainModule = process.argv[1] && (
