@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { authApi } from '../services/api';
+import GitStatusIndicator from './GitStatusIndicator';
 
 interface NavbarProps {
   toggleSidebar: () => void;
@@ -53,7 +54,10 @@ const Navbar = ({ toggleSidebar }: NavbarProps) => {
         </ul>
       </div>
 
-      <div className="navbar-end">
+      <div className="navbar-end gap-1">
+        {/* Git Status */}
+        <GitStatusIndicator />
+
         {/* Search */}
         <form onSubmit={handleSearch} className="hidden md:flex">
           <div className="form-control">

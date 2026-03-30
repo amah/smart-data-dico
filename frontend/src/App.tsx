@@ -6,6 +6,9 @@ import CreateDictionaryPage from './pages/CreateDictionaryPage';
 import EntityDiagramPage from './pages/EntityDiagramPage';
 import OrganizationDiagramPage from './pages/OrganizationDiagramPage';
 import StereotypesPage from './pages/StereotypesPage';
+import SavePublishPage from './pages/SavePublishPage';
+import WorkspacesPage from './pages/WorkspacesPage';
+import MergePage from './pages/MergePage';
 import PerspectiveListPage from './pages/PerspectiveListPage';
 import PerspectiveDetailPage from './pages/PerspectiveDetailPage';
 import PerspectiveCreatePage from './pages/PerspectiveCreatePage';
@@ -162,7 +165,18 @@ function App() {
         {/* Version Control */}
         <Route path="tree/hierarchy" element={<EntityTreeTable />} />
         <Route path="version">
+          <Route path="save" element={
+            <AuthGuard roles={['admin', 'editor']}>
+              <SavePublishPage />
+            </AuthGuard>
+          } />
           <Route path="history" element={<CommitHistory />} />
+          <Route path="workspaces" element={<WorkspacesPage />} />
+          <Route path="merge" element={
+            <AuthGuard roles={['admin', 'editor']}>
+              <MergePage />
+            </AuthGuard>
+          } />
           <Route path="commit" element={
             <AuthGuard roles={['admin', 'editor']}>
               <CommitChanges />
