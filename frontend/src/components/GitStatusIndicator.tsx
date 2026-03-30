@@ -18,10 +18,12 @@ export default function GitStatusIndicator() {
   const fetchStatus = async () => {
     try {
       const data = await gitApi.getStatus();
+      // Framework returns branch as object {current, tracking, ahead, behind} or as string
+      const branchInfo = typeof data.branch === 'object' ? data.branch : null;
       setStatus({
-        branch: data.branch || data.current,
-        ahead: data.ahead || 0,
-        behind: data.behind || 0,
+        branch: branchInfo?.current || (typeof data.branch === 'string' ? data.branch : data.current) || 'main',
+        ahead: branchInfo?.ahead || data.ahead || 0,
+        behind: branchInfo?.behind || data.behind || 0,
         hasUncommittedChanges: data.hasUncommittedChanges ?? (data.files?.length > 0),
         files: data.files || [],
       });
@@ -54,7 +56,7 @@ export default function GitStatusIndicator() {
   return (
     <div className="dropdown dropdown-end">
       <button
-        className="btn btn-ghost btn-sm gap-1"
+        className="btn btn-ghost btn-sm gap-1 text-primary-content"
         onClick={() => setOpen(!open)}
       >
         {/* Branch icon */}
