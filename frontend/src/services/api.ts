@@ -309,6 +309,46 @@ export const entityApi = {
   },
 };
 
+// Git API (uses @hamak/app-framework routes at /api/git/dictionaries)
+export const gitApi = {
+  getStatus: async () => {
+    const response = await api.get('/git/dictionaries/status/.');
+    return response.data;
+  },
+  getBranches: async () => {
+    const response = await api.get('/git/dictionaries/branches/.');
+    return response.data;
+  },
+  checkout: async (branch: string, create?: boolean) => {
+    const response = await api.post('/git/dictionaries/checkout/.', { branch, create });
+    return response.data;
+  },
+  createBranch: async (branch: string) => {
+    const response = await api.post('/git/dictionaries/branch/.', { branch });
+    return response.data;
+  },
+  commit: async (message: string) => {
+    const response = await api.post('/git/dictionaries/commit/.', { message });
+    return response.data;
+  },
+  pull: async (remote?: string) => {
+    const response = await api.post('/git/dictionaries/pull/.', { remote });
+    return response.data;
+  },
+  push: async (remote?: string) => {
+    const response = await api.post('/git/dictionaries/push/.', { remote });
+    return response.data;
+  },
+  fetch: async (remote?: string) => {
+    const response = await api.post('/git/dictionaries/fetch/.', { remote });
+    return response.data;
+  },
+  getDiff: async (file?: string) => {
+    const response = await api.get('/git/dictionaries/diff/.', { params: file ? { file } : {} });
+    return response.data;
+  },
+};
+
 // Perspective API endpoints
 export const perspectiveApi = {
   getAll: async (): Promise<Perspective[]> => {
