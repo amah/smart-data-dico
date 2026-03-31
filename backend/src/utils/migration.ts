@@ -4,8 +4,9 @@ import YAML from 'yaml';
 import { logger } from './logger.js';
 import { generateUUID, generateEntityFilename } from './uuid.js';
 import { Entity, EntityAttribute, EntityRelationship, createEntityWithUUIDs } from '../models/EntitySchema.js';
+import { config } from '../kernel/config.js';
 
-const DATA_DICTIONARIES_DIR = path.join(process.cwd(), '..', 'data-dictionaries');
+const DATA_DICTIONARIES_DIR = config.dataDir;
 
 /**
  * Migrates all existing entities to use UUIDs
