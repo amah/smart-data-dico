@@ -1,0 +1,16 @@
+- uuid: rel-order-item-001
+  description: Order has OrderItems
+  source:
+    entity: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
+    cardinality: one
+  target:
+    entity: c30df0bf-7c41-4aa8-9b18-91a054384255
+    cardinality: many
+- uuid: rel-quote-order-001
+  description: Quote generates Order
+  source:
+    entity: 2e47ea53-9c5c-4dee-8948-49391355d73b
+    cardinality: one
+  target:
+    entity: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
+    cardinality: one

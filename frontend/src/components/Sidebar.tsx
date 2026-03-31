@@ -317,14 +317,6 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
                 </li>
                 <li>
                   <Link
-                    to="/tree/hierarchy"
-                    className={isActive('/tree/hierarchy') ? 'active' : ''}
-                  >
-                    Tree Hierarchy
-                  </Link>
-                </li>
-                <li>
-                  <Link
                     to="/perspectives"
                     className={isActive('/perspectives') ? 'active' : ''}
                   >
