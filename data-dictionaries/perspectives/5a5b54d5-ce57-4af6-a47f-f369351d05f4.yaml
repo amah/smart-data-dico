@@ -1,0 +1,15 @@
+uuid: 5a5b54d5-ce57-4af6-a47f-f369351d05f4
+name: Ordering
+description: Order lifecycle business process
+rootEntities:
+  - 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
+nodes:
+  - path: Order/totalAmount
+    metadata:
+      - name: consistency-rule
+        value: Must equal sum of line items
+        severity: error
+maxDepth: 5
+metadata: []
+createdAt: 2026-03-29T18:15:51.146Z
+updatedAt: 2026-03-29T18:15:51.146Z

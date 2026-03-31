@@ -31,7 +31,6 @@ import EntityFlatTable from './components/EntityFlatTable';
 import EntityHierarchyView from './components/EntityHierarchyView';
 import PackageFlatTable from './components/PackageFlatTable';
 import AttributeFlatTable from './components/AttributeFlatTable';
-import EntityTreeTable from './components/EntityTreeTable';
 
 // Version Control Components
 import CommitChanges from './components/CommitChanges';
@@ -169,7 +168,6 @@ function App() {
         <Route path="flat/attributes" element={<AttributeFlatTable />} />
 
         {/* Version Control */}
-        <Route path="tree/hierarchy" element={<EntityTreeTable />} />
         <Route path="version">
           <Route path="save" element={
             <AuthGuard roles={['admin', 'editor']}>
