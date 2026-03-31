@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { packageApi } from '../services/api';
 import type { Package } from '../types';
 import PackageForm from '../components/PackageForm';
+import CytoscapeGraph from '../components/CytoscapeGraph';
 
 interface PackageDetailPageProps {
   packagePath: string[];
@@ -10,6 +11,8 @@ interface PackageDetailPageProps {
 
 export default function PackageDetailPage({ packagePath }: PackageDetailPageProps) {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const viewMode = searchParams.get('view') || 'page';
   const [pkg, setPkg] = useState<Package | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -141,6 +144,28 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
         </div>
       </div>
 
+      {/* View mode toggle */}
+      <div className="tabs tabs-boxed w-fit">
+        <button
+          className={`tab ${viewMode === 'page' ? 'tab-active' : ''}`}
+          onClick={() => setSearchParams({ view: 'page' })}
+        >
+          Page View
+        </button>
+        <button
+          className={`tab ${viewMode === 'graph' ? 'tab-active' : ''}`}
+          onClick={() => setSearchParams({ view: 'graph' })}
+        >
+          Diagram View
+        </button>
+      </div>
+
+      {viewMode === 'graph' ? (
+        <div className="h-[600px] border border-base-300 rounded-lg overflow-hidden">
+          <CytoscapeGraph service={rootPackage} />
+        </div>
+      ) : (
+      <>
       {/* Stats */}
       <div className="stats stats-horizontal shadow w-full">
         <div className="stat">
@@ -260,6 +285,9 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
             </div>
           </div>
         </div>
+      )}
+
+      </>
       )}
 
       {/* Create Sub-package Modal */}
