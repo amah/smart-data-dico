@@ -1,6 +1,10 @@
+import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import EntityDetail from './EntityDetail';
+import AttributeEditor from './AttributeEditor';
 import PackageDetailPage from '../pages/PackageDetailPage';
+import { servicesApi } from '../services/api';
+import { Attribute } from '../types';
 
 export default function PackageRouter() {
   const params = useParams();
@@ -10,11 +14,38 @@ export default function PackageRouter() {
   const entitiesIndex = segments.indexOf('entities');
 
   if (entitiesIndex >= 0 && entitiesIndex < segments.length - 1) {
-    // Entity mode: /packages/root/sub/.../entities/EntityName
+    // Entity mode: /packages/root/sub/.../entities/EntityName[/...]
     const packagePath = segments.slice(0, entitiesIndex);
     const entityName = segments[entitiesIndex + 1];
     const service = packagePath[0]; // Root package = service for backend API
-    const isEdit = segments[entitiesIndex + 2] === 'edit';
+    const rest = segments.slice(entitiesIndex + 2);
+
+    // Attribute routes: /attributes/create or /attributes/:name/edit
+    if (rest[0] === 'attributes') {
+      if (rest[1] === 'create') {
+        return (
+          <AttributeEditor
+            key={`${service}-${entityName}-create`}
+            serviceProp={service}
+            entityProp={entityName}
+          />
+        );
+      }
+      if (rest.length >= 2) {
+        const attributeName = rest[1];
+        const isEdit = rest[2] === 'edit';
+        return (
+          <AttributeEditLoader
+            service={service}
+            entityName={entityName}
+            attributeName={attributeName}
+            isEdit={isEdit}
+          />
+        );
+      }
+    }
+
+    const isEdit = rest[0] === 'edit';
 
     return (
       <EntityDetail
@@ -29,4 +60,53 @@ export default function PackageRouter() {
 
   // Package mode: /packages/root/sub1/sub2
   return <PackageDetailPage packagePath={segments} />;
+}
+
+/**
+ * Loads entity data and finds the attribute for editing.
+ */
+function AttributeEditLoader({
+  service,
+  entityName,
+  attributeName,
+  isEdit,
+}: {
+  service: string;
+  entityName: string;
+  attributeName: string;
+  isEdit: boolean;
+}) {
+  const [attribute, setAttribute] = useState<Attribute | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    servicesApi
+      .getEntitySchema(service, entityName)
+      .then((res) => {
+        const attr = res.data.attributes?.find(
+          (a: Attribute) => a.name === attributeName
+        );
+        setAttribute(attr || null);
+      })
+      .catch(() => setAttribute(null))
+      .finally(() => setLoading(false));
+  }, [service, entityName, attributeName]);
+
+  if (loading) {
+    return (
+      <div className="flex justify-center p-8">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  return (
+    <AttributeEditor
+      key={`${service}-${entityName}-${attributeName}`}
+      isEdit={isEdit}
+      initialData={attribute || undefined}
+      serviceProp={service}
+      entityProp={entityName}
+    />
+  );
 }

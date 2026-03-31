@@ -8,6 +8,8 @@ interface AttributeEditorProps {
   isEdit?: boolean;
   initialData?: Attribute;
   onSave?: (attribute: Attribute) => Promise<void>;
+  serviceProp?: string;
+  entityProp?: string;
 }
 
 /**
@@ -99,8 +101,10 @@ const defaultFormValues: AttributeFormValues = {
   primaryKey: false,
 };
 
-const AttributeEditor = ({ isEdit = false, initialData, onSave }: AttributeEditorProps) => {
-  const { service, entity } = useParams<{ service: string; entity: string }>();
+const AttributeEditor = ({ isEdit = false, initialData, onSave, serviceProp, entityProp }: AttributeEditorProps) => {
+  const params = useParams<{ service: string; entity: string }>();
+  const service = serviceProp || params.service;
+  const entity = entityProp || params.entity;
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -168,7 +172,7 @@ const AttributeEditor = ({ isEdit = false, initialData, onSave }: AttributeEdito
       }
 
       // Navigate back to entity detail page
-      navigate(`/services/${service}/entities/${entity}`);
+      navigate(`/packages/${service}/entities/${entity}`);
     } catch (err) {
       console.error('Error saving attribute:', err);
       setError('Failed to save attribute. Please try again.');
@@ -446,7 +450,7 @@ const AttributeEditor = ({ isEdit = false, initialData, onSave }: AttributeEdito
             <button
               type="button"
               className="btn btn-ghost"
-              onClick={() => navigate(`/services/${service}/entities/${entity}`)}
+              onClick={() => navigate(`/packages/${service}/entities/${entity}`)}
               disabled={loading}
             >
               Cancel

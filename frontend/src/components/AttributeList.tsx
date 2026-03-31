@@ -143,7 +143,7 @@ const AttributeList = ({ attributes, entityName, serviceName }: AttributeListPro
                   </td>
                   <td>
                     <Link
-                      to={`/services/${serviceName}/entities/${entityName}/attributes/${attr.name}/edit`}
+                      to={`/packages/${serviceName}/entities/${entityName}/attributes/${attr.name}/edit`}
                       className="btn btn-sm btn-ghost btn-square"
                       title="Edit"
                     >
@@ -161,7 +161,7 @@ const AttributeList = ({ attributes, entityName, serviceName }: AttributeListPro
 
       <div className="mt-6">
         <Link
-          to={`/services/${serviceName}/entities/${entityName}/attributes/create`}
+          to={`/packages/${serviceName}/entities/${entityName}/attributes/create`}
           className="btn btn-primary"
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
