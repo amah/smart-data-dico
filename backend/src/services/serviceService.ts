@@ -1,4 +1,4 @@
-import { Entity, Relationship, Cardinality, EntityStatus, ReviewComment } from '../models/EntitySchema.js';
+import { Entity, Relationship, Cardinality, EntityStatus, ReviewComment, LineageNode, LineageResult } from '../models/EntitySchema.js';
 import { stereotypeService } from './stereotypeService.js';
 import { logger } from '../utils/logger.js';
 import {
@@ -563,6 +563,86 @@ export class ServiceService {
     }
 
     return impact;
+  }
+
+  // --- Lineage ---
+
+  async getLineage(entityUuid: string): Promise<LineageResult> {
+    // Build entity name map
+    const allEntities = await listAllEntities();
+    const entityNameMap = new Map<string, { name: string; service: string }>();
+    for (const info of allEntities) {
+      const cleanName = info.name.includes('_') ? info.name.split('_').slice(1).join('_') : info.name;
+      const e = await readEntityFile(info.microservice, cleanName);
+      if (e) entityNameMap.set(e.uuid, { name: e.name, service: info.microservice });
+    }
+
+    const entityInfo = entityNameMap.get(entityUuid) || { name: entityUuid, service: '' };
+    const result: LineageResult = {
+      entity: { uuid: entityUuid, name: entityInfo.name, service: entityInfo.service },
+      upstream: [],
+      downstream: [],
+    };
+
+    // Collect all lineage relationships
+    const allRels = await getAllRelationships();
+    const lineageRels: Relationship[] = [];
+    for (const { relationships } of allRels) {
+      for (const rel of relationships) {
+        if (rel.type === 'lineage') lineageRels.push(rel);
+      }
+    }
+
+    // Walk upstream (follow source chains): entity is target, find sources
+    const visitedUp = new Set<string>();
+    const walkUpstream = (uuid: string, depth: number) => {
+      if (visitedUp.has(uuid) || depth > 10) return;
+      visitedUp.add(uuid);
+      for (const rel of lineageRels) {
+        if (rel.target.entity === uuid) {
+          const srcInfo = entityNameMap.get(rel.source.entity);
+          if (srcInfo) {
+            result.upstream.push({
+              entityUuid: rel.source.entity,
+              entityName: srcInfo.name,
+              service: srcInfo.service,
+              direction: 'upstream',
+              depth,
+              relationship: { uuid: rel.uuid, description: rel.description || '' },
+            });
+            walkUpstream(rel.source.entity, depth + 1);
+          }
+        }
+      }
+    };
+
+    // Walk downstream (follow target chains): entity is source, find targets
+    const visitedDown = new Set<string>();
+    const walkDownstream = (uuid: string, depth: number) => {
+      if (visitedDown.has(uuid) || depth > 10) return;
+      visitedDown.add(uuid);
+      for (const rel of lineageRels) {
+        if (rel.source.entity === uuid) {
+          const tgtInfo = entityNameMap.get(rel.target.entity);
+          if (tgtInfo) {
+            result.downstream.push({
+              entityUuid: rel.target.entity,
+              entityName: tgtInfo.name,
+              service: tgtInfo.service,
+              direction: 'downstream',
+              depth,
+              relationship: { uuid: rel.uuid, description: rel.description || '' },
+            });
+            walkDownstream(rel.target.entity, depth + 1);
+          }
+        }
+      }
+    };
+
+    walkUpstream(entityUuid, 1);
+    walkDownstream(entityUuid, 1);
+
+    return result;
   }
 
   // --- Status transitions ---

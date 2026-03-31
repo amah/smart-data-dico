@@ -307,6 +307,17 @@ export const resolveEntityComment = async (req: Request, res: Response) => {
   }
 };
 
+export const getLineage = async (req: Request, res: Response) => {
+  try {
+    const { uuid } = req.params;
+    const lineage = await serviceService.getLineage(uuid);
+    res.json({ message: 'Success', data: lineage });
+  } catch (error) {
+    logger.error(`Error getting lineage: ${error}`);
+    res.status(500).json({ message: 'Error getting lineage', error });
+  }
+};
+
 export const getImpactAnalysis = async (req: Request, res: Response) => {
   try {
     const { uuid } = req.params;

@@ -189,12 +189,30 @@ export interface RelationshipEnd {
 /**
  * A relationship between two entities, stored at package level
  */
+export type RelationshipType = 'structural' | 'lineage';
+
 export interface Relationship {
   uuid: string;
   description?: string;
+  type?: RelationshipType;
   source: RelationshipEnd;
   target: RelationshipEnd;
   metadata?: MetadataEntry[];
+}
+
+export interface LineageNode {
+  entityUuid: string;
+  entityName: string;
+  service: string;
+  direction: 'upstream' | 'downstream';
+  depth: number;
+  relationship: { uuid: string; description: string };
+}
+
+export interface LineageResult {
+  entity: { uuid: string; name: string; service: string };
+  upstream: LineageNode[];
+  downstream: LineageNode[];
 }
 
 /**

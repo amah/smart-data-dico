@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { servicesApi, relationshipApi, stereotypeApi } from '../services/api';
 import { Entity, Attribute, Relationship, Stereotype, ImpactAnalysis, EntityStatus } from '../types';
 import ReviewComments from './ReviewComments';
+import LineageView from './LineageView';
 import MetadataEditor from './MetadataEditor';
 import AttributeList from './AttributeList';
 import RelationshipList from './RelationshipList';
@@ -22,7 +23,7 @@ const EntityDetail = (props: EntityDetailProps) => {
   const [relationships, setRelationships] = useState<Relationship[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'attributes' | 'relationships' | 'metadata' | 'comments' | 'impact'>('attributes');
+  const [activeTab, setActiveTab] = useState<'attributes' | 'relationships' | 'metadata' | 'lineage' | 'comments' | 'impact'>('attributes');
   const [impact, setImpact] = useState<ImpactAnalysis | null>(null);
   const [impactLoading, setImpactLoading] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
@@ -356,6 +357,12 @@ const EntityDetail = (props: EntityDetailProps) => {
               Metadata
             </button>
             <button
+              className={`tab ${activeTab === 'lineage' ? 'tab-active' : ''}`}
+              onClick={() => setActiveTab('lineage')}
+            >
+              Lineage
+            </button>
+            <button
               className={`tab ${activeTab === 'impact' ? 'tab-active' : ''}`}
               onClick={() => {
                 setActiveTab('impact');
@@ -426,6 +433,10 @@ const EntityDetail = (props: EntityDetailProps) => {
                   onChange={(entries) => setEntityData({ ...entityData, metadata: entries })}
                 />
               </div>
+            )}
+
+            {activeTab === 'lineage' && entityData && service && (
+              <LineageView entityUuid={entityData.uuid} service={service} />
             )}
 
             {activeTab === 'impact' && (
