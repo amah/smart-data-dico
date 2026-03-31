@@ -18,7 +18,7 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
   // Accordion state: which sections are expanded
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     packages: true,
-    perspectives: false,
+    perspectives: true,
     views: false,
     versionControl: false,
   });
