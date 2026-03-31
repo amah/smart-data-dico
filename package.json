@@ -1,6 +1,6 @@
 {
   "name": "@hamak/smart-data-dico",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Collaborative data dictionary management system — model, document, and govern your data landscape",
   "type": "module",
   "bin": {
@@ -20,7 +20,25 @@
     "data-dictionaries/stereotypes.yaml"
   ],
   "dependencies": {
-    "tsx": "^4.0.0"
+    "tsx": "^4.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "jsonschema": "^1.4.1",
+    "jsonwebtoken": "^9.0.2",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
+    "yaml": "^2.3.1",
+    "@hamak/filesystem-server-api": "^0.5.1",
+    "@hamak/filesystem-server-impl": "^0.5.1",
+    "@hamak/filesystem-server-spi": "^0.5.1",
+    "@hamak/shared-utils": "^0.5.1",
+    "@types/jsonwebtoken": "^9.0.9",
+    "@types/cors": "^2.8.13",
+    "@types/express": "^4.17.17",
+    "@types/node": "^20.17.50",
+    "@types/swagger-jsdoc": "^6.0.4",
+    "@types/swagger-ui-express": "^4.1.8"
   },
   "keywords": [
     "data-dictionary",
