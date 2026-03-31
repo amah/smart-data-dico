@@ -20,7 +20,7 @@ export function createSearchPlugin(): PluginModule {
       }));
     },
 
-    async activate(ctx) {
+    async activate(_ctx) {
       console.log('[search] Plugin activated');
     },
   };

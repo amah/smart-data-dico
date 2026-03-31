@@ -62,7 +62,7 @@ const versionSlice = createSlice({
       .addCase(commitChanges.pending, (state) => {
         state.loading = true;
       })
-      .addCase(commitChanges.fulfilled, (state, action) => {
+      .addCase(commitChanges.fulfilled, (state) => {
         state.loading = false;
         state.lastCommitResult = { success: true, message: 'Changes committed' };
       })

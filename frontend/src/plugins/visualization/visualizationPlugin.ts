@@ -19,7 +19,7 @@ export function createVisualizationPlugin(): PluginModule {
       }));
     },
 
-    async activate(ctx) {
+    async activate(_ctx) {
       console.log('[visualization] Plugin activated');
     },
   };
