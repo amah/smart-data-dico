@@ -6,9 +6,10 @@ import { Dictionary, Package } from '../models/Dictionary.js';
 import { Entity, Relationship } from '../models/EntitySchema.js';
 import { ensureDirectoryStructure, listAllDictionaries, listAllEntities, listMicroserviceEntities, listMicroservices, readEntityFile, readRelationshipsFile, writeDictionaryMetadata } from '../utils/fileOperations.js';
 import { logger } from '../utils/logger.js';
+import { config } from '../kernel/config.js';
 
-// Base directory for data dictionaries - use the same path as in fileOperations.ts
-const DATA_DICTIONARIES_DIR = path.join(process.cwd(), '..', 'data-dictionaries');
+// Base directory for data dictionaries - use centralized config
+const DATA_DICTIONARIES_DIR = config.dataDir;
 
 /**
  * Dictionary Service
