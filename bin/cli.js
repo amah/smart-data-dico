@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { fileURLToPath } from 'url';
-import { dirname, join, resolve } from 'path';
+import { dirname, join, resolve } from 'node:path';
 import { existsSync, mkdirSync, cpSync } from 'fs';
 import { spawn } from 'child_process';
 
@@ -84,8 +84,18 @@ const tsxPaths = [
 let tsxBin = tsxPaths.find(p => existsSync(p)) || 'npx';
 const tsxArgs = tsxBin === 'npx' ? ['tsx', serverTs] : [serverTs];
 
+// Find the nearest ancestor directory containing node_modules
+// (handles npm install, npx, and monorepo layouts)
+let cwd = join(PKG_ROOT, 'backend');
+for (let dir = PKG_ROOT; dir !== dirname(dir); dir = dirname(dir)) {
+  if (existsSync(join(dir, 'node_modules', 'express'))) {
+    cwd = dir;
+    break;
+  }
+}
+
 const child = spawn(tsxBin, tsxArgs, {
-  cwd: join(PKG_ROOT, 'backend'),
+  cwd,
   env: {
     ...process.env,
     PORT: port,
