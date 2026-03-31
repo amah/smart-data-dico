@@ -1,0 +1,1 @@
+# Allow dist/ for npm publish (overrides .gitignore)

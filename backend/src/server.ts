@@ -4,7 +4,6 @@ import path from 'path';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import routes from './routes/index.js';
-import { setupSwagger } from './utils/swagger.js';
 import { logger } from './utils/logger.js';
 import { config } from './kernel/config.js';
 import { initializeFileSystem, getFileRouter } from './adapters/EntityFileAdapter.js';
@@ -52,8 +51,14 @@ app.get('/health', (req: Request, res: Response) => {
 // API routes
 app.use(routes);
 
-// Setup Swagger documentation
-setupSwagger(app);
+// Setup Swagger documentation (dev only — swagger-ui-express requires static
+// assets that aren't available in the production bundle)
+try {
+  const { setupSwagger } = await import('./utils/swagger.js');
+  setupSwagger(app);
+} catch {
+  logger.info('Swagger UI not available (production bundle)');
+}
 
 // =============================================================================
 // Framework Filesystem & Git Routes (Phase 1)
@@ -148,7 +153,7 @@ app.use((err: any, req: Request, res: Response, _next: any) => {
 
 // Start server only when run directly (not when imported by tests)
 const isMainModule = process.argv[1] && (
-  process.argv[1].endsWith('server.ts') || process.argv[1].endsWith('server.js')
+  process.argv[1].endsWith('server.ts') || process.argv[1].endsWith('server.js') || process.argv[1].endsWith('server.mjs')
 );
 
 if (isMainModule) {
