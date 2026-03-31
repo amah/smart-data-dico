@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-import { CommitInfo, Entity, Relationship, Stereotype, StereotypeTarget, Perspective, ResolvedPerspective, PerspectiveNode, GraphData, ImpactAnalysis, ReviewComment, LineageResult } from '../types';
+import { Entity, Relationship, Stereotype, StereotypeTarget, Perspective, ResolvedPerspective, PerspectiveNode, GraphData, ImpactAnalysis, ReviewComment, LineageResult } from '../types';
 import { Package } from '../types';
 
 /**

@@ -49,74 +49,48 @@ if (!existsSync(dataDir)) {
   mkdirSync(dataDir, { recursive: true });
   console.log(`Created data directory: ${dataDir}`);
 
-  // Copy default stereotypes if available
   const defaultStereotypes = join(PKG_ROOT, 'data-dictionaries', 'stereotypes.yaml');
   if (existsSync(defaultStereotypes)) {
     cpSync(defaultStereotypes, join(dataDir, 'stereotypes.yaml'));
     console.log('Copied default stereotypes');
   }
 
-  // Create microservices directory
   mkdirSync(join(dataDir, 'microservices'), { recursive: true });
   mkdirSync(join(dataDir, 'perspectives'), { recursive: true });
 }
 
-// Determine paths
-const backendDist = join(PKG_ROOT, 'backend', 'dist');
+const serverTs = join(PKG_ROOT, 'backend', 'src', 'server.ts');
 const frontendDist = join(PKG_ROOT, 'frontend', 'dist');
-const serverEntry = join(backendDist, 'server.js');
 
-// Check if built
-if (!existsSync(serverEntry)) {
-  // Try running from source (development mode)
-  const serverTs = join(PKG_ROOT, 'backend', 'src', 'server.ts');
-  if (existsSync(serverTs)) {
-    console.log('Running in development mode (source)...');
-    const child = spawn('npx', ['tsx', serverTs], {
-      cwd: join(PKG_ROOT, 'backend'),
-      env: {
-        ...process.env,
-        PORT: port,
-        NODE_ENV: 'production',
-        PROFILE: 'local',
-      },
-      stdio: 'inherit',
-    });
-    child.on('exit', (code) => process.exit(code || 0));
-    process.on('SIGINT', () => child.kill('SIGINT'));
-  } else {
-    console.error('Error: Backend not built. Run `npm run build` first.');
-    process.exit(1);
-  }
-} else {
-
-// Set environment
-process.env.PORT = port;
-process.env.NODE_ENV = 'production';
-process.env.PROFILE = process.env.PROFILE || 'local';
-
-// Override data dir to the user's chosen directory
-process.env.DATA_DIR = dataDir;
+if (!existsSync(serverTs)) {
+  console.error('Error: Backend source not found.');
+  process.exit(1);
+}
 
 console.log(`
   Smart Data Dictionary
 
   Port:       ${port}
   Data:       ${dataDir}
-  Profile:    ${process.env.PROFILE}
-  Frontend:   ${existsSync(frontendDist) ? 'bundled' : 'not found (API only)'}
+  Profile:    ${process.env.PROFILE || 'local'}
+  Frontend:   ${existsSync(frontendDist) ? 'bundled' : 'dev (use frontend dev server on :3000)'}
 `);
 
-console.log(`Starting server...`);
+// Find tsx binary — check local node_modules first, then global
+const tsxPaths = [
+  join(PKG_ROOT, 'node_modules', '.bin', 'tsx'),
+  join(PKG_ROOT, 'backend', 'node_modules', '.bin', 'tsx'),
+];
+let tsxBin = tsxPaths.find(p => existsSync(p)) || 'npx';
+const tsxArgs = tsxBin === 'npx' ? ['tsx', serverTs] : [serverTs];
 
-// Start the backend server
-const child = spawn('node', [serverEntry], {
+const child = spawn(tsxBin, tsxArgs, {
   cwd: join(PKG_ROOT, 'backend'),
   env: {
     ...process.env,
     PORT: port,
-    NODE_ENV: 'production',
-    PROFILE: process.env.PROFILE,
+    NODE_ENV: existsSync(frontendDist) ? 'production' : 'development',
+    PROFILE: process.env.PROFILE || 'local',
     DATA_DIR: dataDir,
   },
   stdio: 'inherit',
@@ -142,10 +116,9 @@ if (!flags.noOpen) {
     } catch {
       console.log(`Open ${url} in your browser`);
     }
-  }, 2000);
+  }, 3000);
 }
 
-// Handle graceful shutdown
 process.on('SIGINT', () => {
   console.log('\nShutting down...');
   child.kill('SIGINT');
@@ -154,5 +127,3 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => {
   child.kill('SIGTERM');
 });
-
-} // end else (built mode)

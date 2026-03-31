@@ -21,7 +21,7 @@ export function createVersionControlPlugin(): PluginModule {
       });
     },
 
-    async activate(ctx) {
+    async activate(_ctx) {
       console.log('[version-control] Plugin activated');
     },
   };

@@ -1,5 +1,5 @@
 {
-  "name": "smart-data-dico",
+  "name": "@hamak/smart-data-dico",
   "version": "1.0.0",
   "description": "Collaborative data dictionary management system — model, document, and govern your data landscape",
   "type": "module",
@@ -7,20 +7,21 @@
     "smart-data-dico": "bin/cli.js"
   },
   "scripts": {
-    "build": "npm run build:frontend && npm run build:backend",
-    "build:frontend": "cd frontend && npm run build",
-    "build:backend": "cd backend && npm run build",
-    "dev": "concurrently \"cd backend && npm run dev\" \"cd frontend && npm run dev\"",
+    "build": "cd frontend && npm run build",
     "start": "node bin/cli.js",
     "prepublishOnly": "npm run build"
   },
   "files": [
     "bin/",
-    "backend/dist/",
+    "backend/src/",
     "backend/package.json",
+    "backend/tsconfig.json",
     "frontend/dist/",
     "data-dictionaries/stereotypes.yaml"
   ],
+  "dependencies": {
+    "tsx": "^4.0.0"
+  },
   "keywords": [
     "data-dictionary",
     "data-modeling",
