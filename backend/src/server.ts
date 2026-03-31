@@ -110,10 +110,13 @@ mountFrameworkRoutes().catch((err) => {
 // Serve frontend static files in production (BEFORE error handler)
 if (config.isProduction) {
   // Check multiple possible frontend dist locations
+  // __dirname equivalent for ESM
+  const serverDir = path.dirname(new URL(import.meta.url).pathname);
   const candidates = [
-    path.join(process.cwd(), 'public'),                    // Docker (copied to public/)
-    path.join(process.cwd(), '..', 'frontend', 'dist'),    // npm package / monorepo
-    path.join(process.cwd(), 'frontend', 'dist'),           // alt layout
+    path.join(serverDir, '..', '..', 'frontend', 'dist'),  // npm package (server is at backend/src/)
+    path.join(process.cwd(), 'public'),                     // Docker (copied to public/)
+    path.join(process.cwd(), '..', 'frontend', 'dist'),     // monorepo dev
+    path.join(process.cwd(), 'frontend', 'dist'),            // alt layout
   ];
   const publicDir = candidates.find(d => {
     try { return fs.statSync(d).isDirectory(); } catch { return false; }
