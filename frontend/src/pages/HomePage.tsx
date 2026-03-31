@@ -1,21 +1,35 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { entityApi } from '../services/api';
-import type { Package } from '../types';
+import { servicesApi } from '../services/api';
+
+interface PackageInfo {
+  name: string;
+  entityCount: number;
+}
 
 const HomePage = () => {
-  const [packages, setPackages] = useState<Package[]>([]);
+  const [packages, setPackages] = useState<PackageInfo[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    entityApi.getAllPackages()
-      .then(setPackages)
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    const load = async () => {
+      try {
+        const res = await servicesApi.getAllServices();
+        const services: string[] = res.data || [];
+        const pkgs = await Promise.all(services.map(async (name) => {
+          try {
+            const entRes = await servicesApi.getServiceEntities(name);
+            return { name, entityCount: entRes.data?.length || 0 };
+          } catch { return { name, entityCount: 0 }; }
+        }));
+        setPackages(pkgs);
+      } catch {}
+      setLoading(false);
+    };
+    load();
   }, []);
 
-  const totalEntities = packages.reduce((sum, pkg) => sum + (pkg.entities?.length || 0), 0);
-  const totalRelationships = packages.reduce((sum, pkg) => sum + (pkg.relationships?.length || 0), 0);
+  const totalEntities = packages.reduce((sum, pkg) => sum + pkg.entityCount, 0);
 
   return (
     <div className="space-y-6">
@@ -24,7 +38,7 @@ const HomePage = () => {
         <div>
           <h1 className="text-3xl font-bold">Data Dictionary</h1>
           <p className="text-base-content/70 mt-1">
-            {packages.length} packages, {totalEntities} entities, {totalRelationships} relationships
+            {packages.length} packages, {totalEntities} entities
           </p>
         </div>
         <Link to="/packages" className="btn btn-primary btn-sm">
@@ -44,40 +58,24 @@ const HomePage = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {packages.map((pkg) => {
-            const entityCount = pkg.entities?.length || 0;
-            const relCount = pkg.relationships?.length || 0;
-            const subCount = pkg.subPackages?.length || 0;
-
-            return (
-              <div key={pkg.id} className="card bg-base-200 shadow-sm hover:shadow-md transition-shadow">
-                <div className="card-body p-5">
-                  <h3 className="card-title text-lg font-mono">{pkg.name}</h3>
-                  {pkg.description && (
-                    <p className="text-sm text-base-content/70 line-clamp-2">{pkg.description}</p>
-                  )}
-                  {pkg.type && <span className="badge badge-outline badge-xs">{pkg.type}</span>}
-
-                  {/* Stats */}
-                  <div className="flex gap-4 text-xs text-base-content/60 mt-2">
-                    <span>{entityCount} entities</span>
-                    <span>{relCount} relationships</span>
-                    {subCount > 0 && <span>{subCount} sub-packages</span>}
-                  </div>
-
-                  {/* Actions */}
-                  <div className="card-actions justify-end mt-3">
-                    <Link to={`/packages/${pkg.name}`} className="btn btn-primary btn-sm">
-                      Browse
-                    </Link>
-                    <Link to={`/packages/${pkg.name}?view=graph`} className="btn btn-outline btn-sm">
-                      Diagram
-                    </Link>
-                  </div>
+          {packages.map((pkg) => (
+            <div key={pkg.name} className="card bg-base-200 shadow-sm hover:shadow-md transition-shadow">
+              <div className="card-body p-5">
+                <h3 className="card-title text-lg font-mono">{pkg.name}</h3>
+                <div className="text-xs text-base-content/60 mt-1">
+                  {pkg.entityCount} entities
+                </div>
+                <div className="card-actions justify-end mt-3">
+                  <Link to={`/packages/${pkg.name}`} className="btn btn-primary btn-sm">
+                    Browse
+                  </Link>
+                  <Link to={`/packages/${pkg.name}?view=graph`} className="btn btn-outline btn-sm">
+                    Diagram
+                  </Link>
                 </div>
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       )}
     </div>

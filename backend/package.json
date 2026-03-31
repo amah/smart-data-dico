@@ -13,11 +13,11 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
-    "@hamak/filesystem-server-api": "^0.5.1",
-    "@hamak/filesystem-server-impl": "^0.5.1",
-    "@hamak/filesystem-server-spi": "^0.5.1",
-    "@hamak/shared-utils": "^0.5.1",
-    "@hamak/ui-remote-git-fs-backend": "file:../../app-framework/packages/ui-remote-git-fs/backend/ui-remote-git-fs-backend",
+    "@hamak/filesystem-server-api": "^0.5.2",
+    "@hamak/filesystem-server-impl": "^0.5.2",
+    "@hamak/filesystem-server-spi": "^0.5.2",
+    "@hamak/shared-utils": "^0.5.2",
+    "@hamak/ui-remote-git-fs-backend": "^0.5.2",
     "@types/jsonwebtoken": "^9.0.9",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",

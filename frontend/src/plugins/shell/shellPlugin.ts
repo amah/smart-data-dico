@@ -5,7 +5,7 @@
  * Maps theme config to DaisyUI's data-theme attribute.
  */
 
-import { createShellPlugin } from '@hamak/ui-shell-impl';
+import { createShellPlugin } from '@hamak/ui-shell';
 import type { PluginModule } from '@hamak/microkernel-spi';
 
 export function createAppShellPlugin(): PluginModule {

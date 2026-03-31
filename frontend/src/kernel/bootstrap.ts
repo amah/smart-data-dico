@@ -6,7 +6,7 @@
  */
 
 import { Host } from '@hamak/microkernel-impl';
-import { STORE_MANAGER_TOKEN, REDUCER_REGISTRY_TOKEN } from '@hamak/ui-store-api';
+import { STORE_MANAGER_TOKEN, REDUCER_REGISTRY_TOKEN } from '@hamak/ui-store/api';
 import { createAppStorePlugin } from '../plugins/store';
 import { createAppShellPlugin } from '../plugins/shell/shellPlugin';
 import { createAuthPlugin } from '../plugins/auth/authPlugin';
@@ -18,7 +18,7 @@ import { createAppRemoteFsPlugin } from '../plugins/remote-fs/remoteFsPlugin';
 import { createAppRemoteGitPlugin } from '../plugins/remote-fs/remoteGitPlugin';
 import { createNotificationPlugin } from '../plugins/notification/notificationPlugin';
 import { createPerspectivePlugin } from '../plugins/perspective/perspectivePlugin';
-import type { IStoreManager } from '@hamak/ui-store-api';
+import type { IStoreManager } from '@hamak/ui-store/api';
 
 // Domain Redux slices
 import authReducer from '../store/slices/authSlice';
