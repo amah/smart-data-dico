@@ -107,16 +107,7 @@ mountFrameworkRoutes().catch((err) => {
 });
 
 
-// Error handling middleware
-app.use((err: any, req: Request, res: Response, next: any) => {
-  logger.error(`Unhandled error: ${err.message}`);
-  res.status(500).json({
-    message: 'Internal server error',
-    error: config.isProduction ? undefined : err.message
-  });
-});
-
-// Serve frontend static files in production
+// Serve frontend static files in production (BEFORE error handler)
 if (config.isProduction) {
   // Check multiple possible frontend dist locations
   const candidates = [
@@ -142,6 +133,15 @@ if (config.isProduction) {
     logger.warn('Frontend dist not found. API-only mode.');
   }
 }
+
+// Error handling middleware (after static files)
+app.use((err: any, req: Request, res: Response, _next: any) => {
+  logger.error(`Unhandled error: ${err.message}`);
+  res.status(500).json({
+    message: 'Internal server error',
+    error: config.isProduction ? undefined : err.message
+  });
+});
 
 // Start server only when run directly (not when imported by tests)
 const isMainModule = process.argv[1] && (

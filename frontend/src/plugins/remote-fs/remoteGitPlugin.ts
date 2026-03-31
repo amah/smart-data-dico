@@ -1,12 +1,12 @@
 /**
  * Remote Git Plugin
  *
- * Registers @hamak/ui-remote-git-fs-impl, pointing to backend /api/git endpoint.
+ * Registers @hamak/ui-remote-git-fs, pointing to backend /api/git endpoint.
  * Provides git operations (status, commit, log, diff) through the store middleware.
  */
 
 import type { PluginModule } from '@hamak/microkernel-spi';
-import { createGitPlugin } from '@hamak/ui-remote-git-fs-impl';
+import { createGitPlugin } from '@hamak/ui-remote-git-fs';
 import { Pathway } from '@hamak/shared-utils';
 
 export function createAppRemoteGitPlugin(): PluginModule {

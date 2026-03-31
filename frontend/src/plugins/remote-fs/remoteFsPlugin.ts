@@ -1,12 +1,12 @@
 /**
  * Remote FS Plugin
  *
- * Registers @hamak/ui-remote-fs-impl, pointing to backend /fs endpoint.
+ * Registers @hamak/ui-remote-fs, pointing to backend /fs endpoint.
  * Provides remote filesystem operations through the store middleware.
  */
 
 import type { PluginModule } from '@hamak/microkernel-spi';
-import { createRemoteFsPlugin } from '@hamak/ui-remote-fs-impl';
+import { createRemoteFsPlugin } from '@hamak/ui-remote-fs';
 import { Pathway } from '@hamak/shared-utils';
 
 export function createAppRemoteFsPlugin(): PluginModule {
