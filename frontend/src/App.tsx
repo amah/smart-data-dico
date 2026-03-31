@@ -3,8 +3,6 @@ import ShellLayout from './plugins/shell/ShellLayout';
 import HomePage from './pages/HomePage';
 import NotFoundPage from './pages/NotFoundPage';
 import CreateDictionaryPage from './pages/CreateDictionaryPage';
-import EntityDiagramPage from './pages/EntityDiagramPage';
-import OrganizationDiagramPage from './pages/OrganizationDiagramPage';
 import StereotypesPage from './pages/StereotypesPage';
 import SavePublishPage from './pages/SavePublishPage';
 import WorkspacesPage from './pages/WorkspacesPage';
@@ -17,20 +15,12 @@ import PerspectiveCreatePage from './pages/PerspectiveCreatePage';
 
 // Service and Entity Components
 import ServiceList from './components/ServiceList';
-import EntityList from './components/EntityList';
-import EntityDetail from './components/EntityDetail';
-import AttributeEditor from './components/AttributeEditor';
-import RelationshipEditor from './components/RelationshipEditor';
-
-// Visualization Component
-import CytoscapeGraph from './components/CytoscapeGraph';
+import EntityFlatTable from './components/EntityFlatTable';
+import PackageFlatTable from './components/PackageFlatTable';
+import AttributeFlatTable from './components/AttributeFlatTable';
 
 // Search Component
 import SearchComponent from './components/SearchComponent';
-import EntityFlatTable from './components/EntityFlatTable';
-import EntityHierarchyView from './components/EntityHierarchyView';
-import PackageFlatTable from './components/PackageFlatTable';
-import AttributeFlatTable from './components/AttributeFlatTable';
 
 // Version Control Components
 import CommitChanges from './components/CommitChanges';
@@ -72,72 +62,6 @@ function App() {
           <Route path="*" element={<PackageRouter />} />
         </Route>
 
-        {/* Services (legacy — redirects to /packages/) */}
-        <Route path="services">
-          <Route index element={<ServiceList />} />
-          <Route path=":service">
-            <Route index element={<EntityList />} />
-            <Route path="entities">
-              <Route index element={<EntityList />} />
-              <Route path=":entity">
-                <Route index element={<EntityDetail />} />
-                <Route path="edit" element={
-                  <AuthGuard roles={['admin', 'editor']}>
-                    <EntityDetail />
-                  </AuthGuard>
-                } />
-                <Route path="hierarchy" element={<EntityHierarchyView />} />
-                <Route path="attributes">
-                  <Route path="create" element={
-                    <AuthGuard roles={['admin', 'editor']}>
-                      <AttributeEditor />
-                    </AuthGuard>
-                  } />
-                  <Route path=":attribute/edit" element={
-                    <AuthGuard roles={['admin', 'editor']}>
-                      <AttributeEditor isEdit={true} />
-                    </AuthGuard>
-                  } />
-                </Route>
-                <Route path="relationships">
-                  <Route path="create" element={
-                    <AuthGuard roles={['admin', 'editor']}>
-                      <RelationshipEditor />
-                    </AuthGuard>
-                  } />
-                  <Route path=":relationship/edit" element={
-                    <AuthGuard roles={['admin', 'editor']}>
-                      <RelationshipEditor isEdit={true} />
-                    </AuthGuard>
-                  } />
-                </Route>
-              </Route>
-              <Route path="create" element={<EntityDetail />} />
-            </Route>
-          </Route>
-          <Route path="create" element={
-            <AuthGuard roles={['admin']}>
-              <ServiceList />
-            </AuthGuard>
-          } />
-        </Route>
-        
-        {/* Visualization */}
-        <Route path="visualization">
-          <Route index element={<CytoscapeGraph />} />
-          <Route path=":service" element={<CytoscapeGraph />} />
-          <Route path=":service/:entity" element={<CytoscapeGraph />} />
-        </Route>
-
-        {/* Entity Diagram Editor */}
-        <Route path="diagram">
-          <Route index element={<EntityDiagramPage />} />
-          <Route path=":service" element={<EntityDiagramPage />} />
-          <Route path=":service/:entity" element={<CytoscapeGraph />} />
-        </Route>
-        
-        {/* Organization Class Diagram */}
-        <Route path="organization-diagram" element={<OrganizationDiagramPage />} />
         
         {/* Perspectives */}
         <Route path="perspectives">

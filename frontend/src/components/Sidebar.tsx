@@ -1,8 +1,5 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { servicesApi, diagramApi } from '../services/api';
-import { DiagramLayout } from '../types';
-
 import { entityApi } from '../services/api';
 import { Package } from '../types';
 
@@ -11,65 +8,22 @@ interface SidebarProps {
 }
 
 const Sidebar = ({ collapsed = false }: SidebarProps) => {
-  const [services, setServices] = useState<string[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
   const [expandedPackages, setExpandedPackages] = useState<Record<string, boolean>>({});
-  const [diagrams, setDiagrams] = useState<DiagramLayout[]>([]);
-  const [loading, setLoading] = useState(true);
   const [packagesLoading, setPackagesLoading] = useState(true);
-  const [diagramsLoading, setDiagramsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [packagesError, setPackagesError] = useState<string | null>(null);
-  const [diagramsError, setDiagramsError] = useState<string | null>(null);
   const location = useLocation();
 
   // Accordion state: which sections are expanded
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
-    services: true,
+    packages: true,
     views: false,
-    diagrams: false,
     versionControl: false,
   });
 
   const toggleSection = (section: string) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
-
-  useEffect(() => {
-    const fetchServices = async () => {
-      try {
-        setLoading(true);
-        const response = await servicesApi.getAllServices();
-        setServices(response.data);
-        setError(null);
-      } catch (err) {
-        console.error('Error fetching services:', err);
-        setError('Failed to load services');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchServices();
-  }, []);
-
-  const fetchDiagrams = async () => {
-    try {
-      setDiagramsLoading(true);
-      const response = await diagramApi.listDiagramLayouts();
-      setDiagrams(response.data || response);
-      setDiagramsError(null);
-    } catch (err) {
-      console.error('Error fetching diagrams:', err);
-      setDiagramsError('Failed to load diagrams');
-    } finally {
-      setDiagramsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchDiagrams();
-  }, []);
 
   // Fetch packages for navigation
   useEffect(() => {
@@ -87,21 +41,6 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
       }
     };
     fetchPackages();
-  }, []);
-
-  // Listen for diagram updates
-  useEffect(() => {
-    const handleDiagramUpdate = () => {
-      fetchDiagrams();
-    };
-
-    window.addEventListener('diagramSaved', handleDiagramUpdate);
-    window.addEventListener('diagramDeleted', handleDiagramUpdate);
-
-    return () => {
-      window.removeEventListener('diagramSaved', handleDiagramUpdate);
-      window.removeEventListener('diagramDeleted', handleDiagramUpdate);
-    };
   }, []);
 
   const isActive = (path: string) => {
@@ -233,41 +172,23 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
             </Link>
           </li>
 
-          {/* Unified Services section (merged Packages + Microservices) */}
+          {/* Packages section */}
           <li className="mt-2">
-            <SectionHeader id="services" title="Services" />
-            {expandedSections.services && (
+            <SectionHeader id="packages" title="Packages" />
+            {expandedSections.packages && (
               <>
-                {packagesLoading && loading ? (
+                {packagesLoading ? (
                   <div className="flex justify-center p-2">
                     <span className="loading loading-spinner loading-sm"></span>
                   </div>
-                ) : packagesError && error ? (
+                ) : packagesError ? (
                   <div className="text-error p-2 text-xs">{packagesError}</div>
+                ) : packages.length > 0 ? (
+                  <div className="ml-1">
+                    {renderPackageTree(packages)}
+                  </div>
                 ) : (
-                  <>
-                    {/* Package tree (primary navigation) */}
-                    {packages.length > 0 && (
-                      <div className="ml-1">
-                        {renderPackageTree(packages)}
-                      </div>
-                    )}
-                    {/* Services list (only show services not already in packages) */}
-                    {packages.length === 0 && (
-                      <ul>
-                        {services.map((service) => (
-                          <li key={service}>
-                            <Link
-                              to={`/services/${service}`}
-                              className={isActive(`/services/${service}`) ? 'active' : ''}
-                            >
-                              {service}
-                            </Link>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </>
+                  <div className="text-base-content/50 px-3 py-1 text-xs">No packages</div>
                 )}
               </>
             )}
@@ -347,49 +268,6 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
                     Quality Dashboard
                   </Link>
                 </li>
-              </ul>
-            )}
-          </li>
-
-          {/* Diagrams section (merged Saved Diagrams + Diagrams) */}
-          <li className="mt-1">
-            <SectionHeader id="diagrams" title="Diagrams" />
-            {expandedSections.diagrams && (
-              <ul>
-                <li>
-                  <Link
-                    to="/organization-diagram"
-                    className={isActive('/organization-diagram') ? 'active' : ''}
-                  >
-                    Organization Diagram
-                  </Link>
-                </li>
-                {diagramsLoading ? (
-                  <li>
-                    <div className="flex justify-center p-2">
-                      <span className="loading loading-spinner loading-sm"></span>
-                    </div>
-                  </li>
-                ) : diagramsError ? (
-                  <li className="text-error p-2 text-xs">{diagramsError}</li>
-                ) : diagrams.length === 0 ? (
-                  <li className="text-base-content/50 px-3 py-1 text-xs">No saved layouts</li>
-                ) : (
-                  diagrams.map((diagram) => (
-                    <li key={diagram.id}>
-                      <Link
-                        to={`/diagram/${diagram.service || 'all'}?layout=${diagram.id}`}
-                        className={location.pathname.startsWith('/diagram') && location.search.includes(`layout=${diagram.id}`) ? 'active' : ''}
-                        title={`${diagram.name}${diagram.service ? ` (${diagram.service})` : ' (All Services)'}`}
-                      >
-                        <span className="truncate">{diagram.name}</span>
-                        {diagram.service && (
-                          <span className="badge badge-xs badge-outline ml-1">{diagram.service}</span>
-                        )}
-                      </Link>
-                    </li>
-                  ))
-                )}
               </ul>
             )}
           </li>

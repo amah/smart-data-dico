@@ -45,12 +45,10 @@ const Navbar = ({ toggleSidebar }: NavbarProps) => {
       </div>
 
       <div className="navbar-center hidden lg:flex">
-        {/* Desktop navigation */}
         <ul className="menu menu-horizontal menu-sm px-1 gap-0">
-          <li><Link to="/services">Services</Link></li>
-          <li><Link to="/visualization">Visualization</Link></li>
-          <li><Link to="/diagram">Diagram Editor</Link></li>
-          <li><Link to="/version/history">History</Link></li>
+          <li><Link to="/packages">Packages</Link></li>
+          <li><Link to="/perspectives">Perspectives</Link></li>
+          <li><Link to="/quality">Quality</Link></li>
         </ul>
       </div>
 

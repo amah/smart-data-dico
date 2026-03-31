@@ -1,115 +1,87 @@
-import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
-import { servicesApi, entityApi } from '../services/api'
+import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import { entityApi } from '../services/api';
+import type { Package } from '../types';
 
 const HomePage = () => {
-  const [stats, setStats] = useState({ services: 0, entities: 0, packages: 0 });
-  const [services, setServices] = useState<string[]>([]);
+  const [packages, setPackages] = useState<Package[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const [servicesRes, packagesRes] = await Promise.all([
-          servicesApi.getAllServices(),
-          entityApi.getAllPackages(),
-        ]);
-        const serviceList = servicesRes.data || [];
-        const packageList = packagesRes || [];
-        const entityCount = packageList.reduce(
-          (sum: number, pkg: { entities?: unknown[] }) => sum + (pkg.entities?.length || 0),
-          0
-        );
-        setServices(serviceList);
-        setStats({
-          services: serviceList.length,
-          packages: packageList.length,
-          entities: entityCount,
-        });
-      } catch (err) {
-        console.error('Error fetching stats:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchStats();
+    entityApi.getAllPackages()
+      .then(setPackages)
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
+
+  const totalEntities = packages.reduce((sum, pkg) => sum + (pkg.entities?.length || 0), 0);
+  const totalRelationships = packages.reduce((sum, pkg) => sum + (pkg.relationships?.length || 0), 0);
 
   return (
     <div className="space-y-6">
-      {/* Compact hero */}
-      <div className="bg-base-100 rounded-lg p-6 shadow">
-        <h1 className="text-3xl font-bold">Data Dictionary</h1>
-        <p className="text-base-content/70 mt-1">
-          Manage data dictionaries across your organization.
-        </p>
-        <div className="flex gap-3 mt-4">
-          <Link to="/services" className="btn btn-primary btn-sm">
-            Browse Services
-          </Link>
-          <Link to="/visualization" className="btn btn-outline btn-sm">
-            View Diagram
-          </Link>
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">Data Dictionary</h1>
+          <p className="text-base-content/70 mt-1">
+            {packages.length} packages, {totalEntities} entities, {totalRelationships} relationships
+          </p>
         </div>
+        <Link to="/packages" className="btn btn-primary btn-sm">
+          Create Package
+        </Link>
       </div>
 
-      {/* Stats cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="stat bg-base-100 rounded-lg shadow">
-          <div className="stat-title">Services</div>
-          <div className="stat-value text-primary">
-            {loading ? <span className="loading loading-spinner loading-sm"></span> : stats.services}
-          </div>
-          <div className="stat-desc">Microservices tracked</div>
+      {loading ? (
+        <div className="flex justify-center py-12">
+          <span className="loading loading-spinner loading-lg" />
         </div>
-        <div className="stat bg-base-100 rounded-lg shadow">
-          <div className="stat-title">Entities</div>
-          <div className="stat-value text-secondary">
-            {loading ? <span className="loading loading-spinner loading-sm"></span> : stats.entities}
-          </div>
-          <div className="stat-desc">Across all packages</div>
+      ) : packages.length === 0 ? (
+        <div className="text-center py-16 bg-base-200 rounded-lg">
+          <h2 className="text-xl font-semibold">No packages yet</h2>
+          <p className="text-base-content/60 mt-2">Create your first package to start modeling your data.</p>
+          <Link to="/packages" className="btn btn-primary btn-sm mt-4">Get Started</Link>
         </div>
-        <div className="stat bg-base-100 rounded-lg shadow">
-          <div className="stat-title">Packages</div>
-          <div className="stat-value text-accent">
-            {loading ? <span className="loading loading-spinner loading-sm"></span> : stats.packages}
-          </div>
-          <div className="stat-desc">Logical groupings</div>
-        </div>
-      </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {packages.map((pkg) => {
+            const entityCount = pkg.entities?.length || 0;
+            const relCount = pkg.relationships?.length || 0;
+            const subCount = pkg.subPackages?.length || 0;
 
-      {/* Quick access - services list */}
-      <div className="bg-base-100 rounded-lg shadow p-5">
-        <h2 className="text-lg font-semibold mb-3">Services</h2>
-        {loading ? (
-          <div className="flex justify-center p-4">
-            <span className="loading loading-spinner loading-md"></span>
-          </div>
-        ) : services.length === 0 ? (
-          <p className="text-base-content/60 text-sm">No services found. Create your first service to get started.</p>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {services.map((service) => (
-              <Link
-                key={service}
-                to={`/services/${service}`}
-                className="card bg-base-200 hover:bg-base-300 transition-colors cursor-pointer"
-              >
-                <div className="card-body p-4">
-                  <div className="flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-primary" viewBox="0 0 20 20" fill="currentColor">
-                      <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
-                    </svg>
-                    <span className="font-medium">{service}</span>
+            return (
+              <div key={pkg.id} className="card bg-base-200 shadow-sm hover:shadow-md transition-shadow">
+                <div className="card-body p-5">
+                  <h3 className="card-title text-lg font-mono">{pkg.name}</h3>
+                  {pkg.description && (
+                    <p className="text-sm text-base-content/70 line-clamp-2">{pkg.description}</p>
+                  )}
+                  {pkg.type && <span className="badge badge-outline badge-xs">{pkg.type}</span>}
+
+                  {/* Stats */}
+                  <div className="flex gap-4 text-xs text-base-content/60 mt-2">
+                    <span>{entityCount} entities</span>
+                    <span>{relCount} relationships</span>
+                    {subCount > 0 && <span>{subCount} sub-packages</span>}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="card-actions justify-end mt-3">
+                    <Link to={`/packages/${pkg.name}`} className="btn btn-primary btn-sm">
+                      Browse
+                    </Link>
+                    <Link to={`/packages/${pkg.name}?view=graph`} className="btn btn-outline btn-sm">
+                      Diagram
+                    </Link>
                   </div>
                 </div>
-              </Link>
-            ))}
-          </div>
-        )}
-      </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
-  )
-}
+  );
+};
 
-export default HomePage
+export default HomePage;
