@@ -224,24 +224,11 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
             )}
           </li>
 
-          {/* Views section */}
+          {/* Flat Views */}
           <li className="mt-1">
-            <SectionHeader id="views" title="Views" />
+            <SectionHeader id="views" title="Flat Views" />
             {expandedSections.views && (
               <ul>
-                <li>
-                  <Link
-                    to="/entities/flat"
-                    className={isActive('/entities/flat') ? 'active' : ''}
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                      <rect x="3" y="5" width="14" height="2" rx="1" />
-                      <rect x="3" y="9" width="14" height="2" rx="1" />
-                      <rect x="3" y="13" width="14" height="2" rx="1" />
-                    </svg>
-                    Entity Table
-                  </Link>
-                </li>
                 <li>
                   <Link
                     to="/flat/packages"
@@ -264,82 +251,6 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
                     className={isActive('/flat/attributes') ? 'active' : ''}
                   >
                     Attribute List
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="/stereotypes"
-                    className={isActive('/stereotypes') ? 'active' : ''}
-                  >
-                    Stereotypes
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="/import-export"
-                    className={isActive('/import-export') ? 'active' : ''}
-                  >
-                    Import / Export
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="/quality"
-                    className={isActive('/quality') ? 'active' : ''}
-                  >
-                    Quality Dashboard
-                  </Link>
-                </li>
-              </ul>
-            )}
-          </li>
-
-          {/* Version Control */}
-          <li className="mt-1">
-            <SectionHeader id="versionControl" title="Version Control" />
-            {expandedSections.versionControl && (
-              <ul>
-                <li>
-                  <Link
-                    to="/version/save"
-                    className={isActive('/version/save') ? 'active' : ''}
-                  >
-                    Save & Publish
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="/version/workspaces"
-                    className={isActive('/version/workspaces') ? 'active' : ''}
-                  >
-                    Workspaces
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="/version/merge"
-                    className={isActive('/version/merge') ? 'active' : ''}
-                  >
-                    Merge
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="/version/history"
-                    className={isActive('/version/history') ? 'active' : ''}
-                  >
-                    History
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="/version/commit"
-                    className={isActive('/version/commit') ? 'active' : ''}
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
-                    Commit Changes
                   </Link>
                 </li>
               </ul>

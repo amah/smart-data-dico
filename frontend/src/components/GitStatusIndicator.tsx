@@ -107,11 +107,17 @@ export default function GitStatusIndicator() {
           </div>
 
           <div className="divider my-1" />
-          <div className="flex gap-1">
-            <Link to="/version/workspaces" className="btn btn-xs btn-ghost flex-1" onClick={() => setOpen(false)}>
+          <div className="flex flex-col gap-1">
+            <Link to="/version/save" className="btn btn-xs btn-ghost justify-start" onClick={() => setOpen(false)}>
+              Save & Publish
+            </Link>
+            <Link to="/version/workspaces" className="btn btn-xs btn-ghost justify-start" onClick={() => setOpen(false)}>
               Workspaces
             </Link>
-            <Link to="/version/history" className="btn btn-xs btn-ghost flex-1" onClick={() => setOpen(false)}>
+            <Link to="/version/merge" className="btn btn-xs btn-ghost justify-start" onClick={() => setOpen(false)}>
+              Merge
+            </Link>
+            <Link to="/version/history" className="btn btn-xs btn-ghost justify-start" onClick={() => setOpen(false)}>
               History
             </Link>
           </div>
