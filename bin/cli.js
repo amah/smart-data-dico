@@ -25,7 +25,7 @@ if (flags.help) {
 
   Usage:
     smart-data-dico [options]
-    npx smart-data-dico [options]
+    npx @hamak/smart-data-dico [options]
 
   Options:
     --port <number>     Server port (default: 3001)
@@ -59,13 +59,32 @@ if (!existsSync(dataDir)) {
   mkdirSync(join(dataDir, 'perspectives'), { recursive: true });
 }
 
-const serverTs = join(PKG_ROOT, 'backend', 'src', 'server.ts');
-const frontendDist = join(PKG_ROOT, 'frontend', 'dist');
+// Determine how to run the server:
+// 1. Bundled (production/npm): single .mjs file, run with node — no deps needed
+// 2. Source (dev): TypeScript source, run with tsx
+const bundledServer = join(PKG_ROOT, 'backend', 'dist', 'server.mjs');
+const sourceServer = join(PKG_ROOT, 'backend', 'src', 'server.ts');
 
-if (!existsSync(serverTs)) {
-  console.error('Error: Backend source not found.');
+let bin, binArgs;
+
+if (existsSync(bundledServer)) {
+  // Production: bundled server — all deps inlined, just node
+  bin = process.execPath; // 'node'
+  binArgs = [bundledServer];
+} else if (existsSync(sourceServer)) {
+  // Development: run TypeScript source via tsx
+  const tsxPaths = [
+    join(PKG_ROOT, 'node_modules', '.bin', 'tsx'),
+    join(PKG_ROOT, 'backend', 'node_modules', '.bin', 'tsx'),
+  ];
+  bin = tsxPaths.find(p => existsSync(p)) || 'npx';
+  binArgs = bin.endsWith('npx') ? ['tsx', sourceServer] : [sourceServer];
+} else {
+  console.error('Error: No server found (neither bundled nor source).');
   process.exit(1);
 }
+
+const frontendDist = join(PKG_ROOT, 'frontend', 'dist');
 
 console.log(`
   Smart Data Dictionary
@@ -76,26 +95,8 @@ console.log(`
   Frontend:   ${existsSync(frontendDist) ? 'bundled' : 'dev (use frontend dev server on :3000)'}
 `);
 
-// Find tsx binary — check local node_modules first, then global
-const tsxPaths = [
-  join(PKG_ROOT, 'node_modules', '.bin', 'tsx'),
-  join(PKG_ROOT, 'backend', 'node_modules', '.bin', 'tsx'),
-];
-let tsxBin = tsxPaths.find(p => existsSync(p)) || 'npx';
-const tsxArgs = tsxBin === 'npx' ? ['tsx', serverTs] : [serverTs];
-
-// Find the nearest ancestor directory containing node_modules
-// (handles npm install, npx, and monorepo layouts)
-let cwd = join(PKG_ROOT, 'backend');
-for (let dir = PKG_ROOT; dir !== dirname(dir); dir = dirname(dir)) {
-  if (existsSync(join(dir, 'node_modules', 'express'))) {
-    cwd = dir;
-    break;
-  }
-}
-
-const child = spawn(tsxBin, tsxArgs, {
-  cwd,
+const child = spawn(bin, binArgs, {
+  cwd: PKG_ROOT,
   env: {
     ...process.env,
     PORT: port,
