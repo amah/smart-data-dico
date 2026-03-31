@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-import { CommitInfo, Entity, Relationship, Stereotype, StereotypeTarget, Perspective, ResolvedPerspective, PerspectiveNode, GraphData, ImpactAnalysis, ReviewComment } from '../types';
+import { CommitInfo, Entity, Relationship, Stereotype, StereotypeTarget, Perspective, ResolvedPerspective, PerspectiveNode, GraphData, ImpactAnalysis, ReviewComment, LineageResult } from '../types';
 import { Package } from '../types';
 
 /**
@@ -78,6 +78,12 @@ export const servicesApi = {
     if (filters?.hasMetadata) params.append('hasMetadata', filters.hasMetadata);
     const response = await api.get(`/search?${params.toString()}`);
     return response.data;
+  },
+
+  // Lineage
+  getLineage: async (uuid: string): Promise<LineageResult> => {
+    const response = await api.get(`/entities/${uuid}/lineage`);
+    return response.data.data;
   },
 
   // Impact analysis

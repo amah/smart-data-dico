@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { getCurrentUser, login } from '../controllers/authController.js';
 import { diagramController } from '../controllers/diagramController.js';
 import { createDictionary, getDictionaries, getDictionaryById, getDictionaryEntries, getEntityAttributes, getPackageByPath, getPackageHierarchy, getRelatedEntities, getTabularData, saveEntity, listAllPackagesAndEntities, getFlatEntitiesAndAttributes, getEntityHierarchy, createRootPackage, createPackageAtPath, updatePackageAtPath, deletePackageAtPath } from '../controllers/dictionaryController.js';
-import { createEntity, deleteEntity, getAllServices, getEntitySchema, getGraphData, getServiceEntities, searchEntities, updateEntity, getPackageRelationships, createRelationship, updateRelationship, deleteRelationship, getImpactAnalysis, submitEntity, approveEntity, returnEntity, getEntityComments, addEntityComment, resolveEntityComment } from '../controllers/serviceController.js';
+import { createEntity, deleteEntity, getAllServices, getEntitySchema, getGraphData, getServiceEntities, searchEntities, updateEntity, getPackageRelationships, createRelationship, updateRelationship, deleteRelationship, getImpactAnalysis, getLineage, submitEntity, approveEntity, returnEntity, getEntityComments, addEntityComment, resolveEntityComment } from '../controllers/serviceController.js';
 import { getAllStereotypes, getStereotype, createStereotype, updateStereotype, deleteStereotype } from '../controllers/stereotypeController.js';
 import { getAllPerspectives, getPerspective, createPerspective, updatePerspective, deletePerspective, resolvePerspective, getPerspectiveGraph, upsertPerspectiveNode } from '../controllers/perspectiveController.js';
 import { commitChanges, getCommitHistory, revertToCommit } from '../controllers/versionController.js';
@@ -89,8 +89,9 @@ router.put('/api/perspectives/:id/nodes', authorizeJwt([UserRole.ADMIN, UserRole
 // Search API
 router.get('/api/search', searchEntities);
 
-// Impact analysis
+// Impact analysis & lineage
 router.get('/api/entities/:uuid/impact', getImpactAnalysis);
+router.get('/api/entities/:uuid/lineage', getLineage);
 
 // Import/Export
 router.post('/api/import/json-schema', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), importJsonSchema);
