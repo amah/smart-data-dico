@@ -520,10 +520,21 @@ export async function listPerspectives(): Promise<Perspective[]> {
 
 export async function readPerspectiveFile(uuid: string): Promise<Perspective | null> {
   try {
-    const filePath = path.join(PERSPECTIVES_DIR, `${uuid}.yaml`);
-    if (!fs.existsSync(filePath)) return null;
-    const content = fs.readFileSync(filePath, 'utf8');
-    return YAML.parse(content) as Perspective;
+    // First try direct filename match
+    const directPath = path.join(PERSPECTIVES_DIR, `${uuid}.yaml`);
+    if (fs.existsSync(directPath)) {
+      const content = fs.readFileSync(directPath, 'utf8');
+      return YAML.parse(content) as Perspective;
+    }
+    // Fall back to scanning all files for matching uuid field
+    if (!fs.existsSync(PERSPECTIVES_DIR)) return null;
+    const files = fs.readdirSync(PERSPECTIVES_DIR).filter(f => f.endsWith('.yaml'));
+    for (const f of files) {
+      const content = fs.readFileSync(path.join(PERSPECTIVES_DIR, f), 'utf8');
+      const perspective = YAML.parse(content) as Perspective;
+      if (perspective?.uuid === uuid) return perspective;
+    }
+    return null;
   } catch (error) {
     logger.error(`Error reading perspective ${uuid}: ${error}`);
     return null;
@@ -546,10 +557,23 @@ export async function writePerspectiveFile(perspective: Perspective): Promise<bo
 
 export async function deletePerspectiveFile(uuid: string): Promise<boolean> {
   try {
-    const filePath = path.join(PERSPECTIVES_DIR, `${uuid}.yaml`);
-    if (!fs.existsSync(filePath)) return false;
-    fs.unlinkSync(filePath);
-    return true;
+    // Try direct filename match first, then scan by uuid field
+    const directPath = path.join(PERSPECTIVES_DIR, `${uuid}.yaml`);
+    if (fs.existsSync(directPath)) {
+      fs.unlinkSync(directPath);
+      return true;
+    }
+    if (!fs.existsSync(PERSPECTIVES_DIR)) return false;
+    const files = fs.readdirSync(PERSPECTIVES_DIR).filter(f => f.endsWith('.yaml'));
+    for (const f of files) {
+      const content = fs.readFileSync(path.join(PERSPECTIVES_DIR, f), 'utf8');
+      const perspective = YAML.parse(content) as Perspective;
+      if (perspective?.uuid === uuid) {
+        fs.unlinkSync(path.join(PERSPECTIVES_DIR, f));
+        return true;
+      }
+    }
+    return false;
   } catch (error) {
     logger.error(`Error deleting perspective ${uuid}: ${error}`);
     return false;
