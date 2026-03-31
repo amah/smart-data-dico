@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { entityApi } from '../services/api';
-import { Package } from '../types';
+import { entityApi, perspectiveApi } from '../services/api';
+import { Package, Perspective } from '../types';
 
 interface SidebarProps {
   collapsed?: boolean;
@@ -9,6 +9,7 @@ interface SidebarProps {
 
 const Sidebar = ({ collapsed = false }: SidebarProps) => {
   const [packages, setPackages] = useState<Package[]>([]);
+  const [perspectives, setPerspectives] = useState<Perspective[]>([]);
   const [expandedPackages, setExpandedPackages] = useState<Record<string, boolean>>({});
   const [packagesLoading, setPackagesLoading] = useState(true);
   const [packagesError, setPackagesError] = useState<string | null>(null);
@@ -17,6 +18,7 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
   // Accordion state: which sections are expanded
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     packages: true,
+    perspectives: false,
     views: false,
     versionControl: false,
   });
@@ -41,6 +43,7 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
       }
     };
     fetchPackages();
+    perspectiveApi.getAll().then(setPerspectives).catch(() => {});
   }, []);
 
   const isActive = (path: string) => {
@@ -194,7 +197,34 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
             )}
           </li>
 
-          {/* Views section (flat views only - not duplicating top navbar links) */}
+          {/* Perspectives section */}
+          <li className="mt-1">
+            <SectionHeader id="perspectives" title="Perspectives" />
+            {expandedSections.perspectives && (
+              <ul>
+                {perspectives.map((p) => (
+                  <li key={p.uuid}>
+                    <Link
+                      to={`/perspectives/${p.uuid}`}
+                      className={isActive(`/perspectives/${p.uuid}`) ? 'active' : ''}
+                    >
+                      {p.name}
+                    </Link>
+                  </li>
+                ))}
+                {perspectives.length === 0 && (
+                  <li className="text-base-content/50 px-3 py-1 text-xs">No perspectives</li>
+                )}
+                <li>
+                  <Link to="/perspectives/create" className="text-primary text-xs">
+                    + Create
+                  </Link>
+                </li>
+              </ul>
+            )}
+          </li>
+
+          {/* Views section */}
           <li className="mt-1">
             <SectionHeader id="views" title="Views" />
             {expandedSections.views && (
@@ -234,14 +264,6 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
                     className={isActive('/flat/attributes') ? 'active' : ''}
                   >
                     Attribute List
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="/perspectives"
-                    className={isActive('/perspectives') ? 'active' : ''}
-                  >
-                    Perspectives
                   </Link>
                 </li>
                 <li>
