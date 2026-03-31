@@ -89,7 +89,7 @@ const child = spawn(tsxBin, tsxArgs, {
   env: {
     ...process.env,
     PORT: port,
-    NODE_ENV: existsSync(frontendDist) ? 'production' : 'development',
+    NODE_ENV: 'production',
     PROFILE: process.env.PROFILE || 'local',
     DATA_DIR: dataDir,
   },
