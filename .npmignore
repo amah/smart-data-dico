@@ -1,0 +1,8 @@
+# npm ignore — overrides .gitignore for publishing
+# We WANT to include frontend/dist/ in the package
+node_modules
+.git
+*.log
+.env
+.DS_Store
+plans/
