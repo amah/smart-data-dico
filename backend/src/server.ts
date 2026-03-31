@@ -1,4 +1,5 @@
 import express, { Request, Response } from 'express';
+import fs from 'fs';
 import path from 'path';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -36,10 +37,12 @@ app.use((req: Request, res: Response, next) => {
 
 app.use(express.json());
 
-// Basic route
-app.get('/', (req: Request, res: Response) => {
-  res.json({ message: 'Welcome to the Data Dictionary Management System API' });
-});
+// API welcome route (only in dev — production serves frontend at /)
+if (!config.isProduction) {
+  app.get('/', (req: Request, res: Response) => {
+    res.json({ message: 'Welcome to the Data Dictionary Management System API' });
+  });
+}
 
 // Health check endpoint
 app.get('/health', (req: Request, res: Response) => {
@@ -115,14 +118,29 @@ app.use((err: any, req: Request, res: Response, next: any) => {
 
 // Serve frontend static files in production
 if (config.isProduction) {
-  const publicDir = path.join(process.cwd(), 'public');
-  app.use(express.static(publicDir));
-  app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api') && !req.path.startsWith('/fs') && !req.path.startsWith('/api-docs')) {
-      res.sendFile(path.join(publicDir, 'index.html'));
-    }
+  // Check multiple possible frontend dist locations
+  const candidates = [
+    path.join(process.cwd(), 'public'),                    // Docker (copied to public/)
+    path.join(process.cwd(), '..', 'frontend', 'dist'),    // npm package / monorepo
+    path.join(process.cwd(), 'frontend', 'dist'),           // alt layout
+  ];
+  const publicDir = candidates.find(d => {
+    try { return fs.statSync(d).isDirectory(); } catch { return false; }
   });
-  logger.info(`Serving frontend from ${publicDir}`);
+
+  if (publicDir) {
+    app.use(express.static(publicDir));
+    // SPA fallback — only for navigation requests, not assets/API
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api') || req.path.startsWith('/fs') || req.path.startsWith('/api-docs') || req.path.includes('.')) {
+        return next();
+      }
+      res.sendFile(path.join(publicDir, 'index.html'));
+    });
+    logger.info(`Serving frontend from ${publicDir}`);
+  } else {
+    logger.warn('Frontend dist not found. API-only mode.');
+  }
 }
 
 // Start server only when run directly (not when imported by tests)
