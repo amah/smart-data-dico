@@ -1,16 +1,25 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Attribute, AttributeType } from '../types';
+import { useStereotypeMetadata, getActiveColumns, getMetadataValue, setMetadataValue } from '../hooks/useStereotypeMetadata';
+import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
+import InlineMetadataCell from './InlineMetadataCell';
+import { servicesApi } from '../services/api';
 
 interface AttributeListProps {
   attributes: Attribute[];
   entityName: string;
   serviceName: string;
+  onAttributeUpdated?: () => void;
 }
 
-const AttributeList = ({ attributes, entityName, serviceName }: AttributeListProps) => {
+const AttributeList = ({ attributes, entityName, serviceName, onAttributeUpdated }: AttributeListProps) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<AttributeType | 'all'>('all');
+  const { allColumns, loading: stereotypesLoading } = useStereotypeMetadata('attribute');
+
+  // Detect which metadata columns are relevant for this set of attributes
+  const metadataColumns = getActiveColumns(attributes, allColumns);
 
   const filteredAttributes = attributes.filter(attr => {
     const matchesSearch = searchTerm === '' ||
@@ -21,6 +30,31 @@ const AttributeList = ({ attributes, entityName, serviceName }: AttributeListPro
 
     return matchesSearch && matchesType;
   });
+
+  const handleMetadataChange = useCallback(async (
+    attr: Attribute,
+    column: MetadataColumn,
+    value: string | number | boolean,
+  ) => {
+    try {
+      // Fetch fresh entity, update the attribute's metadata, save
+      const response = await servicesApi.getEntitySchema(serviceName, entityName);
+      const entity = response.data;
+      const attrIndex = entity.attributes.findIndex((a: Attribute) => a.uuid === attr.uuid);
+      if (attrIndex < 0) return;
+
+      entity.attributes[attrIndex].metadata = setMetadataValue(
+        entity.attributes[attrIndex].metadata,
+        column.name,
+        value,
+      );
+
+      await servicesApi.updateEntity(serviceName, entityName, entity);
+      onAttributeUpdated?.();
+    } catch (err) {
+      console.error('Failed to update metadata:', err);
+    }
+  }, [serviceName, entityName, onAttributeUpdated]);
 
   const getTypeColor = (type: AttributeType) => {
     switch (type) {
@@ -102,6 +136,14 @@ const AttributeList = ({ attributes, entityName, serviceName }: AttributeListPro
                 <th>Description</th>
                 <th>Required</th>
                 <th>Constraints</th>
+                {metadataColumns.map(col => (
+                  <th key={col.name} title={col.description}>
+                    <span className="flex items-center gap-1">
+                      {col.label}
+                      <span className="badge badge-xs badge-ghost font-normal">{col.stereotypeName}</span>
+                    </span>
+                  </th>
+                ))}
                 <th>Actions</th>
               </tr>
             </thead>
@@ -141,6 +183,15 @@ const AttributeList = ({ attributes, entityName, serviceName }: AttributeListPro
                     )}
                     {!attr.constraints && '-'}
                   </td>
+                  {metadataColumns.map(col => (
+                    <td key={col.name}>
+                      <InlineMetadataCell
+                        value={getMetadataValue(attr, col.name)}
+                        column={col}
+                        onChange={(val) => handleMetadataChange(attr, col, val)}
+                      />
+                    </td>
+                  ))}
                   <td>
                     <Link
                       to={`/packages/${serviceName}/entities/${entityName}/attributes/${attr.name}/edit`}
