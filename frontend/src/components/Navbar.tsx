@@ -44,14 +44,6 @@ const Navbar = ({ toggleSidebar }: NavbarProps) => {
         </Link>
       </div>
 
-      <div className="navbar-center hidden lg:flex">
-        <ul className="menu menu-horizontal menu-sm px-1 gap-0">
-          <li><Link to="/packages">Packages</Link></li>
-          <li><Link to="/perspectives">Perspectives</Link></li>
-          <li><Link to="/quality">Quality</Link></li>
-        </ul>
-      </div>
-
       <div className="navbar-end gap-1">
         {/* Git Status + Version Control */}
         <GitStatusIndicator />
