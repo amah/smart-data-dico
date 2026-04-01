@@ -35,6 +35,7 @@ import Settings from './pages/Settings';
 
 // Package Navigation
 import PackageRouter from './components/PackageRouter';
+import OrganizationDiagramPage from './pages/OrganizationDiagramPage';
 
 // Auth Guard Component
 import AuthGuard from './components/AuthGuard';
@@ -74,6 +75,9 @@ function App() {
             <AuthGuard roles={['admin', 'editor']}><PerspectiveCreatePage /></AuthGuard>
           } />
         </Route>
+
+        {/* Organization Diagram */}
+        <Route path="diagram" element={<OrganizationDiagramPage />} />
 
         {/* Import/Export + Quality */}
         <Route path="import-export" element={<ImportExportPage />} />

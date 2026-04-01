@@ -80,7 +80,7 @@ export default function CytoscapeGraph({
   // Navigation callback for node clicks
   const handleNodeClick = useCallback(
     (svc: string, entityName: string) => {
-      navigate(`/services/${svc}/entities/${entityName}`);
+      navigate(`/packages/${svc}/entities/${entityName}`);
     },
     [navigate],
   );
