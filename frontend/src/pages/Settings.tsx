@@ -3,6 +3,7 @@ import { useForm } from 'react-hook-form';
 import { authApi } from '../services/api';
 import { User } from '../types';
 import { useKeyboardShortcutsEnabled } from '../hooks/useKeyboardShortcuts';
+import axios from 'axios';
 
 interface SettingsFormData {
   theme: string;
@@ -12,9 +13,67 @@ interface SettingsFormData {
   defaultView: string;
 }
 
+const PROVIDER_PRESETS: Record<string, { name: string; baseURL?: string; defaultModel: string }> = {
+  'anthropic': { name: 'Anthropic', defaultModel: 'claude-sonnet-4-5-20250514' },
+  'openai': { name: 'OpenAI', defaultModel: 'gpt-4o' },
+  'openai-compatible': { name: 'OpenAI-Compatible', baseURL: '', defaultModel: 'gpt-4o' },
+};
+
+const KNOWN_ENDPOINTS = [
+  { label: 'Mammouth AI', baseURL: 'https://api.mammouth.ai/v1', provider: 'openai-compatible' },
+  { label: 'OpenRouter', baseURL: 'https://openrouter.ai/api/v1', provider: 'openai-compatible' },
+  { label: 'Custom', baseURL: '', provider: 'openai-compatible' },
+];
+
 const Settings = () => {
   const { enabled: shortcutsEnabled, toggle: toggleShortcuts } = useKeyboardShortcutsEnabled();
   const [user, setUser] = useState<User | null>(null);
+
+  // AI Config state
+  const [aiProvider, setAiProvider] = useState('anthropic');
+  const [aiModel, setAiModel] = useState('');
+  const [aiApiKey, setAiApiKey] = useState('');
+  const [aiBaseURL, setAiBaseURL] = useState('');
+  const [aiName, setAiName] = useState('');
+  const [aiSaving, setAiSaving] = useState(false);
+  const [aiMessage, setAiMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [aiConfigPath, setAiConfigPath] = useState('');
+
+  // Load AI config
+  useEffect(() => {
+    axios.get('/api/ai/config').then(({ data }) => {
+      setAiProvider(data.provider || 'anthropic');
+      setAiModel(data.model || '');
+      setAiApiKey(''); // Don't pre-fill masked key
+      setAiBaseURL(data.baseURL || '');
+      setAiName(data.name || '');
+      setAiConfigPath(data.configPath || '');
+    }).catch(() => {});
+  }, []);
+
+  const handleAiSave = async () => {
+    if (!aiApiKey && !aiApiKey.trim()) {
+      setAiMessage({ type: 'error', text: 'API key is required' });
+      return;
+    }
+    setAiSaving(true);
+    setAiMessage(null);
+    try {
+      await axios.post('/api/ai/config', {
+        provider: aiProvider,
+        model: aiModel || PROVIDER_PRESETS[aiProvider]?.defaultModel,
+        apiKey: aiApiKey,
+        baseURL: aiProvider === 'openai-compatible' ? aiBaseURL : undefined,
+        name: aiName || undefined,
+      });
+      setAiMessage({ type: 'success', text: 'AI configuration saved' });
+      setAiApiKey(''); // Clear after save
+    } catch (err: any) {
+      setAiMessage({ type: 'error', text: err.response?.data?.message || 'Failed to save' });
+    } finally {
+      setAiSaving(false);
+    }
+  };
   const [loading, setLoading] = useState(true);
   const [updateLoading, setUpdateLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -213,6 +272,100 @@ const Settings = () => {
                 </label>
               </div>
               
+              {/* AI Assistant */}
+              <div className="md:col-span-2">
+                <h2 className="text-xl font-bold mb-4 mt-4">AI Assistant</h2>
+                {aiConfigPath && (
+                  <p className="text-xs opacity-50 mb-3">Config file: <code>{aiConfigPath}</code></p>
+                )}
+              </div>
+
+              <div className="form-control">
+                <label className="label"><span className="label-text">Provider</span></label>
+                <select
+                  className="select select-bordered w-full"
+                  value={aiProvider}
+                  onChange={(e) => {
+                    setAiProvider(e.target.value);
+                    setAiModel(PROVIDER_PRESETS[e.target.value]?.defaultModel || '');
+                    if (e.target.value !== 'openai-compatible') setAiBaseURL('');
+                  }}
+                >
+                  <option value="anthropic">Anthropic (Claude)</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="openai-compatible">OpenAI-Compatible</option>
+                </select>
+              </div>
+
+              <div className="form-control">
+                <label className="label"><span className="label-text">Model</span></label>
+                <input
+                  type="text"
+                  className="input input-bordered w-full"
+                  placeholder={PROVIDER_PRESETS[aiProvider]?.defaultModel}
+                  value={aiModel}
+                  onChange={(e) => setAiModel(e.target.value)}
+                />
+              </div>
+
+              {aiProvider === 'openai-compatible' && (
+                <>
+                  <div className="form-control">
+                    <label className="label"><span className="label-text">Endpoint</span></label>
+                    <select
+                      className="select select-bordered w-full"
+                      value={KNOWN_ENDPOINTS.find(e => e.baseURL === aiBaseURL)?.label || 'Custom'}
+                      onChange={(e) => {
+                        const ep = KNOWN_ENDPOINTS.find(k => k.label === e.target.value);
+                        if (ep) setAiBaseURL(ep.baseURL);
+                      }}
+                    >
+                      {KNOWN_ENDPOINTS.map(ep => (
+                        <option key={ep.label} value={ep.label}>{ep.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-control">
+                    <label className="label"><span className="label-text">Base URL</span></label>
+                    <input
+                      type="text"
+                      className="input input-bordered w-full"
+                      placeholder="https://api.example.com/v1"
+                      value={aiBaseURL}
+                      onChange={(e) => setAiBaseURL(e.target.value)}
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className="form-control md:col-span-2">
+                <label className="label"><span className="label-text">API Key</span></label>
+                <input
+                  type="password"
+                  className="input input-bordered w-full"
+                  placeholder="Enter API key (leave empty to keep existing)"
+                  value={aiApiKey}
+                  onChange={(e) => setAiApiKey(e.target.value)}
+                />
+              </div>
+
+              <div className="md:col-span-2 flex items-center gap-3">
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={handleAiSave}
+                  disabled={aiSaving}
+                >
+                  {aiSaving ? <><span className="loading loading-spinner loading-xs"></span> Saving...</> : 'Save AI Config'}
+                </button>
+                {aiMessage && (
+                  <span className={`text-sm ${aiMessage.type === 'success' ? 'text-success' : 'text-error'}`}>
+                    {aiMessage.text}
+                  </span>
+                )}
+              </div>
+
               {/* Keyboard Shortcuts */}
               <div className="md:col-span-2">
                 <h2 className="text-xl font-bold mb-4 mt-4">Keyboard Shortcuts</h2>

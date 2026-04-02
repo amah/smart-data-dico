@@ -119,9 +119,11 @@ router.delete('/api/diagrams/:id', authorizeJwt([UserRole.ADMIN]), diagramContro
 
 // AI Chat API
 try {
-  const { aiChat, aiStatus } = await import('../controllers/aiController.js');
+  const { aiChat, aiStatus, aiGetConfig, aiSaveConfig } = await import('../controllers/aiController.js');
   router.post('/api/ai/chat', aiChat);
   router.get('/api/ai/status', aiStatus);
+  router.get('/api/ai/config', aiGetConfig);
+  router.post('/api/ai/config', aiSaveConfig);
 } catch {
   // AI dependencies not available (optional feature)
 }
