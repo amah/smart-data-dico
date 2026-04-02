@@ -117,4 +117,13 @@ router.get('/api/diagrams/:id', diagramController.loadDiagramLayout.bind(diagram
 router.put('/api/diagrams/:id', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), diagramController.updateDiagramLayout.bind(diagramController));
 router.delete('/api/diagrams/:id', authorizeJwt([UserRole.ADMIN]), diagramController.deleteDiagramLayout.bind(diagramController));
 
+// AI Chat API
+try {
+  const { aiChat, aiStatus } = await import('../controllers/aiController.js');
+  router.post('/api/ai/chat', aiChat);
+  router.get('/api/ai/status', aiStatus);
+} catch {
+  // AI dependencies not available (optional feature)
+}
+
 export default router;
