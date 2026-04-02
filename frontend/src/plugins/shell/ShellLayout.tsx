@@ -11,10 +11,14 @@ import Navbar from '../../components/Navbar';
 import Sidebar from '../../components/Sidebar';
 import Breadcrumbs from '../../components/Breadcrumbs';
 import Footer from '../../components/Footer';
+import { useKeyboardShortcuts, useKeyboardShortcutsEnabled } from '../../hooks/useKeyboardShortcuts';
+import KeyboardShortcutsModal from '../../components/KeyboardShortcutsModal';
 
 const ShellLayout: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const { enabled: shortcutsEnabled } = useKeyboardShortcutsEnabled();
+  const { showHelp, setShowHelp, gPending } = useKeyboardShortcuts(shortcutsEnabled);
 
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
   const toggleCollapse = () => setSidebarCollapsed(!sidebarCollapsed);
@@ -67,6 +71,16 @@ const ShellLayout: React.FC = () => {
 
       {/* Footer slot */}
       <Footer />
+
+      {/* Keyboard shortcuts help modal */}
+      {showHelp && <KeyboardShortcutsModal onClose={() => setShowHelp(false)} />}
+
+      {/* G-pending chord indicator */}
+      {gPending && (
+        <div className="fixed bottom-4 right-4 z-50 bg-base-100 border border-base-300 rounded-lg shadow-lg px-3 py-2 text-sm">
+          <kbd className="kbd kbd-sm">G</kbd> pressed — waiting for <kbd className="kbd kbd-sm">H</kbd> <kbd className="kbd kbd-sm">D</kbd> <kbd className="kbd kbd-sm">Q</kbd>
+        </div>
+      )}
     </div>
   );
 };
