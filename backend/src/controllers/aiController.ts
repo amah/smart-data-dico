@@ -1,20 +1,91 @@
 import { Request, Response } from 'express';
 import { streamText, tool } from 'ai';
 import { z } from 'zod';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 import { logger } from '../utils/logger.js';
 import { config } from '../kernel/config.js';
 
-// Lazy-load the provider to avoid errors when no API key is set
-async function getModel() {
-  const provider = process.env.AI_PROVIDER || 'anthropic';
-  const modelId = process.env.AI_MODEL || (provider === 'anthropic' ? 'claude-sonnet-4-5-20250514' : 'gpt-4o');
+// --- AI Configuration ---
 
-  if (provider === 'openai') {
-    const { openai } = await import('@ai-sdk/openai');
-    return openai(modelId);
+interface AIConfig {
+  provider: 'anthropic' | 'openai' | 'openai-compatible';
+  model: string;
+  apiKey: string;
+  baseURL?: string; // For OpenAI-compatible endpoints
+  name?: string;    // Display name for the provider
+}
+
+const CONFIG_PATH = path.join(os.homedir(), '.cfg', 'ai-config.json');
+
+function loadAIConfig(): AIConfig | null {
+  // 1. Try config file
+  try {
+    if (fs.existsSync(CONFIG_PATH)) {
+      const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+      if (raw.apiKey && raw.provider) {
+        return {
+          provider: raw.provider,
+          model: raw.model || getDefaultModel(raw.provider),
+          apiKey: raw.apiKey,
+          baseURL: raw.baseURL,
+          name: raw.name,
+        };
+      }
+    }
+  } catch (err) {
+    logger.warn(`Failed to read AI config from ${CONFIG_PATH}: ${err}`);
   }
-  const { anthropic } = await import('@ai-sdk/anthropic');
-  return anthropic(modelId);
+
+  // 2. Fall back to env vars
+  const apiKey = process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY;
+  if (apiKey) {
+    const provider = process.env.AI_PROVIDER || (process.env.ANTHROPIC_API_KEY ? 'anthropic' : 'openai');
+    return {
+      provider: provider as AIConfig['provider'],
+      model: process.env.AI_MODEL || getDefaultModel(provider),
+      apiKey,
+      baseURL: process.env.AI_BASE_URL,
+    };
+  }
+
+  return null;
+}
+
+function getDefaultModel(provider: string): string {
+  switch (provider) {
+    case 'anthropic': return 'claude-sonnet-4-5-20250514';
+    case 'openai': return 'gpt-4o';
+    case 'openai-compatible': return 'gpt-4o';
+    default: return 'gpt-4o';
+  }
+}
+
+function saveAIConfig(cfg: AIConfig): void {
+  const dir = path.dirname(CONFIG_PATH);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8');
+  logger.info(`AI config saved to ${CONFIG_PATH}`);
+}
+
+async function getModel() {
+  const cfg = loadAIConfig();
+  if (!cfg) throw new Error('AI not configured');
+
+  if (cfg.provider === 'anthropic') {
+    const { createAnthropic } = await import('@ai-sdk/anthropic');
+    const provider = createAnthropic({ apiKey: cfg.apiKey });
+    return provider(cfg.model);
+  }
+
+  // openai or openai-compatible (mammouth.ai, openrouter, etc.)
+  const { createOpenAI } = await import('@ai-sdk/openai');
+  const provider = createOpenAI({
+    apiKey: cfg.apiKey,
+    ...(cfg.baseURL ? { baseURL: cfg.baseURL } : {}),
+  });
+  return provider(cfg.model);
 }
 
 // Dynamic import of services (they use ESM)
@@ -51,10 +122,10 @@ Be concise in your responses. Show a summary of what you created.`;
 
 export const aiChat = async (req: Request, res: Response) => {
   try {
-    const apiKey = process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY;
-    if (!apiKey) {
+    const cfg = loadAIConfig();
+    if (!cfg) {
       return res.status(503).json({
-        message: 'AI not configured. Set ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable.',
+        message: 'AI not configured. Use Settings page or create ~/.cfg/ai-config.json.',
       });
     }
 
@@ -264,10 +335,45 @@ export const aiChat = async (req: Request, res: Response) => {
 };
 
 export const aiStatus = async (_req: Request, res: Response) => {
-  const hasKey = !!(process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY);
+  const cfg = loadAIConfig();
   res.json({
-    available: hasKey,
-    provider: process.env.AI_PROVIDER || 'anthropic',
-    model: process.env.AI_MODEL || 'claude-sonnet-4-5-20250514',
+    available: !!cfg,
+    provider: cfg?.provider || null,
+    model: cfg?.model || null,
+    name: cfg?.name || cfg?.provider || null,
+    baseURL: cfg?.baseURL || null,
+    configPath: CONFIG_PATH,
   });
+};
+
+export const aiGetConfig = async (_req: Request, res: Response) => {
+  const cfg = loadAIConfig();
+  res.json({
+    provider: cfg?.provider || 'anthropic',
+    model: cfg?.model || '',
+    apiKey: cfg?.apiKey ? `${cfg.apiKey.slice(0, 8)}...${cfg.apiKey.slice(-4)}` : '', // Masked
+    baseURL: cfg?.baseURL || '',
+    name: cfg?.name || '',
+    configPath: CONFIG_PATH,
+  });
+};
+
+export const aiSaveConfig = async (req: Request, res: Response) => {
+  try {
+    const { provider, model, apiKey, baseURL, name } = req.body;
+    if (!provider || !apiKey) {
+      return res.status(400).json({ message: 'provider and apiKey are required' });
+    }
+    const cfg: AIConfig = {
+      provider,
+      model: model || getDefaultModel(provider),
+      apiKey,
+      ...(baseURL ? { baseURL } : {}),
+      ...(name ? { name } : {}),
+    };
+    saveAIConfig(cfg);
+    res.json({ message: 'AI configuration saved', configPath: CONFIG_PATH });
+  } catch (err: any) {
+    res.status(500).json({ message: 'Failed to save config', error: err.message });
+  }
 };
