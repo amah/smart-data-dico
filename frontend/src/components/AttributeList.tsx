@@ -13,10 +13,30 @@ interface AttributeListProps {
   onAttributeUpdated?: () => void;
 }
 
+interface DraftAttribute {
+  id: string;
+  name: string;
+  type: AttributeType;
+  description: string;
+  required: boolean;
+}
+
+const emptyDraft = (): DraftAttribute => ({
+  id: crypto.randomUUID(),
+  name: '',
+  type: AttributeType.STRING,
+  description: '',
+  required: false,
+});
+
 const AttributeList = ({ attributes, entityName, serviceName, onAttributeUpdated }: AttributeListProps) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<AttributeType | 'all'>('all');
   const { allColumns, loading: stereotypesLoading } = useStereotypeMetadata('attribute');
+
+  // Inline editing state
+  const [drafts, setDrafts] = useState<DraftAttribute[]>([]);
+  const [saving, setSaving] = useState(false);
 
   // Detect which metadata columns are relevant for this set of attributes
   const metadataColumns = getActiveColumns(attributes, allColumns);
@@ -55,6 +75,67 @@ const AttributeList = ({ attributes, entityName, serviceName, onAttributeUpdated
       console.error('Failed to update metadata:', err);
     }
   }, [serviceName, entityName, onAttributeUpdated]);
+
+  const addDraftRow = useCallback(() => {
+    setDrafts(prev => [...prev, emptyDraft()]);
+  }, []);
+
+  const updateDraft = useCallback((id: string, field: keyof DraftAttribute, value: any) => {
+    setDrafts(prev => prev.map(d => d.id === id ? { ...d, [field]: value } : d));
+  }, []);
+
+  const removeDraft = useCallback((id: string) => {
+    setDrafts(prev => prev.filter(d => d.id !== id));
+  }, []);
+
+  const saveDrafts = useCallback(async () => {
+    const validDrafts = drafts.filter(d => d.name.trim());
+    if (validDrafts.length === 0) return;
+    setSaving(true);
+    try {
+      const response = await servicesApi.getEntitySchema(serviceName, entityName);
+      const entity = response.data;
+      for (const draft of validDrafts) {
+        entity.attributes.push({
+          uuid: crypto.randomUUID(),
+          name: draft.name.trim(),
+          type: draft.type,
+          description: draft.description.trim(),
+          required: draft.required,
+        });
+      }
+      await servicesApi.updateEntity(serviceName, entityName, entity);
+      setDrafts([]);
+      onAttributeUpdated?.();
+    } catch (err) {
+      console.error('Failed to save attributes:', err);
+    } finally {
+      setSaving(false);
+    }
+  }, [drafts, serviceName, entityName, onAttributeUpdated]);
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const text = e.clipboardData.getData('text/plain');
+    if (!text.includes('\t') && !text.includes(',')) return; // Not tabular data
+    e.preventDefault();
+    const sep = text.includes('\t') ? '\t' : ',';
+    const lines = text.split('\n').filter(l => l.trim());
+    const newDrafts: DraftAttribute[] = lines.map(line => {
+      const cols = line.split(sep).map(c => c.trim());
+      const typeVal = (cols[1] || 'string').toLowerCase();
+      const matchedType = Object.values(AttributeType).find(t => t === typeVal) || AttributeType.STRING;
+      return {
+        id: crypto.randomUUID(),
+        name: cols[0] || '',
+        type: matchedType,
+        description: cols[2] || '',
+        required: ['yes', 'true', '1'].includes((cols[3] || '').toLowerCase()),
+      };
+    }).filter(d => d.name);
+    if (newDrafts.length > 0) {
+      setDrafts(prev => [...prev, ...newDrafts]);
+    }
+  }, []);
 
   const getTypeColor = (type: AttributeType) => {
     switch (type) {
@@ -210,16 +291,100 @@ const AttributeList = ({ attributes, entityName, serviceName, onAttributeUpdated
         </div>
       )}
 
-      <div className="mt-6">
-        <Link
-          to={`/packages/${serviceName}/entities/${entityName}/attributes/create`}
-          className="btn btn-primary"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+      {/* Inline draft rows */}
+      {drafts.length > 0 && (
+        <div className="overflow-x-auto mt-2 border-2 border-primary/30 rounded-lg" onPaste={handlePaste}>
+          <table className="table table-sm w-full">
+            <thead>
+              <tr className="bg-primary/10">
+                <th>Name</th>
+                <th>Type</th>
+                <th>Description</th>
+                <th>Required</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {drafts.map((draft, idx) => (
+                <tr key={draft.id}>
+                  <td>
+                    <input
+                      type="text"
+                      className="input input-xs input-bordered w-full"
+                      placeholder="attributeName"
+                      value={draft.name}
+                      onChange={(e) => updateDraft(draft.id, 'name', e.target.value)}
+                      autoFocus={idx === drafts.length - 1}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') addDraftRow();
+                      }}
+                    />
+                  </td>
+                  <td>
+                    <select
+                      className="select select-xs select-bordered"
+                      value={draft.type}
+                      onChange={(e) => updateDraft(draft.id, 'type', e.target.value)}
+                    >
+                      {Object.values(AttributeType).map(t => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <input
+                      type="text"
+                      className="input input-xs input-bordered w-full"
+                      placeholder="Description"
+                      value={draft.description}
+                      onChange={(e) => updateDraft(draft.id, 'description', e.target.value)}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="checkbox"
+                      className="checkbox checkbox-xs checkbox-primary"
+                      checked={draft.required}
+                      onChange={(e) => updateDraft(draft.id, 'required', e.target.checked)}
+                    />
+                  </td>
+                  <td>
+                    <button className="btn btn-xs btn-ghost text-error" onClick={() => removeDraft(draft.id)}>
+                      &times;
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Action buttons */}
+      <div className="mt-4 flex gap-2 flex-wrap">
+        <button className="btn btn-sm btn-outline" onClick={addDraftRow} onPaste={handlePaste}>
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
           </svg>
-          Add Attribute
-        </Link>
+          Add Row
+        </button>
+        {drafts.length > 0 && (
+          <>
+            <button className="btn btn-sm btn-primary" onClick={saveDrafts} disabled={saving}>
+              {saving ? (
+                <><span className="loading loading-spinner loading-xs"></span> Saving...</>
+              ) : (
+                `Save ${drafts.filter(d => d.name.trim()).length} Attributes`
+              )}
+            </button>
+            <button className="btn btn-sm btn-ghost" onClick={() => setDrafts([])}>
+              Discard
+            </button>
+          </>
+        )}
+        <div className="text-xs text-base-content/50 flex items-center ml-2">
+          Tip: Paste from Excel (name, type, description, required)
+        </div>
       </div>
     </div>
   );
