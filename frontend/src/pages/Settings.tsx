@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { authApi } from '../services/api';
 import { User } from '../types';
+import { useKeyboardShortcutsEnabled } from '../hooks/useKeyboardShortcuts';
 
 interface SettingsFormData {
   theme: string;
@@ -12,6 +13,7 @@ interface SettingsFormData {
 }
 
 const Settings = () => {
+  const { enabled: shortcutsEnabled, toggle: toggleShortcuts } = useKeyboardShortcutsEnabled();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [updateLoading, setUpdateLoading] = useState(false);
@@ -211,6 +213,28 @@ const Settings = () => {
                 </label>
               </div>
               
+              {/* Keyboard Shortcuts */}
+              <div className="md:col-span-2">
+                <h2 className="text-xl font-bold mb-4 mt-4">Keyboard Shortcuts</h2>
+              </div>
+
+              <div className="form-control md:col-span-2">
+                <label className="label cursor-pointer justify-start gap-4">
+                  <input
+                    type="checkbox"
+                    className="toggle toggle-primary"
+                    checked={shortcutsEnabled}
+                    onChange={(e) => toggleShortcuts(e.target.checked)}
+                  />
+                  <div>
+                    <span className="label-text font-medium">Enable Keyboard Shortcuts</span>
+                    <p className="text-xs opacity-70 mt-1">
+                      Use keyboard shortcuts for navigation and actions. Press <kbd className="kbd kbd-xs">?</kbd> to see all shortcuts.
+                    </p>
+                  </div>
+                </label>
+              </div>
+
               {/* Account Settings */}
               <div className="md:col-span-2">
                 <h2 className="text-xl font-bold mb-4 mt-4">Account</h2>
