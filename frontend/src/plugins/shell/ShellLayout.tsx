@@ -13,12 +13,14 @@ import Breadcrumbs from '../../components/Breadcrumbs';
 import Footer from '../../components/Footer';
 import { useKeyboardShortcuts, useKeyboardShortcutsEnabled } from '../../hooks/useKeyboardShortcuts';
 import KeyboardShortcutsModal from '../../components/KeyboardShortcutsModal';
+import AIChatPanel from '../../components/AIChatPanel';
 
 const ShellLayout: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { enabled: shortcutsEnabled } = useKeyboardShortcutsEnabled();
   const { showHelp, setShowHelp, gPending } = useKeyboardShortcuts(shortcutsEnabled);
+  const [chatOpen, setChatOpen] = useState(false);
 
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
   const toggleCollapse = () => setSidebarCollapsed(!sidebarCollapsed);
@@ -26,7 +28,7 @@ const ShellLayout: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col bg-base-200">
       {/* Header slot */}
-      <Navbar toggleSidebar={toggleSidebar} />
+      <Navbar toggleSidebar={toggleSidebar} toggleChat={() => setChatOpen(o => !o)} chatOpen={chatOpen} />
 
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar slot */}
@@ -71,6 +73,9 @@ const ShellLayout: React.FC = () => {
 
       {/* Footer slot */}
       <Footer />
+
+      {/* AI Chat Panel */}
+      <AIChatPanel open={chatOpen} onClose={() => setChatOpen(false)} />
 
       {/* Keyboard shortcuts help modal */}
       {showHelp && <KeyboardShortcutsModal onClose={() => setShowHelp(false)} />}
