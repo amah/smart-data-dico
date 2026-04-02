@@ -129,6 +129,30 @@ const EntityDetail = (props: EntityDetailProps) => {
     }
   };
 
+  const handleCloneEntity = async () => {
+    if (!entityData || !service) return;
+    try {
+      const clonedName = `${entityData.name}Copy`;
+      const currentDate = new Date().toISOString();
+      const cloned: Entity = {
+        ...entityData,
+        uuid: crypto.randomUUID(),
+        name: clonedName,
+        status: undefined,
+        createdAt: currentDate,
+        updatedAt: currentDate,
+        attributes: entityData.attributes.map(attr => ({
+          ...attr,
+          uuid: crypto.randomUUID(),
+        })),
+      };
+      await servicesApi.createEntity(service, cloned);
+      navigate(`/packages/${service}/entities/${clonedName}`);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to clone entity');
+    }
+  };
+
   if (!service && !isCreateMode) {
     return (
       <div className="alert alert-error">
@@ -258,7 +282,7 @@ const EntityDetail = (props: EntityDetailProps) => {
 
         <div className="ml-auto flex gap-1">
           <Link
-            to={`/services/${service}/entities/${entity}/edit`}
+            to={`/packages/${service}/entities/${entity}/edit`}
             className="btn btn-primary btn-sm"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
@@ -266,6 +290,17 @@ const EntityDetail = (props: EntityDetailProps) => {
             </svg>
             Edit
           </Link>
+          <button
+            className="btn btn-outline btn-sm"
+            onClick={handleCloneEntity}
+            title="Duplicate this entity"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M7 9a2 2 0 012-2h6a2 2 0 012 2v6a2 2 0 01-2 2H9a2 2 0 01-2-2V9z" />
+              <path d="M5 3a2 2 0 00-2 2v6a2 2 0 002 2V5h8a2 2 0 00-2-2H5z" />
+            </svg>
+            Clone
+          </button>
           <Link
             to={`/visualization/${service}/${entity}`}
             className="btn btn-outline btn-sm"

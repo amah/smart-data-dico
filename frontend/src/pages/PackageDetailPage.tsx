@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { packageApi } from '../services/api';
-import type { Package } from '../types';
+import { packageApi, servicesApi, stereotypeApi } from '../services/api';
+import type { Package, Entity, Stereotype } from '../types';
 import PackageForm from '../components/PackageForm';
 import CytoscapeGraph from '../components/CytoscapeGraph';
 
@@ -19,6 +19,14 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
   const [showCreateSub, setShowCreateSub] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showBatchCreate, setShowBatchCreate] = useState(false);
+  const [batchText, setBatchText] = useState('');
+  const [batchCreating, setBatchCreating] = useState(false);
+  const [stereotypes, setStereotypes] = useState<Stereotype[]>([]);
+
+  useEffect(() => {
+    stereotypeApi.getAll('entity').then(setStereotypes).catch(() => {});
+  }, []);
 
   const rootPackage = packagePath[0];
   const subPath = packagePath.slice(1);
@@ -85,6 +93,39 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to delete package');
       setShowDeleteConfirm(false);
+    }
+  };
+
+  const handleBatchCreate = async () => {
+    if (!batchText.trim()) return;
+    setBatchCreating(true);
+    try {
+      const lines = batchText.split('\n').filter(l => l.trim());
+      for (const line of lines) {
+        const parts = line.split('|').map(s => s.trim());
+        const name = parts[0];
+        if (!name) continue;
+        const description = parts[1] || '';
+        const stereotype = parts[2] || undefined;
+
+        const entity: Entity = {
+          uuid: crypto.randomUUID(),
+          name,
+          description,
+          stereotype: stereotype && stereotypes.some(s => s.id === stereotype) ? stereotype : undefined,
+          attributes: [],
+        };
+        await servicesApi.createEntity(rootPackage, entity);
+      }
+      setShowBatchCreate(false);
+      setBatchText('');
+      // Refresh
+      const updated = await packageApi.getPackageByPath(rootPackage, subPath);
+      setPkg(updated);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to create entities');
+    } finally {
+      setBatchCreating(false);
     }
   };
 
@@ -187,9 +228,14 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
         <div className="card-body">
           <div className="flex items-center justify-between">
             <h2 className="card-title text-lg">Entities</h2>
-            <Link to={`${packageUrl}/entities/create`} className="btn btn-sm btn-primary">
-              Add Entity
-            </Link>
+            <div className="flex gap-2">
+              <button className="btn btn-sm btn-outline" onClick={() => setShowBatchCreate(true)}>
+                Batch Add
+              </button>
+              <Link to={`${packageUrl}/entities/create`} className="btn btn-sm btn-primary">
+                Add Entity
+              </Link>
+            </div>
           </div>
           {entityCount === 0 ? (
             <p className="text-base-content/50">No entities in this package.</p>
@@ -343,6 +389,45 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
           </div>
           <form method="dialog" className="modal-backdrop">
             <button onClick={() => setShowDeleteConfirm(false)}>close</button>
+          </form>
+        </dialog>
+      )}
+
+      {/* Batch Entity Creation Modal */}
+      {showBatchCreate && (
+        <dialog className="modal modal-open">
+          <div className="modal-box max-w-2xl">
+            <h3 className="font-bold text-lg">Batch Create Entities</h3>
+            <p className="text-sm text-base-content/70 mt-1">
+              One entity per line. Format: <code className="text-xs">Name | Description | stereotype-id</code>
+            </p>
+            <textarea
+              className="textarea textarea-bordered w-full h-48 mt-3 font-mono text-sm"
+              placeholder={`Customer | Main customer entity | aggregate-root\nProduct | Product catalog item | aggregate-root\nCategory | Product category | reference-data\nOrder | Customer order | aggregate-root\nOrderLine | Line item in an order | value-object\nPayment | Payment transaction | event`}
+              value={batchText}
+              onChange={(e) => setBatchText(e.target.value)}
+              disabled={batchCreating}
+            />
+            {stereotypes.length > 0 && (
+              <div className="text-xs text-base-content/50 mt-1">
+                Available stereotypes: {stereotypes.map(s => s.id).join(', ')}
+              </div>
+            )}
+            <div className="modal-action">
+              <button className="btn btn-ghost" onClick={() => { setShowBatchCreate(false); setBatchText(''); }} disabled={batchCreating}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={handleBatchCreate} disabled={batchCreating || !batchText.trim()}>
+                {batchCreating ? (
+                  <><span className="loading loading-spinner loading-sm"></span> Creating...</>
+                ) : (
+                  `Create ${batchText.split('\n').filter(l => l.trim()).length} Entities`
+                )}
+              </button>
+            </div>
+          </div>
+          <form method="dialog" className="modal-backdrop">
+            <button onClick={() => { setShowBatchCreate(false); setBatchText(''); }}>close</button>
           </form>
         </dialog>
       )}
