@@ -188,6 +188,26 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
         'border-style': 'dashed',
       } as any,
     },
+    // Connect mode: source node glow
+    {
+      selector: '.connect-source',
+      style: {
+        'border-width': 4,
+        'border-color': primary,
+        'border-style': 'double',
+        'z-index': 20,
+      } as any,
+    },
+    // Connect mode: potential targets pulse
+    {
+      selector: '.connect-target-hint',
+      style: {
+        'border-width': 2,
+        'border-style': 'dashed',
+        'border-color': primary,
+        opacity: 0.8,
+      } as any,
+    },
   ];
 
   // Per-service color selectors
