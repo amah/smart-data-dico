@@ -14,6 +14,8 @@ import { useCytoscapePerspectiveOverlay } from './useCytoscapePerspectiveOverlay
 import CytoscapeToolbar from './CytoscapeToolbar';
 import CytoscapeTooltip from './CytoscapeTooltip';
 import CytoscapeInfoPanel from './CytoscapeInfoPanel';
+import { useCytoscapeEdgeCreation } from './useCytoscapeEdgeCreation';
+import CreateRelationshipModal from './CreateRelationshipModal';
 
 export default function CytoscapeGraph({
   service: serviceProp,
@@ -91,6 +93,9 @@ export default function CytoscapeGraph({
 
   // Perspective overlay
   useCytoscapePerspectiveOverlay(cyRef, perspectiveId);
+
+  // Edge creation (right-click → connect)
+  const edgeCreation = useCytoscapeEdgeCreation(cyRef);
 
   // Run layout after elements load (once)
   useEffect(() => {
@@ -189,7 +194,58 @@ export default function CytoscapeGraph({
             onNavigate={handleNodeClick}
           />
         )}
+
+        {/* Context menu */}
+        {edgeCreation.contextMenu && (
+          <div
+            className="fixed z-50 bg-base-100 border border-base-300 rounded-lg shadow-lg py-1 min-w-[160px]"
+            style={{ left: edgeCreation.contextMenu.x, top: edgeCreation.contextMenu.y }}
+          >
+            <button
+              className="w-full text-left px-4 py-2 hover:bg-base-200 text-sm"
+              onClick={edgeCreation.startConnect}
+            >
+              Connect to...
+            </button>
+            <button
+              className="w-full text-left px-4 py-2 hover:bg-base-200 text-sm"
+              onClick={() => {
+                handleNodeClick(
+                  edgeCreation.contextMenu!.nodeService,
+                  edgeCreation.contextMenu!.nodeLabel,
+                );
+                edgeCreation.closeContextMenu();
+              }}
+            >
+              Open entity
+            </button>
+            <button
+              className="w-full text-left px-4 py-2 hover:bg-base-200 text-sm text-base-content/50"
+              onClick={edgeCreation.closeContextMenu}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {/* Connect mode banner */}
+        {edgeCreation.connecting && edgeCreation.sourceNode && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-40 bg-primary text-primary-content px-4 py-2 rounded-lg shadow-lg flex items-center gap-3 text-sm">
+            <span>Click a target entity to connect from <strong>{edgeCreation.sourceNode.label}</strong></span>
+            <button className="btn btn-xs btn-ghost" onClick={edgeCreation.cancelConnect}>Cancel</button>
+          </div>
+        )}
       </div>
+
+      {/* Relationship creation modal */}
+      {edgeCreation.pendingEdge && (
+        <CreateRelationshipModal
+          sourceLabel={edgeCreation.pendingEdge.sourceLabel}
+          targetLabel={edgeCreation.pendingEdge.targetLabel}
+          onConfirm={edgeCreation.confirmEdge}
+          onCancel={edgeCreation.cancelEdge}
+        />
+      )}
     </div>
   );
 }
