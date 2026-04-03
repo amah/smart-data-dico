@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { streamText, tool } from 'ai';
+import { streamText, tool, convertToModelMessages } from 'ai';
 import { z } from 'zod';
 import fs from 'fs';
 import path from 'path';
@@ -129,10 +129,13 @@ export const aiChat = async (req: Request, res: Response) => {
       });
     }
 
-    const { messages } = req.body;
-    if (!messages || !Array.isArray(messages)) {
+    const { messages: rawMessages } = req.body;
+    if (!rawMessages || !Array.isArray(rawMessages)) {
       return res.status(400).json({ message: 'messages array required' });
     }
+
+    // Convert UIMessages (from @ai-sdk/react v3) to ModelMessages (for streamText)
+    const messages = await convertToModelMessages(rawMessages);
 
     const model = await getModel();
     const services = await getServices();
@@ -307,26 +310,31 @@ export const aiChat = async (req: Request, res: Response) => {
       maxSteps: 20,
     });
 
-    // Stream the response
-    const stream = result.toDataStream();
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.setHeader('Transfer-Encoding', 'chunked');
+    // Stream the response using UI message stream (compatible with @ai-sdk/react v3)
+    const response = result.toUIMessageStreamResponse();
 
-    const reader = stream.getReader();
-    const decoder = new TextDecoder();
-
-    const pump = async () => {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) { res.end(); break; }
-        res.write(decoder.decode(value, { stream: true }));
-      }
-    };
-
-    pump().catch((err) => {
-      logger.error(`AI stream error: ${err}`);
-      res.end();
+    // Forward the Response stream to Express res
+    res.status(response.status || 200);
+    response.headers.forEach((value: string, key: string) => {
+      res.setHeader(key, value);
     });
+
+    if (response.body) {
+      const reader = response.body.getReader();
+      const pump = async () => {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) { res.end(); break; }
+          res.write(value);
+        }
+      };
+      pump().catch((err) => {
+        logger.error(`AI stream error: ${err}`);
+        res.end();
+      });
+    } else {
+      res.end();
+    }
 
   } catch (err: any) {
     logger.error(`AI chat error: ${err.message}`);

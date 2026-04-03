@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useChat } from '@ai-sdk/react';
+import { DefaultChatTransport } from 'ai';
 import { useNavigate } from 'react-router-dom';
 
 interface AIChatPanelProps {
@@ -7,46 +8,62 @@ interface AIChatPanelProps {
   onClose: () => void;
 }
 
+// Create transport once (reusable across renders)
+const chatTransport = new DefaultChatTransport({ api: '/api/ai/chat' });
+
 export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const navigate = useNavigate();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [input, setInput] = useState('');
   const [aiAvailable, setAiAvailable] = useState<boolean | null>(null);
 
-  // Check if AI is available
+  // Check if AI is available (no-store to avoid stale cache)
   useEffect(() => {
-    fetch('/api/ai/status')
+    fetch('/api/ai/status', { cache: 'no-store' })
       .then(r => r.json())
       .then(d => setAiAvailable(d.available))
       .catch(() => setAiAvailable(false));
-  }, []);
+  }, [open]);
 
-  const { messages, input, handleInputChange, handleSubmit, isLoading, error } = useChat({
-    api: '/api/ai/chat',
+  const { messages, sendMessage, status, error } = useChat({
+    transport: chatTransport,
     onToolCall: ({ toolCall }) => {
-      // Handle navigation from tool results
-      const result = toolCall as any;
-      if (result?.result?.navigate) {
-        navigate(result.result.navigate);
+      // Handle navigation tool calls
+      if (toolCall.toolName === 'navigateTo' && toolCall.args) {
+        const args = toolCall.args as any;
+        if (args.path) navigate(args.path);
       }
     },
+    onError: (err) => {
+      console.error('AI chat error:', err);
+    },
   });
+
+  const isLoading = status === 'submitted' || status === 'streaming';
 
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Handle navigation hints in assistant messages (tool results)
+  // Focus input when panel opens
   useEffect(() => {
-    const lastMsg = messages[messages.length - 1];
-    if (lastMsg?.role === 'assistant' && lastMsg.parts) {
-      for (const part of lastMsg.parts) {
-        if (part.type === 'tool-invocation' && (part as any).result?.navigate) {
-          navigate((part as any).result.navigate);
-        }
-      }
+    if (open && inputRef.current) {
+      setTimeout(() => inputRef.current?.focus(), 100);
     }
-  }, [messages, navigate]);
+  }, [open]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || isLoading) return;
+    sendMessage({ text: input.trim() });
+    setInput('');
+  };
+
+  const handleSuggestion = (text: string) => {
+    sendMessage({ text });
+  };
 
   if (!open) return null;
 
@@ -59,6 +76,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
             <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
           </svg>
           <span className="font-semibold text-sm">AI Assistant</span>
+          {isLoading && <span className="loading loading-dots loading-xs text-primary"></span>}
         </div>
         <button className="btn btn-ghost btn-xs btn-circle" onClick={onClose}>
           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -71,7 +89,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {aiAvailable === false && (
           <div className="alert alert-warning text-xs">
-            <span>AI not configured. Set <code>ANTHROPIC_API_KEY</code> or <code>OPENAI_API_KEY</code> environment variable.</span>
+            <span>AI not configured. Go to <a href="/settings" className="link">Settings</a> to set up your AI provider and API key.</span>
           </div>
         )}
 
@@ -82,21 +100,14 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
               {[
                 'Create an e-commerce data model',
                 'Add a Product entity with common attributes',
-                'Show me all entities in claims-processing',
+                'Show me all entities',
                 'What stereotypes are available?',
               ].map((suggestion) => (
                 <button
                   key={suggestion}
                   className="btn btn-xs btn-outline btn-block justify-start text-left font-normal"
-                  onClick={() => {
-                    const fakeEvent = { preventDefault: () => {} } as any;
-                    handleInputChange({ target: { value: suggestion } } as any);
-                    // Small delay to let state update before submit
-                    setTimeout(() => {
-                      const form = document.querySelector('#ai-chat-form') as HTMLFormElement;
-                      form?.requestSubmit();
-                    }, 50);
-                  }}
+                  onClick={() => handleSuggestion(suggestion)}
+                  disabled={isLoading}
                 >
                   {suggestion}
                 </button>
@@ -107,10 +118,10 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
 
         {messages.map((msg) => (
           <div key={msg.id} className={`chat ${msg.role === 'user' ? 'chat-end' : 'chat-start'}`}>
-            <div className={`chat-bubble text-sm ${
-              msg.role === 'user' ? 'chat-bubble-primary' : 'chat-bubble-neutral'
+            <div className={`chat-bubble text-sm whitespace-pre-wrap ${
+              msg.role === 'user' ? 'chat-bubble-primary' : ''
             }`}>
-              {/* Render text parts */}
+              {/* Render parts */}
               {msg.parts?.map((part, i) => {
                 if (part.type === 'text') {
                   return <span key={i}>{part.text}</span>;
@@ -118,19 +129,25 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                 if (part.type === 'tool-invocation') {
                   const toolPart = part as any;
                   const result = toolPart.result;
-                  if (!result) return null;
+                  if (!result) {
+                    return (
+                      <div key={i} className="mt-1 text-xs opacity-70 italic">
+                        Calling {toolPart.toolName}...
+                      </div>
+                    );
+                  }
 
                   if (toolPart.toolName === 'navigateTo') {
                     return (
                       <div key={i} className="mt-1 text-xs opacity-70 italic">
-                        Navigated to {result.reason}
+                        Navigated: {result.reason}
                       </div>
                     );
                   }
 
                   if (result.success !== undefined) {
                     return (
-                      <div key={i} className="mt-1 badge badge-xs gap-1 badge-ghost">
+                      <div key={i} className="mt-1 badge badge-sm gap-1 badge-ghost">
                         {result.success ? '✓' : '✗'} {result.message || result.error}
                       </div>
                     );
@@ -138,18 +155,10 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                   return null;
                 }
                 return null;
-              }) || msg.content}
+              }) || <span>{msg.content}</span>}
             </div>
           </div>
         ))}
-
-        {isLoading && (
-          <div className="chat chat-start">
-            <div className="chat-bubble chat-bubble-neutral text-sm">
-              <span className="loading loading-dots loading-xs"></span>
-            </div>
-          </div>
-        )}
 
         {error && (
           <div className="alert alert-error text-xs">
@@ -161,14 +170,15 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       </div>
 
       {/* Input */}
-      <form id="ai-chat-form" onSubmit={handleSubmit} className="p-3 border-t border-base-300">
+      <form onSubmit={handleSubmit} className="p-3 border-t border-base-300">
         <div className="flex gap-2">
           <input
+            ref={inputRef}
             type="text"
             className="input input-sm input-bordered flex-1"
             placeholder={aiAvailable ? "Ask about your data model..." : "AI not configured"}
             value={input}
-            onChange={handleInputChange}
+            onChange={(e) => setInput(e.target.value)}
             disabled={!aiAvailable || isLoading}
           />
           <button
