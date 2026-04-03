@@ -122,11 +122,7 @@ function App() {
             <Profile />
           </AuthGuard>
         } />
-        <Route path="settings" element={
-          <AuthGuard>
-            <Settings />
-          </AuthGuard>
-        } />
+        <Route path="settings" element={<Settings />} />
         
         {/* 404 - Not Found */}
         <Route path="*" element={<NotFoundPage />} />
