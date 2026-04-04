@@ -411,6 +411,66 @@ export const aiSaveConfig = async (req: Request, res: Response) => {
   }
 };
 
+// --- Tool definitions endpoint ---
+
+export const aiTools = async (_req: Request, res: Response) => {
+  res.json({
+    data: [
+      {
+        name: 'createEntity',
+        description: 'Create a new entity with attributes in a package',
+        parameters: [
+          { name: 'packageName', type: 'string', required: true, description: 'Package/service name' },
+          { name: 'name', type: 'string', required: true, description: 'Entity name (PascalCase)' },
+          { name: 'description', type: 'string', required: true, description: 'Entity description' },
+          { name: 'stereotype', type: 'string', required: false, description: 'Stereotype: aggregate-root, reference-data, event, value-object' },
+          { name: 'attributes', type: 'array', required: true, description: 'Array of {name, type, description, required, primaryKey?, enumValues?}' },
+        ],
+      },
+      {
+        name: 'createRelationship',
+        description: 'Create a relationship between two entities',
+        parameters: [
+          { name: 'packageName', type: 'string', required: true, description: 'Package name' },
+          { name: 'sourceEntityName', type: 'string', required: true, description: 'Source entity name' },
+          { name: 'targetEntityName', type: 'string', required: true, description: 'Target entity name' },
+          { name: 'description', type: 'string', required: true, description: 'Relationship description' },
+          { name: 'sourceCardinality', type: 'one|many', required: true, description: 'Source cardinality' },
+          { name: 'targetCardinality', type: 'one|many', required: true, description: 'Target cardinality' },
+        ],
+      },
+      {
+        name: 'listEntities',
+        description: 'List all entities in a package or all packages',
+        parameters: [
+          { name: 'packageName', type: 'string', required: false, description: 'Package name (omit to list all packages)' },
+        ],
+      },
+      {
+        name: 'getEntityDetails',
+        description: 'Get detailed info about an entity including attributes',
+        parameters: [
+          { name: 'packageName', type: 'string', required: true, description: 'Package name' },
+          { name: 'entityName', type: 'string', required: true, description: 'Entity name' },
+        ],
+      },
+      {
+        name: 'listStereotypes',
+        description: 'List available stereotypes and their metadata definitions',
+        parameters: [],
+      },
+      {
+        name: 'navigateTo',
+        description: 'Navigate the user to a specific page',
+        parameters: [
+          { name: 'path', type: 'string', required: true, description: 'URL path (e.g. /packages/e-commerce)' },
+          { name: 'reason', type: 'string', required: true, description: 'Why navigating here' },
+        ],
+      },
+    ],
+  });
+};
+
 // --- Conversation persistence endpoints ---
 
 export const listConversations = async (_req: Request, res: Response) => {
