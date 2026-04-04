@@ -80,7 +80,7 @@ async function getModel() {
 // Dynamic import of services (they use ESM)
 async function getServices() {
   const { dictionaryService } = await import('../services/dictionaryService.js');
-  const { default: serviceService } = await import('../services/serviceService.js');
+  const { serviceService } = await import('../services/serviceService.js');
   const { perspectiveService } = await import('../services/perspectiveService.js');
   const { stereotypeService } = await import('../services/stereotypeService.js');
   return { dictionaryService, serviceService, perspectiveService, stereotypeService };
