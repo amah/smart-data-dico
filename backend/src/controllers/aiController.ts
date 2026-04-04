@@ -104,8 +104,11 @@ When creating data models:
 - Suggest stereotypes when applicable (aggregate-root, reference-data, event, value-object for entities)
 - Create relationships with proper cardinality
 
-When the user asks to create a model, create ALL entities first, then ALL relationships.
-After creating entities, use the navigateTo tool to show the user the result.
+When the user asks to create a model:
+1. Ask or infer a package name (e.g. "e-commerce", "healthcare"). If the user says "e-commerce data model", use "e-commerce" as the packageName.
+2. ALWAYS provide the packageName parameter in every createEntity and createRelationship call. Never omit it.
+3. Create ALL entities first, then ALL relationships.
+4. After creating everything, use navigateTo to show the package page.
 
 Be concise in your responses. Show a summary of what you created.`;
 
@@ -152,10 +155,11 @@ export const aiChat = async (req: Request, res: Response) => {
           }),
           execute: async (params) => {
             try {
+              const pkgName = params.packageName || 'default';
               const { listMicroservices, ensureDirectoryStructure } = await import('../utils/fileOperations.js');
               const existingServices = await listMicroservices();
-              if (!existingServices.includes(params.packageName)) {
-                await ensureDirectoryStructure(params.packageName);
+              if (!existingServices.includes(pkgName)) {
+                await ensureDirectoryStructure(pkgName);
               }
 
               const entity = {
@@ -177,12 +181,12 @@ export const aiChat = async (req: Request, res: Response) => {
                 updatedAt: new Date().toISOString(),
               };
 
-              await services.serviceService.createEntity(params.packageName, entity);
-              logger.info(`AI created entity: ${params.packageName}/${params.name}`);
+              await services.serviceService.createEntity(pkgName, entity);
+              logger.info(`AI created entity: ${pkgName}/${params.name}`);
               return {
                 success: true,
                 message: `Created entity ${params.name} with ${params.attributes.length} attributes`,
-                navigate: `/packages/${params.packageName}/entities/${params.name}`,
+                navigate: `/packages/${pkgName}/entities/${params.name}`,
               };
             } catch (err: any) {
               return { success: false, error: err.message };
@@ -203,8 +207,9 @@ export const aiChat = async (req: Request, res: Response) => {
           execute: async (params) => {
             try {
               // Look up entity UUIDs
-              const sourceEntity = await services.serviceService.getEntitySchema(params.packageName, params.sourceEntityName);
-              const targetEntity = await services.serviceService.getEntitySchema(params.packageName, params.targetEntityName);
+              const pkgName = params.packageName || 'default';
+              const sourceEntity = await services.serviceService.getEntitySchema(pkgName, params.sourceEntityName);
+              const targetEntity = await services.serviceService.getEntitySchema(pkgName, params.targetEntityName);
 
               if (!sourceEntity || !targetEntity) {
                 return { success: false, error: `Entity not found: ${!sourceEntity ? params.sourceEntityName : params.targetEntityName}` };
@@ -216,7 +221,7 @@ export const aiChat = async (req: Request, res: Response) => {
                 source: { entity: sourceEntity.uuid, cardinality: params.sourceCardinality },
                 target: { entity: targetEntity.uuid, cardinality: params.targetCardinality },
               };
-              await services.serviceService.createRelationship(params.packageName, relationship);
+              await services.serviceService.createRelationship(pkgName, relationship);
               logger.info(`AI created relationship: ${params.sourceEntityName} -> ${params.targetEntityName}`);
               return { success: true, message: `Created relationship: ${params.sourceEntityName} -> ${params.targetEntityName}` };
             } catch (err: any) {
@@ -233,7 +238,7 @@ export const aiChat = async (req: Request, res: Response) => {
           execute: async (params) => {
             try {
               if (params.packageName) {
-                const entities = await services.serviceService.getServiceEntities(params.packageName);
+                const entities = await services.serviceService.getServiceEntities(params.packageName || 'default');
                 return { entities: entities.map((e: any) => ({ name: e.name, description: e.description, attrCount: e.attributes?.length || 0 })) };
               }
               const { listMicroservices } = await import('../utils/fileOperations.js');
@@ -253,7 +258,7 @@ export const aiChat = async (req: Request, res: Response) => {
           }),
           execute: async (params) => {
             try {
-              const entity = await services.serviceService.getEntitySchema(params.packageName, params.entityName);
+              const entity = await services.serviceService.getEntitySchema(params.packageName || 'default', params.entityName);
               if (!entity) return { error: 'Entity not found' };
               return {
                 name: entity.name,
