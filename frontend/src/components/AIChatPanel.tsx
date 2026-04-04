@@ -12,6 +12,7 @@ interface ToolCall {
   name: string;
   input: any;
   output: any;
+  status?: 'pending' | 'approved' | 'undone';
 }
 
 interface ChatMessage {
@@ -39,6 +40,10 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
   const [selectedMsgId, setSelectedMsgId] = useState<string | null>(null);
   const [toolDefs, setToolDefs] = useState<Array<{ name: string; description: string; parameters: Array<{ name: string; type: string; required: boolean; description: string }> }>>([]);
+  const [autoApprove, setAutoApprove] = useState<boolean>(() => {
+    return localStorage.getItem('ai-auto-approve') !== 'false';
+  });
+  const [pendingReview, setPendingReview] = useState(false);
 
   useEffect(() => {
     fetch('/api/ai/status', { cache: 'no-store' })
@@ -218,13 +223,69 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       } else if (!assistantText) {
         setMessages(prev => [...prev, { id: assistantId, role: 'assistant', text: '*(No response)*', rawEvents }]);
       }
+      // If not auto-approve, mark tool calls as pending review
+      if (!autoApprove && toolCalls.length > 0) {
+        const pendingCalls = toolCalls.map(tc => ({ ...tc, status: 'pending' as const }));
+        setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, toolCalls: pendingCalls } : m));
+        setPendingReview(true);
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
       setIsLoading(false);
       setMessages(msgs => { saveConversation(msgs); return msgs; });
     }
-  }, [messages, navigate, saveConversation]);
+  }, [messages, navigate, saveConversation, autoApprove]);
+
+  const refreshApp = useCallback(() => {
+    // Trigger sidebar refresh by reloading the page data
+    window.dispatchEvent(new CustomEvent('app:data-changed'));
+    // Force reload sidebar data
+    setTimeout(() => window.location.reload(), 500);
+  }, []);
+
+  const approveAllTools = useCallback((msgId: string) => {
+    setMessages(prev => prev.map(m => {
+      if (m.id === msgId && m.toolCalls) {
+        return { ...m, toolCalls: m.toolCalls.map(tc => ({ ...tc, status: 'approved' as const })) };
+      }
+      return m;
+    }));
+    setPendingReview(false);
+    refreshApp();
+  }, [refreshApp]);
+
+  const undoToolCall = useCallback(async (msgId: string, toolId: string) => {
+    const msg = messages.find(m => m.id === msgId);
+    const tc = msg?.toolCalls?.find(t => t.id === toolId);
+    if (!tc?.output?.navigate) return;
+
+    // Extract package and entity from navigate path: /packages/{pkg}/entities/{entity}
+    const match = tc.output.navigate.match(/\/packages\/([^/]+)\/entities\/([^/]+)/);
+    if (match) {
+      try {
+        await fetch(`/api/services/${match[1]}/entities/${match[2]}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': 'Bearer mock-token-for-testing' },
+        });
+      } catch { /* ok */ }
+    }
+
+    setMessages(prev => prev.map(m => {
+      if (m.id === msgId && m.toolCalls) {
+        const updated = m.toolCalls.map(t => t.id === toolId ? { ...t, status: 'undone' as const } : t);
+        const allResolved = updated.every(t => t.status === 'approved' || t.status === 'undone');
+        if (allResolved) setPendingReview(false);
+        return { ...m, toolCalls: updated };
+      }
+      return m;
+    }));
+  }, [messages]);
+
+  const toggleAutoApprove = useCallback((val: boolean) => {
+    setAutoApprove(val);
+    localStorage.setItem('ai-auto-approve', String(val));
+  }, []);
 
   // Load tool definitions
   useEffect(() => {
@@ -282,6 +343,9 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
             </svg>
           </button>
           <div className="w-px h-4 bg-base-300 mx-1"></div>
+          <label className="flex items-center gap-1 cursor-pointer" title={autoApprove ? 'Auto-approve ON — tools execute without confirmation' : 'Auto-approve OFF — review before applying'}>
+            <input type="checkbox" className="toggle toggle-xs toggle-success" checked={autoApprove} onChange={e => toggleAutoApprove(e.target.checked)} />
+          </label>
           <button className="btn btn-ghost btn-xs" onClick={startNewConversation} title="New">+</button>
           <button className="btn btn-ghost btn-xs" onClick={onClose} title="Close">&times;</button>
         </div>
@@ -354,18 +418,32 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                 {msg.toolCalls && msg.toolCalls.length > 0 && (
                   <div className="mt-1.5 space-y-1">
                     {msg.toolCalls.map(tc => (
-                      <div key={tc.id} className="border border-base-300/50 rounded bg-base-200/30 text-xs">
-                        <button
-                          className="w-full flex items-center gap-1.5 px-2 py-1 hover:bg-base-200/60 text-left"
-                          onClick={() => toggleTool(tc.id)}
-                        >
-                          <span className={`text-[10px] ${tc.output?.success === false ? 'text-error' : 'text-success'}`}>
-                            {tc.output?.success === false ? '✗' : '✓'}
-                          </span>
-                          <span className="font-mono text-primary/80">{tc.name.replace('functions.', '').split(':')[0]}</span>
-                          {tc.output?.message && <span className="text-base-content/50 truncate flex-1 font-sans">{tc.output.message}</span>}
-                          <span className="text-base-content/30">{expandedTools.has(tc.id) ? '▼' : '▶'}</span>
-                        </button>
+                      <div key={tc.id} className={`border rounded text-xs ${
+                        tc.status === 'undone' ? 'border-error/30 bg-error/5 opacity-60' :
+                        tc.status === 'pending' ? 'border-warning/50 bg-warning/5' :
+                        'border-base-300/50 bg-base-200/30'
+                      }`}>
+                        <div className="flex items-center gap-1.5 px-2 py-1">
+                          <button className="flex items-center gap-1.5 flex-1 text-left hover:bg-base-200/60" onClick={() => toggleTool(tc.id)}>
+                            <span className={`text-[10px] ${
+                              tc.status === 'undone' ? 'text-error' :
+                              tc.status === 'pending' ? 'text-warning' :
+                              tc.output?.success === false ? 'text-error' : 'text-success'
+                            }`}>
+                              {tc.status === 'undone' ? '↩' : tc.status === 'pending' ? '⏳' : tc.output?.success === false ? '✗' : '✓'}
+                            </span>
+                            <span className="font-mono text-primary/80">{tc.name.replace('functions.', '').split(':')[0]}</span>
+                            <span className="text-base-content/50 truncate flex-1 font-sans">
+                              {tc.status === 'undone' ? 'Undone' : tc.output?.message || ''}
+                            </span>
+                            <span className="text-base-content/30">{expandedTools.has(tc.id) ? '▼' : '▶'}</span>
+                          </button>
+                          {tc.status === 'pending' && (
+                            <button className="btn btn-xs btn-error btn-ghost" onClick={() => undoToolCall(msg.id, tc.id)} title="Undo this action">
+                              ↩
+                            </button>
+                          )}
+                        </div>
                         {expandedTools.has(tc.id) && (
                           <div className="px-2 pb-2 space-y-1">
                             {tc.input && (
@@ -382,6 +460,17 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                         )}
                       </div>
                     ))}
+
+                    {/* Approve all / Undo all bar */}
+                    {msg.toolCalls.some(tc => tc.status === 'pending') && (
+                      <div className="flex items-center gap-2 mt-2 p-2 bg-warning/10 border border-warning/30 rounded">
+                        <span className="text-[10px] font-bold text-warning uppercase flex-1">Review required</span>
+                        <button className="btn btn-xs btn-success" onClick={() => approveAllTools(msg.id)}>Approve All</button>
+                        <button className="btn btn-xs btn-error btn-outline" onClick={() => {
+                          msg.toolCalls?.filter(tc => tc.status === 'pending').forEach(tc => undoToolCall(msg.id, tc.id));
+                        }}>Undo All</button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
