@@ -22,7 +22,7 @@ interface ChatMessage {
   rawEvents?: any[];
 }
 
-type PanelView = 'chat' | 'history' | 'raw';
+type PanelView = 'chat' | 'history' | 'raw' | 'tools';
 
 export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const navigate = useNavigate();
@@ -38,6 +38,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const [view, setView] = useState<PanelView>('chat');
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
   const [selectedMsgId, setSelectedMsgId] = useState<string | null>(null);
+  const [toolDefs, setToolDefs] = useState<Array<{ name: string; description: string; parameters: Array<{ name: string; type: string; required: boolean; description: string }> }>>([]);
 
   useEffect(() => {
     fetch('/api/ai/status', { cache: 'no-store' })
@@ -225,6 +226,13 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     }
   }, [messages, navigate, saveConversation]);
 
+  // Load tool definitions
+  useEffect(() => {
+    if (view === 'tools' && toolDefs.length === 0) {
+      fetch('/api/ai/tools').then(r => r.json()).then(d => setToolDefs(d.data || [])).catch(() => {});
+    }
+  }, [view]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -266,6 +274,11 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
           <button className={`btn btn-ghost btn-xs ${view === 'raw' ? 'btn-active' : ''}`} onClick={() => setView('raw')} title="Raw messages">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+          </button>
+          <button className={`btn btn-ghost btn-xs ${view === 'tools' ? 'btn-active' : ''}`} onClick={() => setView('tools')} title="Tools">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
             </svg>
           </button>
           <div className="w-px h-4 bg-base-300 mx-1"></div>
@@ -463,6 +476,40 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* === TOOLS VIEW === */}
+        {view === 'tools' && (
+          <div className="p-3 space-y-3">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-base-content/50 mb-2">
+              Available Tools ({toolDefs.length})
+            </div>
+            {toolDefs.map(tool => (
+              <div key={tool.name} className="border border-base-300/50 rounded bg-base-200/20">
+                <div className="px-3 py-2">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-mono text-primary font-bold text-xs">{tool.name}</span>
+                  </div>
+                  <p className="text-xs text-base-content/60 font-sans">{tool.description}</p>
+                </div>
+                {tool.parameters.length > 0 && (
+                  <div className="border-t border-base-300/30 px-3 py-2">
+                    <div className="text-[10px] uppercase text-base-content/40 mb-1">Parameters</div>
+                    <div className="space-y-1">
+                      {tool.parameters.map(p => (
+                        <div key={p.name} className="flex items-start gap-2 text-xs">
+                          <code className="text-primary/80 shrink-0">{p.name}</code>
+                          <span className="badge badge-xs badge-ghost shrink-0">{p.type}</span>
+                          {p.required && <span className="badge badge-xs badge-warning shrink-0">req</span>}
+                          <span className="text-base-content/50 font-sans text-[11px]">{p.description}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         )}
       </div>
