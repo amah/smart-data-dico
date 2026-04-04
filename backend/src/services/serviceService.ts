@@ -182,13 +182,13 @@ export class ServiceService {
         };
       }
 
-      // Validate metadata against stereotype
+      // Validate metadata against stereotype (warn but don't block updates)
       if (entity.stereotype) {
         const stereotype = await stereotypeService.getStereotype(entity.stereotype);
         if (stereotype) {
           const metadataErrors = stereotypeService.validateMetadata(stereotype, entity.metadata);
           if (metadataErrors.length > 0) {
-            return { success: false, errors: metadataErrors };
+            logger.warn(`Metadata validation warnings for ${entity.name}: ${metadataErrors.join(', ')}`);
           }
         }
       }

@@ -1,11 +1,10 @@
 import { Request, Response } from 'express';
 import { streamText, tool, convertToModelMessages, createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai';
 import { z } from 'zod';
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
 import { logger } from '../utils/logger.js';
 import { config } from '../kernel/config.js';
+import { getConfigSection, setConfigSection, CONFIG_FILE } from '../utils/appDir.js';
+import { conversationService } from '../services/conversationService.js';
 
 // --- AI Configuration ---
 
@@ -13,29 +12,21 @@ interface AIConfig {
   provider: 'anthropic' | 'openai' | 'openai-compatible';
   model: string;
   apiKey: string;
-  baseURL?: string; // For OpenAI-compatible endpoints
-  name?: string;    // Display name for the provider
+  baseURL?: string;
+  name?: string;
 }
 
-const CONFIG_PATH = path.join(os.homedir(), '.cfg', 'ai-config.json');
-
 function loadAIConfig(): AIConfig | null {
-  // 1. Try config file
-  try {
-    if (fs.existsSync(CONFIG_PATH)) {
-      const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-      if (raw.apiKey && raw.provider) {
-        return {
-          provider: raw.provider,
-          model: raw.model || getDefaultModel(raw.provider),
-          apiKey: raw.apiKey,
-          baseURL: raw.baseURL,
-          name: raw.name,
-        };
-      }
-    }
-  } catch (err) {
-    logger.warn(`Failed to read AI config from ${CONFIG_PATH}: ${err}`);
+  // 1. Try app config file (~/.dico-app/dico-app.json → ai section)
+  const cfg = getConfigSection<AIConfig>('ai');
+  if (cfg?.apiKey && cfg?.provider) {
+    return {
+      provider: cfg.provider,
+      model: cfg.model || getDefaultModel(cfg.provider),
+      apiKey: cfg.apiKey,
+      baseURL: cfg.baseURL,
+      name: cfg.name,
+    };
   }
 
   // 2. Fall back to env vars
@@ -63,10 +54,8 @@ function getDefaultModel(provider: string): string {
 }
 
 function saveAIConfig(cfg: AIConfig): void {
-  const dir = path.dirname(CONFIG_PATH);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8');
-  logger.info(`AI config saved to ${CONFIG_PATH}`);
+  setConfigSection('ai', cfg);
+  logger.info(`AI config saved to ${CONFIG_FILE}`);
 }
 
 async function getModel() {
@@ -381,7 +370,7 @@ export const aiStatus = async (_req: Request, res: Response) => {
     model: cfg?.model || null,
     name: cfg?.name || cfg?.provider || null,
     baseURL: cfg?.baseURL || null,
-    configPath: CONFIG_PATH,
+    configPath: CONFIG_FILE,
   });
 };
 
@@ -390,10 +379,10 @@ export const aiGetConfig = async (_req: Request, res: Response) => {
   res.json({
     provider: cfg?.provider || 'anthropic',
     model: cfg?.model || '',
-    apiKey: cfg?.apiKey ? `${cfg.apiKey.slice(0, 8)}...${cfg.apiKey.slice(-4)}` : '', // Masked
+    apiKey: cfg?.apiKey ? `${cfg.apiKey.slice(0, 8)}...${cfg.apiKey.slice(-4)}` : '',
     baseURL: cfg?.baseURL || '',
     name: cfg?.name || '',
-    configPath: CONFIG_PATH,
+    configPath: CONFIG_FILE,
   });
 };
 
@@ -411,8 +400,34 @@ export const aiSaveConfig = async (req: Request, res: Response) => {
       ...(name ? { name } : {}),
     };
     saveAIConfig(cfg);
-    res.json({ message: 'AI configuration saved', configPath: CONFIG_PATH });
+    res.json({ message: 'AI configuration saved', configPath: CONFIG_FILE });
   } catch (err: any) {
     res.status(500).json({ message: 'Failed to save config', error: err.message });
   }
+};
+
+// --- Conversation persistence endpoints ---
+
+export const listConversations = async (_req: Request, res: Response) => {
+  res.json({ data: conversationService.list() });
+};
+
+export const getConversation = async (req: Request, res: Response) => {
+  const conv = conversationService.get(req.params.id);
+  if (!conv) return res.status(404).json({ message: 'Conversation not found' });
+  res.json({ data: conv });
+};
+
+export const saveConversation = async (req: Request, res: Response) => {
+  try {
+    conversationService.save(req.body);
+    res.json({ message: 'Conversation saved' });
+  } catch (err: any) {
+    res.status(500).json({ message: 'Failed to save', error: err.message });
+  }
+};
+
+export const deleteConversation = async (req: Request, res: Response) => {
+  conversationService.delete(req.params.id);
+  res.json({ message: 'Conversation deleted' });
 };

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { servicesApi, relationshipApi, stereotypeApi } from '../services/api';
 import { Entity, Attribute, Relationship, Stereotype, ImpactAnalysis, EntityStatus } from '../types';
@@ -39,6 +39,44 @@ const EntityDetail = (props: EntityDetailProps) => {
     stereotypeApi.getAll('entity').then(setStereotypes).catch(() => {});
   }, []);
 
+  const fetchEntityData = useCallback(async (showLoader = true) => {
+    if (!service || !entity) return;
+
+    try {
+      if (showLoader) setLoading(true);
+      const response = await servicesApi.getEntitySchema(service, entity);
+      setEntityData(response.data);
+
+      // Resolve stereotype
+      if (response.data?.stereotype) {
+        try {
+          const st = await stereotypeApi.getById(response.data.stereotype);
+          setCurrentStereotype(st);
+        } catch { /* ok */ }
+      }
+
+      // Fetch relationships from package level
+      try {
+        const rels = await relationshipApi.getPackageRelationships(service);
+        const entityUuid = response.data?.uuid;
+        if (entityUuid) {
+          setRelationships(rels.filter(
+            (r: Relationship) => r.source.entity === entityUuid || r.target.entity === entityUuid
+          ));
+        }
+      } catch {
+        setRelationships([]);
+      }
+
+      setError(null);
+    } catch (err) {
+      console.error(`Error fetching entity ${entity} for service ${service}:`, err);
+      setError('Failed to load entity details. Please try again later.');
+    } finally {
+      setLoading(false);
+    }
+  }, [service, entity]);
+
   useEffect(() => {
     const isCreatePath = window.location.pathname.endsWith('/create');
 
@@ -47,46 +85,6 @@ const EntityDetail = (props: EntityDetailProps) => {
       setLoading(false);
       return;
     }
-
-    const fetchEntityData = async () => {
-      if (!service || !entity) return;
-
-      try {
-        setLoading(true);
-        const response = await servicesApi.getEntitySchema(service, entity);
-        setEntityData(response.data);
-
-        // Resolve stereotype
-        if (response.data?.stereotype) {
-          try {
-            const st = await stereotypeApi.getById(response.data.stereotype);
-            setCurrentStereotype(st);
-          } catch { /* ok */ }
-        }
-
-        // Fetch relationships from package level
-        try {
-          const rels = await relationshipApi.getPackageRelationships(service);
-          // Filter to relationships involving this entity
-          const entityUuid = response.data?.uuid;
-          if (entityUuid) {
-            setRelationships(rels.filter(
-              (r: Relationship) => r.source.entity === entityUuid || r.target.entity === entityUuid
-            ));
-          }
-        } catch {
-          // Relationships may not exist yet
-          setRelationships([]);
-        }
-
-        setError(null);
-      } catch (err) {
-        console.error(`Error fetching entity ${entity} for service ${service}:`, err);
-        setError('Failed to load entity details. Please try again later.');
-      } finally {
-        setLoading(false);
-      }
-    };
 
     fetchEntityData();
   }, [service, entity]);
@@ -426,6 +424,7 @@ const EntityDetail = (props: EntityDetailProps) => {
                 attributes={entityData.attributes}
                 entityName={entityData.name}
                 serviceName={service || ''}
+                onAttributeUpdated={() => fetchEntityData(false)}
               />
             )}
 
