@@ -1,6 +1,4 @@
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { useChat, Chat } from '@ai-sdk/react';
-import { DefaultChatTransport, type UIMessage } from 'ai';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 interface AIChatPanelProps {
@@ -17,6 +15,9 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const [localMessages, setLocalMessages] = useState<Array<{ id: string; role: string; text: string }>>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [conversationId, setConversationId] = useState<string>(crypto.randomUUID());
+  const [conversationList, setConversationList] = useState<Array<{ id: string; title: string; messageCount: number; updatedAt: string }>>([]);
+  const [showHistory, setShowHistory] = useState(false);
 
   // Check if AI is available (no-store to avoid stale cache)
   useEffect(() => {
@@ -25,6 +26,53 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       .then(d => setAiAvailable(d.available))
       .catch(() => setAiAvailable(false));
   }, [open]);
+
+  // Load conversation list
+  useEffect(() => {
+    if (open) {
+      fetch('/api/ai/conversations').then(r => r.json()).then(d => setConversationList(d.data || [])).catch(() => {});
+    }
+  }, [open, localMessages.length]);
+
+  // Save conversation after each message
+  const saveConversation = useCallback((msgs: typeof localMessages) => {
+    if (msgs.length === 0) return;
+    const conv = {
+      id: conversationId,
+      title: msgs.find(m => m.role === 'user')?.text.slice(0, 60) || 'New conversation',
+      messages: msgs.map(m => ({ ...m, timestamp: new Date().toISOString() })),
+      createdAt: msgs[0]?.id ? new Date().toISOString() : new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    fetch('/api/ai/conversations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(conv),
+    }).catch(() => {});
+  }, [conversationId]);
+
+  const loadConversation = useCallback((id: string) => {
+    fetch(`/api/ai/conversations/${id}`).then(r => r.json()).then(d => {
+      if (d.data) {
+        setConversationId(d.data.id);
+        setLocalMessages(d.data.messages);
+        setShowHistory(false);
+      }
+    }).catch(() => {});
+  }, []);
+
+  const startNewConversation = useCallback(() => {
+    setConversationId(crypto.randomUUID());
+    setLocalMessages([]);
+    setShowHistory(false);
+  }, []);
+
+  const deleteConversation = useCallback((id: string) => {
+    fetch(`/api/ai/conversations/${id}`, { method: 'DELETE' }).then(() => {
+      setConversationList(prev => prev.filter(c => c.id !== id));
+      if (id === conversationId) startNewConversation();
+    }).catch(() => {});
+  }, [conversationId, startNewConversation]);
 
   const sendToAI = useCallback(async (text: string) => {
     const userMsg = { id: crypto.randomUUID(), role: 'user', text };
@@ -116,8 +164,10 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       setError(err.message);
     } finally {
       setIsLoading(false);
+      // Save after response completes
+      setLocalMessages(msgs => { saveConversation(msgs); return msgs; });
     }
-  }, [localMessages, navigate]);
+  }, [localMessages, navigate, saveConversation]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -155,6 +205,18 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
           <span className="font-semibold text-sm">AI Assistant</span>
           {isLoading && <span className="loading loading-dots loading-xs text-primary"></span>}
         </div>
+        <div className="flex items-center gap-1">
+          <button className="btn btn-ghost btn-xs" onClick={startNewConversation} title="New conversation">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+            </svg>
+          </button>
+          <button className="btn btn-ghost btn-xs" onClick={() => setShowHistory(!showHistory)} title="History">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+            </svg>
+          </button>
+        </div>
         <button className="btn btn-ghost btn-xs btn-circle" onClick={onClose}>
           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -170,7 +232,33 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
           </div>
         )}
 
-        {localMessages.length === 0 && aiAvailable && (
+        {showHistory && (
+          <div className="space-y-1">
+            <div className="text-xs font-semibold text-base-content/60 mb-2">Conversation History</div>
+            {conversationList.length === 0 ? (
+              <div className="text-xs text-base-content/40">No saved conversations</div>
+            ) : conversationList.map(conv => (
+              <div key={conv.id} className="flex items-center gap-2 group">
+                <button
+                  className={`btn btn-xs btn-block justify-start text-left font-normal flex-1 ${conv.id === conversationId ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => loadConversation(conv.id)}
+                >
+                  <span className="truncate">{conv.title}</span>
+                  <span className="text-xs opacity-50 ml-auto">{conv.messageCount}</span>
+                </button>
+                <button
+                  className="btn btn-xs btn-ghost text-error opacity-0 group-hover:opacity-100"
+                  onClick={() => deleteConversation(conv.id)}
+                >
+                  &times;
+                </button>
+              </div>
+            ))}
+            <div className="divider my-1"></div>
+          </div>
+        )}
+
+        {localMessages.length === 0 && aiAvailable && !showHistory && (
           <div className="text-center text-base-content/50 mt-8 space-y-3">
             <p className="text-sm">Ask me to help with your data model.</p>
             <div className="space-y-2">

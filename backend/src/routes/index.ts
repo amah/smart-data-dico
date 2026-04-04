@@ -119,11 +119,15 @@ router.delete('/api/diagrams/:id', authorizeJwt([UserRole.ADMIN]), diagramContro
 
 // AI Chat API
 try {
-  const { aiChat, aiStatus, aiGetConfig, aiSaveConfig } = await import('../controllers/aiController.js');
+  const { aiChat, aiStatus, aiGetConfig, aiSaveConfig, listConversations, getConversation, saveConversation, deleteConversation } = await import('../controllers/aiController.js');
   router.post('/api/ai/chat', aiChat);
   router.get('/api/ai/status', aiStatus);
   router.get('/api/ai/config', aiGetConfig);
   router.post('/api/ai/config', aiSaveConfig);
+  router.get('/api/ai/conversations', listConversations);
+  router.get('/api/ai/conversations/:id', getConversation);
+  router.post('/api/ai/conversations', saveConversation);
+  router.delete('/api/ai/conversations/:id', deleteConversation);
 } catch {
   // AI dependencies not available (optional feature)
 }
