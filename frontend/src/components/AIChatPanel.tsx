@@ -46,9 +46,19 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       .catch(() => setAiAvailable(false));
   }, [open]);
 
+  // Load conversation list and auto-resume the most recent one on first open
+  const hasAutoLoaded = useRef(false);
   useEffect(() => {
     if (open) {
-      fetch('/api/ai/conversations').then(r => r.json()).then(d => setConversationList(d.data || [])).catch(() => {});
+      fetch('/api/ai/conversations').then(r => r.json()).then(d => {
+        const list = d.data || [];
+        setConversationList(list);
+        // Auto-load the most recent conversation on first open if no messages yet
+        if (!hasAutoLoaded.current && messages.length === 0 && list.length > 0) {
+          hasAutoLoaded.current = true;
+          loadConversation(list[0].id);
+        }
+      }).catch(() => {});
     }
   }, [open, messages.length]);
 
