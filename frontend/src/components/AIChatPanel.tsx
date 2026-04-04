@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect } from 'react';
-import { useChat } from '@ai-sdk/react';
-import { DefaultChatTransport } from 'ai';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { useChat, Chat } from '@ai-sdk/react';
+import { DefaultChatTransport, type UIMessage } from 'ai';
 import { useNavigate } from 'react-router-dom';
 
 interface AIChatPanelProps {
@@ -8,15 +8,15 @@ interface AIChatPanelProps {
   onClose: () => void;
 }
 
-// Create transport once (reusable across renders)
-const chatTransport = new DefaultChatTransport({ api: '/api/ai/chat' });
-
 export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const navigate = useNavigate();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [input, setInput] = useState('');
   const [aiAvailable, setAiAvailable] = useState<boolean | null>(null);
+  const [localMessages, setLocalMessages] = useState<Array<{ id: string; role: string; text: string }>>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Check if AI is available (no-store to avoid stale cache)
   useEffect(() => {
@@ -26,26 +26,103 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       .catch(() => setAiAvailable(false));
   }, [open]);
 
-  const { messages, sendMessage, status, error } = useChat({
-    transport: chatTransport,
-    onToolCall: ({ toolCall }) => {
-      // Handle navigation tool calls
-      if (toolCall.toolName === 'navigateTo' && toolCall.args) {
-        const args = toolCall.args as any;
-        if (args.path) navigate(args.path);
-      }
-    },
-    onError: (err) => {
-      console.error('AI chat error:', err);
-    },
-  });
+  const sendToAI = useCallback(async (text: string) => {
+    const userMsg = { id: crypto.randomUUID(), role: 'user', text };
+    setLocalMessages(prev => [...prev, userMsg]);
+    setIsLoading(true);
+    setError(null);
 
-  const isLoading = status === 'submitted' || status === 'streaming';
+    try {
+      // Build UIMessage array for the API
+      const allMessages = [...localMessages, userMsg];
+      const apiMessages = allMessages.map(m => ({
+        id: m.id,
+        role: m.role,
+        parts: [{ type: 'text', text: m.text }],
+      }));
+
+      const response = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: apiMessages }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.message || 'AI request failed');
+      }
+
+      // Read SSE stream
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No response body');
+
+      const decoder = new TextDecoder();
+      let assistantText = '';
+      const assistantId = crypto.randomUUID();
+      const toolResults: Array<{ name: string; result: any }> = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n').filter(l => l.startsWith('data: '));
+
+        for (const line of lines) {
+          try {
+            const data = JSON.parse(line.slice(6));
+
+            if (data.type === 'text-delta' && data.delta) {
+              assistantText += data.delta;
+              // Update the assistant message in real-time
+              setLocalMessages(prev => {
+                const existing = prev.find(m => m.id === assistantId);
+                if (existing) {
+                  return prev.map(m => m.id === assistantId ? { ...m, text: assistantText } : m);
+                }
+                return [...prev, { id: assistantId, role: 'assistant', text: assistantText }];
+              });
+            }
+
+            if (data.type === 'tool-output-available') {
+              toolResults.push({ name: data.toolCallId, result: data.output });
+              // Handle navigation
+              if (data.output?.navigate) {
+                navigate(data.output.navigate);
+              }
+            }
+          } catch {
+            // Skip unparseable lines
+          }
+        }
+      }
+
+      // If we got tool results but no text, add a summary
+      if (!assistantText && toolResults.length > 0) {
+        assistantText = toolResults.map(t => {
+          if (t.result?.message) return t.result.message;
+          if (t.result?.packages) return `Packages: ${t.result.packages.join(', ')}`;
+          if (t.result?.entities) return `Found ${t.result.entities.length} entities`;
+          return JSON.stringify(t.result);
+        }).join('\n');
+        setLocalMessages(prev => [...prev, { id: assistantId, role: 'assistant', text: assistantText }]);
+      }
+
+      // Ensure assistant message exists even if empty
+      if (!assistantText && toolResults.length === 0) {
+        setLocalMessages(prev => [...prev, { id: assistantId, role: 'assistant', text: '(No response)' }]);
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [localMessages, navigate]);
 
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [localMessages]);
 
   // Focus input when panel opens
   useEffect(() => {
@@ -57,12 +134,12 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
-    sendMessage({ text: input.trim() });
+    sendToAI(input.trim());
     setInput('');
   };
 
   const handleSuggestion = (text: string) => {
-    sendMessage({ text });
+    sendToAI(text);
   };
 
   if (!open) return null;
@@ -93,7 +170,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
           </div>
         )}
 
-        {messages.length === 0 && aiAvailable && (
+        {localMessages.length === 0 && aiAvailable && (
           <div className="text-center text-base-content/50 mt-8 space-y-3">
             <p className="text-sm">Ask me to help with your data model.</p>
             <div className="space-y-2">
@@ -116,53 +193,19 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
           </div>
         )}
 
-        {messages.map((msg) => (
+        {localMessages.map((msg) => (
           <div key={msg.id} className={`chat ${msg.role === 'user' ? 'chat-end' : 'chat-start'}`}>
             <div className={`chat-bubble text-sm whitespace-pre-wrap ${
               msg.role === 'user' ? 'chat-bubble-primary' : ''
             }`}>
-              {/* Render parts */}
-              {msg.parts?.map((part, i) => {
-                if (part.type === 'text') {
-                  return <span key={i}>{part.text}</span>;
-                }
-                if (part.type === 'tool-invocation') {
-                  const toolPart = part as any;
-                  const result = toolPart.result;
-                  if (!result) {
-                    return (
-                      <div key={i} className="mt-1 text-xs opacity-70 italic">
-                        Calling {toolPart.toolName}...
-                      </div>
-                    );
-                  }
-
-                  if (toolPart.toolName === 'navigateTo') {
-                    return (
-                      <div key={i} className="mt-1 text-xs opacity-70 italic">
-                        Navigated: {result.reason}
-                      </div>
-                    );
-                  }
-
-                  if (result.success !== undefined) {
-                    return (
-                      <div key={i} className="mt-1 badge badge-sm gap-1 badge-ghost">
-                        {result.success ? '✓' : '✗'} {result.message || result.error}
-                      </div>
-                    );
-                  }
-                  return null;
-                }
-                return null;
-              }) || <span>{msg.content}</span>}
+              {msg.text}
             </div>
           </div>
         ))}
 
         {error && (
           <div className="alert alert-error text-xs">
-            <span>{error.message}</span>
+            <span>{error}</span>
           </div>
         )}
 

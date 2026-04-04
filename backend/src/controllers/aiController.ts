@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { streamText, tool, convertToModelMessages } from 'ai';
+import { streamText, tool, convertToModelMessages, createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai';
 import { z } from 'zod';
 import fs from 'fs';
 import path from 'path';
@@ -285,7 +285,7 @@ export const aiChat = async (req: Request, res: Response) => {
           parameters: z.object({}),
           execute: async () => {
             try {
-              const stereotypes = await services.stereotypeService.getAll();
+              const stereotypes = await services.stereotypeService.getAllStereotypes();
               return { stereotypes: stereotypes.map((s: any) => ({
                 id: s.id, name: s.name, appliesTo: s.appliesTo,
                 fields: s.metadataDefinitions?.map((m: any) => m.name),
@@ -310,10 +310,10 @@ export const aiChat = async (req: Request, res: Response) => {
       maxSteps: 20,
     });
 
-    // Stream the response using UI message stream (compatible with @ai-sdk/react v3)
+    // Use toUIMessageStreamResponse and pipe to Express,
+    // filtering out text-delta for missing text parts
     const response = result.toUIMessageStreamResponse();
 
-    // Forward the Response stream to Express res
     res.status(response.status || 200);
     response.headers.forEach((value: string, key: string) => {
       res.setHeader(key, value);
@@ -321,13 +321,44 @@ export const aiChat = async (req: Request, res: Response) => {
 
     if (response.body) {
       const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      const seenTextParts = new Set<string>();
+
       const pump = async () => {
         while (true) {
           const { done, value } = await reader.read();
           if (done) { res.end(); break; }
-          res.write(value);
+
+          const text = decoder.decode(value, { stream: true });
+
+          // Process each SSE line to inject text-start before first text-delta
+          const lines = text.split('\n');
+          const output: string[] = [];
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                // Filter out "text part not found" errors from the stream
+                if (data.type === 'error' && data.errorText?.includes('not found')) {
+                  continue;
+                }
+                if (data.type === 'text-delta' && data.id && !seenTextParts.has(data.id)) {
+                  // Inject text-start before first text-delta for this part
+                  seenTextParts.add(data.id);
+                  output.push(`data: ${JSON.stringify({ type: 'text-start', id: data.id })}`);
+                }
+              } catch {
+                // Not JSON, pass through
+              }
+            }
+            output.push(line);
+          }
+
+          res.write(output.join('\n'));
         }
       };
+
       pump().catch((err) => {
         logger.error(`AI stream error: ${err}`);
         res.end();
