@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { streamText, tool, convertToModelMessages, createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai';
+import { streamText, generateText, tool, convertToModelMessages, createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai';
 import { z } from 'zod';
 import { logger } from '../utils/logger.js';
 import { config } from '../kernel/config.js';
@@ -73,8 +73,9 @@ async function getModel() {
   const provider = createOpenAI({
     apiKey: cfg.apiKey,
     ...(cfg.baseURL ? { baseURL: cfg.baseURL } : {}),
+    compatibility: 'compatible', // Don't use strict mode for tools
   });
-  return provider(cfg.model);
+  return provider(cfg.model, { structuredOutputs: false });
 }
 
 // Dynamic import of services (they use ESM)
@@ -117,6 +118,150 @@ When the user asks to create a model:
 
 Be concise in your responses. Show a summary of what you created.`;
 
+// Direct chat handler for OpenAI-compatible providers (bypasses AI SDK)
+async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawMessages: any[], services: any) {
+  const { callWithTools } = await import('../utils/aiDirectClient.js');
+
+  // Convert UIMessages to OpenAI format
+  const messages: any[] = [
+    { role: 'system', content: SYSTEM_PROMPT },
+  ];
+  for (const msg of rawMessages) {
+    const text = msg.parts?.find((p: any) => p.type === 'text')?.text || msg.content || '';
+    if (text) messages.push({ role: msg.role, content: text });
+  }
+
+  // Build tool definitions
+  const toolDefs = [
+    { type: 'function' as const, function: { name: 'createEntity', description: 'Create an entity. entityJson is a JSON string with packageName, name, description, stereotype, attributes array.', parameters: { type: 'object', required: ['entityJson'], properties: { entityJson: { type: 'string', description: 'JSON: {"packageName":"pkg","name":"Entity","description":"...","attributes":[{"name":"id","type":"string","required":true,"primaryKey":true}]}' } } } } },
+    { type: 'function' as const, function: { name: 'createRelationship', description: 'Create a relationship. JSON string parameter.', parameters: { type: 'object', required: ['relationshipJson'], properties: { relationshipJson: { type: 'string', description: 'JSON: {"packageName":"pkg","sourceEntityName":"A","targetEntityName":"B","sourceCardinality":"one","targetCardinality":"many","description":"..."}' } } } } },
+    { type: 'function' as const, function: { name: 'listEntities', description: 'List packages or entities in a package', parameters: { type: 'object', properties: { packageName: { type: 'string', description: 'Package name (omit to list all)' } } } } },
+    { type: 'function' as const, function: { name: 'listStereotypes', description: 'List available stereotypes', parameters: { type: 'object', properties: {} } } },
+    { type: 'function' as const, function: { name: 'navigateTo', description: 'Navigate user to a page', parameters: { type: 'object', required: ['path', 'reason'], properties: { path: { type: 'string' }, reason: { type: 'string' } } } } },
+  ];
+
+  // Tool executor
+  const executeTool = async (name: string, args: any): Promise<any> => {
+    try {
+      if (name === 'createEntity') {
+        let parsed: any;
+        try { parsed = JSON.parse(args.entityJson || '{}'); } catch { return { success: false, error: 'Invalid JSON' }; }
+        if (!parsed.name || !parsed.attributes) return { success: false, error: 'Missing name or attributes' };
+
+        const pkgName = parsed.packageName || 'default';
+        const { listMicroservices, ensureDirectoryStructure } = await import('../utils/fileOperations.js');
+        const existing = await listMicroservices();
+        if (!existing.includes(pkgName)) await ensureDirectoryStructure(pkgName);
+
+        const entity = {
+          uuid: crypto.randomUUID(),
+          name: parsed.name,
+          description: parsed.description || '',
+          stereotype: parsed.stereotype,
+          status: 'draft',
+          attributes: (parsed.attributes || []).map((a: any) => ({
+            uuid: crypto.randomUUID(), name: a.name, type: a.type || 'string',
+            description: a.description || '', required: a.required ?? false, primaryKey: a.primaryKey,
+            constraints: a.enumValues ? { enumValues: a.enumValues } : undefined,
+          })),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        await services.serviceService.createEntity(pkgName, entity);
+        return { success: true, message: `Created entity ${parsed.name} with ${entity.attributes.length} attributes`, navigate: `/packages/${pkgName}/entities/${parsed.name}` };
+      }
+      if (name === 'createRelationship') {
+        let p: any;
+        try { p = JSON.parse(args.relationshipJson || '{}'); } catch { return { success: false, error: 'Invalid JSON' }; }
+        if (!p.sourceEntityName || !p.targetEntityName) return { success: false, error: 'Missing entity names' };
+        const pkgName = p.packageName || 'default';
+        const src = await services.serviceService.getEntitySchema(pkgName, p.sourceEntityName);
+        const tgt = await services.serviceService.getEntitySchema(pkgName, p.targetEntityName);
+        if (!src || !tgt) return { success: false, error: `Entity not found` };
+        await services.serviceService.createRelationship(pkgName, {
+          uuid: crypto.randomUUID(), description: p.description || '',
+          source: { entity: src.uuid, cardinality: p.sourceCardinality || 'one' },
+          target: { entity: tgt.uuid, cardinality: p.targetCardinality || 'many' },
+        });
+        return { success: true, message: `Created relationship: ${p.sourceEntityName} -> ${p.targetEntityName}` };
+      }
+      if (name === 'listEntities') {
+        if (args.packageName) {
+          const entities = await services.serviceService.getServiceEntities(args.packageName);
+          return { entities: entities.map((e: any) => ({ name: e.name, description: e.description })) };
+        }
+        const { listMicroservices } = await import('../utils/fileOperations.js');
+        return { packages: await listMicroservices() };
+      }
+      if (name === 'listStereotypes') {
+        const stereotypes = await services.stereotypeService.getAllStereotypes();
+        return { stereotypes: stereotypes.map((s: any) => ({ id: s.id, name: s.name, appliesTo: s.appliesTo, fields: s.metadataDefinitions?.map((m: any) => m.name) })) };
+      }
+      if (name === 'navigateTo') {
+        return { navigate: args.path, reason: args.reason };
+      }
+      return { error: `Unknown tool: ${name}` };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  };
+
+  // Stream SSE events to frontend
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  const sendEvent = (data: any) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  sendEvent({ type: 'start' });
+
+  try {
+    const result = await callWithTools(
+      { apiKey: cfg.apiKey, baseURL: cfg.baseURL!, model: cfg.model },
+      messages,
+      toolDefs,
+      executeTool,
+      15,
+      (event) => {
+        if (event.type === 'text') {
+          const id = crypto.randomUUID();
+          sendEvent({ type: 'text-start', id });
+          // Split text into words for streaming effect
+          for (const word of event.text.split(' ')) {
+            sendEvent({ type: 'text-delta', id, delta: word + ' ' });
+          }
+        }
+        if (event.type === 'tool-start') {
+          sendEvent({ type: 'tool-input-start', toolCallId: `${event.name}:0`, toolName: event.name });
+          sendEvent({ type: 'tool-input-available', toolCallId: `${event.name}:0`, toolName: event.name, input: event.input });
+        }
+        if (event.type === 'tool-end') {
+          sendEvent({ type: 'tool-output-available', toolCallId: `${event.name}:0`, output: event.output });
+        }
+      },
+    );
+
+    // If there's final text after tool calls
+    if (result.text && result.toolCalls.length > 0) {
+      const id = crypto.randomUUID();
+      sendEvent({ type: 'text-start', id });
+      for (const word of result.text.split(' ')) {
+        sendEvent({ type: 'text-delta', id, delta: word + ' ' });
+      }
+    }
+
+    sendEvent({ type: 'finish', finishReason: 'stop' });
+  } catch (err: any) {
+    sendEvent({ type: 'error', errorText: err.message });
+  }
+
+  sendEvent({ type: 'done' });
+  res.write('data: [DONE]\n\n');
+  res.end();
+}
+
 export const aiChat = async (req: Request, res: Response) => {
   try {
     const cfg = loadAIConfig();
@@ -131,11 +276,17 @@ export const aiChat = async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'messages array required' });
     }
 
-    // Convert UIMessages (from @ai-sdk/react v3) to ModelMessages (for streamText)
-    const messages = await convertToModelMessages(rawMessages);
-
-    const model = await getModel();
     const services = await getServices();
+
+    // For OpenAI-compatible providers, use direct client (AI SDK has tool-calling bugs)
+    if (cfg.provider === 'openai-compatible' && cfg.baseURL) {
+      const { callWithTools } = await import('../utils/aiDirectClient.js');
+      return await handleDirectChat(req, res, cfg, rawMessages, services);
+    }
+
+    // For Anthropic/OpenAI, use Vercel AI SDK (works correctly)
+    const messages = await convertToModelMessages(rawMessages);
+    const model = await getModel();
 
     const result = streamText({
       model,
@@ -415,6 +566,37 @@ export const aiSaveConfig = async (req: Request, res: Response) => {
     res.json({ message: 'AI configuration saved', configPath: CONFIG_FILE });
   } catch (err: any) {
     res.status(500).json({ message: 'Failed to save config', error: err.message });
+  }
+};
+
+// --- Debug: test tool calling with generateText (non-streaming) ---
+export const aiTestTools = async (req: Request, res: Response) => {
+  try {
+    const model = await getModel();
+    const result = await generateText({
+      model,
+      system: 'You are a helpful assistant. When asked to create something, use the createEntity tool.',
+      messages: [{ role: 'user' as const, content: req.body.prompt || 'Create a Product entity in e-commerce with productId, name, price' }],
+      tools: {
+        createEntity: tool({
+          description: 'Create an entity. entityJson is a JSON string.',
+          parameters: z.object({
+            entityJson: z.string().describe('JSON with name, packageName, attributes'),
+          }),
+          execute: async (params) => {
+            return { received: params, success: true };
+          },
+        }),
+      },
+      maxSteps: 3,
+    });
+    res.json({
+      text: result.text,
+      toolCalls: result.steps.flatMap(s => s.toolCalls),
+      toolResults: result.steps.flatMap(s => s.toolResults),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 };
 

@@ -132,6 +132,8 @@ try {
   router.get('/api/ai/config', aiGetConfig);
   router.post('/api/ai/config', aiSaveConfig);
   router.get('/api/ai/tools', aiTools);
+  const { aiTestTools } = await import('../controllers/aiController.js');
+  router.post('/api/ai/test-tools', aiTestTools);
   router.get('/api/ai/conversations', listConversations);
   router.get('/api/ai/conversations/:id', getConversation);
   router.post('/api/ai/conversations', saveConversation);
