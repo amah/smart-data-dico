@@ -104,9 +104,14 @@ When creating data models:
 - Suggest stereotypes when applicable (aggregate-root, reference-data, event, value-object for entities)
 - Create relationships with proper cardinality
 
+IMPORTANT: For createEntity and createRelationship tools, you must pass a SINGLE parameter called entityJson or relationshipJson containing a valid JSON string with all the data.
+
+Example createEntity call:
+entityJson: '{"packageName":"e-commerce","name":"Product","description":"A product in the catalog","stereotype":"aggregate-root","attributes":[{"name":"productId","type":"string","description":"Unique product ID","required":true,"primaryKey":true},{"name":"name","type":"string","description":"Product name","required":true},{"name":"price","type":"number","description":"Product price","required":true}]}'
+
 When the user asks to create a model:
-1. Ask or infer a package name (e.g. "e-commerce", "healthcare"). If the user says "e-commerce data model", use "e-commerce" as the packageName.
-2. ALWAYS provide the packageName parameter in every createEntity and createRelationship call. Never omit it.
+1. Infer a package name from context (e.g. "e-commerce data model" → packageName: "e-commerce").
+2. ALWAYS include packageName in every entityJson and relationshipJson.
 3. Create ALL entities first, then ALL relationships.
 4. After creating everything, use navigateTo to show the package page.
 
@@ -138,62 +143,58 @@ export const aiChat = async (req: Request, res: Response) => {
       messages,
       tools: {
         createEntity: tool({
-          description: 'Create a new entity with attributes in a package. Returns the created entity.',
+          description: 'Create a new entity with attributes in a package. The entityJson parameter must be a JSON string with this structure: {"packageName":"pkg","name":"EntityName","description":"...","stereotype":"aggregate-root","attributes":[{"name":"id","type":"string","description":"...","required":true,"primaryKey":true}]}',
           parameters: z.object({
-            packageName: z.string().describe('The package/service name to create the entity in'),
-            name: z.string().describe('Entity name in PascalCase'),
-            description: z.string().describe('Entity description'),
-            stereotype: z.string().optional().describe('Stereotype id: aggregate-root, reference-data, event, value-object'),
-            attributes: z.array(z.object({
-              name: z.string().describe('Attribute name in camelCase'),
-              type: z.string().describe('Type: string, number, integer, boolean, date, datetime, enum'),
-              description: z.string().describe('Attribute description'),
-              required: z.boolean().describe('Whether required'),
-              primaryKey: z.boolean().optional().describe('Whether this is a primary key'),
-              enumValues: z.array(z.string()).optional().describe('Enum values if type is enum'),
-            })),
+            entityJson: z.string().describe('JSON string containing packageName, name, description, stereotype (optional), and attributes array. Each attribute has name, type, description, required, primaryKey (optional), enumValues (optional).'),
           }),
           execute: async (params) => {
             try {
-              // Validate required parameters (some models send empty tool args)
-              if (!params.name || !params.attributes) {
+              let parsed: any;
+              try {
+                parsed = JSON.parse(params.entityJson || '{}');
+              } catch {
+                return { success: false, error: 'Invalid JSON in entityJson parameter' };
+              }
+              if (!parsed.name || !parsed.attributes) {
                 return {
                   success: false,
-                  error: 'Missing required parameters (name, attributes). Your AI model may not support complex tool schemas. Try a model with better function calling support (Claude, GPT-4o).',
+                  error: 'entityJson must contain name and attributes. Example: {"packageName":"e-commerce","name":"Product","description":"...","attributes":[{"name":"id","type":"string","description":"...","required":true}]}',
                 };
               }
-              const pkgName = params.packageName || 'default';
+              const pkgName = parsed.packageName || 'default';
               const { listMicroservices, ensureDirectoryStructure } = await import('../utils/fileOperations.js');
               const existingServices = await listMicroservices();
               if (!existingServices.includes(pkgName)) {
                 await ensureDirectoryStructure(pkgName);
               }
 
+              const attrs = (parsed.attributes || []).map((a: any) => ({
+                uuid: crypto.randomUUID(),
+                name: a.name,
+                type: a.type || 'string',
+                description: a.description || '',
+                required: a.required ?? false,
+                primaryKey: a.primaryKey,
+                constraints: a.enumValues ? { enumValues: a.enumValues } : undefined,
+              }));
+
               const entity = {
                 uuid: crypto.randomUUID(),
-                name: params.name,
-                description: params.description,
-                stereotype: params.stereotype,
+                name: parsed.name,
+                description: parsed.description || '',
+                stereotype: parsed.stereotype,
                 status: 'draft',
-                attributes: params.attributes.map(a => ({
-                  uuid: crypto.randomUUID(),
-                  name: a.name,
-                  type: a.type,
-                  description: a.description,
-                  required: a.required,
-                  primaryKey: a.primaryKey,
-                  constraints: a.enumValues ? { enumValues: a.enumValues } : undefined,
-                })),
+                attributes: attrs,
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
               };
 
               await services.serviceService.createEntity(pkgName, entity);
-              logger.info(`AI created entity: ${pkgName}/${params.name}`);
+              logger.info(`AI created entity: ${pkgName}/${parsed.name}`);
               return {
                 success: true,
-                message: `Created entity ${params.name} with ${params.attributes.length} attributes`,
-                navigate: `/packages/${pkgName}/entities/${params.name}`,
+                message: `Created entity ${parsed.name} with ${attrs.length} attributes`,
+                navigate: `/packages/${pkgName}/entities/${parsed.name}`,
               };
             } catch (err: any) {
               return { success: false, error: err.message };
@@ -202,41 +203,34 @@ export const aiChat = async (req: Request, res: Response) => {
         }),
 
         createRelationship: tool({
-          description: 'Create a relationship between two entities in the same package',
+          description: 'Create a relationship. Pass a JSON string: {"packageName":"pkg","sourceEntityName":"Order","targetEntityName":"Customer","description":"...","sourceCardinality":"many","targetCardinality":"one"}',
           parameters: z.object({
-            packageName: z.string().describe('The package name'),
-            sourceEntityName: z.string().describe('Source entity name'),
-            targetEntityName: z.string().describe('Target entity name'),
-            description: z.string().describe('Relationship description'),
-            sourceCardinality: z.enum(['one', 'many']).describe('Source cardinality'),
-            targetCardinality: z.enum(['one', 'many']).describe('Target cardinality'),
+            relationshipJson: z.string().describe('JSON string with packageName, sourceEntityName, targetEntityName, description, sourceCardinality (one|many), targetCardinality (one|many)'),
           }),
           execute: async (params) => {
             try {
-              // Look up entity UUIDs
-              if (!params.sourceEntityName || !params.targetEntityName) {
-                return {
-                  success: false,
-                  error: 'Missing required parameters (sourceEntityName, targetEntityName). Your AI model may not support complex tool schemas.',
-                };
+              let p: any;
+              try { p = JSON.parse(params.relationshipJson || '{}'); } catch { return { success: false, error: 'Invalid JSON in relationshipJson' }; }
+              if (!p.sourceEntityName || !p.targetEntityName) {
+                return { success: false, error: 'Missing sourceEntityName or targetEntityName in JSON' };
               }
-              const pkgName = params.packageName || 'default';
-              const sourceEntity = await services.serviceService.getEntitySchema(pkgName, params.sourceEntityName);
-              const targetEntity = await services.serviceService.getEntitySchema(pkgName, params.targetEntityName);
+              const pkgName = p.packageName || 'default';
+              const sourceEntity = await services.serviceService.getEntitySchema(pkgName, p.sourceEntityName);
+              const targetEntity = await services.serviceService.getEntitySchema(pkgName, p.targetEntityName);
 
               if (!sourceEntity || !targetEntity) {
-                return { success: false, error: `Entity not found: ${!sourceEntity ? params.sourceEntityName : params.targetEntityName}` };
+                return { success: false, error: `Entity not found: ${!sourceEntity ? p.sourceEntityName : p.targetEntityName}` };
               }
 
               const relationship = {
                 uuid: crypto.randomUUID(),
-                description: params.description,
-                source: { entity: sourceEntity.uuid, cardinality: params.sourceCardinality },
-                target: { entity: targetEntity.uuid, cardinality: params.targetCardinality },
+                description: p.description || '',
+                source: { entity: sourceEntity.uuid, cardinality: p.sourceCardinality || 'one' },
+                target: { entity: targetEntity.uuid, cardinality: p.targetCardinality || 'many' },
               };
               await services.serviceService.createRelationship(pkgName, relationship);
-              logger.info(`AI created relationship: ${params.sourceEntityName} -> ${params.targetEntityName}`);
-              return { success: true, message: `Created relationship: ${params.sourceEntityName} -> ${params.targetEntityName}` };
+              logger.info(`AI created relationship: ${p.sourceEntityName} -> ${p.targetEntityName}`);
+              return { success: true, message: `Created relationship: ${p.sourceEntityName} -> ${p.targetEntityName}` };
             } catch (err: any) {
               return { success: false, error: err.message };
             }
