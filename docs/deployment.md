@@ -1,328 +1,204 @@
-# Deployment Guide for Data Dictionary Management System
+# Deployment Modes & Architecture
 
-This document provides instructions for deploying the Data Dictionary Management System to various environments.
+Smart Data Dictionary supports two deployment modes: **Desktop** (local, single-user) and **Server** (remote, multi-user). The mode is determined by the `PROFILE` environment variable.
 
-## Prerequisites
-
-- Node.js (v16 or higher)
-- npm (v7 or higher)
-- Git
-- MongoDB (v4.4 or higher) or compatible database
-- A server or cloud platform for hosting (AWS, Azure, GCP, Heroku, etc.)
-
-## Environment Setup
-
-### Environment Variables
-
-The application requires several environment variables to be set. Create a `.env` file in the backend directory with the following variables:
+## Deployment Modes Overview
 
 ```
-# Server Configuration
-PORT=3001
-NODE_ENV=production
-
-# Database Configuration
-DB_URI=mongodb://username:password@hostname:port/database
-
-# Authentication
-JWT_SECRET=your_jwt_secret_key
-JWT_EXPIRATION=24h
-
-# Git Configuration
-GIT_ENABLED=true
-GIT_USER_NAME=Your Name
-GIT_USER_EMAIL=your.email@example.com
-
-# Logging
-LOG_LEVEL=info
+                  Desktop Mode                    Server Mode
+                  ────────────                    ───────────
+Profile           local (default)                 team | server
+Auth              None (auto-admin)               JWT + login page
+Users             Single user                     Multi-user with roles
+Data location     Local directory (--data-dir)     Server-configured path
+Settings          ~/.dico-app/dico-app.json        /data/users/{userId}/prefs.json
+AI conversations  ~/.dico-app/storage/             /data/users/{userId}/conversations/
+AI config         ~/.dico-app/ (user-managed)      Server env vars (admin-managed)
+Git               Local git CLI                    Server-side git (team commits)
+Frontend auth     Hidden (no login page)           Login page + user menu
 ```
 
-### Directory Structure
+## Desktop Mode (Profile: `local`)
 
-Ensure the following directory structure is maintained:
+### Overview
+
+Desktop mode is designed for individual users running the app on their machine. No login is required — the user is automatically authenticated as admin with full access.
+
+### How to Run
+
+```bash
+# Via npx (zero install)
+npx @hamak/smart-data-dico --data-dir ./my-data-dictionary
+
+# Via global install
+npm install -g @hamak/smart-data-dico
+smart-data-dico --data-dir ./my-project
+
+# Via source
+node bin/cli.js --data-dir ./data-dictionaries
+```
+
+### Characteristics
+
+- **No authentication**: Auth middleware is bypassed, user auto-injected as `{ role: 'admin' }`
+- **No login page**: Frontend skips login screen, hides user auth UI
+- **Local storage**: All preferences, AI config, and conversations stored in `~/.dico-app/`
+- **Local git**: Data directory can be a git repo for version control
+- **Single process**: Backend + frontend served from one Node.js process
+- **Auto-open browser**: Opens `http://localhost:{port}` on startup
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | 3001 | Server port |
+| `DATA_DIR` | `./data-dictionaries` | Data directory path |
+| `PROFILE` | `local` | Must be `local` for desktop mode |
+| `ANTHROPIC_API_KEY` | - | AI provider key (optional, or configure in Settings) |
+
+### File Structure
 
 ```
-/app
-  /backend
-    /dist        # Compiled TypeScript
-    /node_modules
-    .env
-  /frontend
-    /dist        # Built frontend assets
-    /node_modules
-  /data-dictionaries  # Directory for storing YAML files
+~/.dico-app/                           # App-level config (per machine)
+├── dico-app.json                      # AI settings, preferences
+└── storage/
+    └── conversations/                 # AI chat history
+        ├── {uuid}.json
+        └── ...
+
+./my-data-dictionary/                  # Data directory (per project)
+├── microservices/
+│   ├── billing/
+│   │   ├── metadata.yaml
+│   │   ├── relationships.yaml
+│   │   └── {uuid}_{EntityName}.yaml
+│   └── ...
+├── perspectives/
+│   └── {uuid}.yaml
+├── diagrams/
+│   └── {id}.json
+└── stereotypes.yaml
 ```
 
-## Deployment Options
-
-### Option 1: Manual Deployment
-
-1. **Build the application**:
-
-   ```bash
-   # Build backend
-   cd backend
-   npm ci
-   npm run build
-
-   # Build frontend
-   cd ../frontend
-   npm ci
-   npm run build
-   ```
-
-2. **Deploy to server**:
-
-   ```bash
-   # Copy files to server
-   scp -r backend/dist backend/package.json backend/package-lock.json user@server:/app/backend/
-   scp -r frontend/dist user@server:/app/frontend/
-   
-   # Install production dependencies on server
-   ssh user@server "cd /app/backend && npm ci --production"
-   
-   # Start the application
-   ssh user@server "cd /app/backend && node dist/server.js"
-   ```
-
-3. **Set up a process manager** (recommended):
-
-   Install PM2 on the server:
-
-   ```bash
-   npm install -g pm2
-   ```
-
-   Create a PM2 configuration file (`ecosystem.config.js`):
-
-   ```javascript
-   module.exports = {
-     apps: [{
-       name: "data-dictionary-api",
-       script: "./dist/server.js",
-       cwd: "/app/backend",
-       env: {
-         NODE_ENV: "production",
-       },
-       instances: "max",
-       exec_mode: "cluster"
-     }]
-   };
-   ```
-
-   Start the application with PM2:
-
-   ```bash
-   pm2 start ecosystem.config.js
-   ```
-
-### Option 2: Docker Deployment
-
-1. **Create a Dockerfile for the backend**:
-
-   ```dockerfile
-   FROM node:16-alpine
-
-   WORKDIR /app
-
-   COPY package*.json ./
-   RUN npm ci --production
-
-   COPY dist ./dist
-
-   EXPOSE 3001
-
-   CMD ["node", "dist/server.js"]
-   ```
-
-2. **Create a Dockerfile for the frontend**:
-
-   ```dockerfile
-   FROM nginx:alpine
-
-   COPY dist /usr/share/nginx/html
-   COPY nginx.conf /etc/nginx/conf.d/default.conf
-
-   EXPOSE 80
-
-   CMD ["nginx", "-g", "daemon off;"]
-   ```
-
-3. **Create a docker-compose.yml file**:
-
-   ```yaml
-   version: '3'
-
-   services:
-     backend:
-       build: ./backend
-       ports:
-         - "3001:3001"
-       environment:
-         - NODE_ENV=production
-         - PORT=3001
-         - DB_URI=mongodb://mongo:27017/data-dictionary
-         - JWT_SECRET=your_jwt_secret
-       volumes:
-         - ./data-dictionaries:/app/data-dictionaries
-       depends_on:
-         - mongo
-
-     frontend:
-       build: ./frontend
-       ports:
-         - "80:80"
-       depends_on:
-         - backend
-
-     mongo:
-       image: mongo:4.4
-       ports:
-         - "27017:27017"
-       volumes:
-         - mongo-data:/data/db
-
-   volumes:
-     mongo-data:
-   ```
-
-4. **Build and run with Docker Compose**:
-
-   ```bash
-   docker-compose up -d
-   ```
-
-### Option 3: Cloud Deployment
-
-#### AWS Elastic Beanstalk
-
-1. Install the EB CLI:
-
-   ```bash
-   pip install awsebcli
-   ```
-
-2. Initialize EB application:
-
-   ```bash
-   eb init
-   ```
-
-3. Create an environment:
-
-   ```bash
-   eb create production
-   ```
-
-4. Deploy:
-
-   ```bash
-   eb deploy
-   ```
-
-#### Heroku
-
-1. Install the Heroku CLI:
-
-   ```bash
-   npm install -g heroku
-   ```
-
-2. Login to Heroku:
-
-   ```bash
-   heroku login
-   ```
-
-3. Create a Heroku app:
-
-   ```bash
-   heroku create data-dictionary-app
-   ```
-
-4. Add a Procfile to the backend directory:
-
-   ```
-   web: node dist/server.js
-   ```
-
-5. Deploy:
-
-   ```bash
-   git push heroku main
-   ```
-
-## Continuous Integration/Deployment
-
-The repository includes GitHub Actions workflows for CI/CD. The workflow:
-
-1. Runs linting and tests on both backend and frontend
-2. Builds the application
-3. Deploys to the development environment on successful builds from the main branch
-
-To set up deployment to additional environments:
-
-1. Add environment secrets in GitHub repository settings
-2. Modify the `.github/workflows/ci-cd.yml` file to include additional deployment jobs
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Connection refused errors**:
-   - Check if the server is running
-   - Verify firewall settings
-   - Ensure correct port configuration
-
-2. **Database connection issues**:
-   - Verify database credentials
-   - Check network connectivity
-   - Ensure database service is running
-
-3. **File permission errors**:
-   - Check permissions on the data-dictionaries directory
-   - Ensure the application has write access
-
-### Logs
-
-- Application logs are available in the console and in log files
-- For PM2-managed applications: `pm2 logs data-dictionary-api`
-- For Docker: `docker-compose logs backend`
-
-## Monitoring
-
-Consider setting up monitoring using:
-
-- PM2 monitoring: `pm2 monit`
-- Prometheus and Grafana for metrics
-- ELK stack for log aggregation
-
-## Backup and Recovery
-
-1. **Database Backup**:
-   ```bash
-   mongodump --uri="mongodb://username:password@hostname:port/database" --out=/backup/directory
-   ```
-
-2. **Data Dictionary Files Backup**:
-   ```bash
-   tar -czvf data-dictionaries-backup.tar.gz /app/data-dictionaries
-   ```
-
-3. **Recovery**:
-   ```bash
-   # Restore database
-   mongorestore --uri="mongodb://username:password@hostname:port/database" /backup/directory
-   
-   # Restore data dictionary files
-   tar -xzvf data-dictionaries-backup.tar.gz -C /
-   ```
-
-## Security Considerations
-
-1. Always use HTTPS in production
-2. Set up proper authentication and authorization
-3. Regularly update dependencies
-4. Implement rate limiting
-5. Use secure headers
-6. Consider adding a Web Application Firewall (WAF)
+## Server Mode (Profile: `team` or `server`)
+
+### Overview
+
+Server mode is designed for teams sharing a data dictionary over a network. Authentication is required, and user preferences are stored server-side.
+
+### Profiles
+
+| Profile | Auth | Git | Use Case |
+|---------|------|-----|----------|
+| `team` | JWT (local accounts) | Auto-commit per user | Small teams, shared server |
+| `server` | JWT + Auth0/OIDC | Central git with PR workflow | Enterprise, production |
+
+### How to Run
+
+```bash
+# Docker
+docker run -p 3001:3001 \
+  -e PROFILE=team \
+  -e JWT_SECRET=your-secret \
+  -e DATA_DIR=/data/dictionaries \
+  -v ./data:/data \
+  hamak/smart-data-dico
+
+# Docker Compose (recommended)
+docker-compose up -d
+```
+
+### Characteristics
+
+- **Login required**: Users must authenticate via login page
+- **Role-based access**: Admin (full), Editor (create/update), Viewer (read-only)
+- **Server-side storage**: Preferences and AI conversations stored per-user on server
+- **Shared data**: All users see the same data directory
+- **Centralized AI config**: AI provider/keys managed by admin via env vars
+- **Git integration**: Team profile auto-commits; server profile supports PR workflows
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | 3001 | Server port |
+| `DATA_DIR` | `/data/dictionaries` | Shared data directory |
+| `PROFILE` | - | `team` or `server` |
+| `JWT_SECRET` | - | **Required**: Secret for JWT signing |
+| `JWT_EXPIRES_IN` | `24h` | Token expiration |
+| `AUTH0_DOMAIN` | - | Auth0 domain (server profile only) |
+| `AUTH0_CLIENT_ID` | - | Auth0 client ID (server profile only) |
+| `ANTHROPIC_API_KEY` | - | AI provider key (shared for all users) |
+| `AI_PROVIDER` | `anthropic` | AI provider type |
+| `AI_MODEL` | `claude-sonnet-4-5-20250514` | AI model |
+| `GIT_AUTO_COMMIT` | `true` | Auto-commit on entity changes |
+
+### User Storage Structure (Server Mode)
+
+```
+/data/
+├── dictionaries/                      # Shared data (all users)
+│   ├── microservices/
+│   ├── perspectives/
+│   ├── diagrams/
+│   └── stereotypes.yaml
+└── users/                             # Per-user storage
+    ├── {userId}/
+    │   ├── prefs.json                 # User preferences
+    │   └── conversations/             # AI chat history
+    │       └── {uuid}.json
+    └── ...
+```
+
+## Architecture Diagram
+
+```
+Desktop Mode:
+┌─────────────────────────────────┐
+│ Browser (localhost:3001)        │
+├─────────────────────────────────┤
+│ Express Server (bundled)        │
+│  ├─ API routes (no auth)        │
+│  ├─ AI chat (user-configured)   │
+│  ├─ Static frontend (SPA)       │
+│  └─ Filesystem + Git            │
+├─────────────────────────────────┤
+│ Local filesystem                │
+│  ├─ ./data-dictionaries/        │
+│  └─ ~/.dico-app/                │
+└─────────────────────────────────┘
+
+Server Mode:
+┌─────────────────────┐     ┌─────────────────────────────────┐
+│ Browser (remote)    │────▶│ Express Server                  │
+│  Login required     │     │  ├─ API routes (JWT auth)        │
+└─────────────────────┘     │  ├─ AI chat (admin-configured)   │
+                            │  ├─ Static frontend (SPA)        │
+                            │  └─ Filesystem + Git             │
+                            ├─────────────────────────────────┤
+                            │ Server filesystem / volume       │
+                            │  ├─ /data/dictionaries/          │
+                            │  └─ /data/users/                 │
+                            └─────────────────────────────────┘
+```
+
+## Implementation Phases
+
+### Phase 1 — Clean Desktop Mode
+- Remove login redirect in local profile
+- Auto-authenticate as admin (bypass auth entirely)
+- Hide login/register UI elements
+- Status endpoint returns `{ mode: 'desktop' | 'server' }`
+- Frontend detects mode and adapts UI
+
+### Phase 2 — Server Mode Foundation
+- Docker deployment with proper auth
+- User-scoped storage service (prefs + conversations)
+- Admin-managed AI config (env vars, not per-user)
+- Role-based tool access in AI chat
+
+### Phase 3 — Multi-User Features
+- Concurrent editing awareness (who's editing what)
+- User activity tracking
+- Event channel for real-time updates (uses @hamak/event-channel)
+- Role-based AI tool approval settings

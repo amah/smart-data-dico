@@ -13,9 +13,16 @@ import { authorizeJwt, verifyToken } from '../middleware/jwtAuth.js';
 
 const router = Router();
 
-// API status route
+// API status route — includes deployment mode info
 router.get('/api/status', (req, res) => {
-  res.json({ status: 'operational' });
+  const profile = process.env.PROFILE || 'local';
+  res.json({
+    status: 'operational',
+    mode: profile === 'local' ? 'desktop' : 'server',
+    profile,
+    version: process.env.npm_package_version || '1.1.1',
+    auth: profile === 'local' ? 'none' : 'jwt',
+  });
 });
 
 router.get('/api/packages/hierarchy/:rootPackage', getPackageHierarchy);
