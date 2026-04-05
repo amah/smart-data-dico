@@ -155,6 +155,13 @@ export const aiChat = async (req: Request, res: Response) => {
           }),
           execute: async (params) => {
             try {
+              // Validate required parameters (some models send empty tool args)
+              if (!params.name || !params.attributes) {
+                return {
+                  success: false,
+                  error: 'Missing required parameters (name, attributes). Your AI model may not support complex tool schemas. Try a model with better function calling support (Claude, GPT-4o).',
+                };
+              }
               const pkgName = params.packageName || 'default';
               const { listMicroservices, ensureDirectoryStructure } = await import('../utils/fileOperations.js');
               const existingServices = await listMicroservices();
@@ -207,6 +214,12 @@ export const aiChat = async (req: Request, res: Response) => {
           execute: async (params) => {
             try {
               // Look up entity UUIDs
+              if (!params.sourceEntityName || !params.targetEntityName) {
+                return {
+                  success: false,
+                  error: 'Missing required parameters (sourceEntityName, targetEntityName). Your AI model may not support complex tool schemas.',
+                };
+              }
               const pkgName = params.packageName || 'default';
               const sourceEntity = await services.serviceService.getEntitySchema(pkgName, params.sourceEntityName);
               const targetEntity = await services.serviceService.getEntitySchema(pkgName, params.targetEntityName);
