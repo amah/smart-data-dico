@@ -39,14 +39,18 @@ import OrganizationDiagramPage from './pages/OrganizationDiagramPage';
 
 // Auth Guard Component
 import AuthGuard from './components/AuthGuard';
+import { useAppMode } from './hooks/useAppMode';
+import { Navigate } from 'react-router-dom';
 
 function App() {
+  const { mode } = useAppMode();
+
   return (
     <Routes>
-      {/* Public Routes */}
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
-      <Route path="/forgot-password" element={<ForgotPassword />} />
+      {/* Public Routes — redirect to home in desktop mode */}
+      <Route path="/login" element={mode === 'desktop' ? <Navigate to="/" replace /> : <Login />} />
+      <Route path="/register" element={mode === 'desktop' ? <Navigate to="/" replace /> : <Register />} />
+      <Route path="/forgot-password" element={mode === 'desktop' ? <Navigate to="/" replace /> : <ForgotPassword />} />
       
       {/* Protected Routes */}
       <Route path="/" element={<ShellLayout />}>

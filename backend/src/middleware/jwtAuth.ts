@@ -14,9 +14,9 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
  * @param next Next function
  */
 export const verifyToken = (req: Request, res: Response, next: NextFunction) => {
-  // Mock token bypass for development and local profile
+  // Desktop mode: skip auth entirely in local profile
   const isLocalProfile = (process.env.PROFILE || 'local') === 'local';
-  if ((process.env.NODE_ENV === 'development' || isLocalProfile) && req.headers.authorization === 'Bearer mock-token-for-testing') {
+  if (isLocalProfile) {
     // Set a mock user for development
     (req as any).user = {
       id: 'dev-user',

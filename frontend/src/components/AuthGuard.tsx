@@ -2,6 +2,7 @@ import { ReactNode, useEffect, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { authApi } from '../services/api';
 import { User } from '../types';
+import { useAppMode } from '../hooks/useAppMode';
 
 interface AuthGuardProps {
   children: ReactNode;
@@ -9,6 +10,12 @@ interface AuthGuardProps {
 }
 
 const AuthGuard = ({ children, roles }: AuthGuardProps) => {
+  const { mode } = useAppMode();
+
+  // Desktop mode: always pass through, no auth needed
+  if (mode === 'desktop') {
+    return <>{children}</>;
+  }
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);

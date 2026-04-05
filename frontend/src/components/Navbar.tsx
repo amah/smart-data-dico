@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { authApi } from '../services/api';
 import GitStatusIndicator from './GitStatusIndicator';
+import { useAppMode } from '../hooks/useAppMode';
 
 function useTheme() {
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -41,6 +42,7 @@ const Navbar = ({ toggleSidebar, toggleChat, chatOpen }: NavbarProps) => {
   const [searchQuery, setSearchQuery] = useState('');
   const navigate = useNavigate();
   const { theme, toggle: toggleTheme } = useTheme();
+  const { mode } = useAppMode();
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -153,8 +155,8 @@ const Navbar = ({ toggleSidebar, toggleChat, chatOpen }: NavbarProps) => {
           </ul>
         </div>
 
-        {/* User menu */}
-        <div className="dropdown dropdown-end">
+        {/* User menu — server mode only */}
+        {mode === 'server' && <div className="dropdown dropdown-end">
           <label tabIndex={0} className="btn btn-ghost btn-sm btn-circle avatar">
             <div className="w-7 rounded-full bg-primary-focus flex items-center justify-center">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -176,7 +178,7 @@ const Navbar = ({ toggleSidebar, toggleChat, chatOpen }: NavbarProps) => {
               </>
             )}
           </ul>
-        </div>
+        </div>}
       </div>
     </div>
   );
