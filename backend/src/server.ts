@@ -52,13 +52,17 @@ app.get('/health', (req: Request, res: Response) => {
 app.use(routes);
 
 // Setup Swagger documentation (dev only — swagger-ui-express requires static
-// assets that aren't available in the production bundle)
-try {
-  const { setupSwagger } = await import('./utils/swagger.js');
-  setupSwagger(app);
-} catch {
-  logger.info('Swagger UI not available (production bundle)');
-}
+// assets that aren't available in the production bundle).
+// Wrapped in an IIFE so the top-level `await` doesn't break CJS transforms
+// (e.g. Jest's ts-jest CommonJS mode used by the integration tests).
+(async () => {
+  try {
+    const { setupSwagger } = await import('./utils/swagger.js');
+    setupSwagger(app);
+  } catch {
+    logger.info('Swagger UI not available (production bundle)');
+  }
+})();
 
 // =============================================================================
 // Framework Filesystem & Git Routes (Phase 1)
@@ -114,9 +118,12 @@ mountFrameworkRoutes().catch((err) => {
 
 // Serve frontend static files in production (BEFORE error handler)
 if (config.isProduction) {
-  // Check multiple possible frontend dist locations
-  // __dirname equivalent for ESM
-  const serverDir = path.dirname(new URL(import.meta.url).pathname);
+  // Check multiple possible frontend dist locations.
+  // __dirname equivalent for ESM. The `import.meta` syntax is hidden from
+  // CJS parsers (used by ts-jest in CommonJS mode for tests) via `new Function`,
+  // since this branch only runs in production and is unreachable from tests.
+  const getServerDir = new Function('return new URL(import.meta.url).pathname') as () => string;
+  const serverDir = path.dirname(getServerDir());
   const candidates = [
     path.join(serverDir, '..', '..', 'frontend', 'dist'),  // npm package (server is at backend/src/)
     path.join(process.cwd(), 'public'),                     // Docker (copied to public/)

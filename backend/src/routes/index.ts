@@ -124,22 +124,29 @@ router.get('/api/diagrams/:id', diagramController.loadDiagramLayout.bind(diagram
 router.put('/api/diagrams/:id', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), diagramController.updateDiagramLayout.bind(diagramController));
 router.delete('/api/diagrams/:id', authorizeJwt([UserRole.ADMIN]), diagramController.deleteDiagramLayout.bind(diagramController));
 
-// AI Chat API
-try {
-  const { aiChat, aiStatus, aiGetConfig, aiSaveConfig, aiTools, listConversations, getConversation, saveConversation, deleteConversation } = await import('../controllers/aiController.js');
-  router.post('/api/ai/chat', aiChat);
-  router.get('/api/ai/status', aiStatus);
-  router.get('/api/ai/config', aiGetConfig);
-  router.post('/api/ai/config', aiSaveConfig);
-  router.get('/api/ai/tools', aiTools);
-  const { aiTestTools } = await import('../controllers/aiController.js');
-  router.post('/api/ai/test-tools', aiTestTools);
-  router.get('/api/ai/conversations', listConversations);
-  router.get('/api/ai/conversations/:id', getConversation);
-  router.post('/api/ai/conversations', saveConversation);
-  router.delete('/api/ai/conversations/:id', deleteConversation);
-} catch {
-  // AI dependencies not available (optional feature)
-}
+// AI Chat API.
+// Wrapped in an async IIFE so the top-level `await import` doesn't break CJS
+// transforms (e.g. ts-jest in CommonJS mode used by integration tests).
+// Routes are registered asynchronously after the controller module loads;
+// the express router accepts late additions, so requests that arrive before
+// the import finishes simply 404 until then.
+(async () => {
+  try {
+    const { aiChat, aiStatus, aiGetConfig, aiSaveConfig, aiTools, listConversations, getConversation, saveConversation, deleteConversation } = await import('../controllers/aiController.js');
+    router.post('/api/ai/chat', aiChat);
+    router.get('/api/ai/status', aiStatus);
+    router.get('/api/ai/config', aiGetConfig);
+    router.post('/api/ai/config', aiSaveConfig);
+    router.get('/api/ai/tools', aiTools);
+    const { aiTestTools } = await import('../controllers/aiController.js');
+    router.post('/api/ai/test-tools', aiTestTools);
+    router.get('/api/ai/conversations', listConversations);
+    router.get('/api/ai/conversations/:id', getConversation);
+    router.post('/api/ai/conversations', saveConversation);
+    router.delete('/api/ai/conversations/:id', deleteConversation);
+  } catch {
+    // AI dependencies not available (optional feature)
+  }
+})();
 
 export default router;
