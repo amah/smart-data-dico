@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { entityApi, servicesApi } from '../services/api';
 import { Entity, Package } from '../types';
+import EditableCell from './EditableCell';
 
 const EntityFlatTable = () => {
   const [entities, setEntities] = useState<{ entity: Entity; packageName: string }[]>([]);
@@ -9,7 +10,6 @@ const EntityFlatTable = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [currentEntity, setCurrentEntity] = useState<{ entity: Entity; packageName: string } | null>(null);
   const [newEntity, setNewEntity] = useState<{ name: string; description: string; packageName: string }>({
@@ -18,21 +18,8 @@ const EntityFlatTable = () => {
     packageName: '',
   });
 
-  // For package dropdown
-  useEffect(() => {
-    const fetchPackages = async () => {
-      try {
-        const pkgs = await entityApi.getAllPackages();
-        setPackages(pkgs);
-      } catch (err) {
-        // ignore package error for filter
-      }
-    };
-    fetchPackages();
-  }, []);
-
   // Fetch entities with filters
-  const fetchEntities = async () => {
+  const fetchEntities = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -49,17 +36,16 @@ const EntityFlatTable = () => {
         }
       }
       setEntities(flatEntities);
-    } catch (err) {
+    } catch {
       setError('Failed to load entities. Please try again.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters]);
 
   useEffect(() => {
     fetchEntities();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchEntities]);
 
   const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFilters({ ...filters, [e.target.name]: e.target.value });
@@ -90,36 +76,10 @@ const EntityFlatTable = () => {
 
       await servicesApi.createEntity(newEntity.packageName, entityToCreate);
       setIsModalOpen(false);
-      setNewEntity({
-        name: '',
-        description: '',
-        packageName: '',
-      });
-      // Refresh the entity list
+      setNewEntity({ name: '', description: '', packageName: '' });
       fetchEntities();
-    } catch (err) {
-      console.error('Error creating entity:', err);
+    } catch {
       setError('Failed to create entity. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Handle updating an entity
-  const handleUpdateEntity = async () => {
-    if (!currentEntity) return;
-
-    setLoading(true);
-    setError(null);
-    try {
-      await servicesApi.updateEntity(currentEntity.packageName, currentEntity.entity.name, currentEntity.entity);
-      setIsEditModalOpen(false);
-      setCurrentEntity(null);
-      // Refresh the entity list
-      fetchEntities();
-    } catch (err) {
-      console.error('Error updating entity:', err);
-      setError('Failed to update entity. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -135,28 +95,38 @@ const EntityFlatTable = () => {
       await servicesApi.deleteEntity(currentEntity.packageName, currentEntity.entity.name);
       setIsDeleteModalOpen(false);
       setCurrentEntity(null);
-      // Refresh the entity list
       fetchEntities();
-    } catch (err) {
-      console.error('Error deleting entity:', err);
+    } catch {
       setError('Failed to delete entity. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
+  /** Inline save for entity field */
+  const saveEntityField = useCallback(async (
+    packageName: string,
+    originalName: string,
+    entity: Entity,
+    field: keyof Entity,
+    value: string,
+  ) => {
+    const updatedEntity = { ...entity, [field]: value };
+    await servicesApi.updateEntity(packageName, originalName, updatedEntity);
+
+    // Update local state
+    setEntities(prev => prev.map(e => {
+      if (e.entity.uuid === entity.uuid && e.packageName === packageName) {
+        return { ...e, entity: updatedEntity };
+      }
+      return e;
+    }));
+  }, []);
+
   // Handle input changes for new entity
   const handleNewEntityChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setNewEntity({ ...newEntity, [name]: value });
-  };
-
-  // Handle input changes for editing entity
-  const handleEditEntityChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    if (!currentEntity) return;
-
-    const { name, value } = e.target;
-    setCurrentEntity({ ...currentEntity, entity: { ...currentEntity.entity, [name]: value } });
   };
 
   return (
@@ -217,24 +187,23 @@ const EntityFlatTable = () => {
               ) : (
                 entities.map(({ entity, packageName }) => (
                   <tr key={entity.uuid}>
-                    <td>{entity.name}</td>
+                    <EditableCell
+                      value={entity.name}
+                      onSave={async (v) => {
+                        await saveEntityField(packageName, entity.name, entity, 'name', v as string);
+                      }}
+                    />
                     <td>{packageName}</td>
-                    <td className="max-w-xs truncate">{entity.description}</td>
+                    <EditableCell
+                      value={entity.description || ''}
+                      inputType="textarea"
+                      className="max-w-xs"
+                      onSave={async (v) => {
+                        await saveEntityField(packageName, entity.name, entity, 'description', v as string);
+                      }}
+                    />
                     <td>
                       <div className="flex gap-2">
-                        <button
-                          onClick={() => {
-                            setCurrentEntity({ entity, packageName });
-                            setIsEditModalOpen(true);
-                          }}
-                          className="btn btn-sm btn-ghost btn-square"
-                          title="Edit"
-                          aria-label={`Edit ${entity.name}`}
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                            <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                          </svg>
-                        </button>
                         <button
                           onClick={() => {
                             setCurrentEntity({ entity, packageName });
@@ -334,84 +303,6 @@ const EntityFlatTable = () => {
                   </>
                 ) : (
                   'Create'
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Entity Modal */}
-      {isEditModalOpen && currentEntity && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-base-100 p-6 rounded-lg shadow-lg w-full max-w-md">
-            <h2 className="text-xl font-bold mb-4">Edit Entity</h2>
-
-            {error && <div className="alert alert-error mb-4">{error}</div>}
-
-            <div className="form-control mb-4">
-              <label className="label">
-                <span className="label-text">Name</span>
-              </label>
-              <input
-                type="text"
-                name="name"
-                className="input input-bordered"
-                value={currentEntity.entity.name}
-                onChange={handleEditEntityChange}
-                required
-              />
-            </div>
-
-            <div className="form-control mb-4">
-              <label className="label">
-                <span className="label-text">Description</span>
-              </label>
-              <textarea
-                name="description"
-                className="textarea textarea-bordered"
-                value={currentEntity.entity.description || ''}
-                onChange={handleEditEntityChange}
-              ></textarea>
-            </div>
-
-            <div className="form-control mb-4">
-              <label className="label">
-                <span className="label-text">Package</span>
-              </label>
-              <input
-                type="text"
-                className="input input-bordered"
-                value={currentEntity.packageName}
-                disabled
-              />
-            </div>
-
-            <div className="flex justify-end gap-2 mt-6">
-              <button
-                type="button"
-                className="btn btn-outline"
-                onClick={() => {
-                  setIsEditModalOpen(false);
-                  setCurrentEntity(null);
-                  setError(null);
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={handleUpdateEntity}
-                disabled={loading}
-              >
-                {loading ? (
-                  <>
-                    <span className="loading loading-spinner loading-xs mr-2"></span>
-                    Updating...
-                  </>
-                ) : (
-                  'Update'
                 )}
               </button>
             </div>
