@@ -1,26 +1,45 @@
-import { useEffect, useState } from 'react';
-import { entityApi } from '../services/api';
+import { useEffect, useState, useCallback } from 'react';
+import { entityApi, packageApi } from '../services/api';
 import { Package } from '../types';
+import EditableCell from './EditableCell';
 
 const PackageFlatTable = () => {
   const [packages, setPackages] = useState<Package[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const fetchPackages = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const pkgs: Package[] = await entityApi.getAllPackages();
+      setPackages(pkgs);
+    } catch {
+      setError('Failed to load packages. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    const fetchPackages = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const pkgs: Package[] = await entityApi.getAllPackages();
-        setPackages(pkgs);
-      } catch (err) {
-        setError('Failed to load packages. Please try again.');
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchPackages();
+  }, [fetchPackages]);
+
+  /** Inline save for package field */
+  const savePackageField = useCallback(async (
+    pkg: Package,
+    field: 'name' | 'description',
+    value: string,
+  ) => {
+    await packageApi.updatePackage(pkg.name, [], { [field]: value });
+
+    // Update local state
+    setPackages(prev => prev.map(p => {
+      if (p.id === pkg.id) {
+        return { ...p, [field]: value };
+      }
+      return p;
+    }));
   }, []);
 
   return (
@@ -53,8 +72,20 @@ const PackageFlatTable = () => {
               ) : (
                 packages.map((pkg) => (
                   <tr key={pkg.id}>
-                    <td>{pkg.name}</td>
-                    <td className="max-w-xs truncate">{pkg.description}</td>
+                    <EditableCell
+                      value={pkg.name}
+                      onSave={async (v) => {
+                        await savePackageField(pkg, 'name', v as string);
+                      }}
+                    />
+                    <EditableCell
+                      value={pkg.description || ''}
+                      inputType="textarea"
+                      className="max-w-xs"
+                      onSave={async (v) => {
+                        await savePackageField(pkg, 'description', v as string);
+                      }}
+                    />
                     <td>{pkg.type || '-'}</td>
                     <td>{pkg.entities?.length ?? 0}</td>
                     <td>{pkg.createdAt ? new Date(pkg.createdAt).toLocaleString() : '-'}</td>

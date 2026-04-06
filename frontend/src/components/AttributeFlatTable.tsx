@@ -1,54 +1,66 @@
-import { useEffect, useState } from 'react';
-import { entityApi } from '../services/api';
-import { Attribute, Package } from '../types';
-import { useStereotypeMetadata, getMetadataValue } from '../hooks/useStereotypeMetadata';
+import { useEffect, useState, useCallback } from 'react';
+import { entityApi, servicesApi } from '../services/api';
+import { Attribute, AttributeType, Package, Entity } from '../types';
+import { useStereotypeMetadata, getMetadataValue, setMetadataValue } from '../hooks/useStereotypeMetadata';
 import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
+import EditableCell from './EditableCell';
+import type { SelectOption } from './EditableCell';
 
 interface FlatAttribute {
   attribute: Attribute;
   entityName: string;
+  entityUuid: string;
   packageName: string;
 }
 
+const ATTRIBUTE_TYPE_OPTIONS: SelectOption[] = Object.values(AttributeType).map((t) => ({
+  value: t,
+  label: t,
+}));
+
 const AttributeFlatTable = () => {
   const [attributes, setAttributes] = useState<FlatAttribute[]>([]);
+  const [packages, setPackages] = useState<Package[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { allColumns, columnsByStereotype } = useStereotypeMetadata('attribute');
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(new Set());
   const [showColumnPicker, setShowColumnPicker] = useState(false);
 
-  useEffect(() => {
-    const fetchAttributes = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const pkgs: Package[] = await entityApi.getAllPackages();
-        const flatAttrs: FlatAttribute[] = [];
-        for (const pkg of pkgs) {
-          if (pkg.entities) {
-            for (const entity of pkg.entities) {
-              if (entity.attributes) {
-                for (const attr of entity.attributes) {
-                  flatAttrs.push({
-                    attribute: attr,
-                    entityName: entity.name,
-                    packageName: pkg.name,
-                  });
-                }
+  const fetchAttributes = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const pkgs: Package[] = await entityApi.getAllPackages();
+      setPackages(pkgs);
+      const flatAttrs: FlatAttribute[] = [];
+      for (const pkg of pkgs) {
+        if (pkg.entities) {
+          for (const entity of pkg.entities) {
+            if (entity.attributes) {
+              for (const attr of entity.attributes) {
+                flatAttrs.push({
+                  attribute: attr,
+                  entityName: entity.name,
+                  entityUuid: entity.uuid,
+                  packageName: pkg.name,
+                });
               }
             }
           }
         }
-        setAttributes(flatAttrs);
-      } catch (err) {
-        setError('Failed to load attributes. Please try again.');
-      } finally {
-        setLoading(false);
       }
-    };
-    fetchAttributes();
+      setAttributes(flatAttrs);
+    } catch {
+      setError('Failed to load attributes. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchAttributes();
+  }, [fetchAttributes]);
 
   // Auto-detect: when data loads, show columns for metadata keys actually present
   useEffect(() => {
@@ -87,6 +99,46 @@ const AttributeFlatTable = () => {
 
   const activeMetaCols = allColumns.filter(c => visibleColumns.has(c.name));
 
+  /** Find the full entity from packages state and update an attribute within it */
+  const saveAttribute = useCallback(async (
+    packageName: string,
+    entityName: string,
+    entityUuid: string,
+    attrUuid: string,
+    updater: (attr: Attribute) => Attribute,
+  ) => {
+    // Find entity from packages
+    const pkg = packages.find(p => p.name === packageName);
+    const entity = pkg?.entities?.find(e => e.uuid === entityUuid);
+    if (!entity) throw new Error('Entity not found');
+
+    const updatedAttributes = entity.attributes.map(a =>
+      a.uuid === attrUuid ? updater(a) : a
+    );
+    const updatedEntity: Entity = { ...entity, attributes: updatedAttributes };
+
+    await servicesApi.updateEntity(packageName, entityName, updatedEntity);
+
+    // Update local state to reflect the change without full refetch
+    setAttributes(prev => prev.map(fa => {
+      if (fa.attribute.uuid === attrUuid && fa.entityUuid === entityUuid) {
+        return { ...fa, attribute: updater(fa.attribute) };
+      }
+      return fa;
+    }));
+
+    // Also update packages state so subsequent saves use fresh data
+    setPackages(prev => prev.map(p => {
+      if (p.name !== packageName) return p;
+      return {
+        ...p,
+        entities: p.entities?.map(e =>
+          e.uuid === entityUuid ? updatedEntity : e
+        ),
+      };
+    }));
+  }, [packages]);
+
   const renderMetaValue = (attr: Attribute, col: MetadataColumn) => {
     const val = getMetadataValue(attr, col.name);
     if (val === undefined || val === '') return <span className="text-base-content/30">-</span>;
@@ -98,6 +150,11 @@ const AttributeFlatTable = () => {
       );
     }
     return <span className="text-sm">{val.toString()}</span>;
+  };
+
+  const getMetaInputType = (col: MetadataColumn): 'text' | 'toggle' | 'select' => {
+    if (col.type === 'flag' || col.type === 'boolean') return 'toggle';
+    return 'text';
   };
 
   return (
@@ -197,17 +254,69 @@ const AttributeFlatTable = () => {
                   <td colSpan={6 + activeMetaCols.length} className="text-center text-gray-500">No attributes found.</td>
                 </tr>
               ) : (
-                attributes.map(({ attribute, entityName, packageName }) => (
+                attributes.map(({ attribute, entityName, entityUuid, packageName }) => (
                   <tr key={attribute.uuid + entityName + packageName}>
-                    <td>{attribute.name}</td>
-                    <td>{attribute.type}</td>
-                    <td className="max-w-xs truncate">{attribute.description}</td>
-                    <td>{attribute.required ? 'Yes' : 'No'}</td>
+                    <EditableCell
+                      value={attribute.name}
+                      onSave={async (v) => {
+                        await saveAttribute(packageName, entityName, entityUuid, attribute.uuid, (a) => ({
+                          ...a,
+                          name: v as string,
+                        }));
+                      }}
+                    />
+                    <EditableCell
+                      value={attribute.type}
+                      inputType="select"
+                      options={ATTRIBUTE_TYPE_OPTIONS}
+                      onSave={async (v) => {
+                        await saveAttribute(packageName, entityName, entityUuid, attribute.uuid, (a) => ({
+                          ...a,
+                          type: v as AttributeType,
+                        }));
+                      }}
+                    />
+                    <EditableCell
+                      value={attribute.description || ''}
+                      inputType="textarea"
+                      className="max-w-xs"
+                      onSave={async (v) => {
+                        await saveAttribute(packageName, entityName, entityUuid, attribute.uuid, (a) => ({
+                          ...a,
+                          description: v as string,
+                        }));
+                      }}
+                    />
+                    <EditableCell
+                      value={attribute.required}
+                      inputType="toggle"
+                      onSave={async (v) => {
+                        await saveAttribute(packageName, entityName, entityUuid, attribute.uuid, (a) => ({
+                          ...a,
+                          required: v as boolean,
+                        }));
+                      }}
+                    />
                     <td>{entityName}</td>
                     <td>{packageName}</td>
-                    {activeMetaCols.map(col => (
-                      <td key={col.name}>{renderMetaValue(attribute, col)}</td>
-                    ))}
+                    {activeMetaCols.map(col => {
+                      const metaInputType = getMetaInputType(col);
+                      const metaVal = getMetadataValue(attribute, col.name);
+                      return (
+                        <EditableCell
+                          key={col.name}
+                          value={metaVal ?? (metaInputType === 'toggle' ? false : '')}
+                          inputType={metaInputType}
+                          renderDisplay={() => renderMetaValue(attribute, col)}
+                          onSave={async (v) => {
+                            await saveAttribute(packageName, entityName, entityUuid, attribute.uuid, (a) => ({
+                              ...a,
+                              metadata: setMetadataValue(a.metadata, col.name, v),
+                            }));
+                          }}
+                        />
+                      );
+                    })}
                   </tr>
                 ))
               )}
