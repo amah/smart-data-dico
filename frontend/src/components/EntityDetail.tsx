@@ -423,6 +423,7 @@ const EntityDetail = (props: EntityDetailProps) => {
               <AttributeList
                 attributes={entityData.attributes}
                 entityName={entityData.name}
+                entityUuid={entityData.uuid}
                 serviceName={service || ''}
                 onAttributeUpdated={() => fetchEntityData(false)}
               />

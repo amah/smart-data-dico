@@ -1,11 +1,12 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { Attribute, AttributeType, Entity } from '../types';
+import { Attribute, AttributeType, Entity, Rule, RuleSeverityValue } from '../types';
 import { useStereotypeMetadata, getActiveColumns, getMetadataValue, setMetadataValue } from '../hooks/useStereotypeMetadata';
 import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
 import InlineMetadataCell from './InlineMetadataCell';
 import EditableCell, { SelectOption } from './EditableCell';
-import { servicesApi } from '../services/api';
+import RulesSidePanel from './RulesSidePanel';
+import { servicesApi, ruleApi } from '../services/api';
 
 const ATTRIBUTE_TYPE_OPTIONS: SelectOption[] = Object.values(AttributeType).map((t) => ({
   value: t,
@@ -15,9 +16,23 @@ const ATTRIBUTE_TYPE_OPTIONS: SelectOption[] = Object.values(AttributeType).map(
 interface AttributeListProps {
   attributes: Attribute[];
   entityName: string;
+  /** UUID of the parent entity — required to fetch rules touching this entity (#76) */
+  entityUuid?: string;
   serviceName: string;
   onAttributeUpdated?: () => void;
 }
+
+/** Severity ordering: error > warning > info */
+const severityRank: Record<RuleSeverityValue, number> = { error: 3, warning: 2, info: 1 };
+
+const ruleBadgeClass = (maxSeverity: RuleSeverityValue | null): string => {
+  switch (maxSeverity) {
+    case 'error': return 'badge-error';
+    case 'warning': return 'badge-warning';
+    case 'info': return 'badge-info';
+    default: return 'badge-ghost';
+  }
+};
 
 interface DraftAttribute {
   id: string;
@@ -35,7 +50,7 @@ const emptyDraft = (): DraftAttribute => ({
   required: false,
 });
 
-const AttributeList = ({ attributes, entityName, serviceName, onAttributeUpdated }: AttributeListProps) => {
+const AttributeList = ({ attributes, entityName, entityUuid, serviceName, onAttributeUpdated }: AttributeListProps) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<AttributeType | 'all'>('all');
   const { allColumns, loading: stereotypesLoading } = useStereotypeMetadata('attribute');
@@ -43,6 +58,48 @@ const AttributeList = ({ attributes, entityName, serviceName, onAttributeUpdated
   // Inline editing state
   const [drafts, setDrafts] = useState<DraftAttribute[]>([]);
   const [saving, setSaving] = useState(false);
+
+  // Rules for this entity (real + synthetic from constraints) — #76
+  const [entityRules, setEntityRules] = useState<Rule[]>([]);
+  const [sidePanelAttr, setSidePanelAttr] = useState<Attribute | null>(null);
+
+  const fetchEntityRules = useCallback(async () => {
+    if (!entityUuid) return;
+    try {
+      const rules = await ruleApi.getRulesForEntity(entityUuid);
+      setEntityRules(rules);
+    } catch (err) {
+      console.error('Failed to fetch entity rules:', err);
+      setEntityRules([]);
+    }
+  }, [entityUuid]);
+
+  useEffect(() => {
+    fetchEntityRules();
+  }, [fetchEntityRules]);
+
+  /** Group rules by attribute UUID for O(1) per-row lookup. */
+  const rulesByAttrUuid = useMemo(() => {
+    const map = new Map<string, Rule[]>();
+    for (const rule of entityRules) {
+      for (const target of rule.targets || []) {
+        if (target.kind === 'attribute' && target.uuid) {
+          const list = map.get(target.uuid) || [];
+          list.push(rule);
+          map.set(target.uuid, list);
+        }
+      }
+    }
+    return map;
+  }, [entityRules]);
+
+  const maxSeverityFor = (rules: Rule[]): RuleSeverityValue | null => {
+    if (rules.length === 0) return null;
+    return rules.reduce<RuleSeverityValue>(
+      (max, r) => (severityRank[r.severity] > severityRank[max] ? r.severity : max),
+      'info',
+    );
+  };
 
   // Detect which metadata columns are relevant for this set of attributes
   const metadataColumns = getActiveColumns(attributes, allColumns);
@@ -236,7 +293,7 @@ const AttributeList = ({ attributes, entityName, serviceName, onAttributeUpdated
                 <th>Type</th>
                 <th>Description</th>
                 <th>Required</th>
-                <th>Constraints</th>
+                <th>Rules</th>
                 {metadataColumns.map(col => (
                   <th key={col.name} title={col.description}>
                     <span className="flex items-center gap-1">
@@ -295,19 +352,37 @@ const AttributeList = ({ attributes, entityName, serviceName, onAttributeUpdated
                       await saveAttributeField(attr, (a) => ({ ...a, required: v as boolean }));
                     }}
                   />
+                  {/* Rules column (#76): count badge for real + synthetic rules touching this attribute */}
                   <td>
-                    {attr.constraints?.format && <div><span className="font-medium">Format:</span> {attr.constraints.format}</div>}
-                    {attr.constraints?.minLength !== undefined && <div><span className="font-medium">Min Length:</span> {attr.constraints.minLength}</div>}
-                    {attr.constraints?.maxLength !== undefined && <div><span className="font-medium">Max Length:</span> {attr.constraints.maxLength}</div>}
-                    {attr.constraints?.minimum !== undefined && <div><span className="font-medium">Min:</span> {attr.constraints.minimum}</div>}
-                    {attr.constraints?.maximum !== undefined && <div><span className="font-medium">Max:</span> {attr.constraints.maximum}</div>}
-                    {attr.constraints?.pattern && <div><span className="font-medium">Pattern:</span> {attr.constraints.pattern}</div>}
-                    {attr.constraints?.enumValues && attr.constraints.enumValues.length > 0 && (
-                      <div>
-                        <span className="font-medium">Values:</span> {attr.constraints.enumValues.join(', ')}
-                      </div>
-                    )}
-                    {!attr.constraints && '-'}
+                    {(() => {
+                      const attrRules = rulesByAttrUuid.get(attr.uuid) || [];
+                      const count = attrRules.length;
+                      const maxSev = maxSeverityFor(attrRules);
+                      const hasSaveGate = attrRules.some(r => r.enforcement === 'save');
+                      const hasProcessGate = attrRules.some(r => r.enforcement === 'process');
+                      if (count === 0) {
+                        return <span className="text-base-content/30">-</span>;
+                      }
+                      return (
+                        <button
+                          className={`badge ${ruleBadgeClass(maxSev)} gap-1 cursor-pointer`}
+                          onClick={() => setSidePanelAttr(attr)}
+                          title={`${count} rule${count === 1 ? '' : 's'}`}
+                        >
+                          {hasSaveGate && (
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor" aria-label="blocking save">
+                              <path fillRule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001z" clipRule="evenodd" />
+                            </svg>
+                          )}
+                          {hasProcessGate && (
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor" aria-label="process gate">
+                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                            </svg>
+                          )}
+                          {count}
+                        </button>
+                      );
+                    })()}
                   </td>
                   {metadataColumns.map(col => (
                     <td key={col.name}>
@@ -319,15 +394,27 @@ const AttributeList = ({ attributes, entityName, serviceName, onAttributeUpdated
                     </td>
                   ))}
                   <td>
-                    <Link
-                      to={`/packages/${serviceName}/entities/${entityName}/attributes/${attr.name}/edit`}
-                      className="btn btn-sm btn-ghost btn-square"
-                      title="Open full editor (constraints, examples, etc.)"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                      </svg>
-                    </Link>
+                    <div className="flex items-center gap-1">
+                      <Link
+                        to={`/packages/${serviceName}/entities/${entityName}/attributes/${attr.name}/edit`}
+                        className="btn btn-sm btn-ghost btn-square"
+                        title="Open full editor (constraints, examples, etc.)"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                        </svg>
+                      </Link>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost btn-square"
+                        title="Manage rules / constraints"
+                        onClick={() => setSidePanelAttr(attr)}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -431,6 +518,18 @@ const AttributeList = ({ attributes, entityName, serviceName, onAttributeUpdated
           Tip: Paste from Excel (name, type, description, required)
         </div>
       </div>
+
+      {/* Rules side panel (#76) */}
+      <RulesSidePanel
+        title={sidePanelAttr ? `Rules for ${entityName}.${sidePanelAttr.name}` : 'Rules'}
+        rules={sidePanelAttr ? rulesByAttrUuid.get(sidePanelAttr.uuid) || [] : []}
+        open={sidePanelAttr !== null}
+        onClose={() => setSidePanelAttr(null)}
+        onRulesChanged={() => {
+          fetchEntityRules();
+          onAttributeUpdated?.();
+        }}
+      />
     </div>
   );
 };
