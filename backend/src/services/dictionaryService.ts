@@ -4,7 +4,7 @@ import YAML from 'yaml';
 
 import { Dictionary, Package } from '../models/Dictionary.js';
 import { Entity, Relationship } from '../models/EntitySchema.js';
-import { ensureDirectoryStructure, listAllDictionaries, listAllEntities, listMicroserviceEntities, listMicroservices, readEntityFile, readRelationshipsFile, writeDictionaryMetadata } from '../utils/fileOperations.js';
+import { ensureDirectoryStructure, listAllDictionaries, listAllEntities, listMicroserviceEntities, listMicroservices, readEntityFile, readRelationshipsFile, writeDictionaryMetadata, normalizeEntityMetadata } from '../utils/fileOperations.js';
 import { logger } from '../utils/logger.js';
 import { config } from '../kernel/config.js';
 
@@ -195,25 +195,8 @@ export class DictionaryService {
       ) {
         try {
           const fileContent = fs.readFileSync(entryPath, 'utf8');
-          const entity = YAML.parse(fileContent) as Entity;
-          // Normalize legacy attribute metadata format: some files have
-          // metadata as a plain object {key: value} instead of MetadataEntry[].
-          // Convert to the canonical array form so consumers don't crash.
-          if (entity.attributes) {
-            for (const attr of entity.attributes) {
-              if (attr.metadata && !Array.isArray(attr.metadata)) {
-                attr.metadata = Object.entries(attr.metadata as any).map(
-                  ([name, value]) => ({ name, value: value as any }),
-                );
-              }
-            }
-          }
-          if (entity.metadata && !Array.isArray(entity.metadata)) {
-            entity.metadata = Object.entries(entity.metadata as any).map(
-              ([name, value]) => ({ name, value: value as any }),
-            );
-          }
-          entities.push(entity);
+          const entity = normalizeEntityMetadata(YAML.parse(fileContent) as Entity);
+          if (entity) entities.push(entity);
         } catch (e) {
           logger.warn(`Failed to parse entity YAML: ${entryPath}: ${e}`);
         }

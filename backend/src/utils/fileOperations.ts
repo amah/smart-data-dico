@@ -31,6 +31,35 @@ function isEntityFile(file: string): boolean {
   return true;
 }
 
+/**
+ * Normalize legacy entity metadata format on read.
+ *
+ * Some pre-existing YAML files store attribute metadata as a plain object
+ * (e.g. `metadata: {isPrimaryKey: true}`) instead of the canonical
+ * MetadataEntry[] form (`metadata: [{name: 'isPrimaryKey', value: true}]`).
+ * Consumers iterate metadata as an array everywhere, so the legacy format
+ * crashes them. Normalizing at the read layer keeps the rest of the system
+ * uniform without forcing a destructive on-disk migration.
+ */
+export function normalizeEntityMetadata(entity: Entity | null): Entity | null {
+  if (!entity) return entity;
+  if (entity.attributes) {
+    for (const attr of entity.attributes) {
+      if (attr.metadata && !Array.isArray(attr.metadata)) {
+        attr.metadata = Object.entries(attr.metadata as any).map(
+          ([name, value]) => ({ name, value: value as any }),
+        );
+      }
+    }
+  }
+  if (entity.metadata && !Array.isArray(entity.metadata)) {
+    entity.metadata = Object.entries(entity.metadata as any).map(
+      ([name, value]) => ({ name, value: value as any }),
+    );
+  }
+  return entity;
+}
+
 // Lazy-loaded git service from @hamak/ui-remote-git-fs-backend
 let gitServiceInstance: any = null;
 
@@ -127,7 +156,7 @@ export async function readEntityFile(packageName: string, entityName: string): P
     const readTimeMs = Number((readEndTime[0] * 1e3 + readEndTime[1] / 1e6).toFixed(2));
 
     const parseStartTime = process.hrtime();
-    const entity = YAML.parse(fileContent) as Entity;
+    const entity = normalizeEntityMetadata(YAML.parse(fileContent) as Entity);
     const parseEndTime = process.hrtime(parseStartTime);
     const parseTimeMs = Number((parseEndTime[0] * 1e3 + parseEndTime[1] / 1e6).toFixed(2));
 
