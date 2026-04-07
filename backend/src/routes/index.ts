@@ -6,6 +6,7 @@ import { createDictionary, getDictionaries, getDictionaryById, getDictionaryEntr
 import { createEntity, deleteEntity, getAllServices, getEntitySchema, getGraphData, getServiceEntities, searchEntities, updateEntity, getPackageRelationships, createRelationship, updateRelationship, deleteRelationship, getImpactAnalysis, getLineage, submitEntity, approveEntity, returnEntity, getEntityComments, addEntityComment, resolveEntityComment } from '../controllers/serviceController.js';
 import { getAllStereotypes, getStereotype, createStereotype, updateStereotype, deleteStereotype } from '../controllers/stereotypeController.js';
 import { getAllPerspectives, getPerspective, createPerspective, updatePerspective, deletePerspective, resolvePerspective, getPerspectiveGraph, upsertPerspectiveNode } from '../controllers/perspectiveController.js';
+import { listRules, getRule, getRulesForEntity, createRule, updateRule, deleteRule } from '../controllers/ruleController.js';
 import { commitChanges, getCommitHistory, revertToCommit } from '../controllers/versionController.js';
 import { importJsonSchema, importSqlDdl, exportJsonSchema, exportMarkdown, getQualityReport } from '../controllers/importExportController.js';
 import { authenticate, UserRole } from '../middleware/auth.js';
@@ -92,6 +93,14 @@ router.delete('/api/perspectives/:id', authorizeJwt([UserRole.ADMIN]), deletePer
 router.get('/api/perspectives/:id/resolve', resolvePerspective);
 router.get('/api/perspectives/:id/graph', getPerspectiveGraph);
 router.put('/api/perspectives/:id/nodes', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), upsertPerspectiveNode);
+
+// Rule API (#74)
+router.get('/api/rules', listRules);
+router.get('/api/rules/:uuid', getRule);
+router.post('/api/rules', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), createRule);
+router.put('/api/rules/:uuid', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), updateRule);
+router.delete('/api/rules/:uuid', authorizeJwt([UserRole.ADMIN]), deleteRule);
+router.get('/api/entities/:entityUuid/rules', getRulesForEntity);
 
 // Search API
 router.get('/api/search', searchEntities);
