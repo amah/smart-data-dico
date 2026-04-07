@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-import { Entity, Relationship, Stereotype, StereotypeTarget, Perspective, ResolvedPerspective, PerspectiveNode, GraphData, ImpactAnalysis, ReviewComment, LineageResult } from '../types';
+import { Entity, Relationship, Stereotype, StereotypeTarget, Perspective, ResolvedPerspective, PerspectiveNode, GraphData, ImpactAnalysis, ReviewComment, LineageResult, Rule, RuleScope, RuleSeverityValue } from '../types';
 import { Package } from '../types';
 
 /**
@@ -442,6 +442,51 @@ export const stereotypeApi = {
   delete: async (id: string) => {
     const response = await api.delete(`/stereotypes/${id}`);
     return response.data;
+  },
+};
+
+// Rule API endpoints (#74)
+export const ruleApi = {
+  list: async (filters: {
+    scope?: RuleScope;
+    severity?: RuleSeverityValue;
+    targetUuid?: string;
+    perspective?: string;
+    package?: string;
+  } = {}): Promise<Rule[]> => {
+    const params = new URLSearchParams();
+    if (filters.scope) params.set('scope', filters.scope);
+    if (filters.severity) params.set('severity', filters.severity);
+    if (filters.targetUuid) params.set('targetUuid', filters.targetUuid);
+    if (filters.perspective) params.set('perspective', filters.perspective);
+    if (filters.package) params.set('package', filters.package);
+    const qs = params.toString();
+    const response = await api.get(`/rules${qs ? '?' + qs : ''}`);
+    return response.data.data;
+  },
+
+  get: async (uuid: string): Promise<Rule> => {
+    const response = await api.get(`/rules/${uuid}`);
+    return response.data.data;
+  },
+
+  getRulesForEntity: async (entityUuid: string): Promise<Rule[]> => {
+    const response = await api.get(`/entities/${entityUuid}/rules`);
+    return response.data.data;
+  },
+
+  create: async (rule: Partial<Rule>): Promise<Rule> => {
+    const response = await api.post('/rules', rule);
+    return response.data.data;
+  },
+
+  update: async (uuid: string, rule: Partial<Rule>): Promise<Rule> => {
+    const response = await api.put(`/rules/${uuid}`, rule);
+    return response.data.data;
+  },
+
+  delete: async (uuid: string): Promise<void> => {
+    await api.delete(`/rules/${uuid}`);
   },
 };
 
