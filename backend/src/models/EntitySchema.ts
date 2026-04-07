@@ -113,6 +113,8 @@ export interface Perspective {
   nodes?: PerspectiveNode[];
   maxDepth?: number;
   metadata?: MetadataEntry[];
+  /** Validation rules scoped to this perspective (#74). Use `any[]` to avoid a circular import on Rule. */
+  rules?: any[];
   createdAt?: string;
   updatedAt?: string;
 }

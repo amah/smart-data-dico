@@ -3,6 +3,7 @@ import path from 'path';
 import YAML from 'yaml';
 import { logger } from './logger.js';
 import { Entity, Relationship, Perspective, ReviewComment, validateEntity } from '../models/EntitySchema.js';
+import { Rule } from '../models/Rule.js';
 import { Dictionary } from '../models/Dictionary.js';
 import { generateEntityFilename, extractUUIDFromFilename } from './uuid.js';
 import { config } from '../kernel/config.js';
@@ -621,6 +622,140 @@ export async function writeComments(service: string, entityUuid: string, comment
     return true;
   } catch (error) {
     logger.error(`Error writing comments: ${error}`);
+    return false;
+  }
+}
+
+// --- Rule file operations (#74) ---
+//
+// Three storage locations:
+//   1. Entity-sidecar: data-dictionaries/microservices/{svc}/{entityUuid}.rules.yaml
+//   2. Package:        data-dictionaries/microservices/{svc}/rules.yaml
+//   3. Perspective:    embedded in data-dictionaries/perspectives/{uuid}.yaml under a `rules` array
+
+/** Read entity-sidecar rules for a single entity. */
+export async function readEntityRules(service: string, entityUuid: string): Promise<Rule[]> {
+  try {
+    const filePath = path.join(DATA_DICTIONARIES_DIR, 'microservices', service, `${entityUuid}.rules.yaml`);
+    if (!fs.existsSync(filePath)) return [];
+    const content = fs.readFileSync(filePath, 'utf8');
+    return YAML.parse(content) || [];
+  } catch (error) {
+    logger.error(`Error reading entity rules: ${error}`);
+    return [];
+  }
+}
+
+/** Write entity-sidecar rules for a single entity. */
+export async function writeEntityRules(service: string, entityUuid: string, rules: Rule[]): Promise<boolean> {
+  try {
+    const filePath = path.join(DATA_DICTIONARIES_DIR, 'microservices', service, `${entityUuid}.rules.yaml`);
+    if (rules.length === 0) {
+      // Delete the sidecar file when there are no rules left, to keep the tree clean
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      return true;
+    }
+    fs.writeFileSync(filePath, YAML.stringify(rules), 'utf8');
+    return true;
+  } catch (error) {
+    logger.error(`Error writing entity rules: ${error}`);
+    return false;
+  }
+}
+
+/** Read package-scoped rules from a single package's rules.yaml. */
+export async function readPackageRules(service: string): Promise<Rule[]> {
+  try {
+    const filePath = path.join(DATA_DICTIONARIES_DIR, 'microservices', service, 'rules.yaml');
+    if (!fs.existsSync(filePath)) return [];
+    const content = fs.readFileSync(filePath, 'utf8');
+    return YAML.parse(content) || [];
+  } catch (error) {
+    logger.error(`Error reading package rules: ${error}`);
+    return [];
+  }
+}
+
+/** Write package-scoped rules. */
+export async function writePackageRules(service: string, rules: Rule[]): Promise<boolean> {
+  try {
+    const filePath = path.join(DATA_DICTIONARIES_DIR, 'microservices', service, 'rules.yaml');
+    if (rules.length === 0) {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      return true;
+    }
+    fs.writeFileSync(filePath, YAML.stringify(rules), 'utf8');
+    return true;
+  } catch (error) {
+    logger.error(`Error writing package rules: ${error}`);
+    return false;
+  }
+}
+
+/**
+ * List all entity-sidecar rule files across all packages.
+ * Returns tuples of (service, entityUuid) so callers can read each.
+ */
+export async function listAllEntityRuleFiles(): Promise<Array<{ service: string; entityUuid: string }>> {
+  const result: Array<{ service: string; entityUuid: string }> = [];
+  try {
+    const microservicesDir = path.join(DATA_DICTIONARIES_DIR, 'microservices');
+    if (!fs.existsSync(microservicesDir)) return [];
+    const services = fs.readdirSync(microservicesDir).filter(s =>
+      fs.statSync(path.join(microservicesDir, s)).isDirectory()
+    );
+    for (const service of services) {
+      const serviceDir = path.join(microservicesDir, service);
+      const files = fs.readdirSync(serviceDir).filter(f => f.endsWith('.rules.yaml') && f !== 'rules.yaml');
+      for (const file of files) {
+        const entityUuid = file.replace('.rules.yaml', '');
+        result.push({ service, entityUuid });
+      }
+    }
+  } catch (error) {
+    logger.error(`Error listing entity rule files: ${error}`);
+  }
+  return result;
+}
+
+/** List all packages that have a package-level rules.yaml. */
+export async function listPackagesWithRules(): Promise<string[]> {
+  try {
+    const microservicesDir = path.join(DATA_DICTIONARIES_DIR, 'microservices');
+    if (!fs.existsSync(microservicesDir)) return [];
+    return fs.readdirSync(microservicesDir).filter(service => {
+      const serviceDir = path.join(microservicesDir, service);
+      if (!fs.statSync(serviceDir).isDirectory()) return false;
+      return fs.existsSync(path.join(serviceDir, 'rules.yaml'));
+    });
+  } catch (error) {
+    logger.error(`Error listing packages with rules: ${error}`);
+    return [];
+  }
+}
+
+/** Read perspective-scoped rules from a single perspective YAML. */
+export async function readPerspectiveRules(perspectiveUuid: string): Promise<Rule[]> {
+  try {
+    const perspective = await readPerspectiveFile(perspectiveUuid);
+    if (!perspective) return [];
+    return (perspective.rules as Rule[]) || [];
+  } catch (error) {
+    logger.error(`Error reading perspective rules: ${error}`);
+    return [];
+  }
+}
+
+/** Write perspective-scoped rules — preserves the rest of the perspective YAML. */
+export async function writePerspectiveRules(perspectiveUuid: string, rules: Rule[]): Promise<boolean> {
+  try {
+    const perspective = await readPerspectiveFile(perspectiveUuid);
+    if (!perspective) return false;
+    perspective.rules = rules;
+    perspective.updatedAt = new Date().toISOString();
+    return await writePerspectiveFile(perspective);
+  } catch (error) {
+    logger.error(`Error writing perspective rules: ${error}`);
     return false;
   }
 }
