@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { servicesApi, relationshipApi, stereotypeApi } from '../services/api';
-import { Entity, Attribute, Relationship, Stereotype, ImpactAnalysis, EntityStatus } from '../types';
+import { servicesApi, relationshipApi, stereotypeApi, ruleApi } from '../services/api';
+import { Entity, Attribute, Relationship, Stereotype, ImpactAnalysis, EntityStatus, Rule } from '../types';
 import ReviewComments from './ReviewComments';
 import LineageView from './LineageView';
 import MetadataEditor from './MetadataEditor';
 import AttributeList from './AttributeList';
 import RelationshipList from './RelationshipList';
+import EntityRulesList from './EntityRulesList';
 
 interface EntityDetailProps {
   serviceProp?: string;
@@ -23,7 +24,7 @@ const EntityDetail = (props: EntityDetailProps) => {
   const [relationships, setRelationships] = useState<Relationship[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'attributes' | 'relationships' | 'metadata' | 'lineage' | 'comments' | 'impact'>('attributes');
+  const [activeTab, setActiveTab] = useState<'attributes' | 'relationships' | 'metadata' | 'lineage' | 'comments' | 'impact' | 'rules'>('attributes');
   const [impact, setImpact] = useState<ImpactAnalysis | null>(null);
   const [impactLoading, setImpactLoading] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
@@ -32,6 +33,8 @@ const EntityDetail = (props: EntityDetailProps) => {
   const [newEntityDescription, setNewEntityDescription] = useState('');
   const [stereotypes, setStereotypes] = useState<Stereotype[]>([]);
   const [currentStereotype, setCurrentStereotype] = useState<Stereotype | null>(null);
+  // Rules touching this entity (real + synthetic from constraints) — #74 C4
+  const [entityRules, setEntityRules] = useState<Rule[]>([]);
   const navigate = useNavigate();
 
   // Fetch entity stereotypes
@@ -88,6 +91,23 @@ const EntityDetail = (props: EntityDetailProps) => {
 
     fetchEntityData();
   }, [service, entity]);
+
+  /** Fetch all rules touching this entity (real + synthetic from constraints). */
+  const fetchEntityRules = useCallback(async () => {
+    if (!entityData?.uuid) return;
+    try {
+      const rules = await ruleApi.getRulesForEntity(entityData.uuid);
+      setEntityRules(rules);
+    } catch (err) {
+      console.error('Failed to fetch entity rules:', err);
+      setEntityRules([]);
+    }
+  }, [entityData?.uuid]);
+
+  // Re-fetch rules whenever the entity data changes (so synthesized rules stay in sync)
+  useEffect(() => {
+    fetchEntityRules();
+  }, [fetchEntityRules]);
 
   const handleCreateEntity = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -416,6 +436,12 @@ const EntityDetail = (props: EntityDetailProps) => {
             >
               Comments
             </button>
+            <button
+              className={`tab ${activeTab === 'rules' ? 'tab-active' : ''}`}
+              onClick={() => setActiveTab('rules')}
+            >
+              Rules ({entityRules.length})
+            </button>
           </div>
 
           <div className="mt-2 flex-1 overflow-auto min-h-0">
@@ -535,6 +561,18 @@ const EntityDetail = (props: EntityDetailProps) => {
 
             {activeTab === 'comments' && service && entity && (
               <ReviewComments service={service} entityName={entity} />
+            )}
+
+            {activeTab === 'rules' && entityData && (
+              <EntityRulesList
+                entityName={entityData.name}
+                attributes={entityData.attributes || []}
+                rules={entityRules}
+                onRulesChanged={() => {
+                  fetchEntityRules();
+                  fetchEntityData(false);
+                }}
+              />
             )}
           </div>
         </div>
