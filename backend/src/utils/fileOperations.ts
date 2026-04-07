@@ -11,6 +11,26 @@ import { config } from '../kernel/config.js';
 // Base directory for data dictionaries
 const DATA_DICTIONARIES_DIR = config.dataDir;
 
+/**
+ * Predicate: is a file in a package directory an entity YAML?
+ *
+ * Excludes structural / sidecar files that share the .yaml extension:
+ *   - metadata.yaml      (package metadata)
+ *   - relationships.yaml (package relationships)
+ *   - rules.yaml         (package-scoped rules — #74)
+ *   - *.comments.yaml    (entity review comments)
+ *   - *.rules.yaml       (entity-sidecar rules — #74)
+ */
+function isEntityFile(file: string): boolean {
+  if (!file.endsWith('.yaml') && !file.endsWith('.yml')) return false;
+  if (file === 'metadata.yaml') return false;
+  if (file === 'relationships.yaml') return false;
+  if (file === 'rules.yaml') return false;
+  if (file.endsWith('.comments.yaml')) return false;
+  if (file.endsWith('.rules.yaml')) return false;
+  return true;
+}
+
 // Lazy-loaded git service from @hamak/ui-remote-git-fs-backend
 let gitServiceInstance: any = null;
 
@@ -151,8 +171,7 @@ export async function writeEntityFile(entity: Entity, packageName?: string): Pro
     }
 
     // Check if there's an existing file for this entity (by name) to remove it
-    const existingFiles = fs.readdirSync(packageDir)
-      .filter(file => (file.endsWith('.yaml') || file.endsWith('.yml')) && file !== 'metadata.yaml' && file !== 'relationships.yaml');
+    const existingFiles = fs.readdirSync(packageDir).filter(isEntityFile);
 
     for (const file of existingFiles) {
       const fullPath = path.join(packageDir, file);
@@ -268,8 +287,7 @@ export async function listAllEntities(): Promise<Array<{ microservice: string; n
 
     for (const microservice of microservices) {
       const microservicePath = path.join(microservicesDir, microservice);
-      const files = fs.readdirSync(microservicePath)
-        .filter((file: string) => (file.endsWith('.yaml') || file.endsWith('.yml')) && file !== 'metadata.yaml' && file !== 'relationships.yaml' && !file.endsWith('.comments.yaml'));
+      const files = fs.readdirSync(microservicePath).filter(isEntityFile);
 
       for (const file of files) {
         const name = path.basename(file, path.extname(file));
@@ -307,7 +325,7 @@ export async function listMicroserviceEntities(microservice: string): Promise<st
 
     const processStartTime = process.hrtime();
     const files = allFiles
-      .filter((file: string) => (file.endsWith('.yaml') || file.endsWith('.yml')) && file !== 'metadata.yaml' && file !== 'relationships.yaml' && !file.endsWith('.comments.yaml'))
+      .filter(isEntityFile)
       .map((file: string) => path.basename(file, path.extname(file)));
     const processEndTime = process.hrtime(processStartTime);
     const processTimeMs = Number((processEndTime[0] * 1e3 + processEndTime[1] / 1e6).toFixed(2));
@@ -378,8 +396,7 @@ export async function deleteEntityFile(microservice: string, entityName: string)
       return false;
     }
 
-    const files = fs.readdirSync(microservicePath)
-      .filter(file => (file.endsWith('.yaml') || file.endsWith('.yml')) && file !== 'metadata.yaml' && file !== 'relationships.yaml');
+    const files = fs.readdirSync(microservicePath).filter(isEntityFile);
 
     let filePath: string | null = null;
 
