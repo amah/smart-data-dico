@@ -18,6 +18,8 @@ jest.mock('../../utils/fileOperations', () => ({
   listAllEntityRuleFiles: jest.fn(),
   listPackagesWithRules: jest.fn(),
   listPerspectives: jest.fn(),
+  listAllEntities: jest.fn(),
+  readEntityFile: jest.fn(),
 }));
 jest.mock('../../utils/logger');
 jest.mock('../../utils/uuid', () => ({
@@ -36,6 +38,8 @@ const mocked = fileOps as {
   listAllEntityRuleFiles: jest.Mock;
   listPackagesWithRules: jest.Mock;
   listPerspectives: jest.Mock;
+  listAllEntities: jest.Mock;
+  readEntityFile: jest.Mock;
 };
 
 const buildRule = (overrides: Partial<Rule> = {}): Rule => ({
@@ -43,6 +47,7 @@ const buildRule = (overrides: Partial<Rule> = {}): Rule => ({
   name: 'email-format',
   description: 'Email must match RFC 5322',
   severity: 'error',
+  enforcement: 'advisory',
   scope: 'entity',
   entityUuid: 'ent-1',
   packageName: 'user-service',
@@ -65,6 +70,9 @@ describe('ruleService', () => {
     mocked.writeEntityRules.mockResolvedValue(true);
     mocked.writePackageRules.mockResolvedValue(true);
     mocked.writePerspectiveRules.mockResolvedValue(true);
+    // Default: no entities to synthesize from (#76)
+    mocked.listAllEntities.mockResolvedValue([]);
+    mocked.readEntityFile.mockResolvedValue(null);
   });
 
   // ─── listRules ─────────────────────────────────────────────────────────
@@ -340,6 +348,222 @@ describe('ruleService', () => {
       const result = await ruleService.getRule('target-uuid');
       expect(result).not.toBeNull();
       expect(result!.name).toBe('found');
+    });
+  });
+
+  // ─── Constraint synthesis (#76) ────────────────────────────────────────
+  describe('constraint rule synthesis', () => {
+    const buildEntityWithConstraints = () => ({
+      uuid: 'ent-customer',
+      name: 'Customer',
+      attributes: [
+        {
+          uuid: 'attr-email',
+          name: 'email',
+          type: 'string',
+          required: true,
+          description: 'email',
+          constraints: {
+            format: 'email',
+            minLength: 5,
+            maxLength: 100,
+          },
+        },
+        {
+          uuid: 'attr-age',
+          name: 'age',
+          type: 'integer',
+          required: false,
+          description: 'age',
+          constraints: {
+            minimum: 0,
+            maximum: 150,
+          },
+        },
+        {
+          uuid: 'attr-no-constraints',
+          name: 'note',
+          type: 'string',
+          required: false,
+          description: 'note',
+        },
+      ],
+    });
+
+    it('emits virtual rules for each constraint field on each attribute', async () => {
+      mocked.listAllEntities.mockResolvedValue([
+        { microservice: 'user-service', name: 'Customer' },
+      ]);
+      mocked.readEntityFile.mockResolvedValue(buildEntityWithConstraints());
+
+      const rules = await ruleService.listRules();
+
+      // Expect 5 synthetic rules: format/minLength/maxLength on email + minimum/maximum on age
+      const synthetic = rules.filter(r => r.synthetic);
+      expect(synthetic).toHaveLength(5);
+
+      const fields = synthetic.map(r => r.constraintField).sort();
+      expect(fields).toEqual(['format', 'maxLength', 'maximum', 'minLength', 'minimum']);
+    });
+
+    it('synthetic rules carry stable constraint: prefixed UUIDs', async () => {
+      mocked.listAllEntities.mockResolvedValue([
+        { microservice: 'user-service', name: 'Customer' },
+      ]);
+      mocked.readEntityFile.mockResolvedValue(buildEntityWithConstraints());
+
+      const rules = await ruleService.listRules();
+      const formatRule = rules.find(r => r.constraintField === 'format');
+      expect(formatRule).toBeDefined();
+      expect(formatRule!.uuid).toBe('constraint:attr-email:format');
+      expect(formatRule!.synthetic).toBe(true);
+      expect(formatRule!.severity).toBe('error');
+      expect(formatRule!.enforcement).toBe('save');
+      expect(formatRule!.tags).toContain('constraint');
+    });
+
+    it('synthetic rules merge with real rules from entity sidecars', async () => {
+      mocked.listAllEntityRuleFiles.mockResolvedValue([
+        { service: 'user-service', entityUuid: 'ent-customer' },
+      ]);
+      mocked.readEntityRules.mockResolvedValue([
+        buildRule({ uuid: 'real-1', name: 'real-rule' }),
+      ]);
+      mocked.listAllEntities.mockResolvedValue([
+        { microservice: 'user-service', name: 'Customer' },
+      ]);
+      mocked.readEntityFile.mockResolvedValue(buildEntityWithConstraints());
+
+      const rules = await ruleService.listRules({ scope: 'entity' });
+      const real = rules.filter(r => !r.synthetic);
+      const synthetic = rules.filter(r => r.synthetic);
+      expect(real).toHaveLength(1);
+      expect(synthetic.length).toBeGreaterThanOrEqual(5);
+    });
+
+    it('listRulesForEntity includes synthetic rules whose target is the entity', async () => {
+      mocked.listAllEntities.mockResolvedValue([
+        { microservice: 'user-service', name: 'Customer' },
+      ]);
+      mocked.readEntityFile.mockResolvedValue(buildEntityWithConstraints());
+
+      const rules = await ruleService.listRulesForEntity('ent-customer');
+      // All 5 synthetic rules target attributes that have entityUuid = ent-customer
+      expect(rules.length).toBeGreaterThanOrEqual(5);
+      expect(rules.every(r => r.synthetic)).toBe(true);
+    });
+
+    it('returns empty when entity has no constraints', async () => {
+      mocked.listAllEntities.mockResolvedValue([
+        { microservice: 'user-service', name: 'Plain' },
+      ]);
+      mocked.readEntityFile.mockResolvedValue({
+        uuid: 'ent-plain',
+        name: 'Plain',
+        attributes: [
+          { uuid: 'a', name: 'x', type: 'string', required: false, description: '' },
+        ],
+      });
+
+      const rules = await ruleService.listRules();
+      expect(rules.filter(r => r.synthetic)).toHaveLength(0);
+    });
+  });
+
+  // ─── Write rejection on synthetic UUIDs (#76) ──────────────────────────
+  describe('write rejection on synthetic rules', () => {
+    it('updateRule rejects constraint: prefixed UUID with a clear message', async () => {
+      const result = await ruleService.updateRule('constraint:attr-1:format', {
+        description: 'try to edit',
+      });
+      expect(result.success).toBe(false);
+      expect(result.errors![0]).toContain('synthesized from an attribute constraint');
+      expect(mocked.writeEntityRules).not.toHaveBeenCalled();
+    });
+
+    it('deleteRule rejects constraint: prefixed UUID with a clear message', async () => {
+      const result = await ruleService.deleteRule('constraint:attr-1:format');
+      expect(result.success).toBe(false);
+      expect(result.errors![0]).toContain('synthesized from an attribute constraint');
+      expect(mocked.writeEntityRules).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── Enforcement field validation ──────────────────────────────────────
+  describe('enforcement validation', () => {
+    it('createRule defaults missing enforcement to advisory', async () => {
+      const result = await ruleService.createRule({
+        name: 'no-enforcement-given',
+        description: 'desc',
+        severity: 'warning',
+        scope: 'package',
+        packageName: 'svc',
+        targets: [{ kind: 'entity', uuid: 'ent-1' }],
+      });
+      expect(result.success).toBe(true);
+      expect(result.rule!.enforcement).toBe('advisory');
+    });
+
+    it('rejects rule with invalid enforcement value', async () => {
+      const result = await ruleService.createRule({
+        name: 'bad-enf',
+        description: 'desc',
+        severity: 'error',
+        enforcement: 'nope' as any,
+        scope: 'package',
+        packageName: 'svc',
+        targets: [{ kind: 'entity', uuid: 'ent-1' }],
+      });
+      expect(result.success).toBe(false);
+      expect(result.errors!.some(e => e.includes('enforcement'))).toBe(true);
+    });
+
+    it('rejects process-enforcement rule without process-stage-field metadata', async () => {
+      const result = await ruleService.createRule({
+        name: 'process-rule',
+        description: 'desc',
+        severity: 'error',
+        enforcement: 'process',
+        scope: 'package',
+        packageName: 'svc',
+        targets: [{ kind: 'entity', uuid: 'ent-1' }],
+      });
+      expect(result.success).toBe(false);
+      expect(result.errors!.some(e => e.includes('process-stage-field'))).toBe(true);
+    });
+
+    it('accepts process-enforcement rule with process-stage-field metadata', async () => {
+      const result = await ruleService.createRule({
+        name: 'process-rule',
+        description: 'desc',
+        severity: 'error',
+        enforcement: 'process',
+        scope: 'package',
+        packageName: 'svc',
+        targets: [{ kind: 'entity', uuid: 'ent-1' }],
+        metadata: [
+          { name: 'process-stage-field', value: 'lifecycle-stage' },
+          { name: 'process-stage-value', value: 'approved' },
+        ],
+      });
+      expect(result.success).toBe(true);
+      expect(result.rule!.enforcement).toBe('process');
+      expect(result.rule!.metadata).toHaveLength(2);
+    });
+  });
+
+  // ─── Filter by enforcement ─────────────────────────────────────────────
+  describe('listRules enforcement filter', () => {
+    it('filters by enforcement', async () => {
+      mocked.listPackagesWithRules.mockResolvedValue(['svc']);
+      mocked.readPackageRules.mockResolvedValue([
+        buildRule({ uuid: 'r-save', enforcement: 'save' }),
+        buildRule({ uuid: 'r-advisory', enforcement: 'advisory' }),
+      ]);
+
+      const saveRules = await ruleService.listRules({ enforcement: 'save' });
+      expect(saveRules).toHaveLength(1);
+      expect(saveRules[0].uuid).toBe('r-save');
     });
   });
 });

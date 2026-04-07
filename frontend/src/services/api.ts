@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-import { Entity, Relationship, Stereotype, StereotypeTarget, Perspective, ResolvedPerspective, PerspectiveNode, GraphData, ImpactAnalysis, ReviewComment, LineageResult, Rule, RuleScope, RuleSeverityValue } from '../types';
+import { Entity, Relationship, Stereotype, StereotypeTarget, Perspective, ResolvedPerspective, PerspectiveNode, GraphData, ImpactAnalysis, ReviewComment, LineageResult, Rule, RuleScope, RuleSeverityValue, RuleEnforcement } from '../types';
 import { Package } from '../types';
 
 /**
@@ -450,6 +450,7 @@ export const ruleApi = {
   list: async (filters: {
     scope?: RuleScope;
     severity?: RuleSeverityValue;
+    enforcement?: RuleEnforcement;
     targetUuid?: string;
     perspective?: string;
     package?: string;
@@ -457,6 +458,7 @@ export const ruleApi = {
     const params = new URLSearchParams();
     if (filters.scope) params.set('scope', filters.scope);
     if (filters.severity) params.set('severity', filters.severity);
+    if (filters.enforcement) params.set('enforcement', filters.enforcement);
     if (filters.targetUuid) params.set('targetUuid', filters.targetUuid);
     if (filters.perspective) params.set('perspective', filters.perspective);
     if (filters.package) params.set('package', filters.package);

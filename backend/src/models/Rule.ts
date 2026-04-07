@@ -10,11 +10,29 @@
 /** Where a rule lives — determines storage location and lookup */
 export type RuleScope = 'entity' | 'package' | 'perspective';
 
-/** Severity of a rule's violation */
+/** Severity of a rule's violation — answers HOW BAD */
 export type RuleSeverityValue = 'info' | 'warning' | 'error';
+
+/**
+ * When a rule is checked — answers WHEN. Decoupled from severity.
+ *  - 'save'     → must pass before save (DB-level integrity, default for synthesized constraints)
+ *  - 'process'  → must pass at a specific process-stage transition; the stage is named in the
+ *                 rule's `metadata` array via `process-stage-field` / `process-stage-value`
+ *  - 'advisory' → never blocks; surfaces in review/remediation lists only
+ */
+export type RuleEnforcement = 'save' | 'process' | 'advisory';
 
 /** What kind of node a rule target points to */
 export type RuleTargetKind = 'attribute' | 'entity' | 'relationship' | 'perspective-node';
+
+/**
+ * Free-form metadata entry on a rule, mirroring the existing
+ * Entity/Attribute/Package metadata pattern.
+ */
+export interface RuleMetadataEntry {
+  name: string;
+  value: string | number | boolean;
+}
 
 /** A single node referenced by a rule */
 export interface RuleTarget {
@@ -44,8 +62,10 @@ export interface Rule {
   name: string;
   /** Markdown description — the human explanation of the rule */
   description: string;
-  /** Severity of a violation */
+  /** Severity of a violation — how bad it is */
   severity: RuleSeverityValue;
+  /** When the rule is checked — decoupled from severity (#76) */
+  enforcement: RuleEnforcement;
   /** Where the rule lives — determines storage location and lookup */
   scope: RuleScope;
   /** For scope='package': the package the rule lives in */
@@ -60,6 +80,19 @@ export interface Rule {
   expression?: RuleExpression;
   /** Free-form tags for grouping in the rule browser */
   tags?: string[];
+  /**
+   * Free-form metadata, mirrors the Entity/Attribute/Package metadata pattern.
+   * Used for process-stage binding when enforcement='process':
+   *   metadata: [
+   *     { name: 'process-stage-field', value: 'lifecycle-stage' },
+   *     { name: 'process-stage-value', value: 'approved' },  // optional
+   *   ]
+   */
+  metadata?: RuleMetadataEntry[];
+  /** True for rules synthesized from attribute.constraints (read-only, #76) */
+  synthetic?: boolean;
+  /** For synthetic rules: which constraint field this came from (format, minLength, ...) */
+  constraintField?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -84,6 +117,9 @@ export function validateRule(rule: Partial<Rule>): string[] {
   if (!rule.severity || !['info', 'warning', 'error'].includes(rule.severity)) {
     errors.push('Rule severity must be one of: info, warning, error');
   }
+  if (!rule.enforcement || !['save', 'process', 'advisory'].includes(rule.enforcement)) {
+    errors.push('Rule enforcement must be one of: save, process, advisory');
+  }
   if (!rule.scope || !['entity', 'package', 'perspective'].includes(rule.scope)) {
     errors.push('Rule scope must be one of: entity, package, perspective');
   }
@@ -99,5 +135,18 @@ export function validateRule(rule: Partial<Rule>): string[] {
   if (rule.scope === 'perspective' && !rule.perspectiveUuid) {
     errors.push('Perspective-scoped rules must specify perspectiveUuid');
   }
+  // Process-stage binding sanity check (warning-level — we don't fail save here,
+  // since the referenced metadata field may be added shortly after the rule)
+  if (rule.enforcement === 'process') {
+    const stageField = (rule.metadata || []).find(m => m.name === 'process-stage-field');
+    if (!stageField || !stageField.value) {
+      errors.push('Process-enforcement rules must reference a metadata field via process-stage-field');
+    }
+  }
   return errors;
+}
+
+/** True if this rule UUID identifies a constraint-derived synthetic rule (#76) */
+export function isSyntheticRuleUuid(uuid: string): boolean {
+  return uuid.startsWith('constraint:');
 }

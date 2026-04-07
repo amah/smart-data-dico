@@ -111,6 +111,8 @@ export enum RuleSeverity {
 
 export type RuleScope = 'entity' | 'package' | 'perspective';
 export type RuleSeverityValue = 'info' | 'warning' | 'error';
+/** When a rule is checked. Decoupled from severity (#76). */
+export type RuleEnforcement = 'save' | 'process' | 'advisory';
 export type RuleTargetKind = 'attribute' | 'entity' | 'relationship' | 'perspective-node';
 
 export interface RuleTarget {
@@ -125,11 +127,19 @@ export interface RuleExpression {
   body: string;
 }
 
+/** Free-form metadata entry on a rule (mirrors entity/attribute pattern). */
+export interface RuleMetadataEntry {
+  name: string;
+  value: string | number | boolean;
+}
+
 export interface Rule {
   uuid: string;
   name: string;
   description: string;
   severity: RuleSeverityValue;
+  /** When the rule is checked (#76) */
+  enforcement: RuleEnforcement;
   scope: RuleScope;
   packageName?: string;
   entityUuid?: string;
@@ -137,6 +147,19 @@ export interface Rule {
   targets: RuleTarget[];
   expression?: RuleExpression;
   tags?: string[];
+  /**
+   * Free-form metadata. Used (among other things) for process-stage binding
+   * when enforcement === 'process':
+   *   metadata: [
+   *     { name: 'process-stage-field', value: 'lifecycle-stage' },
+   *     { name: 'process-stage-value', value: 'approved' },
+   *   ]
+   */
+  metadata?: RuleMetadataEntry[];
+  /** True for rules synthesized from attribute.constraints — read-only (#76) */
+  synthetic?: boolean;
+  /** For synthetic rules: which constraint field this came from */
+  constraintField?: string;
   createdAt?: string;
   updatedAt?: string;
 }
