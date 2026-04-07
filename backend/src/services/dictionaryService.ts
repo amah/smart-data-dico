@@ -123,7 +123,14 @@ export class DictionaryService {
       // Non-empty check unless force=true
       if (!force) {
         const entries = fs.readdirSync(baseDir);
-        const hasEntities = entries.some(e => e.endsWith('.yaml') && e !== 'metadata.yaml' && e !== 'relationships.yaml');
+        const hasEntities = entries.some(e =>
+          e.endsWith('.yaml') &&
+          e !== 'metadata.yaml' &&
+          e !== 'relationships.yaml' &&
+          e !== 'rules.yaml' &&
+          !e.endsWith('.comments.yaml') &&
+          !e.endsWith('.rules.yaml')
+        );
         const hasSubPackages = entries.some(e => fs.statSync(path.join(baseDir, e)).isDirectory());
         if (hasEntities || hasSubPackages) {
           return { success: false, errors: ['Package is not empty. Delete its entities and sub-packages first, or use force=true.'] };
@@ -181,11 +188,31 @@ export class DictionaryService {
         entry.isFile() &&
         entry.name.endsWith('.yaml') &&
         entry.name !== 'metadata.yaml' &&
-        entry.name !== 'relationships.yaml'
+        entry.name !== 'relationships.yaml' &&
+        entry.name !== 'rules.yaml' &&                  // package-scoped rules (#74)
+        !entry.name.endsWith('.comments.yaml') &&       // entity comments sidecar
+        !entry.name.endsWith('.rules.yaml')             // entity-scoped rules sidecar (#74)
       ) {
         try {
           const fileContent = fs.readFileSync(entryPath, 'utf8');
           const entity = YAML.parse(fileContent) as Entity;
+          // Normalize legacy attribute metadata format: some files have
+          // metadata as a plain object {key: value} instead of MetadataEntry[].
+          // Convert to the canonical array form so consumers don't crash.
+          if (entity.attributes) {
+            for (const attr of entity.attributes) {
+              if (attr.metadata && !Array.isArray(attr.metadata)) {
+                attr.metadata = Object.entries(attr.metadata as any).map(
+                  ([name, value]) => ({ name, value: value as any }),
+                );
+              }
+            }
+          }
+          if (entity.metadata && !Array.isArray(entity.metadata)) {
+            entity.metadata = Object.entries(entity.metadata as any).map(
+              ([name, value]) => ({ name, value: value as any }),
+            );
+          }
           entities.push(entity);
         } catch (e) {
           logger.warn(`Failed to parse entity YAML: ${entryPath}: ${e}`);
