@@ -1,18 +1,13 @@
 import { useEffect, useState } from 'react';
 import Markdown from 'react-markdown';
 import { ruleApi, entityApi } from '../services/api';
-import type { Rule, RuleScope, RuleSeverityValue, RuleTarget, Package, Entity } from '../types';
+import type { Rule, RuleScope, RuleSeverityValue, RuleTarget, Package } from '../types';
 
 interface RuleEditorProps {
   /** Rule to edit, or null to create a new one */
   rule: Rule | null;
   onClose: () => void;
   onSaved: () => void;
-}
-
-interface ResolvedTarget {
-  packageName: string;
-  entity: Entity;
 }
 
 /**

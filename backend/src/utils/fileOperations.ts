@@ -32,23 +32,56 @@ function isEntityFile(file: string): boolean {
 }
 
 /**
- * Normalize legacy entity metadata format on read.
+ * Constraint field names recognized by `AttributeConstraints`. Used by the
+ * legacy normalizer below to lift flat constraint fields off the attribute
+ * root into the canonical nested `constraints` object.
+ */
+const CONSTRAINT_FIELD_NAMES = [
+  'minLength', 'maxLength', 'pattern', 'format',
+  'minimum', 'maximum', 'precision', 'scale',
+  'enumValues',
+] as const;
+
+/**
+ * Normalize legacy entity shapes on read.
  *
- * Some pre-existing YAML files store attribute metadata as a plain object
- * (e.g. `metadata: {isPrimaryKey: true}`) instead of the canonical
- * MetadataEntry[] form (`metadata: [{name: 'isPrimaryKey', value: true}]`).
- * Consumers iterate metadata as an array everywhere, so the legacy format
- * crashes them. Normalizing at the read layer keeps the rest of the system
- * uniform without forcing a destructive on-disk migration.
+ * Two pre-existing legacy formats need normalizing so the rest of the system
+ * can assume canonical shapes:
+ *
+ *  1. Attribute metadata stored as a plain object instead of MetadataEntry[]
+ *     (e.g. `metadata: {isPrimaryKey: true}` → `metadata: [{name: ..., value: ...}]`)
+ *
+ *  2. Constraints stored flat on the attribute instead of nested under
+ *     `constraints` (e.g. `format: email` directly on the attribute → moved
+ *     into `attr.constraints.format`). This makes the constraint synthesis
+ *     in #76 see all constraints uniformly without each consumer having to
+ *     know about both shapes.
+ *
+ * Both fixes are non-destructive — the in-memory entity is updated; the
+ * on-disk YAML is left untouched until something writes it back.
  */
 export function normalizeEntityMetadata(entity: Entity | null): Entity | null {
   if (!entity) return entity;
   if (entity.attributes) {
     for (const attr of entity.attributes) {
+      // 1. Metadata: object → MetadataEntry[]
       if (attr.metadata && !Array.isArray(attr.metadata)) {
         attr.metadata = Object.entries(attr.metadata as any).map(
           ([name, value]) => ({ name, value: value as any }),
         );
+      }
+      // 2. Constraints: flat → nested
+      const flat: Record<string, any> = {};
+      let hasFlat = false;
+      for (const field of CONSTRAINT_FIELD_NAMES) {
+        if ((attr as any)[field] !== undefined) {
+          flat[field] = (attr as any)[field];
+          delete (attr as any)[field];
+          hasFlat = true;
+        }
+      }
+      if (hasFlat) {
+        attr.constraints = { ...(attr.constraints || {}), ...flat };
       }
     }
   }

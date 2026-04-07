@@ -9,7 +9,7 @@
  * Rule UUIDs are unique across the whole dictionary, so callers can lookup
  * a rule by uuid without knowing its scope upfront.
  */
-import { Rule, RuleScope, validateRule } from '../models/Rule.js';
+import { Rule, RuleScope, validateRule, isSyntheticRuleUuid } from '../models/Rule.js';
 import {
   readEntityRules,
   writeEntityRules,
@@ -20,13 +20,17 @@ import {
   listAllEntityRuleFiles,
   listPackagesWithRules,
   listPerspectives,
+  listAllEntities,
+  readEntityFile,
 } from '../utils/fileOperations.js';
 import { generateUUID } from '../utils/uuid.js';
 import { logger } from '../utils/logger.js';
+import { synthesizeConstraintRules } from './constraintRuleSynthesis.js';
 
 interface ListFilters {
   scope?: RuleScope;
   severity?: 'info' | 'warning' | 'error';
+  enforcement?: 'save' | 'process' | 'advisory';
   /** Match rules whose targets include this node UUID (entity, attribute, etc.) */
   targetUuid?: string;
   /** For perspective scope: filter by perspective uuid */
@@ -35,7 +39,29 @@ interface ListFilters {
   packageName?: string;
 }
 
+const SYNTHETIC_REJECT_MSG =
+  'This rule is synthesized from an attribute constraint. Edit it via the per-attribute editor.';
+
 class RuleService {
+  /**
+   * Synthesize constraint-derived rules across all entities (#76).
+   * Walked once per listRules call; the result is filtered downstream.
+   */
+  private async loadSyntheticConstraintRules(): Promise<Rule[]> {
+    const all: Rule[] = [];
+    try {
+      const entityRefs = await listAllEntities();
+      for (const ref of entityRefs) {
+        const entity = await readEntityFile(ref.microservice, ref.name);
+        if (!entity) continue;
+        all.push(...synthesizeConstraintRules(entity));
+      }
+    } catch (error) {
+      logger.error(`Error synthesizing constraint rules: ${error}`);
+    }
+    return all;
+  }
+
   /** List all rules from all storage scopes, optionally filtered. */
   async listRules(filters: ListFilters = {}): Promise<Rule[]> {
     const all: Rule[] = [];
@@ -47,6 +73,8 @@ class RuleService {
         const rules = await readEntityRules(service, entityUuid);
         all.push(...rules);
       }
+      // Synthetic constraint-derived rules also live in 'entity' scope (#76)
+      all.push(...(await this.loadSyntheticConstraintRules()));
     }
 
     // Package-scoped rules
@@ -74,9 +102,16 @@ class RuleService {
       }
     }
 
+    // Backfill enforcement = 'advisory' on rules created before #76 introduced
+    // the field. Non-destructive — only patches the in-memory copy.
+    for (const rule of all) {
+      if (!rule.enforcement) rule.enforcement = 'advisory';
+    }
+
     // Apply filters
     return all.filter(rule => {
       if (filters.severity && rule.severity !== filters.severity) return false;
+      if (filters.enforcement && rule.enforcement !== filters.enforcement) return false;
       if (filters.targetUuid) {
         const hit = rule.targets.some(t =>
           t.uuid === filters.targetUuid || t.entityUuid === filters.targetUuid
@@ -106,6 +141,8 @@ class RuleService {
 
   /** Create a rule. Storage location is determined by `scope`. */
   async createRule(input: Partial<Rule>): Promise<{ success: boolean; rule?: Rule; errors?: string[] }> {
+    // Default enforcement = 'advisory' if caller didn't specify
+    if (!input.enforcement) input.enforcement = 'advisory';
     const errors = validateRule(input);
     if (errors.length > 0) {
       return { success: false, errors };
@@ -115,6 +152,7 @@ class RuleService {
       name: input.name!,
       description: input.description!,
       severity: input.severity!,
+      enforcement: input.enforcement!,
       scope: input.scope!,
       targets: input.targets!,
       packageName: input.packageName,
@@ -122,6 +160,7 @@ class RuleService {
       perspectiveUuid: input.perspectiveUuid,
       expression: input.expression,
       tags: input.tags,
+      metadata: input.metadata,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -132,6 +171,9 @@ class RuleService {
 
   /** Update an existing rule by uuid. Re-routes to new scope if scope changed. */
   async updateRule(uuid: string, input: Partial<Rule>): Promise<{ success: boolean; rule?: Rule; errors?: string[] }> {
+    if (isSyntheticRuleUuid(uuid)) {
+      return { success: false, errors: [SYNTHETIC_REJECT_MSG] };
+    }
     const existing = await this.getRule(uuid);
     if (!existing) return { success: false, errors: [`Rule ${uuid} not found`] };
 
@@ -161,6 +203,9 @@ class RuleService {
 
   /** Delete a rule by uuid. */
   async deleteRule(uuid: string): Promise<{ success: boolean; errors?: string[] }> {
+    if (isSyntheticRuleUuid(uuid)) {
+      return { success: false, errors: [SYNTHETIC_REJECT_MSG] };
+    }
     const existing = await this.getRule(uuid);
     if (!existing) return { success: false, errors: [`Rule ${uuid} not found`] };
     const removed = await this.removeRuleFromScope(existing);
