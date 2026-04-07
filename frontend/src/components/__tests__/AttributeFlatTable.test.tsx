@@ -225,12 +225,13 @@ describe('AttributeFlatTable', () => {
       expect(screen.getByText('email')).toBeInTheDocument();
     });
 
-    // Find the 'age' row — required is false
+    // Find the 'age' row — required is false. Click the required checkbox
+    // (which is the first checkbox in the row, since metadata flags follow it).
     const ageRow = screen.getByText('age').closest('tr')!;
-    // age row may have multiple "No" badges (required + metadata), find the first one
-    const noBadges = within(ageRow).getAllByText('No');
-    const noCell = noBadges[0].closest('td')!;
-    await userEvent.click(noCell);
+    const checkboxes = within(ageRow).getAllByRole('checkbox') as HTMLInputElement[];
+    const requiredCheckbox = checkboxes[0];
+    expect(requiredCheckbox.checked).toBe(false);
+    await userEvent.click(requiredCheckbox);
 
     await waitFor(() => {
       expect(capturedBody).toBeDefined();
@@ -251,7 +252,7 @@ describe('AttributeFlatTable', () => {
     const entityCell = within(row).getByText('User').closest('td')!;
     const pkgCell = within(row).getByText('user-service').closest('td')!;
 
-    // These cells should not have the hover:bg-base-200 class (not editable)
+    // These cells should not have the cursor-pointer class (not editable)
     expect(entityCell.className).not.toContain('cursor-pointer');
     expect(pkgCell.className).not.toContain('cursor-pointer');
   });

@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import EditableCell from '../EditableCell';
@@ -121,8 +121,6 @@ describe('EditableCell', () => {
       const input = screen.getByRole('textbox');
       await userEvent.clear(input);
       await userEvent.type(input, 'Saved{enter}');
-      // After save, it exits edit mode and shows original prop (since parent doesn't update)
-      // but the cell should have the success highlight
       await waitFor(() => {
         const cell = screen.getByText('Hello').closest('td')!;
         expect(cell.className).toContain('bg-success/10');
@@ -137,10 +135,8 @@ describe('EditableCell', () => {
       await userEvent.clear(input);
       await userEvent.type(input, 'Bad{enter}');
       await waitFor(() => {
-        // Should revert to original value
         expect(screen.getByText('Hello')).toBeInTheDocument();
       });
-      // Error highlight should appear
       const cell = screen.getByText('Hello').closest('td')!;
       expect(cell.className).toContain('bg-error/10');
     });
@@ -165,7 +161,6 @@ describe('EditableCell', () => {
       const textarea = screen.getByRole('textbox');
       await userEvent.clear(textarea);
       await userEvent.type(textarea, 'New desc');
-      // Press Enter without shift
       fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
       await waitFor(() => {
         expect(onSave).toHaveBeenCalledWith('New desc');
@@ -207,52 +202,67 @@ describe('EditableCell', () => {
   });
 
   // ──────────────────────────────────────────────
-  // Toggle input
+  // Toggle input — checkbox-based (#70)
   // ──────────────────────────────────────────────
 
   describe('Toggle input', () => {
-    it('renders Yes badge for true value', () => {
+    it('renders a checked checkbox for true value', () => {
       renderCell({ value: true, inputType: 'toggle', onSave });
-      expect(screen.getByText('Yes')).toBeInTheDocument();
+      const checkbox = screen.getByRole('checkbox') as HTMLInputElement;
+      expect(checkbox).toBeInTheDocument();
+      expect(checkbox.checked).toBe(true);
     });
 
-    it('renders No badge for false value', () => {
+    it('renders an unchecked checkbox for false value', () => {
       renderCell({ value: false, inputType: 'toggle', onSave });
-      expect(screen.getByText('No')).toBeInTheDocument();
+      const checkbox = screen.getByRole('checkbox') as HTMLInputElement;
+      expect(checkbox.checked).toBe(false);
     });
 
-    it('toggles value on click (true → false)', async () => {
+    it('flips value on checkbox click (true → false)', async () => {
       renderCell({ value: true, inputType: 'toggle', onSave });
-      const cell = screen.getByText('Yes').closest('td')!;
-      await userEvent.click(cell);
+      await userEvent.click(screen.getByRole('checkbox'));
       await waitFor(() => {
         expect(onSave).toHaveBeenCalledWith(false);
       });
     });
 
-    it('toggles value on click (false → true)', async () => {
+    it('flips value on checkbox click (false → true)', async () => {
       renderCell({ value: false, inputType: 'toggle', onSave });
-      const cell = screen.getByText('No').closest('td')!;
-      await userEvent.click(cell);
+      await userEvent.click(screen.getByRole('checkbox'));
       await waitFor(() => {
         expect(onSave).toHaveBeenCalledWith(true);
       });
     });
 
-    it('does not toggle when disabled', async () => {
+    it('clicking the cell area (not the checkbox) does NOT flip the value', async () => {
+      renderCell({ value: true, inputType: 'toggle', onSave });
+      const cell = screen.getByRole('checkbox').closest('td')!;
+      // The cell has no onClick handler, so firing a click event on the td
+      // (not the checkbox child) should be a no-op.
+      fireEvent.click(cell);
+      await new Promise(resolve => setTimeout(resolve, 50));
+      expect(onSave).not.toHaveBeenCalled();
+    });
+
+    it('does not flip when disabled', async () => {
       renderCell({ value: true, inputType: 'toggle', onSave, disabled: true });
-      const cell = screen.getByText('Yes').closest('td')!;
-      await userEvent.click(cell);
+      const checkbox = screen.getByRole('checkbox') as HTMLInputElement;
+      expect(checkbox.disabled).toBe(true);
+      await userEvent.click(checkbox);
       expect(onSave).not.toHaveBeenCalled();
     });
 
     it('shows spinner while saving', async () => {
       const slowSave = vi.fn().mockImplementation(() => new Promise(resolve => setTimeout(resolve, 500)));
       renderCell({ value: true, inputType: 'toggle', onSave: slowSave });
-      const cell = screen.getByText('Yes').closest('td')!;
-      await userEvent.click(cell);
-      // Spinner should be visible
+      await userEvent.click(screen.getByRole('checkbox'));
       expect(document.querySelector('.loading-spinner')).toBeInTheDocument();
+    });
+
+    it('uses the provided ariaLabel', () => {
+      renderCell({ value: true, inputType: 'toggle', onSave, ariaLabel: 'Required' });
+      expect(screen.getByLabelText('Required')).toBeInTheDocument();
     });
   });
 });

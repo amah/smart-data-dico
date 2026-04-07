@@ -16,8 +16,18 @@ interface EditableCellProps {
   disabled?: boolean;
   /** Display renderer for non-edit mode. If not provided, renders value as string */
   renderDisplay?: (value: string | number | boolean) => React.ReactNode;
+  /** Accessible label for the cell — used for the toggle checkbox aria-label */
+  ariaLabel?: string;
 }
 
+/**
+ * Inline-editable table cell.
+ *
+ * - Text/textarea/select cells enter edit mode on single click.
+ * - Toggle cells render an inert <td> wrapping a small checkbox widget — the
+ *   checkbox is the only click target, so the cell area is text-selectable
+ *   and stray clicks on the row don't accidentally flip the value (#70).
+ */
 const EditableCell = ({
   value,
   inputType = 'text',
@@ -26,6 +36,7 @@ const EditableCell = ({
   className = '',
   disabled = false,
   renderDisplay,
+  ariaLabel,
 }: EditableCellProps) => {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(value);
@@ -85,27 +96,36 @@ const EditableCell = ({
     save(editValue);
   };
 
-  // Toggle: no edit mode, just flip on click
+  // ────────────────────────────────────────────
+  // Toggle: inert <td> with an inner checkbox (#70)
+  // ────────────────────────────────────────────
   if (inputType === 'toggle') {
+    const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (!disabled && !saving) save(e.target.checked);
+    };
     return (
       <td
-        className={`cursor-pointer select-none ${className} ${saved ? 'bg-success/10' : ''} ${error ? 'bg-error/10' : ''}`}
-        onClick={() => {
-          if (!disabled && !saving) save(!value);
-        }}
+        className={`cursor-default ${className} ${saved ? 'bg-success/10' : ''} ${error ? 'bg-error/10' : ''}`}
       >
         {saving ? (
-          <span className="loading loading-spinner loading-xs"></span>
-        ) : value ? (
-          <span className="badge badge-xs badge-success">Yes</span>
+          <span className="loading loading-spinner loading-xs" aria-label="saving"></span>
         ) : (
-          <span className="badge badge-xs badge-ghost">No</span>
+          <input
+            type="checkbox"
+            className="checkbox checkbox-xs checkbox-success"
+            checked={!!value}
+            disabled={disabled}
+            onChange={handleCheckboxChange}
+            aria-label={ariaLabel ?? 'toggle value'}
+          />
         )}
       </td>
     );
   }
 
-  // Display mode
+  // ────────────────────────────────────────────
+  // Display mode — single click to edit
+  // ────────────────────────────────────────────
   if (!editing) {
     return (
       <td
@@ -123,7 +143,9 @@ const EditableCell = ({
     );
   }
 
+  // ────────────────────────────────────────────
   // Edit mode
+  // ────────────────────────────────────────────
   return (
     <td className={`p-0 ${className}`}>
       {inputType === 'select' ? (
