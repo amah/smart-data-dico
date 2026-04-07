@@ -9,6 +9,7 @@ import WorkspacesPage from './pages/WorkspacesPage';
 import MergePage from './pages/MergePage';
 import ImportExportPage from './pages/ImportExportPage';
 import QualityDashboardPage from './pages/QualityDashboardPage';
+import RuleBrowserPage from './pages/RuleBrowserPage';
 import PerspectiveListPage from './pages/PerspectiveListPage';
 import PerspectiveDetailPage from './pages/PerspectiveDetailPage';
 import PerspectiveCreatePage from './pages/PerspectiveCreatePage';
@@ -98,6 +99,9 @@ function App() {
         <Route path="flat/packages" element={<PackageFlatTable />} />
         <Route path="flat/entities" element={<EntityFlatTable />} />
         <Route path="flat/attributes" element={<AttributeFlatTable />} />
+
+        {/* Validation Rules (#74) */}
+        <Route path="rules" element={<RuleBrowserPage />} />
 
         {/* Version Control */}
         <Route path="version">
