@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Markdown from 'react-markdown';
 import { ruleApi } from '../services/api';
-import type { Rule, RuleScope, RuleSeverityValue } from '../types';
+import type { Rule, RuleScope, RuleSeverityValue, RuleEnforcement } from '../types';
 import RuleEditor from '../components/RuleEditor';
 
 /**
@@ -17,6 +17,7 @@ const RuleBrowserPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [scopeFilter, setScopeFilter] = useState<RuleScope | 'all'>('all');
   const [severityFilter, setSeverityFilter] = useState<RuleSeverityValue | 'all'>('all');
+  const [enforcementFilter, setEnforcementFilter] = useState<RuleEnforcement | 'all'>('all');
   const [search, setSearch] = useState('');
   const [editorRule, setEditorRule] = useState<Rule | null>(null);
   const [creating, setCreating] = useState(false);
@@ -28,6 +29,7 @@ const RuleBrowserPage = () => {
       const data = await ruleApi.list({
         scope: scopeFilter === 'all' ? undefined : scopeFilter,
         severity: severityFilter === 'all' ? undefined : severityFilter,
+        enforcement: enforcementFilter === 'all' ? undefined : enforcementFilter,
       });
       setRules(data);
     } catch {
@@ -35,7 +37,7 @@ const RuleBrowserPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [scopeFilter, severityFilter]);
+  }, [scopeFilter, severityFilter, enforcementFilter]);
 
   useEffect(() => {
     fetchRules();
@@ -65,6 +67,15 @@ const RuleBrowserPage = () => {
       case 'entity': return 'badge-primary';
       case 'package': return 'badge-secondary';
       case 'perspective': return 'badge-accent';
+      default: return 'badge-ghost';
+    }
+  };
+
+  const enforcementBadgeClass = (enf: RuleEnforcement) => {
+    switch (enf) {
+      case 'save': return 'badge-error';
+      case 'process': return 'badge-warning';
+      case 'advisory': return 'badge-ghost';
       default: return 'badge-ghost';
     }
   };
@@ -113,6 +124,16 @@ const RuleBrowserPage = () => {
           <option value="warning">Warning</option>
           <option value="info">Info</option>
         </select>
+        <select
+          className="select select-sm select-bordered"
+          value={enforcementFilter}
+          onChange={e => setEnforcementFilter(e.target.value as RuleEnforcement | 'all')}
+        >
+          <option value="all">All enforcements</option>
+          <option value="save">Save (blocking)</option>
+          <option value="process">Process gate</option>
+          <option value="advisory">Advisory</option>
+        </select>
       </div>
 
       {loading ? (
@@ -128,6 +149,7 @@ const RuleBrowserPage = () => {
               <tr>
                 <th>Name</th>
                 <th>Severity</th>
+                <th>Enforcement</th>
                 <th>Scope</th>
                 <th>Description</th>
                 <th>Targets</th>
@@ -138,7 +160,7 @@ const RuleBrowserPage = () => {
             <tbody>
               {filteredRules.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center text-gray-500 py-4">
+                  <td colSpan={8} className="text-center text-gray-500 py-4">
                     {rules.length === 0
                       ? 'No rules yet. Click "+ New Rule" to add one.'
                       : 'No rules match the current filters.'}
@@ -148,13 +170,28 @@ const RuleBrowserPage = () => {
                 filteredRules.map(rule => (
                   <tr
                     key={rule.uuid}
-                    className="hover cursor-pointer"
-                    onClick={() => setEditorRule(rule)}
+                    className={`hover ${rule.synthetic ? 'opacity-60 cursor-default' : 'cursor-pointer'}`}
+                    onClick={() => {
+                      if (!rule.synthetic) setEditorRule(rule);
+                    }}
+                    title={rule.synthetic ? 'Synthesized from a constraint — read-only here, edit via the per-attribute editor' : undefined}
                   >
-                    <td className="font-medium">{rule.name}</td>
+                    <td className="font-medium">
+                      {rule.name}
+                      {rule.synthetic && (
+                        <span className="badge badge-xs badge-ghost ml-1" title="Synthesized from constraint">
+                          constraint
+                        </span>
+                      )}
+                    </td>
                     <td>
                       <span className={`badge badge-xs ${severityBadgeClass(rule.severity)}`}>
                         {rule.severity}
+                      </span>
+                    </td>
+                    <td>
+                      <span className={`badge badge-xs ${enforcementBadgeClass(rule.enforcement)}`}>
+                        {rule.enforcement}
                       </span>
                     </td>
                     <td>
