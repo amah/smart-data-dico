@@ -1,10 +1,16 @@
 import { useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { Attribute, AttributeType } from '../types';
+import { Attribute, AttributeType, Entity } from '../types';
 import { useStereotypeMetadata, getActiveColumns, getMetadataValue, setMetadataValue } from '../hooks/useStereotypeMetadata';
 import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
 import InlineMetadataCell from './InlineMetadataCell';
+import EditableCell, { SelectOption } from './EditableCell';
 import { servicesApi } from '../services/api';
+
+const ATTRIBUTE_TYPE_OPTIONS: SelectOption[] = Object.values(AttributeType).map((t) => ({
+  value: t,
+  label: t,
+}));
 
 interface AttributeListProps {
   attributes: Attribute[];
@@ -74,6 +80,20 @@ const AttributeList = ({ attributes, entityName, serviceName, onAttributeUpdated
     } catch (err) {
       console.error('Failed to update metadata:', err);
     }
+  }, [serviceName, entityName, onAttributeUpdated]);
+
+  /** Inline-edit save: fetch fresh entity, mutate one attribute field, PUT back. */
+  const saveAttributeField = useCallback(async (
+    attr: Attribute,
+    updater: (a: Attribute) => Attribute,
+  ) => {
+    const response = await servicesApi.getEntitySchema(serviceName, entityName);
+    const entity: Entity = response.data;
+    const attrIndex = entity.attributes.findIndex(a => a.uuid === attr.uuid);
+    if (attrIndex < 0) throw new Error('Attribute not found');
+    entity.attributes[attrIndex] = updater(entity.attributes[attrIndex]);
+    await servicesApi.updateEntity(serviceName, entityName, entity);
+    onAttributeUpdated?.();
   }, [serviceName, entityName, onAttributeUpdated]);
 
   const addDraftRow = useCallback(() => {
@@ -230,26 +250,51 @@ const AttributeList = ({ attributes, entityName, serviceName, onAttributeUpdated
             </thead>
             <tbody>
               {filteredAttributes.map((attr) => (
-                <tr key={attr.name} className="hover">
-                  <td className="font-medium">
-                    {attr.name}
-                    {attr.primaryKey && (
-                      <span className="badge badge-xs badge-warning ml-1" title="Primary Key">PK</span>
+                <tr key={attr.uuid} className="hover">
+                  <EditableCell
+                    className="font-medium"
+                    value={attr.name}
+                    onSave={async (v) => {
+                      await saveAttributeField(attr, (a) => ({ ...a, name: v as string }));
+                    }}
+                    renderDisplay={(v) => (
+                      <span>
+                        {v?.toString() || '-'}
+                        {attr.primaryKey && (
+                          <span className="badge badge-xs badge-warning ml-1" title="Primary Key">PK</span>
+                        )}
+                      </span>
                     )}
-                  </td>
-                  <td>
-                    <span className={`badge ${getTypeColor(attr.type)}`}>
-                      {attr.type}
-                    </span>
-                  </td>
-                  <td className="max-w-xs truncate">{attr.description}</td>
-                  <td>
-                    {attr.required ? (
-                      <span className="badge badge-success">Required</span>
-                    ) : (
-                      <span className="badge badge-ghost">Optional</span>
+                  />
+                  <EditableCell
+                    value={attr.type}
+                    inputType="select"
+                    options={ATTRIBUTE_TYPE_OPTIONS}
+                    onSave={async (v) => {
+                      await saveAttributeField(attr, (a) => ({ ...a, type: v as AttributeType }));
+                    }}
+                    renderDisplay={(v) => (
+                      <span className={`badge ${getTypeColor(v as AttributeType)}`}>
+                        {v?.toString()}
+                      </span>
                     )}
-                  </td>
+                  />
+                  <EditableCell
+                    value={attr.description || ''}
+                    inputType="textarea"
+                    className="max-w-xs"
+                    onSave={async (v) => {
+                      await saveAttributeField(attr, (a) => ({ ...a, description: v as string }));
+                    }}
+                  />
+                  <EditableCell
+                    value={attr.required}
+                    inputType="toggle"
+                    ariaLabel={`${attr.name} required`}
+                    onSave={async (v) => {
+                      await saveAttributeField(attr, (a) => ({ ...a, required: v as boolean }));
+                    }}
+                  />
                   <td>
                     {attr.constraints?.format && <div><span className="font-medium">Format:</span> {attr.constraints.format}</div>}
                     {attr.constraints?.minLength !== undefined && <div><span className="font-medium">Min Length:</span> {attr.constraints.minLength}</div>}
@@ -277,7 +322,7 @@ const AttributeList = ({ attributes, entityName, serviceName, onAttributeUpdated
                     <Link
                       to={`/packages/${serviceName}/entities/${entityName}/attributes/${attr.name}/edit`}
                       className="btn btn-sm btn-ghost btn-square"
-                      title="Edit"
+                      title="Open full editor (constraints, examples, etc.)"
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                         <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />

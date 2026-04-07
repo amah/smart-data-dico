@@ -433,6 +433,7 @@ const EntityDetail = (props: EntityDetailProps) => {
                 relationships={relationships}
                 entityName={entityData.name}
                 serviceName={service || ''}
+                onRelationshipUpdated={() => fetchEntityData(false)}
               />
             )}
 
