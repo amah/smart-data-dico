@@ -18,6 +18,7 @@ import { createAppRemoteFsPlugin } from '../plugins/remote-fs/remoteFsPlugin';
 import { createAppRemoteGitPlugin } from '../plugins/remote-fs/remoteGitPlugin';
 import { createNotificationPlugin } from '../plugins/notification/notificationPlugin';
 import { createPerspectivePlugin } from '../plugins/perspective/perspectivePlugin';
+import { createRulesPlugin } from '../plugins/rules/rulesPlugin';
 import type { IStoreManager } from '@hamak/ui-store/api';
 
 // Domain Redux slices
@@ -151,6 +152,13 @@ export function registerPlugins() {
     'perspective',
     { name: 'perspective', version: '1.0.0', entry: '', dependsOn: ['store', 'auth'] },
     createPerspectivePlugin()
+  );
+
+  // Rules plugin (#74) — depends on: store, auth
+  host.registerPlugin(
+    'rules',
+    { name: 'rules', version: '1.0.0', entry: '', dependsOn: ['store', 'auth'] },
+    createRulesPlugin()
   );
 }
 

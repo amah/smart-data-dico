@@ -105,6 +105,42 @@ export enum RuleSeverity {
   ERROR = 'error',
 }
 
+// ────────────────────────────────────────────
+// Validation rules (#74)
+// ────────────────────────────────────────────
+
+export type RuleScope = 'entity' | 'package' | 'perspective';
+export type RuleSeverityValue = 'info' | 'warning' | 'error';
+export type RuleTargetKind = 'attribute' | 'entity' | 'relationship' | 'perspective-node';
+
+export interface RuleTarget {
+  kind: RuleTargetKind;
+  uuid: string;
+  entityUuid?: string;
+  perspectivePath?: string;
+}
+
+export interface RuleExpression {
+  language: 'text' | 'jsonata' | 'jexl' | 'sql';
+  body: string;
+}
+
+export interface Rule {
+  uuid: string;
+  name: string;
+  description: string;
+  severity: RuleSeverityValue;
+  scope: RuleScope;
+  packageName?: string;
+  entityUuid?: string;
+  perspectiveUuid?: string;
+  targets: RuleTarget[];
+  expression?: RuleExpression;
+  tags?: string[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export enum EntityStatus {
   DRAFT = 'draft',
   SUBMITTED = 'submitted',
