@@ -1,14 +1,22 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Relationship, Cardinality } from '../types';
+import EditableCell, { SelectOption } from './EditableCell';
+import { relationshipApi } from '../services/api';
 
 interface RelationshipListProps {
   relationships: Relationship[];
   entityName: string;
   serviceName: string;
+  onRelationshipUpdated?: () => void;
 }
 
-const RelationshipList = ({ relationships, entityName, serviceName }: RelationshipListProps) => {
+const CARDINALITY_OPTIONS: SelectOption[] = [
+  { value: Cardinality.ONE, label: 'one' },
+  { value: Cardinality.MANY, label: 'many' },
+];
+
+const RelationshipList = ({ relationships, entityName, serviceName, onRelationshipUpdated }: RelationshipListProps) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCardinality, setFilterCardinality] = useState<string>('all');
 
@@ -27,6 +35,16 @@ const RelationshipList = ({ relationships, entityName, serviceName }: Relationsh
     if (source === Cardinality.MANY && target === Cardinality.MANY) return 'badge-info';
     return 'badge-ghost';
   };
+
+  /** Inline-edit save: mutate one field on the relationship and PUT it back. */
+  const saveRelationshipField = useCallback(async (
+    rel: Relationship,
+    updater: (r: Relationship) => Relationship,
+  ) => {
+    const updated = updater(rel);
+    await relationshipApi.updateRelationship(serviceName, rel.uuid, updated);
+    onRelationshipUpdated?.();
+  }, [serviceName, onRelationshipUpdated]);
 
   const filteredRelationships = relationships.filter(rel => {
     const matchesSearch = searchTerm === '' ||
@@ -97,7 +115,9 @@ const RelationshipList = ({ relationships, entityName, serviceName }: Relationsh
             <thead>
               <tr>
                 <th>Source</th>
+                <th>Src card.</th>
                 <th>Cardinality</th>
+                <th>Tgt card.</th>
                 <th>Target</th>
                 <th>Description</th>
                 <th>Actions</th>
@@ -109,32 +129,62 @@ const RelationshipList = ({ relationships, entityName, serviceName }: Relationsh
                   <td>
                     <div>
                       <span className="font-medium">{rel.source.name || rel.source.entity}</span>
-                      <span className="text-xs text-base-content/50 ml-1">({rel.source.cardinality})</span>
                     </div>
                     {rel.source.referenceAttributes && rel.source.referenceAttributes.length > 0 && (
                       <div className="text-xs text-base-content/50">via: {rel.source.referenceAttributes.join(', ')}</div>
                     )}
                   </td>
+                  <EditableCell
+                    value={rel.source.cardinality}
+                    inputType="select"
+                    options={CARDINALITY_OPTIONS}
+                    onSave={async (v) => {
+                      await saveRelationshipField(rel, (r) => ({
+                        ...r,
+                        source: { ...r.source, cardinality: v as Cardinality },
+                      }));
+                    }}
+                  />
                   <td>
                     <span className={`badge ${getCardinalityColor(rel.source.cardinality, rel.target.cardinality)}`}>
                       {getCardinalityLabel(rel.source.cardinality, rel.target.cardinality)}
                     </span>
                   </td>
+                  <EditableCell
+                    value={rel.target.cardinality}
+                    inputType="select"
+                    options={CARDINALITY_OPTIONS}
+                    onSave={async (v) => {
+                      await saveRelationshipField(rel, (r) => ({
+                        ...r,
+                        target: { ...r.target, cardinality: v as Cardinality },
+                      }));
+                    }}
+                  />
                   <td>
                     <div>
                       <span className="font-medium">{rel.target.name || rel.target.entity}</span>
-                      <span className="text-xs text-base-content/50 ml-1">({rel.target.cardinality})</span>
                     </div>
                     {rel.target.referenceAttributes && rel.target.referenceAttributes.length > 0 && (
                       <div className="text-xs text-base-content/50">via: {rel.target.referenceAttributes.join(', ')}</div>
                     )}
                   </td>
-                  <td className="max-w-xs truncate">{rel.description || '-'}</td>
+                  <EditableCell
+                    className="max-w-xs"
+                    value={rel.description || ''}
+                    inputType="textarea"
+                    onSave={async (v) => {
+                      await saveRelationshipField(rel, (r) => ({
+                        ...r,
+                        description: (v as string) || undefined,
+                      }));
+                    }}
+                  />
                   <td>
                     <Link
                       to={`/services/${serviceName}/entities/${entityName}/relationships/${rel.uuid}/edit`}
                       className="btn btn-sm btn-ghost btn-square"
-                      title="Edit"
+                      title="Open full editor (entity references, navigation names, attribute mapping)"
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                         <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
