@@ -125,11 +125,17 @@ const EditableCell = ({
 
   // ────────────────────────────────────────────
   // Display mode — single click to edit
+  //
+  // Note: no hover background or transition on the cell itself. The parent
+  // table rows in flat views and entity detail use DaisyUI's `tr.hover` which
+  // already highlights the whole row; layering a cell-level hover background
+  // on top caused a visible flicker when the mouse moved between cells in a
+  // hovered row (the transition-colors animation re-painted each cell).
   // ────────────────────────────────────────────
   if (!editing) {
     return (
       <td
-        className={`cursor-pointer hover:bg-base-200 transition-colors ${className} ${saved ? 'bg-success/10' : ''} ${error ? 'bg-error/10' : ''} ${disabled ? 'cursor-default' : ''}`}
+        className={`${disabled ? '' : 'cursor-pointer'} ${className} ${saved ? 'bg-success/10' : ''} ${error ? 'bg-error/10' : ''}`}
         onClick={() => {
           if (!disabled) setEditing(true);
         }}
