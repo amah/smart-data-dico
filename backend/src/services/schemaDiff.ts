@@ -1,0 +1,487 @@
+/**
+ * Schema diff + merge for the import wizard (#69 C2).
+ *
+ * Pure functions — no side effects, no I/O. Given a parsed source schema
+ * and the existing entities in a target service, produces a structured
+ * diff and a merged result that respects three invariants:
+ *
+ *   1. **Lookup is by physical metadata, not display name.**
+ *      Entities matched via `physical.tableName`. Attributes matched via
+ *      `physical.columnName`. The user may have renamed the model — the
+ *      physical mapping is the stable identity.
+ *
+ *   2. **Never overwrite user content.**
+ *      A non-empty `description` or any non-physical metadata entry on
+ *      the existing model attribute is preserved verbatim through the
+ *      merge. Only `physical.*` fields, `type`, `required`, and
+ *      `primaryKey` flow from the source.
+ *
+ *   3. **Model-only attributes are sacred.**
+ *      An attribute without `physical.columnName` metadata is
+ *      "model-only" — design-ahead intent before physical implementation.
+ *      The merge never touches it. The diff surfaces it informationally
+ *      so users know it exists, but never proposes to delete or change it.
+ */
+import { Entity, Attribute, MetadataEntry } from '../models/EntitySchema.js';
+
+// ────────────────────────────────────────────────────────────────────────
+// Diff result types
+// ────────────────────────────────────────────────────────────────────────
+
+/** Status of an entity (table) in the diff. */
+export type EntityDiffStatus =
+  /** New table in source — no matching `physical.tableName` in model */
+  | 'added'
+  /** Same table in both, with at least one attribute change */
+  | 'changed'
+  /** Same table in both, no attribute changes */
+  | 'unchanged'
+  /** Model has the table; source no longer does (physical match by tableName) */
+  | 'removedInSource';
+
+/** Status of an attribute (column) in the diff. */
+export type AttributeDiffStatus =
+  /** New column in source — no matching `physical.columnName` in model */
+  | 'added'
+  /** Same column in both — physical metadata or type/required differs */
+  | 'changed'
+  /** Same column in both — no diff */
+  | 'unchanged'
+  /** Model has the column with `physical.columnName`; source doesn't */
+  | 'removedInSource'
+  /** Model attribute has no `physical.columnName` — design-ahead, never touched */
+  | 'modelOnly';
+
+/** Per-attribute diff entry. */
+export interface AttributeDiff {
+  status: AttributeDiffStatus;
+  /** The display name as it would appear in the model after the merge. */
+  name: string;
+  /** The source attribute (parsed from DDL/DB) — present unless status is 'removedInSource' or 'modelOnly'. */
+  source?: Attribute;
+  /** The existing model attribute — present unless status is 'added'. */
+  existing?: Attribute;
+  /**
+   * For 'changed' status: list of fields that differ.
+   * Examples: ['type'], ['required'], ['physical.dbType', 'physical.nullable']
+   */
+  changedFields?: string[];
+}
+
+/** Per-entity diff entry. */
+export interface EntityDiff {
+  status: EntityDiffStatus;
+  /** Display name as it would appear in the model after the merge. */
+  name: string;
+  /** Physical table name — the stable identity used for matching. */
+  physicalTableName?: string;
+  /** The source entity (parsed) — present unless status is 'removedInSource'. */
+  source?: Entity;
+  /** The existing model entity — present unless status is 'added'. */
+  existing?: Entity;
+  /** All attribute-level diffs for this entity. */
+  attributes: AttributeDiff[];
+  /** Quick counts for the wizard summary, computed from `attributes`. */
+  counts: {
+    added: number;
+    changed: number;
+    unchanged: number;
+    removedInSource: number;
+    modelOnly: number;
+  };
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Helpers — physical metadata extraction
+// ────────────────────────────────────────────────────────────────────────
+
+const PHYSICAL_PREFIX = 'physical.';
+
+/** Read a metadata entry value by name. */
+function readMeta(metadata: MetadataEntry[] | undefined, name: string): string | number | boolean | undefined {
+  if (!metadata) return undefined;
+  return metadata.find(m => m.name === name)?.value;
+}
+
+/** Read the physical table name from an entity (the stable identity). */
+export function physicalTableNameOf(entity: Entity): string | undefined {
+  const v = readMeta(entity.metadata, 'physical.tableName');
+  return typeof v === 'string' ? v : undefined;
+}
+
+/** Read the physical column name from an attribute. Returns undefined for model-only attrs. */
+export function physicalColumnNameOf(attr: Attribute): string | undefined {
+  const v = readMeta(attr.metadata, 'physical.columnName');
+  return typeof v === 'string' ? v : undefined;
+}
+
+/** True if this is a model-only attribute (no physical mapping). */
+export function isModelOnly(attr: Attribute): boolean {
+  return physicalColumnNameOf(attr) === undefined;
+}
+
+/**
+ * Build a snapshot of an attribute's physical fields for shallow comparison.
+ * Used to detect 'changed' status by comparing source vs existing.
+ */
+interface PhysicalSnapshot {
+  type: string;
+  required: boolean;
+  primaryKey: boolean;
+  dbType?: string | number | boolean;
+  nullable?: string | number | boolean;
+}
+
+function snapshotPhysical(attr: Attribute): PhysicalSnapshot {
+  return {
+    type: attr.type,
+    required: !!attr.required,
+    primaryKey: !!attr.primaryKey,
+    dbType: readMeta(attr.metadata, 'physical.dbType'),
+    nullable: readMeta(attr.metadata, 'physical.nullable'),
+  };
+}
+
+/** Diff two attribute physical snapshots. Returns the list of changed field names. */
+function diffSnapshots(source: PhysicalSnapshot, existing: PhysicalSnapshot): string[] {
+  const changed: string[] = [];
+  if (source.type !== existing.type) changed.push('type');
+  if (source.required !== existing.required) changed.push('required');
+  if (source.primaryKey !== existing.primaryKey) changed.push('primaryKey');
+  if (source.dbType !== existing.dbType) changed.push('physical.dbType');
+  if (source.nullable !== existing.nullable) changed.push('physical.nullable');
+  return changed;
+}
+
+/**
+ * Compare entity-level `physical.*` metadata between source and existing.
+ * Returns the list of physical metadata names that differ.
+ *
+ * Entity-level physical metadata changes (e.g. `physical.schema` added or
+ * changed) must trigger a 'changed' status even when no attribute changed,
+ * so the merge can refresh those entries on disk.
+ */
+function diffEntityPhysicalMetadata(source: Entity, existing: Entity): string[] {
+  const changed: string[] = [];
+  const sourcePhys = new Map<string, string | number | boolean>();
+  const existingPhys = new Map<string, string | number | boolean>();
+  for (const m of source.metadata || []) {
+    if (m.name.startsWith(PHYSICAL_PREFIX)) sourcePhys.set(m.name, m.value);
+  }
+  for (const m of existing.metadata || []) {
+    if (m.name.startsWith(PHYSICAL_PREFIX)) existingPhys.set(m.name, m.value);
+  }
+  for (const [name, value] of sourcePhys) {
+    if (existingPhys.get(name) !== value) changed.push(name);
+  }
+  for (const name of existingPhys.keys()) {
+    if (!sourcePhys.has(name)) changed.push(name);
+  }
+  return changed;
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// diffEntities
+// ────────────────────────────────────────────────────────────────────────
+
+/**
+ * Compute the structured diff between a parsed source schema and the
+ * existing entities in a target service.
+ */
+export function diffEntities(parsed: Entity[], existing: Entity[]): EntityDiff[] {
+  const diffs: EntityDiff[] = [];
+
+  // Build a lookup of existing entities by physical.tableName (stable identity).
+  // Entities without physical.tableName are excluded from the source-driven diff
+  // — they're pure model-only entities and the import has nothing to say about them.
+  const existingByTable = new Map<string, Entity>();
+  for (const e of existing) {
+    const t = physicalTableNameOf(e);
+    if (t) existingByTable.set(t, e);
+  }
+
+  const matchedExistingTables = new Set<string>();
+
+  // Walk parsed entities — each is either 'added' or matches an existing entity.
+  for (const source of parsed) {
+    const tableName = physicalTableNameOf(source);
+    const match = tableName ? existingByTable.get(tableName) : undefined;
+
+    if (!match) {
+      // New table in source — every attribute is 'added'
+      const attrs: AttributeDiff[] = source.attributes.map(a => ({
+        status: 'added' as const,
+        name: a.name,
+        source: a,
+      }));
+      diffs.push({
+        status: 'added',
+        name: source.name,
+        physicalTableName: tableName,
+        source,
+        attributes: attrs,
+        counts: countAttrDiffs(attrs),
+      });
+      continue;
+    }
+
+    matchedExistingTables.add(tableName!);
+
+    // Diff attributes within the matched table
+    const attrDiffs = diffAttributes(source.attributes, match.attributes);
+    const counts = countAttrDiffs(attrDiffs);
+    // Entity-level physical metadata differences (e.g. physical.schema)
+    // also count as changes — the merge needs to refresh them on disk.
+    const entityMetaChanged = diffEntityPhysicalMetadata(source, match).length > 0;
+    const hasChanges = counts.added + counts.changed + counts.removedInSource > 0 || entityMetaChanged;
+
+    diffs.push({
+      status: hasChanges ? 'changed' : 'unchanged',
+      // Existing display name wins (the user may have renamed the model)
+      name: match.name,
+      physicalTableName: tableName,
+      source,
+      existing: match,
+      attributes: attrDiffs,
+      counts,
+    });
+  }
+
+  // Entities that exist in the model but were NOT seen in the source are
+  // 'removedInSource' — but only if they have a physical.tableName (i.e. they
+  // were imported at some point). Pure model-only entities are not affected.
+  for (const e of existing) {
+    const t = physicalTableNameOf(e);
+    if (!t) continue;
+    if (matchedExistingTables.has(t)) continue;
+    // Model-only attributes within a removed-in-source entity are still
+    // listed for clarity but never proposed for deletion.
+    const attrs: AttributeDiff[] = e.attributes.map(a => ({
+      status: isModelOnly(a) ? ('modelOnly' as const) : ('removedInSource' as const),
+      name: a.name,
+      existing: a,
+    }));
+    diffs.push({
+      status: 'removedInSource',
+      name: e.name,
+      physicalTableName: t,
+      existing: e,
+      attributes: attrs,
+      counts: countAttrDiffs(attrs),
+    });
+  }
+
+  return diffs;
+}
+
+/** Diff a parsed source attribute list against an existing model attribute list. */
+function diffAttributes(source: Attribute[], existing: Attribute[]): AttributeDiff[] {
+  const diffs: AttributeDiff[] = [];
+
+  // Build lookup of existing model attrs by physical.columnName.
+  // Attributes WITHOUT physical.columnName are model-only — handled separately.
+  const existingByCol = new Map<string, Attribute>();
+  const modelOnlyAttrs: Attribute[] = [];
+  for (const a of existing) {
+    const c = physicalColumnNameOf(a);
+    if (c) existingByCol.set(c, a);
+    else modelOnlyAttrs.push(a);
+  }
+
+  const matchedColumnNames = new Set<string>();
+
+  // Walk source attributes — added or changed/unchanged
+  for (const sa of source) {
+    const colName = physicalColumnNameOf(sa);
+    const match = colName ? existingByCol.get(colName) : undefined;
+
+    if (!match) {
+      diffs.push({ status: 'added', name: sa.name, source: sa });
+      continue;
+    }
+
+    matchedColumnNames.add(colName!);
+    const changedFields = diffSnapshots(snapshotPhysical(sa), snapshotPhysical(match));
+    // A description fill (existing empty, source has one) is also a change
+    // — the merge will fill the existing description from the source.
+    if (!match.description && sa.description) {
+      changedFields.push('description');
+    }
+    if (changedFields.length === 0) {
+      diffs.push({
+        status: 'unchanged',
+        name: match.name,
+        source: sa,
+        existing: match,
+      });
+    } else {
+      diffs.push({
+        status: 'changed',
+        name: match.name,
+        source: sa,
+        existing: match,
+        changedFields,
+      });
+    }
+  }
+
+  // Existing physical attributes NOT in the source → removedInSource
+  for (const [col, attr] of existingByCol) {
+    if (matchedColumnNames.has(col)) continue;
+    diffs.push({
+      status: 'removedInSource',
+      name: attr.name,
+      existing: attr,
+    });
+  }
+
+  // Model-only attributes — informational, never touched
+  for (const attr of modelOnlyAttrs) {
+    diffs.push({
+      status: 'modelOnly',
+      name: attr.name,
+      existing: attr,
+    });
+  }
+
+  return diffs;
+}
+
+function countAttrDiffs(attrs: AttributeDiff[]): EntityDiff['counts'] {
+  const counts = { added: 0, changed: 0, unchanged: 0, removedInSource: 0, modelOnly: 0 };
+  for (const a of attrs) counts[a.status]++;
+  return counts;
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// mergeEntities
+// ────────────────────────────────────────────────────────────────────────
+
+/**
+ * Merge a parsed source schema into the existing entities. Produces the list
+ * of entities to write back to disk after the import is committed.
+ *
+ * - 'added' entities pass through verbatim
+ * - 'changed' entities yield a merged entity that:
+ *     * keeps the existing display name and uuid
+ *     * keeps the existing description (never overwritten unless empty)
+ *     * keeps the existing entity-level metadata, with only the
+ *       `physical.*` entries refreshed from the source
+ *     * for each attribute:
+ *         - 'added' → appended verbatim from source
+ *         - 'changed' → existing attr with `type`/`required`/`primaryKey`
+ *           updated and `physical.*` metadata refreshed; description and
+ *           non-physical metadata preserved
+ *         - 'unchanged' → existing attr untouched
+ *         - 'removedInSource' → preserved (model-first)
+ *         - 'modelOnly' → preserved (never touched)
+ * - 'removedInSource' entities yield the existing entity unchanged
+ * - 'unchanged' entities yield the existing entity unchanged
+ *
+ * The merger does NOT write to disk — it returns the list of entities the
+ * caller should pass to `commitParsedEntities` (or equivalent) for persistence.
+ */
+export function mergeEntities(parsed: Entity[], existing: Entity[]): Entity[] {
+  const diffs = diffEntities(parsed, existing);
+  const merged: Entity[] = [];
+
+  for (const diff of diffs) {
+    if (diff.status === 'added') {
+      // Pass-through with timestamps refreshed
+      merged.push({
+        ...diff.source!,
+        createdAt: diff.source!.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      continue;
+    }
+
+    if (diff.status === 'removedInSource' || diff.status === 'unchanged') {
+      // Pass-through, no edit
+      merged.push(diff.existing!);
+      continue;
+    }
+
+    // 'changed' — merge attributes
+    const sourceEntity = diff.source!;
+    const existingEntity = diff.existing!;
+    const mergedAttrs: Attribute[] = [];
+
+    for (const ad of diff.attributes) {
+      switch (ad.status) {
+        case 'added':
+          mergedAttrs.push(ad.source!);
+          break;
+        case 'unchanged':
+          mergedAttrs.push(ad.existing!);
+          break;
+        case 'changed':
+          mergedAttrs.push(mergeAttribute(ad.source!, ad.existing!));
+          break;
+        case 'removedInSource':
+        case 'modelOnly':
+          mergedAttrs.push(ad.existing!);
+          break;
+      }
+    }
+
+    merged.push({
+      ...existingEntity,
+      attributes: mergedAttrs,
+      // Refresh entity-level physical.* metadata; preserve everything else
+      metadata: mergeMetadata(existingEntity.metadata, sourceEntity.metadata),
+      // Refresh description ONLY if existing was empty
+      description: existingEntity.description || sourceEntity.description,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  return merged;
+}
+
+/**
+ * Merge an existing model attribute with a parsed source attribute.
+ *
+ * Updates: type, required, primaryKey, physical.* metadata fields
+ * Preserves: uuid, name, description (if non-empty), unique, defaultValue,
+ *            examples, constraints, items, properties, non-physical metadata
+ */
+function mergeAttribute(source: Attribute, existing: Attribute): Attribute {
+  return {
+    ...existing,
+    // Type and required flow from the source
+    type: source.type,
+    required: source.required,
+    primaryKey: source.primaryKey ?? existing.primaryKey,
+    // Description: keep existing if non-empty; otherwise take source
+    description: existing.description || source.description,
+    // Metadata: refresh physical.* entries, keep all others
+    metadata: mergeMetadata(existing.metadata, source.metadata),
+  };
+}
+
+/**
+ * Merge a metadata array: refresh `physical.*` entries from source,
+ * preserve everything else from existing. Non-physical entries on source
+ * (e.g. user metadata that came back from a previous import) are dropped
+ * — the source is authoritative only for physical fields.
+ */
+function mergeMetadata(
+  existing: MetadataEntry[] | undefined,
+  source: MetadataEntry[] | undefined,
+): MetadataEntry[] {
+  const result: MetadataEntry[] = [];
+  // Keep all non-physical entries from existing
+  for (const entry of existing || []) {
+    if (!entry.name.startsWith(PHYSICAL_PREFIX)) {
+      result.push(entry);
+    }
+  }
+  // Append physical entries from source
+  for (const entry of source || []) {
+    if (entry.name.startsWith(PHYSICAL_PREFIX)) {
+      result.push(entry);
+    }
+  }
+  return result;
+}
