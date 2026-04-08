@@ -219,10 +219,11 @@ export default function SchemaImportWizard({ services, onComplete }: Props) {
       {step === 'source' && (
         <div className="space-y-4">
           <div className="form-control">
-            <label className="label">
+            <label className="label" htmlFor="wizard-target-service">
               <span className="label-text">Target Service</span>
             </label>
             <select
+              id="wizard-target-service"
               className="select select-bordered"
               value={targetService}
               onChange={e => setTargetService(e.target.value)}
@@ -282,20 +283,22 @@ export default function SchemaImportWizard({ services, onComplete }: Props) {
           {sourceKind === 'oracle' && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="form-control">
-                <label className="label">
+                <label className="label" htmlFor="oracle-user">
                   <span className="label-text">User</span>
                 </label>
                 <input
+                  id="oracle-user"
                   className="input input-bordered"
                   value={oracle.user}
                   onChange={e => setOracle({ ...oracle, user: e.target.value })}
                 />
               </div>
               <div className="form-control">
-                <label className="label">
+                <label className="label" htmlFor="oracle-password">
                   <span className="label-text">Password</span>
                 </label>
                 <input
+                  id="oracle-password"
                   type="password"
                   className="input input-bordered"
                   value={oracle.password}
@@ -303,10 +306,11 @@ export default function SchemaImportWizard({ services, onComplete }: Props) {
                 />
               </div>
               <div className="form-control md:col-span-2">
-                <label className="label">
+                <label className="label" htmlFor="oracle-connect-string">
                   <span className="label-text">Connect String (Easy Connect)</span>
                 </label>
                 <input
+                  id="oracle-connect-string"
                   className="input input-bordered"
                   placeholder="host:1521/service_name"
                   value={oracle.connectString}
@@ -314,10 +318,11 @@ export default function SchemaImportWizard({ services, onComplete }: Props) {
                 />
               </div>
               <div className="form-control md:col-span-2">
-                <label className="label">
+                <label className="label" htmlFor="oracle-owner">
                   <span className="label-text">Schema / Owner (optional — defaults to user)</span>
                 </label>
                 <input
+                  id="oracle-owner"
                   className="input input-bordered"
                   value={oracle.owner || ''}
                   onChange={e => setOracle({ ...oracle, owner: e.target.value })}
