@@ -325,6 +325,29 @@ export const importExportApi = {
     const response = await api.post('/import/sql-ddl', { sql, service });
     return response.data;
   },
+  // Schema Import Wizard (#69 C4) — non-destructive preview, diff, commit
+  previewSqlDdl: async (
+    sql: string,
+    options?: { stripPrefixes?: string[]; stripSuffixes?: string[]; schema?: string },
+  ) => {
+    const response = await api.post('/import/sql-ddl/preview', { sql, options });
+    return response.data;
+  },
+  previewOracleSchema: async (
+    connection: { user: string; password: string; connectString: string; owner?: string },
+    options?: { stripPrefixes?: string[]; stripSuffixes?: string[]; schema?: string },
+  ) => {
+    const response = await api.post('/import/oracle/preview', { connection, options });
+    return response.data;
+  },
+  diffSqlDdl: async (parsed: unknown[], targetService: string) => {
+    const response = await api.post('/import/sql-ddl/diff', { parsed, targetService });
+    return response.data;
+  },
+  commitSqlDdl: async (parsed: unknown[], targetService: string) => {
+    const response = await api.post('/import/sql-ddl/commit', { parsed, targetService });
+    return response.data;
+  },
   exportJsonSchema: async (service: string) => {
     const response = await api.get(`/export/json-schema/${service}`);
     return response.data;

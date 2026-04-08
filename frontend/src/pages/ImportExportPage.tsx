@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { servicesApi, importExportApi } from '../services/api';
+import SchemaImportWizard from '../components/SchemaImportWizard';
 
 export default function ImportExportPage() {
-  const [activeTab, setActiveTab] = useState<'import' | 'export'>('import');
+  const [activeTab, setActiveTab] = useState<'wizard' | 'import' | 'export'>('wizard');
   const [services, setServices] = useState<string[]>([]);
   const [selectedService, setSelectedService] = useState('');
   const [importFormat, setImportFormat] = useState<'json-schema' | 'sql-ddl'>('json-schema');
@@ -93,18 +94,32 @@ export default function ImportExportPage() {
       )}
 
       <div className="tabs tabs-bordered">
-        <button className={`tab ${activeTab === 'import' ? 'tab-active' : ''}`} onClick={() => setActiveTab('import')}>Import</button>
+        <button className={`tab ${activeTab === 'wizard' ? 'tab-active' : ''}`} onClick={() => setActiveTab('wizard')}>Schema Import Wizard</button>
+        <button className={`tab ${activeTab === 'import' ? 'tab-active' : ''}`} onClick={() => setActiveTab('import')}>JSON Schema Import</button>
         <button className={`tab ${activeTab === 'export' ? 'tab-active' : ''}`} onClick={() => setActiveTab('export')}>Export</button>
       </div>
 
-      {/* Service selector (shared) */}
-      <div className="form-control">
-        <label className="label"><span className="label-text">Target Service</span></label>
-        <select className="select select-bordered" value={selectedService} onChange={e => setSelectedService(e.target.value)}>
-          <option value="">Select a service...</option>
-          {services.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-      </div>
+      {activeTab === 'wizard' && (
+        <SchemaImportWizard
+          services={services}
+          onComplete={() => {
+            // Refresh service list in case the import created new services
+            servicesApi.getAllServices().then(r => setServices(r.data)).catch(() => {});
+          }}
+        />
+      )}
+
+      {/* Service selector — shared by JSON Schema import + Export tabs.
+          The wizard tab has its own selector. */}
+      {activeTab !== 'wizard' && (
+        <div className="form-control">
+          <label className="label"><span className="label-text">Target Service</span></label>
+          <select className="select select-bordered" value={selectedService} onChange={e => setSelectedService(e.target.value)}>
+            <option value="">Select a service...</option>
+            {services.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+      )}
 
       {activeTab === 'import' && (
         <div className="space-y-4">

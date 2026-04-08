@@ -329,6 +329,40 @@ export interface LineageResult {
   downstream: LineageNode[];
 }
 
+// ─── Schema Import Wizard (#69) ──────────────────────────────────────────
+
+/** Diff status of an entity (table) returned by the schema import diff API. */
+export type EntityDiffStatus = 'added' | 'changed' | 'unchanged' | 'removedInSource';
+
+/** Diff status of an attribute (column) inside an EntityDiff. */
+export type AttributeDiffStatus = 'added' | 'changed' | 'unchanged' | 'removedInSource' | 'modelOnly';
+
+/** Per-attribute diff entry returned by /api/import/sql-ddl/diff. */
+export interface AttributeDiff {
+  status: AttributeDiffStatus;
+  name: string;
+  source?: Attribute;
+  existing?: Attribute;
+  changedFields?: string[];
+}
+
+/** Per-entity diff entry returned by /api/import/sql-ddl/diff. */
+export interface EntityDiff {
+  status: EntityDiffStatus;
+  name: string;
+  physicalTableName?: string;
+  source?: Entity;
+  existing?: Entity;
+  attributes: AttributeDiff[];
+  counts: {
+    added: number;
+    changed: number;
+    unchanged: number;
+    removedInSource: number;
+    modelOnly: number;
+  };
+}
+
 /**
  * Interface for entity definition
  */
