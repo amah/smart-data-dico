@@ -76,7 +76,13 @@ export enum AttributeType {
   DURATION = 'duration',
   ENUM = 'enum',
   OBJECT = 'object',
-  ARRAY = 'array'
+  ARRAY = 'array',
+  /**
+   * Logical UUID type (#69). Renders as a distinct badge in the UI.
+   * The physical mapping (e.g. Postgres `uuid`, Oracle `RAW(16)`)
+   * is carried in attribute metadata under `physical.dbType`.
+   */
+  UUID = 'uuid',
 }
 
 /**

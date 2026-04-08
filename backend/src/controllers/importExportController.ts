@@ -28,6 +28,36 @@ export const importSqlDdl = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Parse SQL DDL into in-memory entities WITHOUT writing to disk (#69 C1).
+ *
+ * Returns the parsed entities so the frontend wizard can show a preview
+ * step. The commit step (writing to disk + merging with existing entities)
+ * comes in #69 C2.
+ *
+ * Body: {
+ *   sql: string,
+ *   options?: {
+ *     stripPrefixes?: string[],
+ *     stripSuffixes?: string[],
+ *     schema?: string,
+ *   }
+ * }
+ */
+export const previewSqlDdl = async (req: Request, res: Response) => {
+  try {
+    const { sql, options } = req.body;
+    if (!sql || typeof sql !== 'string') {
+      return res.status(400).json({ message: 'sql (string) is required' });
+    }
+    const result = importService.parseSqlDdl(sql, options || {});
+    res.json({ message: `Parsed ${result.entities.length} entities`, data: result });
+  } catch (error) {
+    logger.error('Error parsing SQL DDL', error);
+    res.status(500).json({ message: 'Error parsing SQL DDL', error });
+  }
+};
+
 export const exportJsonSchema = async (req: Request, res: Response) => {
   try {
     const { service } = req.params;
