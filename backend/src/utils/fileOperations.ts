@@ -57,13 +57,20 @@ const CONSTRAINT_FIELD_NAMES = [
  *     in #76 see all constraints uniformly without each consumer having to
  *     know about both shapes.
  *
- * Both fixes are non-destructive — the in-memory entity is updated; the
- * on-disk YAML is left untouched until something writes it back.
+ * **Non-mutating** (#77): the input entity is left untouched. We deep-clone
+ * the entity first via JSON round-trip (Entity is plain JSON-serializable
+ * data so this is safe and cheap relative to the YAML parse that produced
+ * it). This guarantees that an incidental write of the same entity object
+ * back to disk won't persist the legacy→canonical normalization as a
+ * spurious diff.
  */
 export function normalizeEntityMetadata(entity: Entity | null): Entity | null {
   if (!entity) return entity;
-  if (entity.attributes) {
-    for (const attr of entity.attributes) {
+  // Deep clone first so the on-disk shape is preserved if the input is
+  // later written back (e.g. via servicesApi.updateEntity from an inline edit).
+  const cloned: Entity = JSON.parse(JSON.stringify(entity));
+  if (cloned.attributes) {
+    for (const attr of cloned.attributes) {
       // 1. Metadata: object → MetadataEntry[]
       if (attr.metadata && !Array.isArray(attr.metadata)) {
         attr.metadata = Object.entries(attr.metadata as any).map(
@@ -85,12 +92,12 @@ export function normalizeEntityMetadata(entity: Entity | null): Entity | null {
       }
     }
   }
-  if (entity.metadata && !Array.isArray(entity.metadata)) {
-    entity.metadata = Object.entries(entity.metadata as any).map(
+  if (cloned.metadata && !Array.isArray(cloned.metadata)) {
+    cloned.metadata = Object.entries(cloned.metadata as any).map(
       ([name, value]) => ({ name, value: value as any }),
     );
   }
-  return entity;
+  return cloned;
 }
 
 // Lazy-loaded git service from @hamak/ui-remote-git-fs-backend
