@@ -8,7 +8,7 @@ import { getAllStereotypes, getStereotype, createStereotype, updateStereotype, d
 import { getAllPerspectives, getPerspective, createPerspective, updatePerspective, deletePerspective, resolvePerspective, getPerspectiveGraph, upsertPerspectiveNode } from '../controllers/perspectiveController.js';
 import { listRules, getRule, getRulesForEntity, createRule, updateRule, deleteRule } from '../controllers/ruleController.js';
 import { commitChanges, getCommitHistory, revertToCommit } from '../controllers/versionController.js';
-import { importJsonSchema, importSqlDdl, previewSqlDdl, diffSqlDdl, commitSqlDdl, exportJsonSchema, exportMarkdown, getQualityReport } from '../controllers/importExportController.js';
+import { importJsonSchema, importSqlDdl, previewSqlDdl, diffSqlDdl, commitSqlDdl, previewOracleSchema, exportJsonSchema, exportMarkdown, getQualityReport } from '../controllers/importExportController.js';
 import { authenticate, UserRole } from '../middleware/auth.js';
 import { authorizeJwt, verifyToken } from '../middleware/jwtAuth.js';
 
@@ -118,6 +118,8 @@ router.post('/api/import/sql-ddl/preview', authorizeJwt([UserRole.ADMIN, UserRol
 router.post('/api/import/sql-ddl/diff', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), diffSqlDdl);
 // Merge + commit parsed entities into a service — #69 C2
 router.post('/api/import/sql-ddl/commit', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), commitSqlDdl);
+// Live Oracle DB introspection (Thin mode) → parsed entities (no disk writes) — #69 C3
+router.post('/api/import/oracle/preview', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), previewOracleSchema);
 router.get('/api/export/json-schema/:service', exportJsonSchema);
 router.get('/api/export/markdown/:service', exportMarkdown);
 

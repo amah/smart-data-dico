@@ -66,8 +66,11 @@ const SQL_TYPE_MAP: Record<string, AttributeType> = {
 /**
  * Strip configured prefixes / suffixes from a SQL identifier and return the
  * residue. The first match wins on each list. Used by name derivation (#69 C1).
+ *
+ * Exported so other importers (Oracle DB introspection in #69 C3, future
+ * Postgres/MySQL in #82) can derive display names with the same rules.
  */
-function stripAffixes(name: string, prefixes: string[] = [], suffixes: string[] = []): string {
+export function stripAffixes(name: string, prefixes: string[] = [], suffixes: string[] = []): string {
   let out = name;
   for (const prefix of prefixes) {
     if (prefix && out.toLowerCase().startsWith(prefix.toLowerCase())) {
@@ -85,16 +88,25 @@ function stripAffixes(name: string, prefixes: string[] = [], suffixes: string[] 
 }
 
 /** snake_case / kebab-case / mixed → PascalCase. Used for entity names. */
-function toPascalCase(name: string): string {
+export function toPascalCase(name: string): string {
   return name
     .replace(/[_\-\s]+(\w)/g, (_, c) => c.toUpperCase())
     .replace(/^(\w)/, (_, c) => c.toUpperCase());
 }
 
 /** snake_case / kebab-case / mixed → camelCase. Used for attribute names. */
-function toCamelCase(name: string): string {
+export function toCamelCase(name: string): string {
   const pascal = toPascalCase(name);
   return pascal.charAt(0).toLowerCase() + pascal.slice(1);
+}
+
+/**
+ * Map a normalised database type token (lowercased, no parens) to the
+ * logical AttributeType. Shared across SQL DDL parsing and DB introspection
+ * so the same type rules apply everywhere.
+ */
+export function mapSqlTypeToAttributeType(normalizedType: string): AttributeType {
+  return SQL_TYPE_MAP[normalizedType] || AttributeType.STRING;
 }
 
 class ImportService {

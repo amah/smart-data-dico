@@ -4,6 +4,7 @@ import { exportService } from '../services/exportService.js';
 import { qualityService } from '../services/qualityService.js';
 import { serviceService } from '../services/serviceService.js';
 import { diffEntities, mergeEntities } from '../services/schemaDiff.js';
+import { introspectOracle, OracleConnectionConfig } from '../services/oracleIntrospect.js';
 import { Entity } from '../models/EntitySchema.js';
 import { logger } from '../utils/logger.js';
 
@@ -164,6 +165,53 @@ export const commitSqlDdl = async (req: Request, res: Response) => {
   } catch (error) {
     logger.error('Error committing schema import', error);
     res.status(500).json({ message: 'Error committing schema import', error });
+  }
+};
+
+/**
+ * Connect to a live Oracle database and introspect its schema (#69 C3).
+ *
+ * Returns the parsed entities in the same shape as `previewSqlDdl` so the
+ * frontend wizard can hand them straight to `/api/import/sql-ddl/diff`
+ * and `/commit`. No disk writes occur in this endpoint.
+ *
+ * Body: {
+ *   connection: { user, password, connectString, owner? },
+ *   options?: {
+ *     stripPrefixes?: string[],
+ *     stripSuffixes?: string[],
+ *     schema?: string,  // overrides physical.schema metadata
+ *   }
+ * }
+ *
+ * Security: Oracle credentials are accepted in the request body and never
+ * persisted by this controller. Callers should ensure transport is HTTPS
+ * in any non-local deployment.
+ */
+export const previewOracleSchema = async (req: Request, res: Response) => {
+  try {
+    const { connection, options } = req.body as {
+      connection: OracleConnectionConfig;
+      options?: { stripPrefixes?: string[]; stripSuffixes?: string[]; schema?: string };
+    };
+    if (!connection || typeof connection !== 'object') {
+      return res.status(400).json({ message: 'connection (object) is required' });
+    }
+    const connRecord = connection as unknown as Record<string, unknown>;
+    const missing = ['user', 'password', 'connectString'].filter(
+      k => typeof connRecord[k] !== 'string' || !connRecord[k],
+    );
+    if (missing.length > 0) {
+      return res.status(400).json({ message: `connection missing required fields: ${missing.join(', ')}` });
+    }
+    const result = await introspectOracle({ connection, ...(options || {}) });
+    if (result.entities.length === 0 && result.errors.length > 0) {
+      return res.status(502).json({ message: result.errors[0], data: result });
+    }
+    res.json({ message: `Introspected ${result.entities.length} tables`, data: result });
+  } catch (error) {
+    logger.error('Error introspecting Oracle schema', error);
+    res.status(500).json({ message: 'Error introspecting Oracle schema', error });
   }
 };
 
