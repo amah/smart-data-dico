@@ -8,7 +8,7 @@ import { getAllStereotypes, getStereotype, createStereotype, updateStereotype, d
 import { getAllPerspectives, getPerspective, createPerspective, updatePerspective, deletePerspective, resolvePerspective, getPerspectiveGraph, upsertPerspectiveNode } from '../controllers/perspectiveController.js';
 import { listRules, getRule, getRulesForEntity, createRule, updateRule, deleteRule } from '../controllers/ruleController.js';
 import { commitChanges, getCommitHistory, revertToCommit } from '../controllers/versionController.js';
-import { importJsonSchema, importSqlDdl, exportJsonSchema, exportMarkdown, getQualityReport } from '../controllers/importExportController.js';
+import { importJsonSchema, importSqlDdl, previewSqlDdl, exportJsonSchema, exportMarkdown, getQualityReport } from '../controllers/importExportController.js';
 import { authenticate, UserRole } from '../middleware/auth.js';
 import { authorizeJwt, verifyToken } from '../middleware/jwtAuth.js';
 
@@ -112,6 +112,8 @@ router.get('/api/entities/:uuid/lineage', getLineage);
 // Import/Export
 router.post('/api/import/json-schema', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), importJsonSchema);
 router.post('/api/import/sql-ddl', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), importSqlDdl);
+// Preview SQL DDL → parsed entities (no disk writes) — #69 C1
+router.post('/api/import/sql-ddl/preview', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), previewSqlDdl);
 router.get('/api/export/json-schema/:service', exportJsonSchema);
 router.get('/api/export/markdown/:service', exportMarkdown);
 

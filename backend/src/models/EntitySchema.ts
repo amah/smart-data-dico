@@ -18,7 +18,14 @@ export enum AttributeType {
   DURATION = 'duration',
   ENUM = 'enum',
   OBJECT = 'object',
-  ARRAY = 'array'
+  ARRAY = 'array',
+  /**
+   * Logical UUID type (#69). Maps to native UUID column types where the
+   * target DB supports them (Postgres `uuid`, Oracle `RAW(16)`, etc.) and
+   * to STRING elsewhere. The physical mapping (which DB type it becomes)
+   * is carried separately in attribute metadata under `physical.dbType`.
+   */
+  UUID = 'uuid',
 }
 
 /**
