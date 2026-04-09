@@ -30,7 +30,6 @@ const enforcementLabel = (e: RuleEnforcement) =>
   e === 'save' ? 'blocks save' : e === 'process' ? 'process gate' : 'advisory';
 
 const sourceChipFor = (rule: Rule): { label: string; cls: string } => {
-  if (rule.synthetic) return { label: 'constraint', cls: 'badge-ghost' };
   switch (rule.scope) {
     case 'entity': return { label: 'entity', cls: 'badge-primary' };
     case 'package': return { label: 'package', cls: 'badge-secondary' };
@@ -58,21 +57,16 @@ const RulesSidePanel = ({
       // Secondary: severity rank (error → warning → info)
       const s = severityRank[a.severity] - severityRank[b.severity];
       if (s !== 0) return s;
-      // Tertiary: real before synthetic (so user-authored rules come first)
-      if (!!a.synthetic !== !!b.synthetic) return a.synthetic ? 1 : -1;
-      // Final: name
       return a.name.localeCompare(b.name);
     });
   }, [rules]);
 
   const summary = useMemo(() => {
     const byEnforcement: Record<RuleEnforcement, number> = { save: 0, process: 0, advisory: 0 };
-    let synthetic = 0;
     for (const r of rules) {
       byEnforcement[r.enforcement] = (byEnforcement[r.enforcement] || 0) + 1;
-      if (r.synthetic) synthetic++;
     }
-    return { byEnforcement, synthetic, total: rules.length };
+    return { byEnforcement, total: rules.length };
   }, [rules]);
 
   const toggleExpanded = (uuid: string) => {
@@ -113,7 +107,6 @@ const RulesSidePanel = ({
             <h2 className="text-lg font-semibold truncate">{title}</h2>
             <div className="text-xs text-base-content/60 mt-1 flex flex-wrap gap-2">
               <span>{summary.total} rule{summary.total === 1 ? '' : 's'}</span>
-              {summary.synthetic > 0 && <span>· {summary.synthetic} from constraints</span>}
               {summary.byEnforcement.save > 0 && (
                 <span>· {summary.byEnforcement.save} blocking save</span>
               )}
@@ -156,7 +149,7 @@ const RulesSidePanel = ({
             return (
               <div
                 key={rule.uuid}
-                className={`card card-compact bg-base-200 ${rule.synthetic ? 'opacity-80' : ''}`}
+                className="card card-compact bg-base-200"
               >
                 <div className="card-body">
                   {/* Top line: name + badges */}
@@ -205,18 +198,12 @@ const RulesSidePanel = ({
 
                   {/* Actions */}
                   <div className="card-actions justify-end mt-2">
-                    {rule.synthetic ? (
-                      <span className="text-xs text-base-content/50 italic">
-                        edit in attribute editor
-                      </span>
-                    ) : (
-                      <button
-                        className="btn btn-xs btn-ghost"
-                        onClick={() => setEditorRule(rule)}
-                      >
-                        Edit
-                      </button>
-                    )}
+                    <button
+                      className="btn btn-xs btn-ghost"
+                      onClick={() => setEditorRule(rule)}
+                    >
+                      Edit
+                    </button>
                   </div>
                 </div>
               </div>

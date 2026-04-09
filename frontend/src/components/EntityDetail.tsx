@@ -33,7 +33,7 @@ const EntityDetail = (props: EntityDetailProps) => {
   const [newEntityDescription, setNewEntityDescription] = useState('');
   const [stereotypes, setStereotypes] = useState<Stereotype[]>([]);
   const [currentStereotype, setCurrentStereotype] = useState<Stereotype | null>(null);
-  // Rules touching this entity (real + synthetic from constraints) — #74 C4
+  // Rules touching this entity (#74 C4)
   const [entityRules, setEntityRules] = useState<Rule[]>([]);
   const navigate = useNavigate();
 
@@ -92,7 +92,7 @@ const EntityDetail = (props: EntityDetailProps) => {
     fetchEntityData();
   }, [service, entity]);
 
-  /** Fetch all rules touching this entity (real + synthetic from constraints). */
+  /** Fetch all rules touching this entity. */
   const fetchEntityRules = useCallback(async () => {
     if (!entityData?.uuid) return;
     try {

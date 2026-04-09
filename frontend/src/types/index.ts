@@ -162,10 +162,6 @@ export interface Rule {
    *   ]
    */
   metadata?: RuleMetadataEntry[];
-  /** True for rules synthesized from attribute.constraints — read-only (#76) */
-  synthetic?: boolean;
-  /** For synthetic rules: which constraint field this came from */
-  constraintField?: string;
   createdAt?: string;
   updatedAt?: string;
 }

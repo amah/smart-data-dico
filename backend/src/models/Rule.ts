@@ -89,10 +89,6 @@ export interface Rule {
    *   ]
    */
   metadata?: RuleMetadataEntry[];
-  /** True for rules synthesized from attribute.validation (read-only, #76; deleted in #85 R2) */
-  synthetic?: boolean;
-  /** For synthetic rules: which validation field this came from (format, minLength, ...) */
-  constraintField?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -146,7 +142,3 @@ export function validateRule(rule: Partial<Rule>): string[] {
   return errors;
 }
 
-/** True if this rule UUID identifies a constraint-derived synthetic rule (#76) */
-export function isSyntheticRuleUuid(uuid: string): boolean {
-  return uuid.startsWith('constraint:');
-}
