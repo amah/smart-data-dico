@@ -10,21 +10,24 @@ attributes:
     required: true
     unique: true
     metadata:
-      isPrimaryKey: true
+      - name: isPrimaryKey
+        value: true
     uuid: af6b70a0-0c01-4a20-a320-181769a6715a
   - name: orderId
     description: ID of the order this item belongs to
     type: string
     required: true
     metadata:
-      isForeignKey: true
+      - name: isForeignKey
+        value: true
     uuid: 58f3041b-43b1-4df4-a8a0-4619007a0fa3
   - name: productId
     description: ID of the product
     type: string
     required: true
     metadata:
-      isForeignKey: true
+      - name: isForeignKey
+        value: true
     uuid: 7e48498c-7b77-4d61-95ba-fc1d5fba7ffb
   - name: productSku
     description: SKU of the product at the time of order
@@ -40,50 +43,56 @@ attributes:
     description: Quantity of the product ordered
     type: integer
     required: true
-    minimum: 1
     uuid: a76a0973-e9e4-480d-a21f-bf13bf516fec
+    validation:
+      minimum: 1
   - name: unitPrice
     description: Unit price of the product in cents at the time of order
     type: number
     required: true
-    minimum: 0
-    precision: 10
-    scale: 2
     uuid: 518919fb-6d7d-44e2-ac12-475013a5c170
+    validation:
+      minimum: 0
+      precision: 10
+      scale: 2
   - name: currency
     description: Currency code for the price
     type: string
     required: true
-    minLength: 3
-    maxLength: 3
     defaultValue: USD
     uuid: b8162d92-e128-4f68-ba54-46aa17e231f6
+    validation:
+      minLength: 3
+      maxLength: 3
   - name: totalPrice
     description: Total price for this item (quantity * unitPrice) in cents
     type: number
     required: true
-    minimum: 0
-    precision: 10
-    scale: 2
     uuid: fe67ec8c-4e49-42cc-b814-ceaf3d24507f
+    validation:
+      minimum: 0
+      precision: 10
+      scale: 2
   - name: discountAmount
     description: Discount amount applied to this item in cents
     type: number
     required: false
-    minimum: 0
-    precision: 10
-    scale: 2
     defaultValue: 0
     uuid: 8dd7f5e5-1493-4807-aec5-a7cac07a1bd7
+    validation:
+      minimum: 0
+      precision: 10
+      scale: 2
   - name: taxAmount
     description: Tax amount applied to this item in cents
     type: number
     required: false
-    minimum: 0
-    precision: 10
-    scale: 2
     defaultValue: 0
     uuid: f4e2a9e6-a323-452c-9c4f-bda77341b2c5
+    validation:
+      minimum: 0
+      precision: 10
+      scale: 2
   - name: metadata
     description: Additional metadata for the order item
     type: object

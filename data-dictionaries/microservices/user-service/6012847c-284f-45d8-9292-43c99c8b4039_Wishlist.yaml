@@ -10,38 +10,43 @@ attributes:
     required: true
     unique: true
     metadata:
-      isPrimaryKey: true
+      - name: isPrimaryKey
+        value: true
     uuid: bb587c3d-80b0-4a28-8f30-141be06ed1ba
   - name: userId
     description: ID of the user who owns the wishlist
     type: string
     required: true
     metadata:
-      isForeignKey: true
+      - name: isForeignKey
+        value: true
     uuid: 03a7cfe7-0b81-477a-bbe6-0126773e26cc
   - name: productId
     description: ID of the product in the wishlist
     type: string
     required: true
     metadata:
-      isForeignKey: true
+      - name: isForeignKey
+        value: true
     uuid: 6ee3aab9-e085-4f52-83d6-08d177243be2
   - name: notes
     description: Personal notes about the product
     type: string
     required: false
-    maxLength: 500
     uuid: 61c7f0ca-657b-4af8-b14b-72aeae407219
+    validation:
+      maxLength: 500
   - name: priority
     description: Priority level for the wishlist item
     type: enum
     required: true
-    enumValues:
-      - LOW
-      - MEDIUM
-      - HIGH
     defaultValue: MEDIUM
     uuid: 85b903ce-e02a-4ef2-9bf0-54d2c45e8a59
+    validation:
+      enumValues:
+        - LOW
+        - MEDIUM
+        - HIGH
   - name: isPublic
     description: Whether this wishlist item is visible to others
     type: boolean

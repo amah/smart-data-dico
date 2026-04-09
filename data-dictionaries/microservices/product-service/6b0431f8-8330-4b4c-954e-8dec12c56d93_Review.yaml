@@ -10,43 +10,49 @@ attributes:
     required: true
     unique: true
     metadata:
-      isPrimaryKey: true
+      - name: isPrimaryKey
+        value: true
     uuid: 04212836-b96f-4504-98cd-b0ed0cdf473f
   - name: productId
     description: ID of the product being reviewed
     type: string
     required: true
     metadata:
-      isForeignKey: true
+      - name: isForeignKey
+        value: true
     uuid: 6c8a9319-b9ae-4e74-8b1e-1240b07ffde6
   - name: userId
     description: ID of the user who wrote the review
     type: string
     required: true
     metadata:
-      isForeignKey: true
+      - name: isForeignKey
+        value: true
     uuid: d989cf4d-43bb-4858-9487-569c9d005d51
   - name: rating
     description: Rating given to the product (1-5 stars)
     type: integer
     required: true
-    minimum: 1
-    maximum: 5
     uuid: 9aa89a8b-c1b3-412b-8a66-346230cd7442
+    validation:
+      minimum: 1
+      maximum: 5
   - name: title
     description: Review title
     type: string
     required: true
-    minLength: 5
-    maxLength: 200
     uuid: 2883edae-f951-4108-8dba-c871ba6ab4a9
+    validation:
+      minLength: 5
+      maxLength: 200
   - name: content
     description: Review content
     type: string
     required: true
-    minLength: 10
-    maxLength: 5000
     uuid: e1675ae5-b48b-4eef-895a-a41fcb71c6d0
+    validation:
+      minLength: 10
+      maxLength: 5000
   - name: isVerifiedPurchase
     description: Whether the reviewer purchased the product
     type: boolean
@@ -57,16 +63,18 @@ attributes:
     description: Number of helpful votes received
     type: integer
     required: true
-    minimum: 0
     defaultValue: 0
     uuid: a0992fb2-935b-4d42-a5af-f71b5e2aea18
+    validation:
+      minimum: 0
   - name: totalVotes
     description: Total number of votes received
     type: integer
     required: true
-    minimum: 0
     defaultValue: 0
     uuid: 3fd537da-3b94-4a66-a50c-5ab951c336a7
+    validation:
+      minimum: 0
   - name: isApproved
     description: Whether the review is approved for display
     type: boolean
@@ -77,8 +85,9 @@ attributes:
     description: Notes from content moderator
     type: string
     required: false
-    maxLength: 1000
     uuid: b26ec80e-84f6-4c5b-8dbf-81eb04302e6f
+    validation:
+      maxLength: 1000
   - name: createdAt
     description: Timestamp when the review was created
     type: datetime
