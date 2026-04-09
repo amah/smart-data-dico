@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-import { Entity, Relationship, Stereotype, StereotypeTarget, Perspective, ResolvedPerspective, PerspectiveNode, GraphData, ImpactAnalysis, ReviewComment, LineageResult, Rule, RuleScope, RuleSeverityValue, RuleEnforcement } from '../types';
+import { Entity, Relationship, Stereotype, StereotypeTarget, Perspective, ResolvedPerspective, PerspectiveNode, GraphData, ImpactAnalysis, ReviewComment, LineageResult, Rule, RuleScope, RuleSeverityValue, RuleEnforcement, PhysicalConstraint } from '../types';
 import { Package } from '../types';
 
 /**
@@ -512,6 +512,31 @@ export const ruleApi = {
 
   delete: async (uuid: string): Promise<void> => {
     await api.delete(`/rules/${uuid}`);
+  },
+};
+
+// Integrity API (#85 R5) — unified validation + constraints + rules
+export const integrityApi = {
+  getReport: async (): Promise<{
+    validation: Array<{
+      service: string;
+      entityUuid: string;
+      entityName: string;
+      attributeUuid: string;
+      attributeName: string;
+      kind: string;
+      value: number | string | string[];
+    }>;
+    constraints: Array<{
+      service: string;
+      entityUuid: string;
+      entityName: string;
+      constraint: PhysicalConstraint;
+    }>;
+    rules: Rule[];
+  }> => {
+    const response = await api.get('/integrity');
+    return response.data.data;
   },
 };
 

@@ -7,6 +7,7 @@ import { createEntity, deleteEntity, getAllServices, getEntitySchema, getGraphDa
 import { getAllStereotypes, getStereotype, createStereotype, updateStereotype, deleteStereotype } from '../controllers/stereotypeController.js';
 import { getAllPerspectives, getPerspective, createPerspective, updatePerspective, deletePerspective, resolvePerspective, getPerspectiveGraph, upsertPerspectiveNode } from '../controllers/perspectiveController.js';
 import { listRules, getRule, getRulesForEntity, createRule, updateRule, deleteRule } from '../controllers/ruleController.js';
+import { getIntegrityReport } from '../controllers/integrityController.js';
 import { commitChanges, getCommitHistory, revertToCommit } from '../controllers/versionController.js';
 import { importJsonSchema, importSqlDdl, previewSqlDdl, diffSqlDdl, commitSqlDdl, previewOracleSchema, exportJsonSchema, exportMarkdown, getQualityReport } from '../controllers/importExportController.js';
 import { authenticate, UserRole } from '../middleware/auth.js';
@@ -101,6 +102,9 @@ router.post('/api/rules', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), creat
 router.put('/api/rules/:uuid', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), updateRule);
 router.delete('/api/rules/:uuid', authorizeJwt([UserRole.ADMIN]), deleteRule);
 router.get('/api/entities/:entityUuid/rules', getRulesForEntity);
+
+// Integrity API (#85 R5) — unified validation + constraints + rules report
+router.get('/api/integrity', getIntegrityReport);
 
 // Search API
 router.get('/api/search', searchEntities);

@@ -10,6 +10,7 @@ import MergePage from './pages/MergePage';
 import ImportExportPage from './pages/ImportExportPage';
 import QualityDashboardPage from './pages/QualityDashboardPage';
 import RuleBrowserPage from './pages/RuleBrowserPage';
+import IntegrityPage from './pages/IntegrityPage';
 import PerspectiveListPage from './pages/PerspectiveListPage';
 import PerspectiveDetailPage from './pages/PerspectiveDetailPage';
 import PerspectiveCreatePage from './pages/PerspectiveCreatePage';
@@ -100,8 +101,11 @@ function App() {
         <Route path="flat/entities" element={<EntityFlatTable />} />
         <Route path="flat/attributes" element={<AttributeFlatTable />} />
 
-        {/* Validation Rules (#74) */}
+        {/* Validation Rules (#74) — kept for back-compat; the Integrity page is the new home */}
         <Route path="rules" element={<RuleBrowserPage />} />
+
+        {/* Integrity (#85 R5) — unified validation + constraints + rules */}
+        <Route path="integrity" element={<IntegrityPage />} />
 
         {/* Version Control */}
         <Route path="version">
