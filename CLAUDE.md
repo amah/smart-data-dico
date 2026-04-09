@@ -81,6 +81,18 @@ The frontend uses `@hamak/app-framework` microkernel with these plugins (registe
 - **Review comments** stored as sidecar files: `{entityUuid}.comments.yaml`.
 - **Diagrams** stored as JSON files in `data-dictionaries/diagrams/`.
 
+### Validation / Constraint / Rule — three concepts, three homes (#85)
+
+These three words are kept strictly separate. **Do not collapse them.**
+
+| Concept | Lives as | Owned by | Examples |
+|---|---|---|---|
+| **Validation** | `attribute.validation` (nested object alongside `type` and `required`) | Data steward modelling the attribute | `maxLength`, `minLength`, `pattern`, `format`, `enum`, `minimum`, `maximum`, `precision`, `scale` |
+| **Constraint** | `entity.constraints[]` (top-level array of `PhysicalConstraint`) | DBA / persistence layer | `unique`, `check`, `foreignKey`, `index` — captured from SQL DDL or live DB introspection |
+| **Rule** | First-class `Rule` object (entity sidecar / package / perspective) | Business / domain expert | "Order total = sum of line items", "Active users must have a verified email" — cross-attribute, conditional, or lifecycle invariants |
+
+**Do not** synthesize Rules from validation fields (the auto-synthesizer was deleted in #85 R2 — every entry it produced was already type metadata). The Integrity page (`/integrity`, see R5) is the single pane of glass that shows all three categories together with per-category filters.
+
 ### Testing
 - **Backend:** Jest + ts-jest (CJS transform with `moduleNameMapper` for `.js` extension stripping) + Supertest. Tests in `src/**/__tests__/`. Config: `jest.config.cjs`.
 - **Frontend:** Vitest + React Testing Library + MSW for API mocking. Setup in `src/test/setup.ts`.

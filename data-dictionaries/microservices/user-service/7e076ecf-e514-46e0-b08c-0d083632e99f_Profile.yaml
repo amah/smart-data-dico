@@ -10,7 +10,8 @@ attributes:
     required: true
     unique: true
     metadata:
-      isPrimaryKey: true
+      - name: isPrimaryKey
+        value: true
     uuid: c3bf9f61-dfa3-4a8e-9c36-7f6551487e24
   - name: userId
     description: Reference to the user this profile belongs to
@@ -18,28 +19,32 @@ attributes:
     required: true
     unique: true
     metadata:
-      isForeignKey: true
+      - name: isForeignKey
+        value: true
     uuid: 14878839-27c3-40a7-a902-4b220f00623c
   - name: bio
     description: User's biography or description
     type: string
     required: false
-    maxLength: 1000
     uuid: 18037c20-bef0-4e07-bcdf-acd95f6b2b26
+    validation:
+      maxLength: 1000
   - name: avatarUrl
     description: URL to the user's avatar image
     type: string
     required: false
-    format: uri
     uuid: 2bd30983-fef8-4a87-a885-aaac2733b4d5
+    validation:
+      format: uri
   - name: phoneNumber
     description: User's phone number
     type: string
     required: false
-    pattern: ^\+?[0-9]{10,15}$
     examples:
       - "+1234567890"
     uuid: 39528536-3369-4bd2-8e1f-23a3cdffea8a
+    validation:
+      pattern: ^\+?[0-9]{10,15}$
   - name: address
     description: User's address
     type: object

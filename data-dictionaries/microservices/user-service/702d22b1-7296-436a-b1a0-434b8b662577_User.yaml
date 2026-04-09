@@ -3,6 +3,15 @@ name: User
 description: User entity representing a system user
 microservice: user-service
 version: 1.0.0
+constraints:
+  - kind: unique
+    name: uq_users_username
+    columns:
+      - username
+  - kind: unique
+    name: uq_users_email
+    columns:
+      - email
 attributes:
   - name: id
     description: Unique identifier for the user
@@ -10,56 +19,64 @@ attributes:
     required: true
     unique: true
     metadata:
-      isPrimaryKey: true
+      - name: isPrimaryKey
+        value: true
     uuid: 3a80a002-2e03-4e32-a6dd-514afbf59f31
   - name: username
     description: Username for login
     type: string
     required: true
     unique: true
-    minLength: 3
-    maxLength: 50
-    pattern: ^[a-zA-Z0-9_-]+$
     uuid: 77cdefec-b47f-44b6-866c-6eb62ad95cd7
+    validation:
+      minLength: 3
+      maxLength: 50
+      pattern: ^[a-zA-Z0-9_-]+$
   - name: email
     description: User's email address
     type: string
     required: true
     unique: true
-    format: email
     examples:
       - user@example.com
     uuid: e77c0a63-724f-456b-93d1-5ab4db53cb97
+    validation:
+      format: email
   - name: firstName
     description: User's first name
     type: string
     required: true
-    maxLength: 100
     uuid: 7463e549-de08-4724-8455-2733070d1c01
+    validation:
+      maxLength: 100
   - name: lastName
     description: User's last name
     type: string
     required: true
-    maxLength: 100
     uuid: 5404ce21-91a2-4fe0-bf1a-b410b6e014d4
+    validation:
+      maxLength: 100
   - name: password
     description: Hashed password for authentication
     type: string
     required: true
-    minLength: 8
     metadata:
-      sensitive: true
+      - name: sensitive
+        value: true
     uuid: bc2bd6bf-319c-48c9-a1d8-7dddff7f1cbe
+    validation:
+      minLength: 8
   - name: role
     description: User's role in the system
     type: enum
     required: true
-    enumValues:
-      - ADMIN
-      - USER
-      - GUEST
     defaultValue: USER
     uuid: c8adc594-331c-422c-848c-94b460bc759a
+    validation:
+      enumValues:
+        - ADMIN
+        - USER
+        - GUEST
   - name: active
     description: Whether the user account is active
     type: boolean

@@ -12,6 +12,7 @@ attributes:
     required: true
 relationships: []
 metadata:
-  package: order-service
+  - name: package
+    value: order-service
 createdAt: 2025-05-28T16:35:13.210Z
 updatedAt: 2025-05-28T16:35:42.706Z

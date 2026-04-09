@@ -3,6 +3,22 @@ name: Order
 description: Order entity representing a customer purchase
 microservice: order-service
 version: 1.0.0
+constraints:
+  - kind: unique
+    name: uq_orders_order_number
+    columns:
+      - order_number
+  - kind: check
+    name: chk_orders_total_positive
+    expression: total_amount >= 0
+  - kind: foreignKey
+    name: fk_orders_user
+    columns:
+      - user_id
+    references:
+      table: users
+      columns:
+        - id
 attributes:
   - name: id
     description: Unique identifier for the order
@@ -10,76 +26,84 @@ attributes:
     required: true
     unique: true
     metadata:
-      isPrimaryKey: true
+      - name: isPrimaryKey
+        value: true
     uuid: d1a14e8a-745d-4997-8b7a-dc4fa49025d9
   - name: orderNumber
     description: Human-readable order number
     type: string
     required: true
     unique: true
-    pattern: ^ORD-[0-9]{8}-[A-Z0-9]{4}$
     examples:
       - ORD-20250522-A1B2
     uuid: 291d2c7a-ef6e-4b84-ab82-78cb142123cc
+    validation:
+      pattern: ^ORD-[0-9]{8}-[A-Z0-9]{4}$
   - name: userId
     description: ID of the user who placed the order
     type: string
     required: true
     metadata:
-      isForeignKey: true
+      - name: isForeignKey
+        value: true
     uuid: e7bce4ad-6895-4658-b887-99185e43f39f
   - name: status
     description: Current status of the order
     type: enum
     required: true
-    enumValues:
-      - PENDING
-      - PROCESSING
-      - SHIPPED
-      - DELIVERED
-      - CANCELLED
-      - REFUNDED
     defaultValue: PENDING
     uuid: 72366c79-4bf5-434d-90d7-024b45664b55
+    validation:
+      enumValues:
+        - PENDING
+        - PROCESSING
+        - SHIPPED
+        - DELIVERED
+        - CANCELLED
+        - REFUNDED
   - name: totalAmount
     description: Total order amount in cents
     type: number
     required: true
-    minimum: 0
-    precision: 10
-    scale: 2
     uuid: 74dda811-a63f-4067-9c50-f441318bd2f4
+    validation:
+      minimum: 0
+      precision: 10
+      scale: 2
   - name: currency
     description: Currency code for the order
     type: string
     required: true
-    minLength: 3
-    maxLength: 3
     defaultValue: USD
     uuid: 86c8ea76-ca77-4c41-a207-279b295a4bbb
+    validation:
+      minLength: 3
+      maxLength: 3
   - name: paymentMethod
     description: Payment method used
     type: enum
     required: true
-    enumValues:
-      - CREDIT_CARD
-      - DEBIT_CARD
-      - PAYPAL
-      - BANK_TRANSFER
-      - CRYPTO
     uuid: 30b23724-1831-40c6-8f2f-1b709685dcec
+    validation:
+      enumValues:
+        - CREDIT_CARD
+        - DEBIT_CARD
+        - PAYPAL
+        - BANK_TRANSFER
+        - CRYPTO
   - name: paymentStatus
     description: Status of the payment
     type: enum
     required: true
-    enumValues:
-      - PENDING
-      - AUTHORIZED
-      - PAID
-      - FAILED
-      - REFUNDED
     defaultValue: PENDING
     uuid: b5939da2-3559-4697-a0fe-842e6148739e
+    validation:
+      enumValues:
+        - PENDING
+        - AUTHORIZED
+        - PAID
+        - FAILED
+        - REFUNDED
   - name: shippingAddress
     description: Shipping address for the order
     type: object
@@ -174,8 +198,9 @@ attributes:
     description: Additional notes for the order
     type: string
     required: false
-    maxLength: 1000
     uuid: 9b32a287-e6a8-4c32-a30a-2b9bb9e10a0c
+    validation:
+      maxLength: 1000
   - name: createdAt
     description: Timestamp when the order was created
     type: datetime

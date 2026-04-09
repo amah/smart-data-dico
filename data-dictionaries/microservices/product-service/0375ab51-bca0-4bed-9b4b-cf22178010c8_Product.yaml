@@ -3,6 +3,14 @@ name: Product
 description: Product entity representing items available for purchase
 microservice: product-service
 version: 1.0.0
+constraints:
+  - kind: unique
+    name: uq_products_sku
+    columns:
+      - sku
+  - kind: check
+    name: chk_products_price_positive
+    expression: price > 0
 attributes:
   - name: id
     description: Unique identifier for the product
@@ -10,56 +18,63 @@ attributes:
     required: true
     unique: true
     metadata:
-      isPrimaryKey: true
+      - name: isPrimaryKey
+        value: true
     uuid: 014d25be-3b3d-4fe9-a7b1-39c861193ee0
   - name: sku
     description: Stock Keeping Unit - unique product identifier
     type: string
     required: true
     unique: true
-    pattern: ^[A-Z0-9]{8,12}$
     examples:
       - PROD12345
     uuid: cb6c044f-b6a9-48ce-beea-ec25a9cbd2de
+    validation:
+      pattern: ^[A-Z0-9]{8,12}$
   - name: name
     description: Product name
     type: string
     required: true
-    minLength: 3
-    maxLength: 200
     uuid: f5aabde0-0c62-4a4a-91ff-9c4d5fb857df
+    validation:
+      minLength: 3
+      maxLength: 200
   - name: description
     description: Detailed product description
     type: string
     required: true
-    maxLength: 5000
     uuid: 023cc3c3-e9e6-481a-8db5-b69c4dd74a50
+    validation:
+      maxLength: 5000
   - name: price
     description: Product price in cents
     type: number
     required: true
-    minimum: 0
-    precision: 10
-    scale: 2
     uuid: 53ed3a4b-c2b9-41a2-a0d8-2c455f0a18f9
+    validation:
+      minimum: 0
+      precision: 10
+      scale: 2
   - name: currency
     description: Currency code for the price
     type: string
     required: true
-    minLength: 3
-    maxLength: 3
     defaultValue: USD
     examples:
       - USD
       - EUR
       - GBP
     uuid: e029dc3f-63ac-4979-8695-cc38859021dc
+    validation:
+      minLength: 3
+      maxLength: 3
   - name: categoryId
     description: ID of the category this product belongs to
     type: string
     required: true
     metadata:
-      isForeignKey: true
+      - name: isForeignKey
+        value: true
     uuid: 58aeb1f5-e2cf-44a1-96f4-b1833646f528
   - name: images
     description: Array of product image URLs
@@ -86,8 +101,9 @@ attributes:
     description: Product weight in grams
     type: number
     required: false
-    minimum: 0
     uuid: 5563ca6a-dc51-4051-9823-97b9a59affbc
+    validation:
+      minimum: 0
   - name: dimensions
     description: Product dimensions
     type: object
@@ -125,9 +141,10 @@ attributes:
     description: Available quantity in stock
     type: integer
     required: true
-    minimum: 0
     defaultValue: 0
     uuid: 97f5156f-afdd-4400-af71-f74a2a3d47cd
+    validation:
+      minimum: 0
   - name: createdAt
     description: Timestamp when the product was created
     type: datetime
