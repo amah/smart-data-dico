@@ -54,17 +54,17 @@ describe('importService.parseSqlDdl (#69 C1)', () => {
       expect(findMeta(idAttr!.metadata, 'physical.dbType')).toBe('VARCHAR(36)');
       expect(findMeta(idAttr!.metadata, 'physical.nullable')).toBe(false);
 
-      // Constraints from VARCHAR(n)
+      // Validation from VARCHAR(n) (#85)
       const emailAttr = entity.attributes.find(a => a.name === 'customerEmail');
       expect(emailAttr).toBeDefined();
-      expect(emailAttr!.constraints?.maxLength).toBe(255);
+      expect(emailAttr!.validation?.maxLength).toBe(255);
       expect(findMeta(emailAttr!.metadata, 'physical.columnName')).toBe('customer_email');
 
       // DECIMAL(p,s) extracts both
       const totalAttr = entity.attributes.find(a => a.name === 'total');
       expect(totalAttr).toBeDefined();
-      expect(totalAttr!.constraints?.precision).toBe(10);
-      expect(totalAttr!.constraints?.scale).toBe(2);
+      expect(totalAttr!.validation?.precision).toBe(10);
+      expect(totalAttr!.validation?.scale).toBe(2);
       expect(findMeta(totalAttr!.metadata, 'physical.dbType')).toBe('DECIMAL(10,2)');
 
       // Nullable column

@@ -57,14 +57,14 @@ class ExportService {
       description: attr.description || undefined,
     };
 
-    if (attr.constraints) {
-      if (attr.constraints.minLength !== undefined) schema.minLength = attr.constraints.minLength;
-      if (attr.constraints.maxLength !== undefined) schema.maxLength = attr.constraints.maxLength;
-      if (attr.constraints.pattern) schema.pattern = attr.constraints.pattern;
-      if (attr.constraints.minimum !== undefined) schema.minimum = attr.constraints.minimum;
-      if (attr.constraints.maximum !== undefined) schema.maximum = attr.constraints.maximum;
-      if (attr.constraints.enumValues) {
-        schema.enum = attr.constraints.enumValues;
+    if (attr.validation) {
+      if (attr.validation.minLength !== undefined) schema.minLength = attr.validation.minLength;
+      if (attr.validation.maxLength !== undefined) schema.maxLength = attr.validation.maxLength;
+      if (attr.validation.pattern) schema.pattern = attr.validation.pattern;
+      if (attr.validation.minimum !== undefined) schema.minimum = attr.validation.minimum;
+      if (attr.validation.maximum !== undefined) schema.maximum = attr.validation.maximum;
+      if (attr.validation.enumValues) {
+        schema.enum = attr.validation.enumValues;
       }
     }
 

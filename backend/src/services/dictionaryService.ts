@@ -290,7 +290,7 @@ export class DictionaryService {
                 name: attr.name,
                 description: attr.description || '',
                 type: attr.type || 'string',
-                format: attr.constraints?.format,
+                format: attr.validation?.format,
                 required: attr.required || false
               });
             }
@@ -320,7 +320,7 @@ export class DictionaryService {
         name: attr.name,
         description: attr.description || '',
         type: attr.type || 'string',
-        format: attr.constraints?.format,
+        format: attr.validation?.format,
         required: attr.required || false
       }));
     } catch (error) {

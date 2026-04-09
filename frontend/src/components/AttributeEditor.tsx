@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useForm, Controller } from 'react-hook-form';
-import { Attribute, AttributeType, AttributeConstraints } from '../types';
+import { Attribute, AttributeType, AttributeValidation } from '../types';
 import { servicesApi } from '../services/api';
 
 interface AttributeEditorProps {
@@ -13,7 +13,7 @@ interface AttributeEditorProps {
 }
 
 /**
- * Flatten an Attribute (with nested constraints) into a flat form shape
+ * Flatten an Attribute (with nested validation, #85) into a flat form shape
  * so that react-hook-form fields stay simple.
  */
 interface AttributeFormValues {
@@ -25,7 +25,7 @@ interface AttributeFormValues {
   primaryKey?: boolean;
   defaultValue?: any;
   examples?: any[];
-  // Constraints – kept flat in the form for convenience
+  // Validation fields – kept flat in the form for convenience (#85)
   minLength?: number;
   maxLength?: number;
   pattern?: string;
@@ -49,30 +49,30 @@ function attributeToFormValues(attr: Attribute): AttributeFormValues {
     primaryKey: attr.primaryKey,
     defaultValue: attr.defaultValue,
     examples: attr.examples,
-    minLength: attr.constraints?.minLength,
-    maxLength: attr.constraints?.maxLength,
-    pattern: attr.constraints?.pattern,
-    format: attr.constraints?.format,
-    minimum: attr.constraints?.minimum,
-    maximum: attr.constraints?.maximum,
-    precision: attr.constraints?.precision,
-    scale: attr.constraints?.scale,
-    enumValues: attr.constraints?.enumValues,
+    minLength: attr.validation?.minLength,
+    maxLength: attr.validation?.maxLength,
+    pattern: attr.validation?.pattern,
+    format: attr.validation?.format,
+    minimum: attr.validation?.minimum,
+    maximum: attr.validation?.maximum,
+    precision: attr.validation?.precision,
+    scale: attr.validation?.scale,
+    enumValues: attr.validation?.enumValues,
     metadata: attr.metadata,
   };
 }
 
 function formValuesToAttribute(data: AttributeFormValues): Attribute {
-  const constraints: AttributeConstraints = {};
-  if (data.minLength !== undefined && !isNaN(data.minLength)) constraints.minLength = data.minLength;
-  if (data.maxLength !== undefined && !isNaN(data.maxLength)) constraints.maxLength = data.maxLength;
-  if (data.pattern) constraints.pattern = data.pattern;
-  if (data.format) constraints.format = data.format;
-  if (data.minimum !== undefined && !isNaN(data.minimum)) constraints.minimum = data.minimum;
-  if (data.maximum !== undefined && !isNaN(data.maximum)) constraints.maximum = data.maximum;
-  if (data.precision !== undefined && !isNaN(data.precision)) constraints.precision = data.precision;
-  if (data.scale !== undefined && !isNaN(data.scale)) constraints.scale = data.scale;
-  if (data.enumValues && data.enumValues.length > 0) constraints.enumValues = data.enumValues;
+  const validation: AttributeValidation = {};
+  if (data.minLength !== undefined && !isNaN(data.minLength)) validation.minLength = data.minLength;
+  if (data.maxLength !== undefined && !isNaN(data.maxLength)) validation.maxLength = data.maxLength;
+  if (data.pattern) validation.pattern = data.pattern;
+  if (data.format) validation.format = data.format;
+  if (data.minimum !== undefined && !isNaN(data.minimum)) validation.minimum = data.minimum;
+  if (data.maximum !== undefined && !isNaN(data.maximum)) validation.maximum = data.maximum;
+  if (data.precision !== undefined && !isNaN(data.precision)) validation.precision = data.precision;
+  if (data.scale !== undefined && !isNaN(data.scale)) validation.scale = data.scale;
+  if (data.enumValues && data.enumValues.length > 0) validation.enumValues = data.enumValues;
 
   const attr: Attribute = {
     uuid: '', // Will be set by the backend or preserved from initialData
@@ -86,7 +86,7 @@ function formValuesToAttribute(data: AttributeFormValues): Attribute {
   if (data.primaryKey) attr.primaryKey = data.primaryKey;
   if (data.defaultValue !== undefined && data.defaultValue !== '') attr.defaultValue = data.defaultValue;
   if (data.examples && data.examples.length > 0) attr.examples = data.examples;
-  if (Object.keys(constraints).length > 0) attr.constraints = constraints;
+  if (Object.keys(validation).length > 0) attr.validation = validation;
   if (data.metadata && data.metadata.length > 0) attr.metadata = data.metadata;
 
   return attr;

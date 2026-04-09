@@ -162,7 +162,7 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
           attributes: (parsed.attributes || []).map((a: any) => ({
             uuid: crypto.randomUUID(), name: a.name, type: a.type || 'string',
             description: a.description || '', required: a.required ?? false, primaryKey: a.primaryKey,
-            constraints: a.enumValues ? { enumValues: a.enumValues } : undefined,
+            validation: a.enumValues ? { enumValues: a.enumValues } : undefined,
           })),
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -326,7 +326,7 @@ export const aiChat = async (req: Request, res: Response) => {
                 description: a.description || '',
                 required: a.required ?? false,
                 primaryKey: a.primaryKey,
-                constraints: a.enumValues ? { enumValues: a.enumValues } : undefined,
+                validation: a.enumValues ? { enumValues: a.enumValues } : undefined,
               }));
 
               const entity = {

@@ -27,7 +27,7 @@ describe('normalizeEntityMetadata — non-mutating contract (#77)', () => {
           required: true,
           description: 'email',
           metadata: [{ name: 'pii', value: true }],
-          constraints: { format: 'email', minLength: 5 },
+          validation: { format: 'email', minLength: 5 },
         },
       ],
       metadata: [{ name: 'owner', value: 'data-team' }],
@@ -41,6 +41,40 @@ describe('normalizeEntityMetadata — non-mutating contract (#77)', () => {
     // And the result must be a different reference but structurally equal.
     expect(result).not.toBe(entity);
     expect(JSON.stringify(result)).toBe(original);
+  });
+
+  it('legacy nested-as-`constraints` is rewritten to `validation` (#85)', () => {
+    const entity: any = {
+      uuid: 'e-1',
+      name: 'User',
+      attributes: [
+        {
+          uuid: 'a-1',
+          name: 'username',
+          type: 'string',
+          required: true,
+          description: 'username',
+          // Legacy pre-#85 field name
+          constraints: { maxLength: 50, pattern: '^[a-z]+$' },
+        },
+      ],
+    };
+
+    const result = normalizeEntityMetadata(entity);
+
+    // Input keeps legacy shape
+    expect(entity.attributes[0].constraints).toEqual({
+      maxLength: 50,
+      pattern: '^[a-z]+$',
+    });
+    expect(entity.attributes[0].validation).toBeUndefined();
+
+    // Result uses canonical `validation` and drops `constraints`
+    expect(result!.attributes[0].validation).toEqual({
+      maxLength: 50,
+      pattern: '^[a-z]+$',
+    });
+    expect((result!.attributes[0] as any).constraints).toBeUndefined();
   });
 
   it('legacy object-shape attribute metadata: input stays object, result is array', () => {
@@ -72,7 +106,7 @@ describe('normalizeEntityMetadata — non-mutating contract (#77)', () => {
     ]);
   });
 
-  it('legacy flat constraint fields: input keeps flat fields, result has nested constraints', () => {
+  it('legacy flat validation fields: input keeps flat fields, result has nested validation', () => {
     const entity: any = {
       uuid: 'e-1',
       name: 'User',
@@ -93,16 +127,16 @@ describe('normalizeEntityMetadata — non-mutating contract (#77)', () => {
 
     const result = normalizeEntityMetadata(entity);
 
-    // Input MUST still have the flat constraint fields directly on the attribute
+    // Input MUST still have the flat validation fields directly on the attribute
     expect(entity.attributes[0].format).toBe('email');
     expect(entity.attributes[0].minLength).toBe(5);
     expect(entity.attributes[0].maxLength).toBe(100);
     expect(entity.attributes[0].pattern).toBe('^.+@.+$');
-    // And no nested constraints object on the input
-    expect(entity.attributes[0].constraints).toBeUndefined();
+    // And no nested validation object on the input
+    expect(entity.attributes[0].validation).toBeUndefined();
 
-    // Result MUST have the canonical nested constraints
-    expect(result!.attributes[0].constraints).toEqual({
+    // Result MUST have the canonical nested validation (#85)
+    expect(result!.attributes[0].validation).toEqual({
       format: 'email',
       minLength: 5,
       maxLength: 100,
@@ -124,11 +158,11 @@ describe('normalizeEntityMetadata — non-mutating contract (#77)', () => {
           type: 'string',
           required: true,
           description: 'mixed',
-          // Already has nested constraints
+          // Legacy nested-as-`constraints` (pre-#85)
           constraints: { format: 'date' },
-          // But ALSO has a flat legacy field that should merge in
+          // PLUS a legacy flat field that should merge in
           maxLength: 30,
-          // And legacy object-shape metadata
+          // PLUS legacy object-shape metadata
           metadata: { sensitive: false },
         },
       ],
@@ -141,11 +175,13 @@ describe('normalizeEntityMetadata — non-mutating contract (#77)', () => {
     // Input is untouched
     expect(JSON.stringify(entity)).toBe(inputBefore);
 
-    // Result has merged constraints
-    expect(result!.attributes[0].constraints).toEqual({
+    // Result has merged validation (legacy `constraints` + flat field)
+    expect(result!.attributes[0].validation).toEqual({
       format: 'date',
       maxLength: 30,
     });
+    // Legacy `constraints` field is gone from the result
+    expect((result!.attributes[0] as any).constraints).toBeUndefined();
     // Result has array metadata
     expect(result!.attributes[0].metadata).toEqual([
       { name: 'sensitive', value: false },

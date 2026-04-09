@@ -35,8 +35,8 @@ export function synthesizeConstraintRules(entity: Entity): Rule[] {
   if (!entity || !entity.attributes) return rules;
 
   for (const attr of entity.attributes) {
-    if (!attr.constraints) continue;
-    const c = attr.constraints;
+    if (!attr.validation) continue;
+    const c = attr.validation;
     const baseTarget = {
       kind: 'attribute' as const,
       uuid: attr.uuid,

@@ -43,8 +43,8 @@ describe('EntitySchema', () => {
       expect(result.errors.length).toBeGreaterThan(0);
     });
 
-    it('should validate an entity with constraints', () => {
-      const entityWithConstraints = {
+    it('should validate an entity with validation metadata (#85)', () => {
+      const entityWithValidation = {
         uuid: 'd6b0482a-ff70-4267-8c2b-f686e456f8b6',
         name: 'Test Entity',
         description: 'A test entity',
@@ -55,7 +55,7 @@ describe('EntitySchema', () => {
             description: 'Email address',
             type: AttributeType.STRING,
             required: true,
-            constraints: {
+            validation: {
               maxLength: 255,
               pattern: '^[^@]+@[^@]+$',
               format: 'email',
@@ -64,7 +64,7 @@ describe('EntitySchema', () => {
         ],
       };
 
-      const result = validateEntity(entityWithConstraints);
+      const result = validateEntity(entityWithValidation);
       expect(result.valid).toBe(true);
       expect(result.errors).toHaveLength(0);
     });
