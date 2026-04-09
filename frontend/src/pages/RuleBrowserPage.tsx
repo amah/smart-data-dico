@@ -170,19 +170,11 @@ const RuleBrowserPage = () => {
                 filteredRules.map(rule => (
                   <tr
                     key={rule.uuid}
-                    className={`hover ${rule.synthetic ? 'opacity-60 cursor-default' : 'cursor-pointer'}`}
-                    onClick={() => {
-                      if (!rule.synthetic) setEditorRule(rule);
-                    }}
-                    title={rule.synthetic ? 'Synthesized from a constraint — read-only here, edit via the per-attribute editor' : undefined}
+                    className="hover cursor-pointer"
+                    onClick={() => setEditorRule(rule)}
                   >
                     <td className="font-medium">
                       {rule.name}
-                      {rule.synthetic && (
-                        <span className="badge badge-xs badge-ghost ml-1" title="Synthesized from constraint">
-                          constraint
-                        </span>
-                      )}
                     </td>
                     <td>
                       <span className={`badge badge-xs ${severityBadgeClass(rule.severity)}`}>

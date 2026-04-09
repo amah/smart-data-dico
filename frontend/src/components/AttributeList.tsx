@@ -59,7 +59,7 @@ const AttributeList = ({ attributes, entityName, entityUuid, serviceName, onAttr
   const [drafts, setDrafts] = useState<DraftAttribute[]>([]);
   const [saving, setSaving] = useState(false);
 
-  // Rules for this entity (real + synthetic from constraints) — #76
+  // Rules for this entity (#76)
   const [entityRules, setEntityRules] = useState<Rule[]>([]);
   const [sidePanelAttr, setSidePanelAttr] = useState<Attribute | null>(null);
 
@@ -352,7 +352,7 @@ const AttributeList = ({ attributes, entityName, entityUuid, serviceName, onAttr
                       await saveAttributeField(attr, (a) => ({ ...a, required: v as boolean }));
                     }}
                   />
-                  {/* Rules column (#76): count badge for real + synthetic rules touching this attribute */}
+                  {/* Rules column (#76): count badge for rules touching this attribute */}
                   <td>
                     {(() => {
                       const attrRules = rulesByAttrUuid.get(attr.uuid) || [];

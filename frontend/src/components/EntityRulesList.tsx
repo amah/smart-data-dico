@@ -9,7 +9,7 @@ interface EntityRulesListProps {
   entityName: string;
   /** Attributes belonging to this entity (used to resolve attribute names for display). */
   attributes: Attribute[];
-  /** All rules touching the entity (real + synthetic). */
+  /** All rules touching the entity. */
   rules: Rule[];
   /** Called after a rule is created / edited / deleted so the parent can refetch. */
   onRulesChanged?: () => void;
@@ -25,7 +25,6 @@ const enforcementBadgeClass = (e: RuleEnforcement) =>
   e === 'save' ? 'badge-error' : e === 'process' ? 'badge-warning' : 'badge-ghost';
 
 const sourceChipFor = (rule: Rule): { label: string; cls: string } => {
-  if (rule.synthetic) return { label: 'constraint', cls: 'badge-ghost' };
   switch (rule.scope) {
     case 'entity': return { label: 'entity', cls: 'badge-primary' };
     case 'package': return { label: 'package', cls: 'badge-secondary' };
@@ -37,9 +36,9 @@ const sourceChipFor = (rule: Rule): { label: string; cls: string } => {
 /**
  * Inline rules list for the entity detail "Rules" tab (#74 C4).
  *
- * Mirrors the layout of `RulesSidePanel` (same card shape, same sort order,
- * same synthetic-rule treatment) but flows in the page body rather than
- * sliding in from the right. Reuses `RuleEditor` for create/edit.
+ * Mirrors the layout of `RulesSidePanel` (same card shape, same sort order)
+ * but flows in the page body rather than sliding in from the right. Reuses
+ * `RuleEditor` for create/edit.
  */
 const EntityRulesList = ({
   entityName,
@@ -57,19 +56,16 @@ const EntityRulesList = ({
       if (e !== 0) return e;
       const s = severityRank[a.severity] - severityRank[b.severity];
       if (s !== 0) return s;
-      if (!!a.synthetic !== !!b.synthetic) return a.synthetic ? 1 : -1;
       return a.name.localeCompare(b.name);
     });
   }, [rules]);
 
   const summary = useMemo(() => {
     const byEnforcement: Record<RuleEnforcement, number> = { save: 0, process: 0, advisory: 0 };
-    let synthetic = 0;
     for (const r of rules) {
       byEnforcement[r.enforcement] = (byEnforcement[r.enforcement] || 0) + 1;
-      if (r.synthetic) synthetic++;
     }
-    return { byEnforcement, synthetic, total: rules.length };
+    return { byEnforcement, total: rules.length };
   }, [rules]);
 
   // Resolver: attribute UUID → name (for cross-attribute rule name display)
@@ -101,7 +97,6 @@ const EntityRulesList = ({
         <div>
           <div className="text-sm text-base-content/60">
             {summary.total} rule{summary.total === 1 ? '' : 's'}
-            {summary.synthetic > 0 && <> · {summary.synthetic} from constraints</>}
             {summary.byEnforcement.save > 0 && <> · {summary.byEnforcement.save} blocking save</>}
             {summary.byEnforcement.process > 0 && (
               <> · {summary.byEnforcement.process} process gate{summary.byEnforcement.process === 1 ? '' : 's'}</>
@@ -120,9 +115,10 @@ const EntityRulesList = ({
       {sorted.length === 0 && (
         <div className="alert alert-info">
           <span>
-            No rules yet for <strong>{entityName}</strong>. Add structural constraints
-            via the per-attribute editor, or click <strong>+ New Rule</strong> to author
-            a free-text rule.
+            No rules yet for <strong>{entityName}</strong>. Click{' '}
+            <strong>+ New Rule</strong> to author a functional rule, or set{' '}
+            attribute validation (maxLength, pattern, format, …) via the
+            per-attribute editor.
           </span>
         </div>
       )}
@@ -138,7 +134,7 @@ const EntityRulesList = ({
           return (
             <div
               key={rule.uuid}
-              className={`card card-compact bg-base-200 ${rule.synthetic ? 'opacity-80' : ''}`}
+              className="card card-compact bg-base-200"
             >
               <div className="card-body">
                 <div className="flex items-start gap-2 flex-wrap">
@@ -180,18 +176,12 @@ const EntityRulesList = ({
                 )}
 
                 <div className="card-actions justify-end mt-2">
-                  {rule.synthetic ? (
-                    <span className="text-xs text-base-content/50 italic">
-                      edit in attribute editor
-                    </span>
-                  ) : (
-                    <button
-                      className="btn btn-xs btn-ghost"
-                      onClick={() => setEditorRule(rule)}
-                    >
-                      Edit
-                    </button>
-                  )}
+                  <button
+                    className="btn btn-xs btn-ghost"
+                    onClick={() => setEditorRule(rule)}
+                  >
+                    Edit
+                  </button>
                 </div>
               </div>
             </div>
