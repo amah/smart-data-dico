@@ -22,7 +22,7 @@
  *      The merge never touches it. The diff surfaces it informationally
  *      so users know it exists, but never proposes to delete or change it.
  */
-import { Entity, Attribute, MetadataEntry } from '../models/EntitySchema.js';
+import { Entity, Attribute, MetadataEntry, PhysicalConstraint } from '../models/EntitySchema.js';
 
 // ────────────────────────────────────────────────────────────────────────
 // Diff result types
@@ -68,6 +68,15 @@ export interface AttributeDiff {
   changedFields?: string[];
 }
 
+/** Per-physical-constraint diff entry (#85 R3). */
+export interface ConstraintDiff {
+  status: 'added' | 'changed' | 'unchanged' | 'removedInSource';
+  /** Stable identity of the constraint — its `name` if known, else a structural key. */
+  key: string;
+  source?: PhysicalConstraint;
+  existing?: PhysicalConstraint;
+}
+
 /** Per-entity diff entry. */
 export interface EntityDiff {
   status: EntityDiffStatus;
@@ -81,6 +90,8 @@ export interface EntityDiff {
   existing?: Entity;
   /** All attribute-level diffs for this entity. */
   attributes: AttributeDiff[];
+  /** Physical constraint diffs for this entity (#85 R3). Empty if neither side declared any. */
+  constraints?: ConstraintDiff[];
   /** Quick counts for the wizard summary, computed from `attributes`. */
   counts: {
     added: number;
@@ -151,6 +162,104 @@ function diffSnapshots(source: PhysicalSnapshot, existing: PhysicalSnapshot): st
   if (source.dbType !== existing.dbType) changed.push('physical.dbType');
   if (source.nullable !== existing.nullable) changed.push('physical.nullable');
   return changed;
+}
+
+/**
+ * Stable identity key for a PhysicalConstraint (#85 R3).
+ *
+ * Uses the optional `name` (DB constraint name) when present, since that's
+ * the only field guaranteed stable across re-imports if the user later
+ * renames a column or expression. Falls back to a structural key built
+ * from kind + columns + expression + references for unnamed constraints.
+ */
+function constraintKey(c: PhysicalConstraint): string {
+  if (c.name) return `name:${c.name}`;
+  const cols = (c.columns || []).join(',');
+  const ref = c.references ? `${c.references.table}(${(c.references.columns || []).join(',')})` : '';
+  const expr = (c.expression || '').replace(/\s+/g, ' ').trim();
+  return `${c.kind}|${cols}|${expr}|${ref}`;
+}
+
+/**
+ * True when two PhysicalConstraints describe the same logical constraint
+ * (same kind, same columns, same expression / referenced table+cols).
+ * Used to detect 'unchanged' constraints when both sides share a name.
+ */
+function constraintsStructurallyEqual(a: PhysicalConstraint, b: PhysicalConstraint): boolean {
+  if (a.kind !== b.kind) return false;
+  const aCols = (a.columns || []).join(',');
+  const bCols = (b.columns || []).join(',');
+  if (aCols !== bCols) return false;
+  if ((a.expression || '').replace(/\s+/g, ' ').trim() !== (b.expression || '').replace(/\s+/g, ' ').trim()) return false;
+  const aRef = a.references ? `${a.references.table}(${(a.references.columns || []).join(',')})` : '';
+  const bRef = b.references ? `${b.references.table}(${(b.references.columns || []).join(',')})` : '';
+  if (aRef !== bRef) return false;
+  return true;
+}
+
+/**
+ * Diff two physical-constraint arrays (#85 R3).
+ *
+ * Matches entries by `name` first, then falls back to a structural key
+ * (kind + columns + expression + references). Anonymous constraints with
+ * different shapes show up as one removed + one added rather than as a
+ * single 'changed' entry — that's the right semantics because there's no
+ * way to know they're "the same" constraint without an identity hint.
+ *
+ * Returns an empty array if neither side declared any constraints.
+ */
+export function diffPhysicalConstraints(
+  source: PhysicalConstraint[] | undefined,
+  existing: PhysicalConstraint[] | undefined,
+): ConstraintDiff[] {
+  const out: ConstraintDiff[] = [];
+  const sourceList = source || [];
+  const existingList = existing || [];
+  if (sourceList.length === 0 && existingList.length === 0) return out;
+
+  const existingByKey = new Map<string, PhysicalConstraint>();
+  for (const c of existingList) existingByKey.set(constraintKey(c), c);
+  const matched = new Set<string>();
+
+  for (const s of sourceList) {
+    const k = constraintKey(s);
+    const match = existingByKey.get(k);
+    if (!match) {
+      // Try a name-based fallback: same name but different shape → 'changed'
+      let renamedMatch: PhysicalConstraint | undefined;
+      let renamedKey: string | undefined;
+      if (s.name) {
+        for (const [key, c] of existingByKey) {
+          if (matched.has(key)) continue;
+          if (c.name === s.name) {
+            renamedMatch = c;
+            renamedKey = key;
+            break;
+          }
+        }
+      }
+      if (renamedMatch) {
+        matched.add(renamedKey!);
+        out.push({ status: 'changed', key: k, source: s, existing: renamedMatch });
+      } else {
+        out.push({ status: 'added', key: k, source: s });
+      }
+      continue;
+    }
+    matched.add(k);
+    if (constraintsStructurallyEqual(s, match)) {
+      out.push({ status: 'unchanged', key: k, source: s, existing: match });
+    } else {
+      out.push({ status: 'changed', key: k, source: s, existing: match });
+    }
+  }
+
+  for (const [k, c] of existingByKey) {
+    if (matched.has(k)) continue;
+    out.push({ status: 'removedInSource', key: k, existing: c });
+  }
+
+  return out;
 }
 
 /**
@@ -233,7 +342,15 @@ export function diffEntities(parsed: Entity[], existing: Entity[]): EntityDiff[]
     // Entity-level physical metadata differences (e.g. physical.schema)
     // also count as changes — the merge needs to refresh them on disk.
     const entityMetaChanged = diffEntityPhysicalMetadata(source, match).length > 0;
-    const hasChanges = counts.added + counts.changed + counts.removedInSource > 0 || entityMetaChanged;
+    // Physical constraint diffs (#85 R3) — added/changed/removed counts
+    // toward the entity's `changed` status; pure 'unchanged' constraint
+    // lists do not.
+    const constraintDiffs = diffPhysicalConstraints(source.constraints, match.constraints);
+    const constraintHasChanges = constraintDiffs.some(c => c.status !== 'unchanged');
+    const hasChanges =
+      counts.added + counts.changed + counts.removedInSource > 0 ||
+      entityMetaChanged ||
+      constraintHasChanges;
 
     diffs.push({
       status: hasChanges ? 'changed' : 'unchanged',
@@ -243,6 +360,7 @@ export function diffEntities(parsed: Entity[], existing: Entity[]): EntityDiff[]
       source,
       existing: match,
       attributes: attrDiffs,
+      ...(constraintDiffs.length > 0 ? { constraints: constraintDiffs } : {}),
       counts,
     });
   }
@@ -430,6 +548,11 @@ export function mergeEntities(parsed: Entity[], existing: Entity[]): Entity[] {
       attributes: mergedAttrs,
       // Refresh entity-level physical.* metadata; preserve everything else
       metadata: mergeMetadata(existingEntity.metadata, sourceEntity.metadata),
+      // Physical constraints (#85 R3): the source is authoritative. The DB
+      // is the system of record for constraints, so a re-import always
+      // replaces the existing list with the source's. Users who want to
+      // attach extra invariants on top should use a Rule instead.
+      constraints: sourceEntity.constraints,
       // Refresh description ONLY if existing was empty
       description: existingEntity.description || sourceEntity.description,
       updatedAt: new Date().toISOString(),
@@ -444,7 +567,7 @@ export function mergeEntities(parsed: Entity[], existing: Entity[]): Entity[] {
  *
  * Updates: type, required, primaryKey, physical.* metadata fields
  * Preserves: uuid, name, description (if non-empty), unique, defaultValue,
- *            examples, constraints, items, properties, non-physical metadata
+ *            examples, validation (#85), items, properties, non-physical metadata
  */
 function mergeAttribute(source: Attribute, existing: Attribute): Attribute {
   return {

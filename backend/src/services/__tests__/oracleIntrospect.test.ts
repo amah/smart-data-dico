@@ -7,7 +7,7 @@
  * with a mocked `oracledb` module to verify the connection lifecycle and
  * the lazy-import fallback when oracledb is missing.
  */
-import { buildEntitiesFromCatalog } from '../oracleIntrospect.js';
+import { buildEntitiesFromCatalog, buildConstraintsByTable } from '../oracleIntrospect.js';
 import { AttributeType } from '../../models/EntitySchema.js';
 
 jest.mock('../../utils/logger');
@@ -179,6 +179,139 @@ describe('buildEntitiesFromCatalog (#69 C3)', () => {
   it('returns an empty list when there are no rows', () => {
     expect(buildEntitiesFromCatalog([], [], 'APP', {})).toEqual([]);
   });
+
+  it('attaches physical constraints to the right table when constraint rows are provided (#85 R3)', () => {
+    const cols = [
+      { TABLE_NAME: 'ORDERS', COLUMN_NAME: 'ID', DATA_TYPE: 'NUMBER', DATA_LENGTH: 22, DATA_PRECISION: 10, DATA_SCALE: 0, NULLABLE: 'N', COLUMN_ID: 1 },
+      { TABLE_NAME: 'ORDERS', COLUMN_NAME: 'ORDER_NUMBER', DATA_TYPE: 'VARCHAR2', DATA_LENGTH: 20, DATA_PRECISION: null, DATA_SCALE: null, NULLABLE: 'N', COLUMN_ID: 2 },
+    ];
+    const constraintRows = [
+      { TABLE_NAME: 'ORDERS', CONSTRAINT_NAME: 'UQ_ORDERS_NUMBER', CONSTRAINT_TYPE: 'U' as const, COLUMN_NAME: 'ORDER_NUMBER', POSITION: 1, SEARCH_CONDITION: null, R_TABLE_NAME: null, R_COLUMN_NAME: null, R_POSITION: null },
+    ];
+    const entities = buildEntitiesFromCatalog(cols, [{ TABLE_NAME: 'ORDERS', COLUMN_NAME: 'ID' }], 'APP', {}, constraintRows);
+    expect(entities[0].constraints).toEqual([
+      { kind: 'unique', name: 'UQ_ORDERS_NUMBER', columns: ['ORDER_NUMBER'] },
+    ]);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+// buildConstraintsByTable — pure constraint-row → PhysicalConstraint mapping (#85 R3)
+// ────────────────────────────────────────────────────────────────────────
+
+describe('buildConstraintsByTable (#85 R3)', () => {
+  const row = (overrides: any) => ({
+    TABLE_NAME: 'T',
+    CONSTRAINT_NAME: 'C',
+    CONSTRAINT_TYPE: 'U',
+    COLUMN_NAME: null,
+    POSITION: null,
+    SEARCH_CONDITION: null,
+    R_TABLE_NAME: null,
+    R_COLUMN_NAME: null,
+    R_POSITION: null,
+    ...overrides,
+  });
+
+  it('maps a single-column UNIQUE constraint', () => {
+    const out = buildConstraintsByTable([
+      row({ CONSTRAINT_NAME: 'UQ_EMAIL', CONSTRAINT_TYPE: 'U', COLUMN_NAME: 'EMAIL', POSITION: 1 }),
+    ]);
+    expect(out.get('T')).toEqual([
+      { kind: 'unique', name: 'UQ_EMAIL', columns: ['EMAIL'] },
+    ]);
+  });
+
+  it('groups multi-column UNIQUE rows in POSITION order', () => {
+    const out = buildConstraintsByTable([
+      row({ CONSTRAINT_NAME: 'UQ_OI', CONSTRAINT_TYPE: 'U', COLUMN_NAME: 'LINE_NO', POSITION: 2 }),
+      row({ CONSTRAINT_NAME: 'UQ_OI', CONSTRAINT_TYPE: 'U', COLUMN_NAME: 'ORDER_ID', POSITION: 1 }),
+    ]);
+    expect(out.get('T')![0].columns).toEqual(['ORDER_ID', 'LINE_NO']);
+  });
+
+  it('maps a CHECK constraint with its expression', () => {
+    const out = buildConstraintsByTable([
+      row({
+        CONSTRAINT_NAME: 'CHK_BAL',
+        CONSTRAINT_TYPE: 'C',
+        COLUMN_NAME: 'BALANCE',
+        POSITION: 1,
+        SEARCH_CONDITION: 'balance >= 0',
+      }),
+    ]);
+    expect(out.get('T')).toEqual([
+      { kind: 'check', name: 'CHK_BAL', expression: 'balance >= 0' },
+    ]);
+  });
+
+  it('skips auto-generated NOT NULL CHECK constraints', () => {
+    const out = buildConstraintsByTable([
+      row({
+        CONSTRAINT_NAME: 'SYS_C001',
+        CONSTRAINT_TYPE: 'C',
+        COLUMN_NAME: 'EMAIL',
+        POSITION: 1,
+        SEARCH_CONDITION: '"EMAIL" IS NOT NULL',
+      }),
+    ]);
+    expect(out.size).toBe(0);
+  });
+
+  it('maps a single-column FOREIGN KEY with a reference', () => {
+    const out = buildConstraintsByTable([
+      row({
+        CONSTRAINT_NAME: 'FK_ORDERS_CUSTOMER',
+        CONSTRAINT_TYPE: 'R',
+        COLUMN_NAME: 'CUSTOMER_ID',
+        POSITION: 1,
+        R_TABLE_NAME: 'CUSTOMERS',
+        R_COLUMN_NAME: 'ID',
+        R_POSITION: 1,
+      }),
+    ]);
+    expect(out.get('T')).toEqual([
+      {
+        kind: 'foreignKey',
+        name: 'FK_ORDERS_CUSTOMER',
+        columns: ['CUSTOMER_ID'],
+        references: { table: 'CUSTOMERS', columns: ['ID'] },
+      },
+    ]);
+  });
+
+  it('maps a composite FOREIGN KEY with two pairs of columns', () => {
+    const out = buildConstraintsByTable([
+      row({
+        CONSTRAINT_NAME: 'FK_OI',
+        CONSTRAINT_TYPE: 'R',
+        COLUMN_NAME: 'ORDER_ID',
+        POSITION: 1,
+        R_TABLE_NAME: 'ORDERS',
+        R_COLUMN_NAME: 'ID',
+        R_POSITION: 1,
+      }),
+      row({
+        CONSTRAINT_NAME: 'FK_OI',
+        CONSTRAINT_TYPE: 'R',
+        COLUMN_NAME: 'LINE_NO',
+        POSITION: 2,
+        R_TABLE_NAME: 'ORDERS',
+        R_COLUMN_NAME: 'LINE_NO',
+        R_POSITION: 2,
+      }),
+    ]);
+    expect(out.get('T')![0]).toEqual({
+      kind: 'foreignKey',
+      name: 'FK_OI',
+      columns: ['ORDER_ID', 'LINE_NO'],
+      references: { table: 'ORDERS', columns: ['ID', 'LINE_NO'] },
+    });
+  });
+
+  it('returns an empty map when given no rows', () => {
+    expect(buildConstraintsByTable([]).size).toBe(0);
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────
@@ -200,7 +333,9 @@ describe('introspectOracle (#69 C3) — connection lifecycle', () => {
       })
       .mockResolvedValueOnce({
         rows: [{ TABLE_NAME: 'ORDERS', COLUMN_NAME: 'ID' }],
-      });
+      })
+      // Third query (#85 R3): physical constraints (U/C/R)
+      .mockResolvedValueOnce({ rows: [] });
     const mockGetConnection = jest.fn().mockResolvedValue({ execute: mockExecute, close: mockClose });
 
     jest.doMock('oracledb', () => ({
@@ -222,7 +357,7 @@ describe('introspectOracle (#69 C3) — connection lifecycle', () => {
       password: 'pw',
       connectString: 'host:1521/svc',
     });
-    expect(mockExecute).toHaveBeenCalledTimes(2);
+    expect(mockExecute).toHaveBeenCalledTimes(3);
     expect(mockClose).toHaveBeenCalledTimes(1);
     expect(result.entities).toHaveLength(1);
     expect(result.entities[0].name).toBe('Orders');

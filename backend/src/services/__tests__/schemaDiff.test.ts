@@ -6,8 +6,8 @@
  *   2. Never overwrite user content (description, non-physical metadata)
  *   3. Model-only attributes are sacred
  */
-import { diffEntities, mergeEntities } from '../schemaDiff.js';
-import { Entity, Attribute, AttributeType, EntityStatus, MetadataEntry } from '../../models/EntitySchema.js';
+import { diffEntities, mergeEntities, diffPhysicalConstraints } from '../schemaDiff.js';
+import { Entity, Attribute, AttributeType, EntityStatus, MetadataEntry, PhysicalConstraint } from '../../models/EntitySchema.js';
 
 jest.mock('../../utils/logger');
 
@@ -604,5 +604,160 @@ describe('mergeEntities — pass-through', () => {
     const merged = mergeEntities([], [removedEntity]);
     expect(merged).toHaveLength(1);
     expect(merged[0].uuid).toBe('ent-removed');
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+// diffPhysicalConstraints (#85 R3)
+// ────────────────────────────────────────────────────────────────────────
+
+describe('diffPhysicalConstraints (#85 R3)', () => {
+  const uniqueOnEmail: PhysicalConstraint = {
+    kind: 'unique',
+    name: 'uq_users_email',
+    columns: ['email'],
+  };
+  const checkBalance: PhysicalConstraint = {
+    kind: 'check',
+    name: 'chk_balance',
+    expression: 'balance >= 0',
+  };
+  const fkOrdersCustomer: PhysicalConstraint = {
+    kind: 'foreignKey',
+    name: 'fk_orders_customer',
+    columns: ['customer_id'],
+    references: { table: 'customers', columns: ['id'] },
+  };
+
+  it('returns empty when both sides have no constraints', () => {
+    expect(diffPhysicalConstraints(undefined, undefined)).toEqual([]);
+    expect(diffPhysicalConstraints([], [])).toEqual([]);
+  });
+
+  it('reports source-only constraints as added', () => {
+    const out = diffPhysicalConstraints([uniqueOnEmail], []);
+    expect(out).toHaveLength(1);
+    expect(out[0].status).toBe('added');
+    expect(out[0].source).toBe(uniqueOnEmail);
+  });
+
+  it('reports model-only constraints as removedInSource', () => {
+    const out = diffPhysicalConstraints([], [uniqueOnEmail]);
+    expect(out).toHaveLength(1);
+    expect(out[0].status).toBe('removedInSource');
+    expect(out[0].existing).toBe(uniqueOnEmail);
+  });
+
+  it('reports identical constraints (matched by name) as unchanged', () => {
+    const out = diffPhysicalConstraints([uniqueOnEmail], [{ ...uniqueOnEmail }]);
+    expect(out).toHaveLength(1);
+    expect(out[0].status).toBe('unchanged');
+  });
+
+  it('reports same-name but different-shape constraints as changed', () => {
+    const evolvedCheck: PhysicalConstraint = {
+      kind: 'check',
+      name: 'chk_balance',
+      expression: 'balance >= 0 AND balance <= 1000000',
+    };
+    const out = diffPhysicalConstraints([evolvedCheck], [checkBalance]);
+    expect(out).toHaveLength(1);
+    expect(out[0].status).toBe('changed');
+    expect(out[0].source).toBe(evolvedCheck);
+    expect(out[0].existing).toBe(checkBalance);
+  });
+
+  it('matches anonymous constraints by structural key (kind + columns)', () => {
+    const a: PhysicalConstraint = { kind: 'unique', columns: ['email'] };
+    const b: PhysicalConstraint = { kind: 'unique', columns: ['email'] };
+    const out = diffPhysicalConstraints([a], [b]);
+    expect(out).toHaveLength(1);
+    expect(out[0].status).toBe('unchanged');
+  });
+
+  it('reports a foreign key with a changed referenced table as changed', () => {
+    const moved: PhysicalConstraint = {
+      ...fkOrdersCustomer,
+      references: { table: 'archived_customers', columns: ['id'] },
+    };
+    const out = diffPhysicalConstraints([moved], [fkOrdersCustomer]);
+    expect(out).toHaveLength(1);
+    expect(out[0].status).toBe('changed');
+  });
+
+  it('handles a mix of added/changed/removed/unchanged in one call', () => {
+    const evolvedCheck: PhysicalConstraint = {
+      kind: 'check',
+      name: 'chk_balance',
+      expression: 'balance > 0',
+    };
+    const newIndex: PhysicalConstraint = {
+      kind: 'index',
+      name: 'idx_orders_created',
+      columns: ['created_at'],
+    };
+    const source = [uniqueOnEmail, evolvedCheck, newIndex];
+    const existing = [{ ...uniqueOnEmail }, checkBalance, fkOrdersCustomer];
+    const out = diffPhysicalConstraints(source, existing);
+    const byStatus = out.reduce<Record<string, number>>((acc, d) => {
+      acc[d.status] = (acc[d.status] || 0) + 1;
+      return acc;
+    }, {});
+    expect(byStatus).toEqual({ unchanged: 1, changed: 1, added: 1, removedInSource: 1 });
+  });
+
+  it('whitespace differences in CHECK expressions do not count as changes', () => {
+    const padded: PhysicalConstraint = {
+      kind: 'check',
+      name: 'chk_balance',
+      expression: '  balance   >=   0  ',
+    };
+    const out = diffPhysicalConstraints([padded], [checkBalance]);
+    expect(out[0].status).toBe('unchanged');
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+// diffEntities — physical constraint changes drive entity status (#85 R3)
+// ────────────────────────────────────────────────────────────────────────
+
+describe('diffEntities — physical constraints affect entity status (#85 R3)', () => {
+  it('an entity whose only difference is a new physical constraint is reported as changed', () => {
+    const baseAttr = buildAttr({ physical: { columnName: 'id', dbType: 'INT', nullable: false } });
+    const source: Entity = {
+      ...buildEntity({ physicalTableName: 'orders', attributes: [baseAttr] }),
+      constraints: [{ kind: 'unique', name: 'uq_orders_id', columns: ['id'] }],
+    };
+    const existing = buildEntity({ physicalTableName: 'orders', attributes: [baseAttr] });
+    const diffs = diffEntities([source], [existing]);
+    expect(diffs).toHaveLength(1);
+    expect(diffs[0].status).toBe('changed');
+    expect(diffs[0].constraints).toBeDefined();
+    expect(diffs[0].constraints![0].status).toBe('added');
+  });
+
+  it('an entity with identical attributes AND identical constraints is unchanged', () => {
+    const baseAttr = buildAttr({ physical: { columnName: 'id', dbType: 'INT', nullable: false } });
+    const constraints: PhysicalConstraint[] = [{ kind: 'unique', name: 'uq_orders_id', columns: ['id'] }];
+    const source: Entity = { ...buildEntity({ physicalTableName: 'orders', attributes: [baseAttr] }), constraints };
+    const existing: Entity = { ...buildEntity({ physicalTableName: 'orders', attributes: [baseAttr] }), constraints: [{ ...constraints[0] }] };
+    const diffs = diffEntities([source], [existing]);
+    expect(diffs[0].status).toBe('unchanged');
+  });
+
+  it('mergeEntities replaces existing.constraints with the source list on a changed entity', () => {
+    const baseAttr = buildAttr({ physical: { columnName: 'id', dbType: 'INT', nullable: false } });
+    const source: Entity = {
+      ...buildEntity({ physicalTableName: 'orders', attributes: [baseAttr] }),
+      constraints: [{ kind: 'unique', name: 'uq_orders_id_v2', columns: ['id'] }],
+    };
+    const existing: Entity = {
+      ...buildEntity({ physicalTableName: 'orders', attributes: [baseAttr] }),
+      constraints: [{ kind: 'unique', name: 'uq_orders_id', columns: ['id'] }],
+    };
+    const merged = mergeEntities([source], [existing]);
+    expect(merged[0].constraints).toEqual([
+      { kind: 'unique', name: 'uq_orders_id_v2', columns: ['id'] },
+    ]);
   });
 });
