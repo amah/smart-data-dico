@@ -367,6 +367,29 @@ export interface EntityDiff {
 }
 
 /**
+ * Kinds of physical (DB-enforced) constraint (#85 R3).
+ *
+ *   - unique     — UNIQUE (col, …)
+ *   - check      — CHECK (expression)
+ *   - foreignKey — FOREIGN KEY (cols) REFERENCES other(cols)
+ *   - index      — non-unique index (performance, no integrity)
+ */
+export type PhysicalConstraintKind = 'unique' | 'check' | 'foreignKey' | 'index';
+
+/**
+ * A physical constraint enforced by the database (#85 R3). Distinct from
+ * `attribute.validation` (intrinsic shape rules) and from the `Rule`
+ * type (functional invariants).
+ */
+export interface PhysicalConstraint {
+  kind: PhysicalConstraintKind;
+  name?: string;
+  columns?: string[];
+  expression?: string;
+  references?: { table: string; columns: string[] };
+}
+
+/**
  * Interface for entity definition
  */
 export interface Entity {
@@ -377,6 +400,8 @@ export interface Entity {
   status?: EntityStatus;
   attributes: Attribute[];
   metadata?: MetadataEntry[];
+  /** Physical, DB-enforced constraints (#85 R3). */
+  constraints?: PhysicalConstraint[];
   createdAt?: string;
   updatedAt?: string;
 }

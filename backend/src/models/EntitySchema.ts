@@ -243,6 +243,47 @@ export interface LineageResult {
 }
 
 /**
+ * Kinds of physical (DB-enforced) constraint that the model captures (#85 R3).
+ *
+ *   - **unique**     — `UNIQUE (col, …)` — at most one row per column tuple
+ *   - **check**      — `CHECK (expression)` — row-level boolean predicate
+ *   - **foreignKey** — `FOREIGN KEY (cols) REFERENCES other(cols)` — referential integrity
+ *   - **index**      — non-unique index — performance hint, no integrity guarantee
+ */
+export type PhysicalConstraintKind = 'unique' | 'check' | 'foreignKey' | 'index';
+
+/**
+ * A physical constraint enforced by the database (#85 R3).
+ *
+ * Distinct from `attribute.validation` (intrinsic shape rules that the
+ * application layer applies) and from the first-class `Rule` type
+ * (functional / business invariants). Physical constraints come from
+ * SQL DDL or live DB introspection and round-trip cleanly through the
+ * schema import wizard.
+ *
+ * Field set varies by `kind`:
+ *
+ *   - `unique` / `index` → `columns` (required)
+ *   - `check`            → `expression` (required)
+ *   - `foreignKey`       → `columns` + `references` (both required)
+ *
+ * The optional `name` is the DB-side constraint identifier when known
+ * (e.g. `uq_orders_number`, `chk_balance_positive`). Used as a stable
+ * matching key by the schema diff when both sides expose it.
+ */
+export interface PhysicalConstraint {
+  kind: PhysicalConstraintKind;
+  /** Optional DB constraint name — used as a stable identity when both sides have one. */
+  name?: string;
+  /** Physical column names — required for unique / foreignKey / index. */
+  columns?: string[];
+  /** Boolean predicate text — required for check constraints. */
+  expression?: string;
+  /** Referenced table + columns — required for foreignKey. */
+  references?: { table: string; columns: string[] };
+}
+
+/**
  * Interface for entity definition
  */
 export interface Entity {
@@ -253,6 +294,12 @@ export interface Entity {
   status?: EntityStatus;
   attributes: Attribute[];
   metadata?: MetadataEntry[];
+  /**
+   * Physical, DB-enforced constraints (#85 R3). The word "constraint"
+   * here is reserved for physical concerns — see PhysicalConstraint and
+   * the AttributeValidation rationale for the three-concept split.
+   */
+  constraints?: PhysicalConstraint[];
   createdAt?: string;
   updatedAt?: string;
 }
@@ -312,6 +359,27 @@ export const entitySchema: Schema = {
       }
     },
     metadata: { type: 'array' },
+    constraints: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['kind'],
+        properties: {
+          kind: { type: 'string', enum: ['unique', 'check', 'foreignKey', 'index'] },
+          name: { type: 'string' },
+          columns: { type: 'array', items: { type: 'string' } },
+          expression: { type: 'string' },
+          references: {
+            type: 'object',
+            required: ['table', 'columns'],
+            properties: {
+              table: { type: 'string' },
+              columns: { type: 'array', items: { type: 'string' } },
+            },
+          },
+        },
+      },
+    },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' }
   }

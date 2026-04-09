@@ -276,6 +276,170 @@ describe('importService.parseSqlDdl (#69 C1)', () => {
     });
   });
 
+  // ─── Physical constraints (#85 R3) ─────────────────────────────────────
+  describe('physical constraints', () => {
+    it('captures table-level UNIQUE with a CONSTRAINT name', () => {
+      const sql = `
+        CREATE TABLE orders (
+          id VARCHAR(36) PRIMARY KEY,
+          order_number VARCHAR(20) NOT NULL,
+          CONSTRAINT uq_orders_number UNIQUE (order_number)
+        );
+      `;
+      const result = importService.parseSqlDdl(sql);
+      const cs = result.entities[0].constraints || [];
+      expect(cs).toHaveLength(1);
+      expect(cs[0]).toEqual({
+        kind: 'unique',
+        name: 'uq_orders_number',
+        columns: ['order_number'],
+      });
+    });
+
+    it('captures table-level UNIQUE without a constraint name', () => {
+      const sql = `
+        CREATE TABLE accounts (
+          id INT PRIMARY KEY,
+          email VARCHAR(255) NOT NULL,
+          UNIQUE (email)
+        );
+      `;
+      const result = importService.parseSqlDdl(sql);
+      const cs = result.entities[0].constraints || [];
+      expect(cs).toEqual([{ kind: 'unique', columns: ['email'] }]);
+    });
+
+    it('captures multi-column UNIQUE', () => {
+      const sql = `
+        CREATE TABLE order_items (
+          order_id INT,
+          line_no INT,
+          PRIMARY KEY (order_id, line_no),
+          UNIQUE (order_id, line_no)
+        );
+      `;
+      const result = importService.parseSqlDdl(sql);
+      const cs = result.entities[0].constraints || [];
+      expect(cs).toEqual([{ kind: 'unique', columns: ['order_id', 'line_no'] }]);
+    });
+
+    it('captures table-level CHECK with nested parens in expression', () => {
+      const sql = `
+        CREATE TABLE accounts (
+          id INT PRIMARY KEY,
+          balance DECIMAL(10,2) NOT NULL,
+          CONSTRAINT chk_balance CHECK (balance >= 0 AND balance <= 1000000)
+        );
+      `;
+      const result = importService.parseSqlDdl(sql);
+      const cs = result.entities[0].constraints || [];
+      expect(cs).toHaveLength(1);
+      expect(cs[0].kind).toBe('check');
+      expect(cs[0].name).toBe('chk_balance');
+      expect(cs[0].expression).toBe('balance >= 0 AND balance <= 1000000');
+    });
+
+    it('captures table-level FOREIGN KEY with single column', () => {
+      const sql = `
+        CREATE TABLE orders (
+          id INT PRIMARY KEY,
+          customer_id INT NOT NULL,
+          FOREIGN KEY (customer_id) REFERENCES customers(id)
+        );
+      `;
+      const result = importService.parseSqlDdl(sql);
+      const cs = result.entities[0].constraints || [];
+      expect(cs).toEqual([{
+        kind: 'foreignKey',
+        columns: ['customer_id'],
+        references: { table: 'customers', columns: ['id'] },
+      }]);
+    });
+
+    it('captures table-level composite FOREIGN KEY with constraint name', () => {
+      const sql = `
+        CREATE TABLE shipments (
+          ship_id INT,
+          order_id INT,
+          line_no INT,
+          PRIMARY KEY (ship_id),
+          CONSTRAINT fk_shipments_line FOREIGN KEY (order_id, line_no) REFERENCES order_items(order_id, line_no)
+        );
+      `;
+      const result = importService.parseSqlDdl(sql);
+      const cs = result.entities[0].constraints || [];
+      expect(cs).toHaveLength(1);
+      expect(cs[0]).toEqual({
+        kind: 'foreignKey',
+        name: 'fk_shipments_line',
+        columns: ['order_id', 'line_no'],
+        references: { table: 'order_items', columns: ['order_id', 'line_no'] },
+      });
+    });
+
+    it('captures column-level inline REFERENCES', () => {
+      const sql = `
+        CREATE TABLE orders (
+          id INT PRIMARY KEY,
+          customer_id INT NOT NULL REFERENCES customers(id)
+        );
+      `;
+      const result = importService.parseSqlDdl(sql);
+      const cs = result.entities[0].constraints || [];
+      expect(cs).toEqual([{
+        kind: 'foreignKey',
+        columns: ['customer_id'],
+        references: { table: 'customers', columns: ['id'] },
+      }]);
+    });
+
+    it('captures column-level inline UNIQUE', () => {
+      const sql = `
+        CREATE TABLE products (
+          id INT PRIMARY KEY,
+          sku VARCHAR(20) NOT NULL UNIQUE
+        );
+      `;
+      const result = importService.parseSqlDdl(sql);
+      const cs = result.entities[0].constraints || [];
+      expect(cs).toEqual([{ kind: 'unique', columns: ['sku'] }]);
+    });
+
+    it('omits constraints field when there are no constraints', () => {
+      const sql = `
+        CREATE TABLE plain (
+          id INT PRIMARY KEY,
+          name VARCHAR(50)
+        );
+      `;
+      const result = importService.parseSqlDdl(sql);
+      expect(result.entities[0].constraints).toBeUndefined();
+    });
+
+    it('captures multiple mixed constraints on the same table', () => {
+      const sql = `
+        CREATE TABLE orders (
+          id INT PRIMARY KEY,
+          order_number VARCHAR(20) NOT NULL,
+          customer_id INT NOT NULL,
+          total DECIMAL(10,2) NOT NULL,
+          CONSTRAINT uq_orders_number UNIQUE (order_number),
+          CONSTRAINT chk_total CHECK (total >= 0),
+          CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers(id)
+        );
+      `;
+      const result = importService.parseSqlDdl(sql);
+      const cs = result.entities[0].constraints || [];
+      expect(cs.map(c => c.kind).sort()).toEqual(['check', 'foreignKey', 'unique']);
+      expect(cs.find(c => c.kind === 'unique')!.columns).toEqual(['order_number']);
+      expect(cs.find(c => c.kind === 'check')!.expression).toBe('total >= 0');
+      expect(cs.find(c => c.kind === 'foreignKey')!.references).toEqual({
+        table: 'customers',
+        columns: ['id'],
+      });
+    });
+  });
+
   // ─── Error cases ───────────────────────────────────────────────────────
   describe('errors', () => {
     it('returns an error when no CREATE TABLE statements are found', () => {

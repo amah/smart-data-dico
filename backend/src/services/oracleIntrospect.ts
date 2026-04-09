@@ -18,7 +18,7 @@
  * the controller layer + diff/merge are dialect-agnostic, so a future
  * introspector only needs to emit the same Entity[] shape.
  */
-import { Entity, Attribute, AttributeType, EntityStatus, MetadataEntry } from '../models/EntitySchema.js';
+import { Entity, Attribute, AttributeType, EntityStatus, MetadataEntry, PhysicalConstraint } from '../models/EntitySchema.js';
 import { generateUUID } from '../utils/uuid.js';
 import { logger } from '../utils/logger.js';
 import {
@@ -64,6 +64,31 @@ interface TabColumnRow {
 interface PkColumnRow {
   TABLE_NAME: string;
   COLUMN_NAME: string;
+}
+
+/**
+ * Row shape for the secondary constraint catalog query (#85 R3).
+ *
+ * One row per (constraint, column) pair so we can group columns by
+ * constraint name in JS. Pulls only `U` (unique), `C` (check), and
+ * `R` (referential / foreign key) — primary keys are handled by the
+ * separate PkColumnRow query.
+ *
+ * For 'R' rows the referenced table comes from `R_TABLE_NAME` (joined
+ * from `ALL_CONSTRAINTS r2` on `R_CONSTRAINT_NAME`) and the referenced
+ * column list comes from `R_COLUMN_NAME` (joined from
+ * `ALL_CONS_COLUMNS r2cc`).
+ */
+interface ConstraintRow {
+  TABLE_NAME: string;
+  CONSTRAINT_NAME: string;
+  CONSTRAINT_TYPE: 'U' | 'C' | 'R';
+  COLUMN_NAME: string | null;        // null for some CHECK rows
+  POSITION: number | null;           // column ordering inside the constraint
+  SEARCH_CONDITION: string | null;   // for 'C' (CHECK)
+  R_TABLE_NAME: string | null;       // for 'R' (FK)
+  R_COLUMN_NAME: string | null;      // for 'R' (FK)
+  R_POSITION: number | null;
 }
 
 /**
@@ -132,6 +157,98 @@ function buildValidation(row: TabColumnRow): Attribute['validation'] | undefined
 }
 
 /**
+ * Group constraint catalog rows into PhysicalConstraint[] per table (#85 R3).
+ *
+ * Each constraint may span multiple rows (one per column member). We bucket
+ * by `(TABLE_NAME, CONSTRAINT_NAME)`, sort columns by POSITION, and emit
+ * one PhysicalConstraint per bucket.
+ *
+ * Filters out auto-generated NOT NULL CHECK constraints — Oracle stores
+ * `col IS NOT NULL` as a SEARCH_CONDITION on a CHECK constraint, but
+ * nullability is already captured via `physical.nullable` on the attribute.
+ * Re-emitting it as a check constraint would create spurious diff noise.
+ */
+export function buildConstraintsByTable(
+  rows: ConstraintRow[],
+): Map<string, PhysicalConstraint[]> {
+  const out = new Map<string, PhysicalConstraint[]>();
+  // Bucket rows by (table, constraint name)
+  type Bucket = {
+    type: 'U' | 'C' | 'R';
+    tableName: string;
+    constraintName: string;
+    cols: { name: string; pos: number }[];
+    refTable: string | null;
+    refCols: { name: string; pos: number }[];
+    expression: string | null;
+  };
+  const buckets = new Map<string, Bucket>();
+  for (const r of rows) {
+    const key = `${r.TABLE_NAME}::${r.CONSTRAINT_NAME}`;
+    let b = buckets.get(key);
+    if (!b) {
+      b = {
+        type: r.CONSTRAINT_TYPE,
+        tableName: r.TABLE_NAME,
+        constraintName: r.CONSTRAINT_NAME,
+        cols: [],
+        refTable: r.R_TABLE_NAME,
+        refCols: [],
+        expression: r.SEARCH_CONDITION,
+      };
+      buckets.set(key, b);
+    }
+    if (r.COLUMN_NAME) {
+      b.cols.push({ name: r.COLUMN_NAME, pos: r.POSITION ?? 0 });
+    }
+    if (r.R_COLUMN_NAME) {
+      b.refCols.push({ name: r.R_COLUMN_NAME, pos: r.R_POSITION ?? 0 });
+    }
+  }
+
+  for (const b of buckets.values()) {
+    b.cols.sort((a, b) => a.pos - b.pos);
+    b.refCols.sort((a, b) => a.pos - b.pos);
+
+    let pc: PhysicalConstraint | null = null;
+    if (b.type === 'U') {
+      pc = {
+        kind: 'unique',
+        name: b.constraintName,
+        columns: b.cols.map(c => c.name),
+      };
+    } else if (b.type === 'R') {
+      if (!b.refTable || b.refCols.length === 0) continue;
+      pc = {
+        kind: 'foreignKey',
+        name: b.constraintName,
+        columns: b.cols.map(c => c.name),
+        references: {
+          table: b.refTable,
+          columns: b.refCols.map(c => c.name),
+        },
+      };
+    } else if (b.type === 'C') {
+      const expr = (b.expression || '').trim();
+      // Skip NOT NULL CHECKs (auto-generated, redundant with physical.nullable)
+      if (/^"?\w+"?\s+IS\s+NOT\s+NULL$/i.test(expr)) continue;
+      if (!expr) continue;
+      pc = {
+        kind: 'check',
+        name: b.constraintName,
+        expression: expr,
+      };
+    }
+    if (pc) {
+      if (!out.has(b.tableName)) out.set(b.tableName, []);
+      out.get(b.tableName)!.push(pc);
+    }
+  }
+
+  return out;
+}
+
+/**
  * Group catalog rows into Entity objects with attributes, primary-key flags,
  * and JPA-style physical metadata. Pure — no I/O.
  *
@@ -142,6 +259,7 @@ export function buildEntitiesFromCatalog(
   pkColumns: PkColumnRow[],
   owner: string,
   options: ParseSqlDdlOptions,
+  constraintRows: ConstraintRow[] = [],
 ): Entity[] {
   const { stripPrefixes = [], stripSuffixes = [] } = options;
 
@@ -151,6 +269,9 @@ export function buildEntitiesFromCatalog(
     if (!pkByTable.has(r.TABLE_NAME)) pkByTable.set(r.TABLE_NAME, new Set());
     pkByTable.get(r.TABLE_NAME)!.add(r.COLUMN_NAME);
   }
+
+  // Index physical constraints by table (#85 R3).
+  const constraintsByTable = buildConstraintsByTable(constraintRows);
 
   // Group columns by table, preserving COLUMN_ID order.
   const byTable = new Map<string, TabColumnRow[]>();
@@ -200,7 +321,7 @@ export function buildEntitiesFromCatalog(
       { name: 'physical.schema', value: owner },
     ];
 
-    entities.push({
+    const entity: Entity = {
       uuid: generateUUID(),
       name: entityName,
       description: `Imported from Oracle table ${owner}.${tableName}`,
@@ -209,7 +330,12 @@ export function buildEntitiesFromCatalog(
       metadata: entityMetadata,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-    });
+    };
+    const tableConstraints = constraintsByTable.get(tableName);
+    if (tableConstraints && tableConstraints.length > 0) {
+      entity.constraints = tableConstraints;
+    }
+    entities.push(entity);
   }
 
   return entities;
@@ -267,11 +393,43 @@ export async function introspectOracle(options: IntrospectOracleOptions): Promis
       { outFormat: oracledb.OUT_FORMAT_OBJECT },
     );
 
+    // Physical constraints: U / C / R (#85 R3). Foreign keys join to the
+    // referenced constraint via R_CONSTRAINT_NAME so we can resolve the
+    // referenced table + columns in a single query.
+    const constraintRes = await conn.execute(
+      `SELECT
+         c.TABLE_NAME,
+         c.CONSTRAINT_NAME,
+         c.CONSTRAINT_TYPE,
+         c.SEARCH_CONDITION,
+         cc.COLUMN_NAME,
+         cc.POSITION,
+         r.TABLE_NAME      AS R_TABLE_NAME,
+         rcc.COLUMN_NAME   AS R_COLUMN_NAME,
+         rcc.POSITION      AS R_POSITION
+       FROM ALL_CONSTRAINTS c
+       LEFT JOIN ALL_CONS_COLUMNS cc
+         ON cc.OWNER = c.OWNER
+        AND cc.CONSTRAINT_NAME = c.CONSTRAINT_NAME
+       LEFT JOIN ALL_CONSTRAINTS r
+         ON r.OWNER = c.R_OWNER
+        AND r.CONSTRAINT_NAME = c.R_CONSTRAINT_NAME
+       LEFT JOIN ALL_CONS_COLUMNS rcc
+         ON rcc.OWNER = r.OWNER
+        AND rcc.CONSTRAINT_NAME = r.CONSTRAINT_NAME
+        AND rcc.POSITION = cc.POSITION
+       WHERE c.OWNER = :owner
+         AND c.CONSTRAINT_TYPE IN ('U','C','R')`,
+      { owner },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
+    );
+
     const entities = buildEntitiesFromCatalog(
       colsRes.rows as TabColumnRow[],
       pkRes.rows as PkColumnRow[],
       owner,
       parseOpts,
+      constraintRes.rows as ConstraintRow[],
     );
 
     if (entities.length === 0) {

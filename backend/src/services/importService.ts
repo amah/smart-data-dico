@@ -1,4 +1,4 @@
-import { Entity, Attribute, AttributeType, EntityStatus, MetadataEntry } from '../models/EntitySchema.js';
+import { Entity, Attribute, AttributeType, EntityStatus, MetadataEntry, PhysicalConstraint } from '../models/EntitySchema.js';
 import { writeEntityFile } from '../utils/fileOperations.js';
 import { generateUUID } from '../utils/uuid.js';
 import { logger } from '../utils/logger.js';
@@ -109,6 +109,162 @@ export function mapSqlTypeToAttributeType(normalizedType: string): AttributeType
   return SQL_TYPE_MAP[normalizedType] || AttributeType.STRING;
 }
 
+/**
+ * Strip surrounding `backticks` / "double quotes" from a SQL identifier
+ * and trim whitespace. Used wherever the parser pulls a column or table
+ * name out of a regex capture group.
+ */
+function unquoteIdent(s: string): string {
+  return s.trim().replace(/^[`"]|[`"]$/g, '');
+}
+
+/**
+ * Split a parenthesised column list like `(id, customer_id)` into
+ * individual identifiers, ignoring quoting. Used by the constraint
+ * extractor for UNIQUE / FOREIGN KEY column lists.
+ */
+function splitColumnList(inside: string): string[] {
+  return inside.split(',').map(c => unquoteIdent(c)).filter(Boolean);
+}
+
+/**
+ * Read the parenthesised body that immediately follows the keyword token
+ * starting at `start` in `text`. Tracks paren depth so a CHECK clause like
+ * `CHECK (col >= 0 AND col <= 100)` is captured intact.
+ *
+ * Returns the inner text (without the surrounding parens) plus the index
+ * just past the closing paren, or null if no balanced parens are found.
+ */
+function readParenBody(text: string, start: number): { body: string; end: number } | null {
+  let i = start;
+  while (i < text.length && text[i] !== '(') i++;
+  if (i >= text.length) return null;
+  let depth = 0;
+  const bodyStart = i + 1;
+  for (; i < text.length; i++) {
+    if (text[i] === '(') depth++;
+    else if (text[i] === ')') {
+      depth--;
+      if (depth === 0) return { body: text.slice(bodyStart, i), end: i + 1 };
+    }
+  }
+  return null;
+}
+
+/**
+ * Extract physical constraints from a single column-block line (#85 R3).
+ *
+ * Handles two layouts:
+ *
+ *  1. **Table-level** lines that start with an optional `CONSTRAINT name`
+ *     prefix followed by UNIQUE / CHECK / FOREIGN KEY:
+ *
+ *       CONSTRAINT uq_orders_number UNIQUE (order_number)
+ *       CHECK (total >= 0)
+ *       FOREIGN KEY (customer_id) REFERENCES customers(id)
+ *
+ *  2. **Column-level** clauses appended to a column definition:
+ *
+ *       customer_id VARCHAR(36) NOT NULL REFERENCES customers(id)
+ *       order_number VARCHAR(20) UNIQUE
+ *
+ * The `columnContext` argument carries the column name when the line is
+ * a column definition — used to attach a column-level UNIQUE or REFERENCES
+ * to the right column. Pass undefined for table-level lines.
+ *
+ * Skips PRIMARY KEY (handled separately by the existing primary-key path)
+ * and bare KEY/INDEX clauses (which are MySQL syntactic sugar for indexes
+ * and don't carry integrity guarantees the schema diff cares about).
+ */
+function extractConstraintsFromLine(
+  line: string,
+  columnContext: string | undefined,
+): PhysicalConstraint[] {
+  const out: PhysicalConstraint[] = [];
+
+  // ─── Table-level: optional `CONSTRAINT name` prefix ──────────────────
+  const tableLevel = line.match(/^\s*(?:CONSTRAINT\s+(?:`|")?(\w+)(?:`|")?\s+)?(UNIQUE|CHECK|FOREIGN\s+KEY)\b/i);
+  if (tableLevel && !columnContext) {
+    const constraintName = tableLevel[1];
+    const kw = tableLevel[2].toUpperCase().replace(/\s+/g, ' ');
+    const afterKeyword = line.slice(tableLevel.index! + tableLevel[0].length);
+
+    if (kw === 'UNIQUE') {
+      const body = readParenBody(afterKeyword, 0);
+      if (body) {
+        out.push({
+          kind: 'unique',
+          ...(constraintName ? { name: constraintName } : {}),
+          columns: splitColumnList(body.body),
+        });
+      }
+    } else if (kw === 'CHECK') {
+      const body = readParenBody(afterKeyword, 0);
+      if (body) {
+        out.push({
+          kind: 'check',
+          ...(constraintName ? { name: constraintName } : {}),
+          expression: body.body.trim(),
+        });
+      }
+    } else if (kw === 'FOREIGN KEY') {
+      const cols = readParenBody(afterKeyword, 0);
+      if (cols) {
+        const tail = afterKeyword.slice(cols.end);
+        const refMatch = tail.match(/REFERENCES\s+(?:`|")?(\w+)(?:`|")?/i);
+        if (refMatch) {
+          const refTail = tail.slice(refMatch.index! + refMatch[0].length);
+          const refCols = readParenBody(refTail, 0);
+          if (refCols) {
+            out.push({
+              kind: 'foreignKey',
+              ...(constraintName ? { name: constraintName } : {}),
+              columns: splitColumnList(cols.body),
+              references: {
+                table: refMatch[1],
+                columns: splitColumnList(refCols.body),
+              },
+            });
+          }
+        }
+      }
+    }
+    return out;
+  }
+
+  // ─── Column-level inline clauses ─────────────────────────────────────
+  if (columnContext) {
+    // UNIQUE keyword (must not be preceded by NOT — `NOT UNIQUE` is non-standard
+    // but keeps us safe). Match `\bUNIQUE\b` not followed by `(` (which would be
+    // a table-level UNIQUE on a constraint-line confused as a column).
+    if (/\bUNIQUE\b(?!\s*\()/i.test(line)) {
+      out.push({ kind: 'unique', columns: [columnContext] });
+    }
+    // Inline REFERENCES table(col) — single referencing column = the current one.
+    const refMatch = line.match(/REFERENCES\s+(?:`|")?(\w+)(?:`|")?\s*\(\s*((?:[`"]?\w+[`"]?\s*,?\s*)+)\)/i);
+    if (refMatch) {
+      out.push({
+        kind: 'foreignKey',
+        columns: [columnContext],
+        references: {
+          table: refMatch[1],
+          columns: splitColumnList(refMatch[2]),
+        },
+      });
+    }
+    // Inline CHECK (expression) — paren-balanced
+    const checkIdx = line.search(/\bCHECK\s*\(/i);
+    if (checkIdx >= 0) {
+      const body = readParenBody(line, checkIdx);
+      if (body) {
+        out.push({ kind: 'check', expression: body.body.trim() });
+      }
+    }
+  }
+
+  return out;
+}
+
 class ImportService {
   async importFromJsonSchema(schema: any, service: string): Promise<{ entities: Entity[]; errors: string[] }> {
     const entities: Entity[] = [];
@@ -211,6 +367,7 @@ class ImportService {
         const columnsBlock = match[2];
         const attributes: Attribute[] = [];
         const primaryKeys = new Set<string>();
+        const tableConstraints: PhysicalConstraint[] = [];
 
         // Extract table-level PRIMARY KEY constraint (one or more columns)
         const pkMatch = columnsBlock.match(/PRIMARY\s+KEY\s*\(([^)]+)\)/i);
@@ -238,8 +395,11 @@ class ImportService {
         }
 
         for (const line of lines) {
-          // Skip constraint lines
-          if (/^\s*(PRIMARY|FOREIGN|UNIQUE|CHECK|CONSTRAINT|INDEX|KEY)/i.test(line)) continue;
+          // Table-level constraint lines: capture, then skip column parsing.
+          if (/^\s*(PRIMARY|FOREIGN|UNIQUE|CHECK|CONSTRAINT|INDEX|KEY)/i.test(line)) {
+            tableConstraints.push(...extractConstraintsFromLine(line, undefined));
+            continue;
+          }
 
           const colMatch = line.match(/^(?:`|")?(\w+)(?:`|")?\s+(\w+)(?:\(([^)]*)\))?(.*)/i);
           if (!colMatch) continue;
@@ -284,6 +444,9 @@ class ImportService {
             }
           }
 
+          // Column-level constraint clauses (#85 R3): UNIQUE, REFERENCES, CHECK
+          tableConstraints.push(...extractConstraintsFromLine(line, rawColName));
+
           attributes.push(attr);
         }
 
@@ -309,6 +472,10 @@ class ImportService {
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
+
+        if (tableConstraints.length > 0) {
+          entity.constraints = tableConstraints;
+        }
 
         entities.push(entity);
       }
