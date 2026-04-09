@@ -32,11 +32,11 @@ function isEntityFile(file: string): boolean {
 }
 
 /**
- * Constraint field names recognized by `AttributeConstraints`. Used by the
- * legacy normalizer below to lift flat constraint fields off the attribute
- * root into the canonical nested `constraints` object.
+ * Validation field names recognized by `AttributeValidation` (#85). Used by
+ * the legacy normalizer below to lift flat validation fields off the
+ * attribute root into the canonical nested `validation` object.
  */
-const CONSTRAINT_FIELD_NAMES = [
+const VALIDATION_FIELD_NAMES = [
   'minLength', 'maxLength', 'pattern', 'format',
   'minimum', 'maximum', 'precision', 'scale',
   'enumValues',
@@ -45,17 +45,25 @@ const CONSTRAINT_FIELD_NAMES = [
 /**
  * Normalize legacy entity shapes on read.
  *
- * Two pre-existing legacy formats need normalizing so the rest of the system
- * can assume canonical shapes:
+ * Three pre-existing legacy formats need normalizing so the rest of the
+ * system can assume canonical shapes:
  *
  *  1. Attribute metadata stored as a plain object instead of MetadataEntry[]
  *     (e.g. `metadata: {isPrimaryKey: true}` → `metadata: [{name: ..., value: ...}]`)
  *
- *  2. Constraints stored flat on the attribute instead of nested under
- *     `constraints` (e.g. `format: email` directly on the attribute → moved
- *     into `attr.constraints.format`). This makes the constraint synthesis
- *     in #76 see all constraints uniformly without each consumer having to
- *     know about both shapes.
+ *  2. Validation fields stored flat on the attribute (e.g. `format: email`
+ *     directly on the attribute) → moved into `attr.validation.format`.
+ *
+ *  3. Validation fields stored nested under the legacy name `constraints`
+ *     (#85: renamed to `validation`) → moved into `attr.validation`. This
+ *     keeps every entity YAML on disk readable regardless of which era it
+ *     was written in, while the canonical in-memory shape is always
+ *     `attr.validation`.
+ *
+ * The legacy `attribute.constraints` name is retired in #85 because the
+ * word "constraint" is now reserved for *physical* DB constraints (unique,
+ * check, foreignKey, …) stored under `entity.metadata['physical.constraints']`.
+ * Three concepts, three homes — see #85 for the rationale.
  *
  * **Non-mutating** (#77): the input entity is left untouched. We deep-clone
  * the entity first via JSON round-trip (Entity is plain JSON-serializable
@@ -77,10 +85,16 @@ export function normalizeEntityMetadata(entity: Entity | null): Entity | null {
           ([name, value]) => ({ name, value: value as any }),
         );
       }
-      // 2. Constraints: flat → nested
+      // 2. Legacy nested-as-`constraints` → canonical `validation` (#85)
+      const legacyConstraints = (attr as any).constraints;
+      if (legacyConstraints && typeof legacyConstraints === 'object') {
+        attr.validation = { ...(attr.validation || {}), ...legacyConstraints };
+        delete (attr as any).constraints;
+      }
+      // 3. Legacy flat validation fields → canonical nested `validation`
       const flat: Record<string, any> = {};
       let hasFlat = false;
-      for (const field of CONSTRAINT_FIELD_NAMES) {
+      for (const field of VALIDATION_FIELD_NAMES) {
         if ((attr as any)[field] !== undefined) {
           flat[field] = (attr as any)[field];
           delete (attr as any)[field];
@@ -88,7 +102,7 @@ export function normalizeEntityMetadata(entity: Entity | null): Entity | null {
         }
       }
       if (hasFlat) {
-        attr.constraints = { ...(attr.constraints || {}), ...flat };
+        attr.validation = { ...(attr.validation || {}), ...flat };
       }
     }
   }

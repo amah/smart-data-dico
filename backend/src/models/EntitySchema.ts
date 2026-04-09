@@ -148,9 +148,22 @@ export interface ResolvedPerspective extends Perspective {
 }
 
 /**
- * Grouped constraint fields for attributes
+ * Validation metadata for an attribute (#85).
+ *
+ * Describes how a value must look to be considered valid — JSON-Schema
+ * style fields like length, pattern, format, enum, range. This is one of
+ * three governance concepts in the model:
+ *
+ *   - **Validation** (this type) — intrinsic to the attribute, owned by
+ *     the data steward, alongside `type` and `required`.
+ *   - **Constraint** — physical, DB-enforced (unique, check, foreignKey)
+ *     stored under `entity.metadata['physical.constraints']`.
+ *   - **Rule** — functional / business invariants, stored as first-class
+ *     `Rule` objects with severity, enforcement, and process stage.
+ *
+ * Replaces the legacy name `AttributeConstraints` — see #85.
  */
-export interface AttributeConstraints {
+export interface AttributeValidation {
   minLength?: number;
   maxLength?: number;
   pattern?: string;
@@ -175,7 +188,12 @@ export interface Attribute {
   primaryKey?: boolean;
   defaultValue?: any;
   examples?: any[];
-  constraints?: AttributeConstraints;
+  /**
+   * Validation metadata (#85). Renamed from `constraints`. See
+   * `AttributeValidation` for the field set and the rationale for the
+   * three-concept split (validation / constraint / rule).
+   */
+  validation?: AttributeValidation;
 
   // For object and array types
   items?: Attribute;
@@ -270,7 +288,7 @@ export const entitySchema: Schema = {
           primaryKey: { type: 'boolean' },
           defaultValue: { },
           examples: { type: 'array' },
-          constraints: {
+          validation: {
             type: 'object',
             properties: {
               minLength: { type: 'integer', minimum: 0 },

@@ -62,8 +62,8 @@ describe('buildEntitiesFromCatalog (#69 C3)', () => {
     const totalAttr = entity.attributes.find(a => a.name === 'total');
     expect(findMeta(totalAttr!.metadata, 'physical.dbType')).toBe('NUMBER(10,2)');
     expect(findMeta(totalAttr!.metadata, 'physical.nullable')).toBe(true);
-    expect(totalAttr!.constraints?.precision).toBe(10);
-    expect(totalAttr!.constraints?.scale).toBe(2);
+    expect(totalAttr!.validation?.precision).toBe(10);
+    expect(totalAttr!.validation?.scale).toBe(2);
   });
 
   it('preserves COLUMN_ID order across tables', () => {
@@ -115,7 +115,7 @@ describe('buildEntitiesFromCatalog (#69 C3)', () => {
     const entities = buildEntitiesFromCatalog(cols, [], 'APP', {});
     const attr = entities[0].attributes[0];
     expect(findMeta(attr.metadata, 'physical.dbType')).toBe('VARCHAR2(200)');
-    expect(attr.constraints?.maxLength).toBe(200);
+    expect(attr.validation?.maxLength).toBe(200);
   });
 
   it('handles bare NUMBER (no precision)', () => {

@@ -89,9 +89,9 @@ export interface Rule {
    *   ]
    */
   metadata?: RuleMetadataEntry[];
-  /** True for rules synthesized from attribute.constraints (read-only, #76) */
+  /** True for rules synthesized from attribute.validation (read-only, #76; deleted in #85 R2) */
   synthetic?: boolean;
-  /** For synthetic rules: which constraint field this came from (format, minLength, ...) */
+  /** For synthetic rules: which validation field this came from (format, minLength, ...) */
   constraintField?: string;
   createdAt?: string;
   updatedAt?: string;

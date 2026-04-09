@@ -250,9 +250,15 @@ export interface Stereotype {
 }
 
 /**
- * Grouped constraint fields for attributes
+ * Validation metadata for an attribute (#85).
+ *
+ * Renamed from `AttributeConstraints` to clear the word "constraint" for
+ * physical, DB-enforced constraints (unique / check / foreignKey, stored
+ * under `entity.metadata['physical.constraints']`). The fields here are
+ * intrinsic to the attribute and describe how a value must look to be
+ * considered valid — JSON-Schema-style metadata.
  */
-export interface AttributeConstraints {
+export interface AttributeValidation {
   minLength?: number;
   maxLength?: number;
   pattern?: string;
@@ -277,7 +283,8 @@ export interface Attribute {
   primaryKey?: boolean;
   defaultValue?: any;
   examples?: any[];
-  constraints?: AttributeConstraints;
+  /** Validation metadata (#85). Renamed from `constraints`. */
+  validation?: AttributeValidation;
 
   // For object and array types
   items?: Attribute;

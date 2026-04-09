@@ -114,16 +114,17 @@ function buildDbType(row: TabColumnRow): string {
 }
 
 /**
- * Build numeric/length constraints to attach to the logical attribute,
+ * Build numeric/length validation metadata to attach to the logical attribute,
  * mirroring what the SQL parser produces for VARCHAR(n) and DECIMAL(p,s).
+ * (#85: was `buildConstraints`; renamed alongside the field rename.)
  */
-function buildConstraints(row: TabColumnRow): Attribute['constraints'] | undefined {
+function buildValidation(row: TabColumnRow): Attribute['validation'] | undefined {
   const t = row.DATA_TYPE.toUpperCase();
   if (t === 'VARCHAR2' || t === 'NVARCHAR2' || t === 'CHAR' || t === 'NCHAR') {
     return row.DATA_LENGTH != null ? { maxLength: row.DATA_LENGTH } : undefined;
   }
   if (t === 'NUMBER' && row.DATA_PRECISION != null) {
-    const c: NonNullable<Attribute['constraints']> = { precision: row.DATA_PRECISION };
+    const c: NonNullable<Attribute['validation']> = { precision: row.DATA_PRECISION };
     if (row.DATA_SCALE != null) c.scale = row.DATA_SCALE;
     return c;
   }
@@ -187,8 +188,8 @@ export function buildEntitiesFromCatalog(
         primaryKey: isPK || undefined,
         metadata,
       };
-      const constraints = buildConstraints(row);
-      if (constraints) attr.constraints = constraints;
+      const validation = buildValidation(row);
+      if (validation) attr.validation = validation;
       return attr;
     });
 

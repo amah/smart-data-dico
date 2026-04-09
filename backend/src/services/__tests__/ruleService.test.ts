@@ -363,7 +363,7 @@ describe('ruleService', () => {
           type: 'string',
           required: true,
           description: 'email',
-          constraints: {
+          validation: {
             format: 'email',
             minLength: 5,
             maxLength: 100,
@@ -375,7 +375,7 @@ describe('ruleService', () => {
           type: 'integer',
           required: false,
           description: 'age',
-          constraints: {
+          validation: {
             minimum: 0,
             maximum: 150,
           },

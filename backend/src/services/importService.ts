@@ -141,17 +141,17 @@ class ImportService {
             required: requiredFields.has(propName),
           };
 
-          // Map constraints
+          // Map validation fields (#85)
           if (prop.minLength || prop.maxLength || prop.pattern || prop.minimum || prop.maximum || prop.enum) {
-            attr.constraints = {};
-            if (prop.minLength !== undefined) attr.constraints.minLength = prop.minLength;
-            if (prop.maxLength !== undefined) attr.constraints.maxLength = prop.maxLength;
-            if (prop.pattern) attr.constraints.pattern = prop.pattern;
-            if (prop.minimum !== undefined) attr.constraints.minimum = prop.minimum;
-            if (prop.maximum !== undefined) attr.constraints.maximum = prop.maximum;
+            attr.validation = {};
+            if (prop.minLength !== undefined) attr.validation.minLength = prop.minLength;
+            if (prop.maxLength !== undefined) attr.validation.maxLength = prop.maxLength;
+            if (prop.pattern) attr.validation.pattern = prop.pattern;
+            if (prop.minimum !== undefined) attr.validation.minimum = prop.minimum;
+            if (prop.maximum !== undefined) attr.validation.maximum = prop.maximum;
             if (prop.enum) {
               attr.type = AttributeType.ENUM;
-              attr.constraints.enumValues = prop.enum;
+              attr.validation.enumValues = prop.enum;
             }
           }
 
@@ -272,15 +272,15 @@ class ImportService {
             metadata: attrMetadata,
           };
 
-          // Map type params to logical constraints
+          // Map type params to logical validation (#85)
           if (typeParams) {
-            attr.constraints = {};
+            attr.validation = {};
             const params = typeParams.split(',').map(p => parseInt(p.trim()));
             if (normalizedType === 'varchar' || normalizedType === 'char') {
-              attr.constraints.maxLength = params[0];
+              attr.validation.maxLength = params[0];
             } else if (normalizedType === 'decimal' || normalizedType === 'numeric') {
-              attr.constraints.precision = params[0];
-              if (params[1] !== undefined) attr.constraints.scale = params[1];
+              attr.validation.precision = params[0];
+              if (params[1] !== undefined) attr.validation.scale = params[1];
             }
           }
 
