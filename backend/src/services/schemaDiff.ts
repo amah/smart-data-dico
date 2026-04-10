@@ -22,7 +22,7 @@
  *      The merge never touches it. The diff surfaces it informationally
  *      so users know it exists, but never proposes to delete or change it.
  */
-import { Entity, Attribute, MetadataEntry, PhysicalConstraint } from '../models/EntitySchema.js';
+import { Entity, Attribute, MetadataEntry, PhysicalConstraint, Relationship } from '../models/EntitySchema.js';
 
 // ────────────────────────────────────────────────────────────────────────
 // Diff result types
@@ -607,4 +607,180 @@ function mergeMetadata(
     }
   }
   return result;
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Relationship diff + merge (#82)
+// ────────────────────────────────────────────────────────────────────────
+
+/** Status of a relationship in the diff. */
+export type RelationshipDiffStatus =
+  | 'added'
+  | 'changed'
+  | 'unchanged'
+  | 'removedInSource';
+
+/** Per-relationship diff entry. */
+export interface RelationshipDiff {
+  status: RelationshipDiffStatus;
+  key: string;
+  source?: Relationship;
+  existing?: Relationship;
+}
+
+/**
+ * Stable identity key for an imported relationship (#82).
+ *
+ * Uses `physical.constraintName` metadata when present (named FK constraints).
+ * Falls back to source-entity UUID + target-entity UUID + referenceAttributes
+ * as a structural key for unnamed FKs.
+ */
+function relationshipKey(rel: Relationship): string {
+  const constraintName = (rel.metadata || []).find(m => m.name === 'physical.constraintName')?.value;
+  if (constraintName) return `fk:${constraintName}`;
+  const refAttrs = (rel.source.referenceAttributes || []).join(',');
+  return `${rel.source.entity}→${rel.target.entity}|${refAttrs}`;
+}
+
+/**
+ * True when two relationships describe the same FK
+ * (same source/target entities, same referenceAttributes, same cardinality).
+ */
+function relationshipsStructurallyEqual(a: Relationship, b: Relationship): boolean {
+  if (a.source.entity !== b.source.entity) return false;
+  if (a.target.entity !== b.target.entity) return false;
+  if (a.source.cardinality !== b.source.cardinality) return false;
+  if (a.target.cardinality !== b.target.cardinality) return false;
+  const aRef = (a.source.referenceAttributes || []).join(',');
+  const bRef = (b.source.referenceAttributes || []).join(',');
+  return aRef === bRef;
+}
+
+/**
+ * Diff parsed relationships against existing relationships in a package.
+ *
+ * Matching priority:
+ *   1. `physical.constraintName` metadata (named FKs)
+ *   2. Structural key (source→target + referenceAttributes)
+ *
+ * Relationships without `physical.constraintName` (manually created by
+ * the user) are never matched and thus never shown as 'removedInSource'.
+ */
+export function diffRelationships(
+  source: Relationship[],
+  existing: Relationship[],
+): RelationshipDiff[] {
+  const out: RelationshipDiff[] = [];
+  const sourceList = source || [];
+  const existingList = existing || [];
+
+  // Only match existing relationships that have physical.constraintName
+  // (i.e. were previously imported). User-created relationships are untouched.
+  const existingByKey = new Map<string, Relationship>();
+  for (const r of existingList) {
+    const cn = (r.metadata || []).find(m => m.name === 'physical.constraintName')?.value;
+    if (cn) {
+      existingByKey.set(`fk:${cn}`, r);
+    }
+  }
+
+  const matched = new Set<string>();
+
+  for (const s of sourceList) {
+    const k = relationshipKey(s);
+    const match = existingByKey.get(k);
+
+    if (!match) {
+      out.push({ status: 'added', key: k, source: s });
+      continue;
+    }
+
+    matched.add(k);
+    // Remap source entity UUIDs to existing entity UUIDs for comparison
+    // (source entities have freshly generated UUIDs)
+    if (relationshipsStructurallyEqual(
+      { ...s, source: { ...s.source, entity: match.source.entity }, target: { ...s.target, entity: match.target.entity } },
+      match,
+    )) {
+      out.push({ status: 'unchanged', key: k, source: s, existing: match });
+    } else {
+      out.push({ status: 'changed', key: k, source: s, existing: match });
+    }
+  }
+
+  // Previously imported relationships not in source → removedInSource
+  for (const [k, r] of existingByKey) {
+    if (matched.has(k)) continue;
+    out.push({ status: 'removedInSource', key: k, existing: r });
+  }
+
+  return out;
+}
+
+/**
+ * Merge parsed relationships into existing ones.
+ *
+ * - 'added' → appended from source
+ * - 'changed' → existing UUID + user description preserved, physical metadata refreshed
+ * - 'unchanged' → pass through existing
+ * - 'removedInSource' → preserved (model-first)
+ * - User-created relationships (no physical.constraintName) → preserved untouched
+ *
+ * The `entityUuidMap` maps source entity UUIDs → existing entity UUIDs so
+ * the relationship ends point to the right entities after the merge.
+ */
+export function mergeRelationships(
+  source: Relationship[],
+  existing: Relationship[],
+  entityUuidMap: Map<string, string>,
+): Relationship[] {
+  const diffs = diffRelationships(source, existing);
+  const merged: Relationship[] = [];
+
+  // First, add all user-created relationships (no physical.constraintName)
+  for (const r of existing) {
+    const cn = (r.metadata || []).find(m => m.name === 'physical.constraintName')?.value;
+    if (!cn) merged.push(r);
+  }
+
+  for (const d of diffs) {
+    if (d.status === 'added') {
+      // Remap entity UUIDs from source to target
+      const rel = d.source!;
+      merged.push({
+        ...rel,
+        source: {
+          ...rel.source,
+          entity: entityUuidMap.get(rel.source.entity) || rel.source.entity,
+        },
+        target: {
+          ...rel.target,
+          entity: entityUuidMap.get(rel.target.entity) || rel.target.entity,
+        },
+      });
+    } else if (d.status === 'changed') {
+      const rel = d.source!;
+      const ex = d.existing!;
+      merged.push({
+        ...ex,
+        // Preserve user-edited description
+        description: ex.description || rel.description,
+        source: {
+          ...rel.source,
+          entity: ex.source.entity,
+        },
+        target: {
+          ...rel.target,
+          entity: ex.target.entity,
+        },
+        // Refresh physical metadata
+        metadata: mergeMetadata(ex.metadata, rel.metadata),
+      });
+    } else {
+      // unchanged or removedInSource → keep existing
+      merged.push(d.existing!);
+    }
+  }
+
+  return merged;
 }

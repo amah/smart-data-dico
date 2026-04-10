@@ -3,10 +3,13 @@ import { importService } from '../services/importService.js';
 import { exportService } from '../services/exportService.js';
 import { qualityService } from '../services/qualityService.js';
 import { serviceService } from '../services/serviceService.js';
-import { diffEntities, mergeEntities } from '../services/schemaDiff.js';
+import { diffEntities, mergeEntities, diffRelationships, mergeRelationships } from '../services/schemaDiff.js';
+import { physicalTableNameOf } from '../services/schemaDiff.js';
 import { introspectOracle, OracleConnectionConfig } from '../services/oracleIntrospect.js';
-import { Entity } from '../models/EntitySchema.js';
+import { Entity, Relationship } from '../models/EntitySchema.js';
+import { readRelationshipsFile, writeRelationshipsFile } from '../utils/fileOperations.js';
 import { logger } from '../utils/logger.js';
+import path from 'path';
 
 export const importJsonSchema = async (req: Request, res: Response) => {
   try {
@@ -75,8 +78,9 @@ export const previewSqlDdl = async (req: Request, res: Response) => {
  */
 export const diffSqlDdl = async (req: Request, res: Response) => {
   try {
-    const { parsed, targetService } = req.body as {
+    const { parsed, relationships: parsedRelationships, targetService } = req.body as {
       parsed: Entity[];
+      relationships?: Relationship[];
       targetService: string;
     };
     if (!Array.isArray(parsed)) {
@@ -87,7 +91,22 @@ export const diffSqlDdl = async (req: Request, res: Response) => {
     }
     const existing = await serviceService.getServiceEntities(targetService);
     const diffs = diffEntities(parsed, existing);
-    res.json({ message: `Diff for ${diffs.length} entities`, data: { diffs } });
+
+    // Relationship diffs (#82)
+    let relationshipDiffs;
+    if (parsedRelationships && parsedRelationships.length > 0) {
+      const packagePath = path.join(process.cwd(), 'data-dictionaries', 'microservices', targetService);
+      const existingRels = await readRelationshipsFile(packagePath);
+      relationshipDiffs = diffRelationships(parsedRelationships, existingRels);
+    }
+
+    res.json({
+      message: `Diff for ${diffs.length} entities`,
+      data: {
+        diffs,
+        ...(relationshipDiffs ? { relationshipDiffs } : {}),
+      },
+    });
   } catch (error) {
     logger.error('Error computing schema diff', error);
     res.status(500).json({ message: 'Error computing schema diff', error });
@@ -118,8 +137,9 @@ export const diffSqlDdl = async (req: Request, res: Response) => {
  */
 export const commitSqlDdl = async (req: Request, res: Response) => {
   try {
-    const { parsed, targetService } = req.body as {
+    const { parsed, relationships: parsedRelationships, targetService } = req.body as {
       parsed: Entity[];
+      relationships?: Relationship[];
       targetService: string;
     };
     if (!Array.isArray(parsed)) {
@@ -147,6 +167,37 @@ export const commitSqlDdl = async (req: Request, res: Response) => {
 
     const commitResult = await importService.commitParsedEntities(toWrite, targetService);
 
+    // ── Relationship merge + write (#82) ─────────────────────────────────
+    let relCounts = { added: 0, merged: 0, unchanged: 0, removedInSource: 0 };
+    if (parsedRelationships && parsedRelationships.length > 0) {
+      const packagePath = path.join(process.cwd(), 'data-dictionaries', 'microservices', targetService);
+      const existingRels = await readRelationshipsFile(packagePath);
+
+      // Build UUID map: parsed entity UUID → merged entity UUID
+      // (for entities that matched existing ones by physical.tableName)
+      const entityUuidMap = new Map<string, string>();
+      for (const d of diffs) {
+        if (d.status === 'changed' || d.status === 'unchanged') {
+          if (d.source && d.existing) {
+            entityUuidMap.set(d.source.uuid, d.existing.uuid);
+          }
+        }
+      }
+      // For added entities, source UUID is used as-is (new entity)
+
+      const mergedRels = mergeRelationships(parsedRelationships, existingRels, entityUuidMap);
+      const relDiffs = diffRelationships(parsedRelationships, existingRels);
+
+      await writeRelationshipsFile(packagePath, mergedRels);
+
+      relCounts = {
+        added: relDiffs.filter(d => d.status === 'added').length,
+        merged: relDiffs.filter(d => d.status === 'changed').length,
+        unchanged: relDiffs.filter(d => d.status === 'unchanged').length,
+        removedInSource: relDiffs.filter(d => d.status === 'removedInSource').length,
+      };
+    }
+
     const counts = {
       added: diffs.filter(d => d.status === 'added').length,
       merged: diffs.filter(d => d.status === 'changed').length,
@@ -159,6 +210,7 @@ export const commitSqlDdl = async (req: Request, res: Response) => {
       data: {
         written: commitResult.written.length,
         ...counts,
+        relationships: relCounts,
         errors: commitResult.errors,
       },
     });
