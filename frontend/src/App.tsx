@@ -11,6 +11,8 @@ import ImportExportPage from './pages/ImportExportPage';
 import QualityDashboardPage from './pages/QualityDashboardPage';
 import RuleBrowserPage from './pages/RuleBrowserPage';
 import IntegrityPage from './pages/IntegrityPage';
+import LogicalDiffPage from './pages/LogicalDiffPage';
+import PhysicalDiffPage from './pages/PhysicalDiffPage';
 import PerspectiveListPage from './pages/PerspectiveListPage';
 import PerspectiveDetailPage from './pages/PerspectiveDetailPage';
 import PerspectiveCreatePage from './pages/PerspectiveCreatePage';
@@ -106,6 +108,10 @@ function App() {
 
         {/* Integrity (#85 R5) — unified validation + constraints + rules */}
         <Route path="integrity" element={<IntegrityPage />} />
+
+        {/* Model Diff (#86) — logical model comparison */}
+        <Route path="diff/logical" element={<LogicalDiffPage />} />
+        <Route path="diff/physical" element={<PhysicalDiffPage />} />
 
         {/* Version Control */}
         <Route path="version">

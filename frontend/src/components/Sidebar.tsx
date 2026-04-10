@@ -298,6 +298,32 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
             </Link>
           </li>
 
+          {/* Model Diff (#86) */}
+          <li className="mt-1">
+            <Link
+              to="/diff/logical"
+              className={isActive('/diff/logical') ? 'active' : ''}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M8 5a1 1 0 100 2h5.586l-1.293 1.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L13.586 5H8zM12 15a1 1 0 100-2H6.414l1.293-1.293a1 1 0 10-1.414-1.414l-3 3a1 1 0 000 1.414l3 3a1 1 0 001.414-1.414L6.414 15H12z" />
+              </svg>
+              Model Diff
+            </Link>
+          </li>
+          <li>
+            <Link
+              to="/diff/physical"
+              className={isActive('/diff/physical') ? 'active' : ''}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M3 12v3c0 1.657 3.134 3 7 3s7-1.343 7-3v-3c0 1.657-3.134 3-7 3s-7-1.343-7-3z" />
+                <path d="M3 7v3c0 1.657 3.134 3 7 3s7-1.343 7-3V7c0 1.657-3.134 3-7 3S3 8.657 3 7z" />
+                <path d="M17 5c0 1.657-3.134 3-7 3S3 6.657 3 5s3.134-3 7-3 7 1.343 7 3z" />
+              </svg>
+              Physical Sync
+            </Link>
+          </li>
+
           {/* Settings */}
           <li className="mt-1">
             <Link

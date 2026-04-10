@@ -8,6 +8,7 @@ import { getAllStereotypes, getStereotype, createStereotype, updateStereotype, d
 import { getAllPerspectives, getPerspective, createPerspective, updatePerspective, deletePerspective, resolvePerspective, getPerspectiveGraph, upsertPerspectiveNode } from '../controllers/perspectiveController.js';
 import { listRules, getRule, getRulesForEntity, createRule, updateRule, deleteRule } from '../controllers/ruleController.js';
 import { getIntegrityReport } from '../controllers/integrityController.js';
+import { logicalDiff, physicalDiff, impactDiffEndpoint, exportMigration } from '../controllers/diffController.js';
 import { commitChanges, getCommitHistory, revertToCommit } from '../controllers/versionController.js';
 import { importJsonSchema, importSqlDdl, previewSqlDdl, diffSqlDdl, commitSqlDdl, previewOracleSchema, exportJsonSchema, exportMarkdown, getQualityReport } from '../controllers/importExportController.js';
 import { authenticate, UserRole } from '../middleware/auth.js';
@@ -105,6 +106,12 @@ router.get('/api/entities/:entityUuid/rules', getRulesForEntity);
 
 // Integrity API (#85 R5) — unified validation + constraints + rules report
 router.get('/api/integrity', getIntegrityReport);
+
+// Diff API (#86, #88) — model comparison
+router.post('/api/diff/logical', logicalDiff);
+router.post('/api/diff/physical', physicalDiff);
+router.post('/api/diff/impact', impactDiffEndpoint);
+router.post('/api/export/migration', exportMigration);
 
 // Search API
 router.get('/api/search', searchEntities);
