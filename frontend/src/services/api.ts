@@ -363,6 +363,14 @@ export const importExportApi = {
   },
 };
 
+// Diff API (#86)
+export const diffApi = {
+  logical: async (left: any, right: any) => {
+    const response = await api.post('/diff/logical', { left, right });
+    return response.data.data;
+  },
+};
+
 // Git API (uses @hamak/app-framework routes at /api/git/dictionaries)
 export const gitApi = {
   getStatus: async () => {
