@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { perspectiveApi } from '../services/api';
 import type { ResolvedPerspective } from '../types';
+import PerspectiveTreeTable from '../components/PerspectiveTreeTable';
 
 export default function PerspectiveDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -92,38 +93,7 @@ export default function PerspectiveDetailPage() {
 
         <div className="mt-4">
           {activeTab === 'paths' && (
-            <div className="overflow-x-auto">
-              <table className="table table-sm">
-                <thead>
-                  <tr>
-                    <th>Path</th>
-                    <th>Entity</th>
-                    <th>Service</th>
-                    <th>Hops</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {resolved.resolvedNodes.map((node) => (
-                    <tr key={node.path} className="hover">
-                      <td className="font-mono text-sm">{node.path}</td>
-                      <td>
-                        <Link to={`/packages/${node.service}/entities/${node.entityName}`} className="link link-primary">
-                          {node.entityName}
-                        </Link>
-                      </td>
-                      <td><span className="badge badge-ghost badge-sm">{node.service}</span></td>
-                      <td>{node.hopDistance}</td>
-                      <td>
-                        {node.isRoot && <span className="badge badge-primary badge-sm mr-1">root</span>}
-                        {node.isFrontier && <span className="badge badge-warning badge-sm mr-1">frontier</span>}
-                        {node.isManualInclusion && <span className="badge badge-info badge-sm">included</span>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <PerspectiveTreeTable nodes={resolved.resolvedNodes} />
           )}
 
           {activeTab === 'graph' && (

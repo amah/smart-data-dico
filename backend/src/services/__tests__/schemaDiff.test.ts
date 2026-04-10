@@ -6,8 +6,8 @@
  *   2. Never overwrite user content (description, non-physical metadata)
  *   3. Model-only attributes are sacred
  */
-import { diffEntities, mergeEntities, diffPhysicalConstraints } from '../schemaDiff.js';
-import { Entity, Attribute, AttributeType, EntityStatus, MetadataEntry, PhysicalConstraint } from '../../models/EntitySchema.js';
+import { diffEntities, mergeEntities, diffPhysicalConstraints, diffRelationships, mergeRelationships } from '../schemaDiff.js';
+import { Entity, Attribute, AttributeType, EntityStatus, MetadataEntry, PhysicalConstraint, Relationship, Cardinality } from '../../models/EntitySchema.js';
 
 jest.mock('../../utils/logger');
 
@@ -759,5 +759,131 @@ describe('diffEntities — physical constraints affect entity status (#85 R3)', 
     expect(merged[0].constraints).toEqual([
       { kind: 'unique', name: 'uq_orders_id_v2', columns: ['id'] },
     ]);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+// Relationship diff + merge (#82)
+// ────────────────────────────────────────────────────────────────────────
+
+let relCounter = 0;
+function buildRel(opts: {
+  uuid?: string;
+  sourceEntity?: string;
+  targetEntity?: string;
+  sourceCardinality?: Cardinality;
+  targetCardinality?: Cardinality;
+  constraintName?: string;
+  referenceAttributes?: string[];
+  description?: string;
+}): Relationship {
+  const metadata: MetadataEntry[] = [];
+  if (opts.constraintName) {
+    metadata.push({ name: 'physical.constraintName', value: opts.constraintName });
+  }
+  return {
+    uuid: opts.uuid || `rel-${++relCounter}`,
+    description: opts.description || 'FK relationship',
+    type: 'structural',
+    source: {
+      entity: opts.sourceEntity || 'src-ent',
+      cardinality: opts.sourceCardinality || Cardinality.MANY,
+      referenceAttributes: opts.referenceAttributes || ['fkCol'],
+    },
+    target: {
+      entity: opts.targetEntity || 'tgt-ent',
+      cardinality: opts.targetCardinality || Cardinality.ONE,
+    },
+    ...(metadata.length > 0 ? { metadata } : {}),
+  };
+}
+
+beforeEach(() => { relCounter = 0; });
+
+describe('diffRelationships (#82)', () => {
+  it('detects added relationships', () => {
+    const source = [buildRel({ constraintName: 'fk_new' })];
+    const diffs = diffRelationships(source, []);
+    expect(diffs).toHaveLength(1);
+    expect(diffs[0].status).toBe('added');
+  });
+
+  it('detects unchanged relationships by constraintName', () => {
+    const source = [buildRel({ constraintName: 'fk_order_customer', sourceEntity: 'a', targetEntity: 'b' })];
+    const existing = [buildRel({ constraintName: 'fk_order_customer', sourceEntity: 'a', targetEntity: 'b' })];
+    const diffs = diffRelationships(source, existing);
+    expect(diffs).toHaveLength(1);
+    expect(diffs[0].status).toBe('unchanged');
+  });
+
+  it('detects removedInSource for imported relationships no longer in source', () => {
+    const existing = [buildRel({ constraintName: 'fk_old' })];
+    const diffs = diffRelationships([], existing);
+    expect(diffs).toHaveLength(1);
+    expect(diffs[0].status).toBe('removedInSource');
+  });
+
+  it('ignores user-created relationships (no physical.constraintName)', () => {
+    const existing = [buildRel({})]; // no constraintName
+    const diffs = diffRelationships([], existing);
+    // User-created rels are not matched, so not in diff output
+    expect(diffs).toHaveLength(0);
+  });
+});
+
+describe('mergeRelationships (#82)', () => {
+  it('adds new relationships with remapped entity UUIDs', () => {
+    const source = [buildRel({
+      constraintName: 'fk_order_cust',
+      sourceEntity: 'parsed-order',
+      targetEntity: 'parsed-cust',
+    })];
+    const entityMap = new Map([
+      ['parsed-order', 'existing-order'],
+      ['parsed-cust', 'existing-cust'],
+    ]);
+    const merged = mergeRelationships(source, [], entityMap);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].source.entity).toBe('existing-order');
+    expect(merged[0].target.entity).toBe('existing-cust');
+  });
+
+  it('preserves user-created relationships untouched', () => {
+    const existing = [buildRel({ uuid: 'user-rel', description: 'Manual link' })];
+    const merged = mergeRelationships([], existing, new Map());
+    expect(merged).toHaveLength(1);
+    expect(merged[0].uuid).toBe('user-rel');
+    expect(merged[0].description).toBe('Manual link');
+  });
+
+  it('preserves existing description when merging changed relationships', () => {
+    const source = [buildRel({
+      constraintName: 'fk_order_cust',
+      sourceEntity: 'a',
+      targetEntity: 'b',
+      description: 'Imported FK',
+      sourceCardinality: Cardinality.ONE, // changed
+    })];
+    const existing = [buildRel({
+      constraintName: 'fk_order_cust',
+      uuid: 'existing-uuid',
+      sourceEntity: 'a',
+      targetEntity: 'b',
+      description: 'User-edited description',
+    })];
+    const merged = mergeRelationships(source, existing, new Map());
+    const fkRel = merged.find(r =>
+      (r.metadata || []).some(m => m.name === 'physical.constraintName' && m.value === 'fk_order_cust')
+    );
+    expect(fkRel).toBeDefined();
+    expect(fkRel!.uuid).toBe('existing-uuid');
+    expect(fkRel!.description).toBe('User-edited description');
+  });
+
+  it('preserves removedInSource relationships (model-first)', () => {
+    const existing = [buildRel({ constraintName: 'fk_old', uuid: 'old-uuid' })];
+    const merged = mergeRelationships([], existing, new Map());
+    // User-created (no constraintName) are kept + removedInSource are kept
+    expect(merged.find(r => r.uuid === 'old-uuid')).toBeDefined();
   });
 });

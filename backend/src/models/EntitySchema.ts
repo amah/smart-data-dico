@@ -250,6 +250,9 @@ export interface LineageResult {
  *   - **foreignKey** — `FOREIGN KEY (cols) REFERENCES other(cols)` — referential integrity
  *   - **index**      — non-unique index — performance hint, no integrity guarantee
  */
+/** SQL referential actions for FK ON DELETE / ON UPDATE clauses (#73). */
+export type ReferentialAction = 'CASCADE' | 'SET NULL' | 'SET DEFAULT' | 'RESTRICT' | 'NO ACTION';
+
 export type PhysicalConstraintKind = 'unique' | 'check' | 'foreignKey' | 'index';
 
 /**
@@ -280,7 +283,14 @@ export interface PhysicalConstraint {
   /** Boolean predicate text — required for check constraints. */
   expression?: string;
   /** Referenced table + columns — required for foreignKey. */
-  references?: { table: string; columns: string[] };
+  references?: {
+    table: string;
+    columns: string[];
+    /** Referential action on parent row delete (#73). */
+    onDelete?: ReferentialAction;
+    /** Referential action on parent PK update (#73). */
+    onUpdate?: ReferentialAction;
+  };
 }
 
 /**
