@@ -8,9 +8,20 @@ import { getAllStereotypes, getStereotype, createStereotype, updateStereotype, d
 import { getAllPerspectives, getPerspective, createPerspective, updatePerspective, deletePerspective, resolvePerspective, getPerspectiveGraph, upsertPerspectiveNode } from '../controllers/perspectiveController.js';
 import { listRules, getRule, getRulesForEntity, createRule, updateRule, deleteRule } from '../controllers/ruleController.js';
 import { getIntegrityReport } from '../controllers/integrityController.js';
-import { logicalDiff, physicalDiff, impactDiffEndpoint, exportMigration } from '../controllers/diffController.js';
+import {
+  logicalDiff,
+  physicalDiff,
+  impactDiffEndpoint,
+  exportMigration,
+  physicalDiffAll,
+  impactDiffAll,
+  exportMigrationAll,
+  getPhysicalConfigController,
+  putPhysicalConfigController,
+  deletePhysicalConfigController,
+} from '../controllers/diffController.js';
 import { commitChanges, getCommitHistory, revertToCommit } from '../controllers/versionController.js';
-import { importJsonSchema, importSqlDdl, previewSqlDdl, diffSqlDdl, commitSqlDdl, previewOracleSchema, exportJsonSchema, exportMarkdown, getQualityReport } from '../controllers/importExportController.js';
+import { importJsonSchema, importSqlDdl, previewSqlDdl, diffSqlDdl, commitSqlDdl, previewOracleSchema, previewDbSchema, exportJsonSchema, exportMarkdown, getQualityReport } from '../controllers/importExportController.js';
 import { authenticate, UserRole } from '../middleware/auth.js';
 import { authorizeJwt, verifyToken } from '../middleware/jwtAuth.js';
 
@@ -112,6 +123,14 @@ router.post('/api/diff/logical', logicalDiff);
 router.post('/api/diff/physical', physicalDiff);
 router.post('/api/diff/impact', impactDiffEndpoint);
 router.post('/api/export/migration', exportMigration);
+// Whole-model (all-services) diff endpoints
+router.post('/api/diff/physical/all', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), physicalDiffAll);
+router.post('/api/diff/impact/all', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), impactDiffAll);
+router.post('/api/export/migration/all', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), exportMigrationAll);
+// Per-service physical config (non-secret persisted dialect + connection)
+router.get('/api/services/:service/physical-config', getPhysicalConfigController);
+router.put('/api/services/:service/physical-config', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), putPhysicalConfigController);
+router.delete('/api/services/:service/physical-config', authorizeJwt([UserRole.ADMIN]), deletePhysicalConfigController);
 
 // Search API
 router.get('/api/search', searchEntities);
@@ -131,11 +150,37 @@ router.post('/api/import/sql-ddl/diff', authorizeJwt([UserRole.ADMIN, UserRole.E
 router.post('/api/import/sql-ddl/commit', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), commitSqlDdl);
 // Live Oracle DB introspection (Thin mode) → parsed entities (no disk writes) — #69 C3
 router.post('/api/import/oracle/preview', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), previewOracleSchema);
+// Unified live DB introspection — dispatches on body.dialect (oracle|postgres|mysql|mssql) — #79/#80/#81
+router.post('/api/import/db/preview', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), previewDbSchema);
 router.get('/api/export/json-schema/:service', exportJsonSchema);
 router.get('/api/export/markdown/:service', exportMarkdown);
 
 // Quality
 router.get('/api/quality/report', getQualityReport);
+
+// Model-level metadata (#94) — stored in data-dictionaries/metadata.yaml
+import fs from 'fs';
+import path from 'path';
+import YAML from 'yaml';
+const MODEL_META_PATH = path.join(process.cwd(), 'data-dictionaries', 'metadata.yaml');
+router.get('/api/model/metadata', (req, res) => {
+  try {
+    if (!fs.existsSync(MODEL_META_PATH)) return res.json({ data: [] });
+    const raw = fs.readFileSync(MODEL_META_PATH, 'utf-8');
+    res.json({ data: YAML.parse(raw) || [] });
+  } catch (e) {
+    res.status(500).json({ message: 'Failed to read model metadata', error: String(e) });
+  }
+});
+router.put('/api/model/metadata', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), (req, res) => {
+  try {
+    const metadata = req.body.metadata || req.body;
+    fs.writeFileSync(MODEL_META_PATH, YAML.stringify(Array.isArray(metadata) ? metadata : []), 'utf-8');
+    res.json({ message: 'Model metadata saved', data: metadata });
+  } catch (e) {
+    res.status(500).json({ message: 'Failed to write model metadata', error: String(e) });
+  }
+});
 
 // Graph API for visualization
 router.get('/api/graph/:service', getGraphData);

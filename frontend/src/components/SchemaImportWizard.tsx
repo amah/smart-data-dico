@@ -29,15 +29,49 @@ import { useState } from 'react';
 import { importExportApi } from '../services/api';
 import type { Entity, EntityDiff } from '../types';
 
-type SourceKind = 'sql' | 'oracle';
+type SourceKind = 'sql' | 'db';
+type Dialect = 'oracle' | 'postgres' | 'mysql' | 'mssql';
 type WizardStep = 'source' | 'diff' | 'result';
 
-interface OracleConnection {
+/**
+ * Shape of every field the wizard can ask for across all dialects (#79/#80/#81).
+ * Each dialect uses a subset — see `dialectFields` below.
+ */
+interface DbConnection {
+  // Common
   user: string;
   password: string;
-  connectString: string;
+  database?: string;   // pg / mysql / mssql
+  // Oracle
+  connectString?: string;
   owner?: string;
+  // pg / mysql
+  host?: string;
+  port?: string;       // kept as string in the form; converted on submit
+  schema?: string;     // pg ('public'), mssql ('dbo')
+  // mssql
+  server?: string;
+  encrypt?: boolean;
+  trustServerCertificate?: boolean;
 }
+
+const dialectLabel: Record<Dialect, string> = {
+  oracle: 'Oracle',
+  postgres: 'PostgreSQL',
+  mysql: 'MySQL / MariaDB',
+  mssql: 'SQL Server',
+};
+
+/**
+ * Required fields per dialect. Used to disable the Preview button until all
+ * are filled in, and to strip empty optionals from the outgoing request.
+ */
+const dialectRequired: Record<Dialect, (keyof DbConnection)[]> = {
+  oracle: ['user', 'password', 'connectString'],
+  postgres: ['host', 'database', 'user', 'password'],
+  mysql: ['host', 'database', 'user', 'password'],
+  mssql: ['server', 'database', 'user', 'password'],
+};
 
 interface CommitResult {
   added: number;
@@ -65,13 +99,9 @@ export default function SchemaImportWizard({ services, onComplete }: Props) {
   // SQL paste / file
   const [sqlText, setSqlText] = useState('');
 
-  // Oracle connection
-  const [oracle, setOracle] = useState<OracleConnection>({
-    user: '',
-    password: '',
-    connectString: '',
-    owner: '',
-  });
+  // DB connection (any dialect)
+  const [dialect, setDialect] = useState<Dialect>('oracle');
+  const [dbConn, setDbConn] = useState<DbConnection>({ user: '', password: '' });
 
   // Name-derivation options
   const [stripPrefixes, setStripPrefixes] = useState('');
@@ -89,7 +119,8 @@ export default function SchemaImportWizard({ services, onComplete }: Props) {
   const reset = () => {
     setStep('source');
     setSqlText('');
-    setOracle({ user: '', password: '', connectString: '', owner: '' });
+    setDialect('oracle');
+    setDbConn({ user: '', password: '' });
     setStripPrefixes('');
     setStripSuffixes('');
     setParsed([]);
@@ -98,6 +129,38 @@ export default function SchemaImportWizard({ services, onComplete }: Props) {
     setExpandedEntity(null);
     setError(null);
   };
+
+  /**
+   * Build the per-dialect `connection` payload from the form state.
+   * Drops empty optional fields and parses `port` to a number.
+   */
+  const buildConnectionPayload = (): Record<string, unknown> => {
+    const payload: Record<string, unknown> = {
+      user: dbConn.user,
+      password: dbConn.password,
+    };
+    if (dialect === 'oracle') {
+      payload.connectString = dbConn.connectString;
+      if (dbConn.owner) payload.owner = dbConn.owner;
+    } else if (dialect === 'postgres' || dialect === 'mysql') {
+      payload.host = dbConn.host;
+      payload.database = dbConn.database;
+      if (dbConn.port) payload.port = Number(dbConn.port);
+      if (dialect === 'postgres' && dbConn.schema) payload.schema = dbConn.schema;
+    } else if (dialect === 'mssql') {
+      payload.server = dbConn.server;
+      payload.database = dbConn.database;
+      if (dbConn.port) payload.port = Number(dbConn.port);
+      if (dbConn.schema) payload.schema = dbConn.schema;
+      payload.options = {
+        encrypt: dbConn.encrypt ?? true,
+        trustServerCertificate: dbConn.trustServerCertificate ?? false,
+      };
+    }
+    return payload;
+  };
+
+  const dbFormComplete = dialectRequired[dialect].every(f => !!dbConn[f]);
 
   const buildOptions = () => ({
     stripPrefixes: stripPrefixes.split(',').map(s => s.trim()).filter(Boolean),
@@ -125,7 +188,7 @@ export default function SchemaImportWizard({ services, onComplete }: Props) {
       const previewRes =
         sourceKind === 'sql'
           ? await importExportApi.previewSqlDdl(sqlText, buildOptions())
-          : await importExportApi.previewOracleSchema(oracle, buildOptions());
+          : await importExportApi.previewDbSchema(dialect, buildConnectionPayload(), buildOptions());
 
       const parsedEntities = (previewRes.data?.entities || []) as Entity[];
       const previewErrors = (previewRes.data?.errors || []) as string[];
@@ -197,8 +260,9 @@ export default function SchemaImportWizard({ services, onComplete }: Props) {
       <div>
         <h2 className="text-xl font-semibold">Schema Import Wizard</h2>
         <p className="text-base-content/70 text-sm">
-          Import tables from a SQL DDL script, file, or live Oracle database. Preview the diff
-          before committing — your descriptions and model-only attributes are preserved.
+          Import tables from a SQL DDL script, file, or a live database (Oracle, Postgres, MySQL,
+          SQL Server). Preview the diff before committing — your descriptions and model-only
+          attributes are preserved.
         </p>
       </div>
 
@@ -245,10 +309,10 @@ export default function SchemaImportWizard({ services, onComplete }: Props) {
               SQL DDL (paste / file)
             </button>
             <button
-              className={`tab ${sourceKind === 'oracle' ? 'tab-active' : ''}`}
-              onClick={() => setSourceKind('oracle')}
+              className={`tab ${sourceKind === 'db' ? 'tab-active' : ''}`}
+              onClick={() => setSourceKind('db')}
             >
-              Oracle Database
+              Live Database
             </button>
           </div>
 
@@ -280,53 +344,175 @@ export default function SchemaImportWizard({ services, onComplete }: Props) {
             </>
           )}
 
-          {sourceKind === 'oracle' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {sourceKind === 'db' && (
+            <div className="space-y-4">
               <div className="form-control">
-                <label className="label" htmlFor="oracle-user">
-                  <span className="label-text">User</span>
+                <label className="label" htmlFor="db-dialect">
+                  <span className="label-text">Dialect</span>
                 </label>
-                <input
-                  id="oracle-user"
-                  className="input input-bordered"
-                  value={oracle.user}
-                  onChange={e => setOracle({ ...oracle, user: e.target.value })}
-                />
+                <select
+                  id="db-dialect"
+                  className="select select-bordered"
+                  value={dialect}
+                  onChange={e => setDialect(e.target.value as Dialect)}
+                >
+                  {(Object.keys(dialectLabel) as Dialect[]).map(d => (
+                    <option key={d} value={d}>{dialectLabel[d]}</option>
+                  ))}
+                </select>
               </div>
-              <div className="form-control">
-                <label className="label" htmlFor="oracle-password">
-                  <span className="label-text">Password</span>
-                </label>
-                <input
-                  id="oracle-password"
-                  type="password"
-                  className="input input-bordered"
-                  value={oracle.password}
-                  onChange={e => setOracle({ ...oracle, password: e.target.value })}
-                />
-              </div>
-              <div className="form-control md:col-span-2">
-                <label className="label" htmlFor="oracle-connect-string">
-                  <span className="label-text">Connect String (Easy Connect)</span>
-                </label>
-                <input
-                  id="oracle-connect-string"
-                  className="input input-bordered"
-                  placeholder="host:1521/service_name"
-                  value={oracle.connectString}
-                  onChange={e => setOracle({ ...oracle, connectString: e.target.value })}
-                />
-              </div>
-              <div className="form-control md:col-span-2">
-                <label className="label" htmlFor="oracle-owner">
-                  <span className="label-text">Schema / Owner (optional — defaults to user)</span>
-                </label>
-                <input
-                  id="oracle-owner"
-                  className="input input-bordered"
-                  value={oracle.owner || ''}
-                  onChange={e => setOracle({ ...oracle, owner: e.target.value })}
-                />
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Host field — oracle uses connectString instead */}
+                {dialect !== 'oracle' && (
+                  <div className="form-control md:col-span-2">
+                    <label className="label" htmlFor="db-host">
+                      <span className="label-text">{dialect === 'mssql' ? 'Server' : 'Host'}</span>
+                    </label>
+                    <input
+                      id="db-host"
+                      className="input input-bordered"
+                      placeholder={dialect === 'mssql' ? 'db.example.com' : 'localhost'}
+                      value={(dialect === 'mssql' ? dbConn.server : dbConn.host) || ''}
+                      onChange={e =>
+                        setDbConn(
+                          dialect === 'mssql'
+                            ? { ...dbConn, server: e.target.value }
+                            : { ...dbConn, host: e.target.value },
+                        )
+                      }
+                    />
+                  </div>
+                )}
+                {dialect !== 'oracle' && (
+                  <div className="form-control">
+                    <label className="label" htmlFor="db-port">
+                      <span className="label-text">
+                        Port (optional — defaults to {dialect === 'postgres' ? 5432 : dialect === 'mysql' ? 3306 : 1433})
+                      </span>
+                    </label>
+                    <input
+                      id="db-port"
+                      type="number"
+                      className="input input-bordered"
+                      value={dbConn.port || ''}
+                      onChange={e => setDbConn({ ...dbConn, port: e.target.value })}
+                    />
+                  </div>
+                )}
+                {dialect !== 'oracle' && (
+                  <div className="form-control">
+                    <label className="label" htmlFor="db-database">
+                      <span className="label-text">Database</span>
+                    </label>
+                    <input
+                      id="db-database"
+                      className="input input-bordered"
+                      value={dbConn.database || ''}
+                      onChange={e => setDbConn({ ...dbConn, database: e.target.value })}
+                    />
+                  </div>
+                )}
+
+                <div className="form-control">
+                  <label className="label" htmlFor="db-user">
+                    <span className="label-text">User</span>
+                  </label>
+                  <input
+                    id="db-user"
+                    className="input input-bordered"
+                    value={dbConn.user}
+                    onChange={e => setDbConn({ ...dbConn, user: e.target.value })}
+                  />
+                </div>
+                <div className="form-control">
+                  <label className="label" htmlFor="db-password">
+                    <span className="label-text">Password</span>
+                  </label>
+                  <input
+                    id="db-password"
+                    type="password"
+                    className="input input-bordered"
+                    value={dbConn.password}
+                    onChange={e => setDbConn({ ...dbConn, password: e.target.value })}
+                  />
+                </div>
+
+                {/* Oracle-only */}
+                {dialect === 'oracle' && (
+                  <div className="form-control md:col-span-2">
+                    <label className="label" htmlFor="db-connect-string">
+                      <span className="label-text">Connect String (Easy Connect)</span>
+                    </label>
+                    <input
+                      id="db-connect-string"
+                      className="input input-bordered"
+                      placeholder="host:1521/service_name"
+                      value={dbConn.connectString || ''}
+                      onChange={e => setDbConn({ ...dbConn, connectString: e.target.value })}
+                    />
+                  </div>
+                )}
+                {dialect === 'oracle' && (
+                  <div className="form-control md:col-span-2">
+                    <label className="label" htmlFor="db-owner">
+                      <span className="label-text">Schema / Owner (optional — defaults to user)</span>
+                    </label>
+                    <input
+                      id="db-owner"
+                      className="input input-bordered"
+                      value={dbConn.owner || ''}
+                      onChange={e => setDbConn({ ...dbConn, owner: e.target.value })}
+                    />
+                  </div>
+                )}
+
+                {/* Postgres / MSSQL — schema override */}
+                {(dialect === 'postgres' || dialect === 'mssql') && (
+                  <div className="form-control md:col-span-2">
+                    <label className="label" htmlFor="db-schema">
+                      <span className="label-text">
+                        Schema (optional — defaults to {dialect === 'postgres' ? 'public' : 'dbo'})
+                      </span>
+                    </label>
+                    <input
+                      id="db-schema"
+                      className="input input-bordered"
+                      value={dbConn.schema || ''}
+                      onChange={e => setDbConn({ ...dbConn, schema: e.target.value })}
+                    />
+                  </div>
+                )}
+
+                {/* MSSQL TLS options */}
+                {dialect === 'mssql' && (
+                  <>
+                    <div className="form-control">
+                      <label className="label cursor-pointer">
+                        <span className="label-text">Encrypt connection</span>
+                        <input
+                          type="checkbox"
+                          className="toggle"
+                          checked={dbConn.encrypt ?? true}
+                          onChange={e => setDbConn({ ...dbConn, encrypt: e.target.checked })}
+                        />
+                      </label>
+                    </div>
+                    <div className="form-control">
+                      <label className="label cursor-pointer">
+                        <span className="label-text">Trust server certificate</span>
+                        <input
+                          type="checkbox"
+                          className="toggle"
+                          checked={dbConn.trustServerCertificate ?? false}
+                          onChange={e =>
+                            setDbConn({ ...dbConn, trustServerCertificate: e.target.checked })
+                          }
+                        />
+                      </label>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -365,8 +551,7 @@ export default function SchemaImportWizard({ services, onComplete }: Props) {
                 loading ||
                 !targetService ||
                 (sourceKind === 'sql' && !sqlText.trim()) ||
-                (sourceKind === 'oracle' &&
-                  (!oracle.user || !oracle.password || !oracle.connectString))
+                (sourceKind === 'db' && !dbFormComplete)
               }
             >
               {loading && <span className="loading loading-spinner loading-sm" />}

@@ -22,6 +22,7 @@ vi.mock('../../services/api', () => ({
   importExportApi: {
     previewSqlDdl: vi.fn(),
     previewOracleSchema: vi.fn(),
+    previewDbSchema: vi.fn(),
     diffSqlDdl: vi.fn(),
     commitSqlDdl: vi.fn(),
   },
@@ -32,6 +33,7 @@ import { importExportApi } from '../../services/api';
 const mockedApi = importExportApi as unknown as {
   previewSqlDdl: ReturnType<typeof vi.fn>;
   previewOracleSchema: ReturnType<typeof vi.fn>;
+  previewDbSchema: ReturnType<typeof vi.fn>;
   diffSqlDdl: ReturnType<typeof vi.fn>;
   commitSqlDdl: ReturnType<typeof vi.fn>;
 };
@@ -82,6 +84,7 @@ const renderWizard = (props: Partial<React.ComponentProps<typeof SchemaImportWiz
 beforeEach(() => {
   mockedApi.previewSqlDdl.mockReset();
   mockedApi.previewOracleSchema.mockReset();
+  mockedApi.previewDbSchema.mockReset();
   mockedApi.diffSqlDdl.mockReset();
   mockedApi.commitSqlDdl.mockReset();
 });
@@ -186,26 +189,22 @@ describe('SchemaImportWizard — SQL paste source', () => {
   });
 });
 
-// ─── Step 1 → Step 2: Oracle source ────────────────────────────────────
+// ─── Step 1 → Step 2: Live DB source (#79/#80/#81) ─────────────────────
 
-describe('SchemaImportWizard — Oracle source', () => {
-  it('switches to Oracle inputs and routes to previewOracleSchema', async () => {
-    mockedApi.previewOracleSchema.mockResolvedValue({
+describe('SchemaImportWizard — Live DB source', () => {
+  it('routes Oracle to previewDbSchema with dialect=oracle', async () => {
+    mockedApi.previewDbSchema.mockResolvedValue({
       data: { entities: [ordersEntity], errors: [] },
     });
     mockedApi.diffSqlDdl.mockResolvedValue({ data: { diffs: sampleDiffs } });
 
     renderWizard();
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'order-service' } });
-    await userEvent.click(screen.getByRole('button', { name: /Oracle Database/i }));
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'order-service' } });
+    await userEvent.click(screen.getByRole('button', { name: /Live Database/i }));
 
-    // SQL paste textarea should now be gone
+    // Default dialect is oracle → oracle fields are visible
     expect(screen.queryByPlaceholderText(/CREATE TABLE/i)).not.toBeInTheDocument();
 
-    // Fill connection
-    const inputs = screen.getAllByRole('textbox');
-    // user, connectString, owner are textboxes; password is type=password (not in textbox role)
-    // Find by labels:
     fireEvent.change(screen.getByLabelText(/^User$/), { target: { value: 'sales' } });
     fireEvent.change(screen.getByLabelText(/^Password$/), { target: { value: 'pw' } });
     fireEvent.change(screen.getByLabelText(/Connect String/), { target: { value: 'host:1521/svc' } });
@@ -213,21 +212,57 @@ describe('SchemaImportWizard — Oracle source', () => {
     await userEvent.click(screen.getByRole('button', { name: /preview diff/i }));
 
     await waitFor(() => {
-      expect(mockedApi.previewOracleSchema).toHaveBeenCalledWith(
-        { user: 'sales', password: 'pw', connectString: 'host:1521/svc', owner: '' },
+      expect(mockedApi.previewDbSchema).toHaveBeenCalledWith(
+        'oracle',
+        { user: 'sales', password: 'pw', connectString: 'host:1521/svc' },
         { stripPrefixes: [], stripSuffixes: [] },
       );
     });
     expect(mockedApi.previewSqlDdl).not.toHaveBeenCalled();
     expect(await screen.findByText('Commit Import')).toBeInTheDocument();
-    // sampleDiffs has Orders, Customers, Wishlist — silence the unused inputs lint
-    expect(inputs.length).toBeGreaterThan(0);
   });
 
-  it('keeps the Preview button disabled until all Oracle fields are filled', async () => {
+  it('routes Postgres to previewDbSchema with dialect=postgres and host/database/port', async () => {
+    mockedApi.previewDbSchema.mockResolvedValue({
+      data: { entities: [ordersEntity], errors: [] },
+    });
+    mockedApi.diffSqlDdl.mockResolvedValue({ data: { diffs: sampleDiffs } });
+
     renderWizard();
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'order-service' } });
-    await userEvent.click(screen.getByRole('button', { name: /Oracle Database/i }));
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'order-service' } });
+    await userEvent.click(screen.getByRole('button', { name: /Live Database/i }));
+
+    // Switch dialect to postgres
+    const dialectSelect = screen.getByLabelText(/Dialect/i);
+    fireEvent.change(dialectSelect, { target: { value: 'postgres' } });
+
+    fireEvent.change(screen.getByLabelText(/^Host$/), { target: { value: 'db.example.com' } });
+    fireEvent.change(screen.getByLabelText(/^Database$/), { target: { value: 'sales' } });
+    fireEvent.change(screen.getByLabelText(/^User$/), { target: { value: 'app' } });
+    fireEvent.change(screen.getByLabelText(/^Password$/), { target: { value: 'pw' } });
+    fireEvent.change(screen.getByLabelText(/^Port/), { target: { value: '5433' } });
+
+    await userEvent.click(screen.getByRole('button', { name: /preview diff/i }));
+
+    await waitFor(() => {
+      expect(mockedApi.previewDbSchema).toHaveBeenCalledWith(
+        'postgres',
+        {
+          user: 'app',
+          password: 'pw',
+          host: 'db.example.com',
+          database: 'sales',
+          port: 5433,
+        },
+        { stripPrefixes: [], stripSuffixes: [] },
+      );
+    });
+  });
+
+  it('keeps Preview disabled until all dialect-required fields are filled (Oracle)', async () => {
+    renderWizard();
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'order-service' } });
+    await userEvent.click(screen.getByRole('button', { name: /Live Database/i }));
 
     const previewBtn = screen.getByRole('button', { name: /preview diff/i });
     expect(previewBtn).toBeDisabled();
