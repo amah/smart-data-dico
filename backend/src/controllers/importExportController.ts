@@ -6,6 +6,9 @@ import { serviceService } from '../services/serviceService.js';
 import { diffEntities, mergeEntities, diffRelationships, mergeRelationships } from '../services/schemaDiff.js';
 import { physicalTableNameOf } from '../services/schemaDiff.js';
 import { introspectOracle, OracleConnectionConfig } from '../services/oracleIntrospect.js';
+import { introspectPostgres, PostgresConnectionConfig } from '../services/postgresIntrospect.js';
+import { introspectMysql, MysqlConnectionConfig } from '../services/mysqlIntrospect.js';
+import { introspectMssql, MssqlConnectionConfig } from '../services/mssqlIntrospect.js';
 import { Entity, Relationship } from '../models/EntitySchema.js';
 import { readRelationshipsFile, writeRelationshipsFile } from '../utils/fileOperations.js';
 import { logger } from '../utils/logger.js';
@@ -264,6 +267,90 @@ export const previewOracleSchema = async (req: Request, res: Response) => {
   } catch (error) {
     logger.error('Error introspecting Oracle schema', error);
     res.status(500).json({ message: 'Error introspecting Oracle schema', error });
+  }
+};
+
+/**
+ * Unified DB schema introspection endpoint (#79/#80/#81).
+ *
+ * Body: { dialect: 'oracle' | 'postgres' | 'mysql' | 'mssql',
+ *         connection: <dialect-specific>, options? }
+ *
+ * The endpoint dispatches to the right provider and returns the same
+ * ParseSqlDdlResult shape as `previewOracleSchema`, so the wizard flow
+ * downstream (`/diff`, `/commit`) is dialect-agnostic.
+ */
+export const previewDbSchema = async (req: Request, res: Response) => {
+  try {
+    const { dialect, connection, options } = req.body as {
+      dialect: string;
+      connection: Record<string, unknown>;
+      options?: { stripPrefixes?: string[]; stripSuffixes?: string[]; schema?: string };
+    };
+    if (!dialect || typeof dialect !== 'string') {
+      return res.status(400).json({ message: 'dialect (string) is required' });
+    }
+    if (!connection || typeof connection !== 'object') {
+      return res.status(400).json({ message: 'connection (object) is required' });
+    }
+
+    const requireFields = (fields: string[]) => {
+      const missing = fields.filter(
+        k => typeof connection[k] !== 'string' || !connection[k],
+      );
+      if (missing.length > 0) {
+        res.status(400).json({ message: `connection missing required fields: ${missing.join(', ')}` });
+        return false;
+      }
+      return true;
+    };
+
+    let result;
+    switch (dialect.toLowerCase()) {
+      case 'oracle':
+        if (!requireFields(['user', 'password', 'connectString'])) return;
+        result = await introspectOracle({
+          connection: connection as unknown as OracleConnectionConfig,
+          ...(options || {}),
+        });
+        break;
+      case 'postgres':
+      case 'postgresql':
+        if (!requireFields(['host', 'database', 'user', 'password'])) return;
+        result = await introspectPostgres({
+          connection: connection as unknown as PostgresConnectionConfig,
+          ...(options || {}),
+        });
+        break;
+      case 'mysql':
+      case 'mariadb':
+        if (!requireFields(['host', 'database', 'user', 'password'])) return;
+        result = await introspectMysql({
+          connection: connection as unknown as MysqlConnectionConfig,
+          ...(options || {}),
+        });
+        break;
+      case 'mssql':
+      case 'sqlserver':
+        if (!requireFields(['server', 'database', 'user', 'password'])) return;
+        result = await introspectMssql({
+          connection: connection as unknown as MssqlConnectionConfig,
+          ...(options || {}),
+        });
+        break;
+      default:
+        return res.status(400).json({
+          message: `Unknown dialect '${dialect}'. Supported: oracle, postgres, mysql, mssql.`,
+        });
+    }
+
+    if (result.entities.length === 0 && result.errors.length > 0) {
+      return res.status(502).json({ message: result.errors[0], data: result });
+    }
+    res.json({ message: `Introspected ${result.entities.length} tables`, data: result });
+  } catch (error) {
+    logger.error('Error introspecting DB schema', error);
+    res.status(500).json({ message: 'Error introspecting DB schema', error });
   }
 };
 

@@ -340,6 +340,15 @@ export const importExportApi = {
     const response = await api.post('/import/oracle/preview', { connection, options });
     return response.data;
   },
+  // Unified DB introspection (#79/#80/#81) — dialect: oracle | postgres | mysql | mssql
+  previewDbSchema: async (
+    dialect: 'oracle' | 'postgres' | 'mysql' | 'mssql',
+    connection: Record<string, unknown>,
+    options?: { stripPrefixes?: string[]; stripSuffixes?: string[]; schema?: string },
+  ) => {
+    const response = await api.post('/import/db/preview', { dialect, connection, options });
+    return response.data;
+  },
   diffSqlDdl: async (parsed: unknown[], targetService: string) => {
     const response = await api.post('/import/sql-ddl/diff', { parsed, targetService });
     return response.data;
@@ -364,9 +373,47 @@ export const importExportApi = {
 };
 
 // Diff API (#86)
+// Model-level metadata (#94)
+export const modelApi = {
+  getMetadata: async () => {
+    const response = await api.get('/model/metadata');
+    return response.data.data;
+  },
+  putMetadata: async (metadata: any[]) => {
+    const response = await api.put('/model/metadata', { metadata });
+    return response.data.data;
+  },
+};
+
 export const diffApi = {
   logical: async (left: any, right: any) => {
     const response = await api.post('/diff/logical', { left, right });
+    return response.data.data;
+  },
+  // Whole-model (all-services) endpoints — each takes a per-service `sources`
+  // map so the caller can mix DDL paste and live introspection.
+  physicalAll: async (
+    sources: Record<string, any>,
+    services?: string[],
+  ) => {
+    const response = await api.post('/diff/physical/all', { sources, services });
+    return response.data.data;
+  },
+  impactAll: async (
+    sources: Record<string, any>,
+    services?: string[],
+    dialect?: string,
+  ) => {
+    const response = await api.post('/diff/impact/all', { sources, services, dialect });
+    return response.data.data;
+  },
+  // Per-service physical config CRUD
+  getPhysicalConfig: async (service: string) => {
+    const response = await api.get(`/services/${service}/physical-config`);
+    return response.data.data;
+  },
+  putPhysicalConfig: async (service: string, config: any) => {
+    const response = await api.put(`/services/${service}/physical-config`, config);
     return response.data.data;
   },
 };
