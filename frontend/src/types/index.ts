@@ -115,7 +115,7 @@ export enum RuleSeverity {
 // Validation rules (#74)
 // ────────────────────────────────────────────
 
-export type RuleScope = 'entity' | 'package' | 'perspective';
+export type RuleScope = 'entity' | 'package' | 'perspective' | 'global';
 export type RuleSeverityValue = 'info' | 'warning' | 'error';
 /** When a rule is checked. Decoupled from severity (#76). */
 export type RuleEnforcement = 'save' | 'process' | 'advisory';
@@ -125,6 +125,8 @@ export interface RuleTarget {
   kind: RuleTargetKind;
   uuid: string;
   entityUuid?: string;
+  /** Package the target lives in — set on global (cross-package) rules (#75). */
+  packageName?: string;
   perspectivePath?: string;
 }
 
@@ -182,7 +184,7 @@ export interface ReviewComment {
   resolved?: boolean;
 }
 
-export type StereotypeTarget = 'package' | 'entity' | 'attribute';
+export type StereotypeTarget = 'package' | 'entity' | 'attribute' | 'model' | 'relationship';
 
 /**
  * Metadata definition (schema for metadata entries)
@@ -222,6 +224,18 @@ export interface Perspective {
   updatedAt?: string;
 }
 
+/**
+ * Slim attribute shape shipped on ResolvedNode — mirrors the backend's
+ * ResolvedAttribute. Keeps only what the perspective tree view needs.
+ */
+export interface ResolvedAttribute {
+  name: string;
+  type: string;
+  required: boolean;
+  primaryKey?: boolean;
+  metadata?: MetadataEntry[];
+}
+
 export interface ResolvedNode {
   entityUuid: string;
   entityName: string;
@@ -231,6 +245,14 @@ export interface ResolvedNode {
   isRoot: boolean;
   isFrontier: boolean;
   isManualInclusion: boolean;
+  /** End-name of the edge that reached this node (undefined on roots). */
+  navName?: string;
+  /** Cardinality of the inbound edge — `from` is the parent side. */
+  navCardinality?: { from: Cardinality; to: Cardinality };
+  /** Attributes for the entity, for the expand-to-attributes tree view. */
+  attributes?: ResolvedAttribute[];
+  /** Entity-level metadata for metadata-as-columns in the tree view (#93). */
+  metadata?: MetadataEntry[];
 }
 
 export interface ResolvedPerspective extends Perspective {

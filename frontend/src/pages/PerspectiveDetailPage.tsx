@@ -93,7 +93,12 @@ export default function PerspectiveDetailPage() {
 
         <div className="mt-4">
           {activeTab === 'paths' && (
-            <PerspectiveTreeTable nodes={resolved.resolvedNodes} />
+            <PerspectiveTreeTable
+              nodes={resolved.resolvedNodes}
+              onMetadataUpdated={() => {
+                if (id) perspectiveApi.resolve(id).then(setResolved).catch(() => {});
+              }}
+            />
           )}
 
           {activeTab === 'graph' && (

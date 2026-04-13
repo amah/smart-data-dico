@@ -89,7 +89,7 @@ export interface ReviewComment {
   resolved?: boolean;
 }
 
-export type StereotypeTarget = 'package' | 'entity' | 'attribute';
+export type StereotypeTarget = 'package' | 'entity' | 'attribute' | 'model' | 'relationship';
 
 export interface Stereotype {
   id: string;
@@ -127,7 +127,26 @@ export interface Perspective {
 }
 
 /**
- * A resolved node from BFS traversal of a perspective
+ * Slim attribute view used on resolved perspective nodes — avoids shipping
+ * the full `Attribute` (which carries validation, metadata, nested items,
+ * etc.) when the tree view only needs the cheap display fields.
+ */
+export interface ResolvedAttribute {
+  name: string;
+  type: AttributeType;
+  required: boolean;
+  primaryKey?: boolean;
+  metadata?: MetadataEntry[];
+}
+
+/**
+ * A resolved node from BFS traversal of a perspective.
+ *
+ * The tree view renders each non-root as `<navName> (<navCardinality>) →
+ * <entityName>`. `navName` is the relationship end-name at the side the
+ * traversal arrives at (the child); `navCardinality` pairs the origin's
+ * cardinality with the destination's, UML-style (e.g. "1..*"). Roots
+ * carry neither — they are drawn as plain entity rows.
  */
 export interface ResolvedNode {
   entityUuid: string;
@@ -138,6 +157,28 @@ export interface ResolvedNode {
   isRoot: boolean;
   isFrontier: boolean;
   isManualInclusion: boolean;
+  /**
+   * Relationship end-name reaching this node from its parent (undefined
+   * for roots). Falls back to the relationship `description` when neither
+   * `source.name` nor `target.name` is set on the underlying Relationship.
+   */
+  navName?: string;
+  /**
+   * Cardinality of the edge that reached this node, in UML order:
+   * `from` is the cardinality at the side of the parent, `to` is the
+   * cardinality at the side of this node. Undefined for roots.
+   */
+  navCardinality?: { from: Cardinality; to: Cardinality };
+  /**
+   * Slim attribute list for the entity — populated so the tree view can
+   * expand an entity row without an extra API round-trip per click.
+   */
+  attributes?: ResolvedAttribute[];
+  /**
+   * Entity-level metadata entries — used by the perspective tree view to
+   * render metadata-as-columns alongside entity rows (#93).
+   */
+  metadata?: MetadataEntry[];
 }
 
 /**
@@ -363,7 +404,7 @@ export const entitySchema: Schema = {
             }
           },
           items: { type: 'object' },
-          properties: { type: 'array' },
+          properties: { type: ['array', 'object'] },
           metadata: { type: 'array' }
         }
       }
