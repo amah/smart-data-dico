@@ -158,15 +158,106 @@ router.get('/api/export/markdown/:service', exportMarkdown);
 // Quality
 router.get('/api/quality/report', getQualityReport);
 
+// ═══════════════════════════════════════════════════════════════════════
+// Project management (#95) — open/close/init local folders
+// ═══════════════════════════════════════════════════════════════════════
+
+router.get('/api/project', (req, res) => {
+  const dataDir = config.dataDir;
+  const isOpen = fs.existsSync(path.join(dataDir, 'microservices'));
+  res.json({
+    data: {
+      path: dataDir,
+      name: path.basename(path.dirname(dataDir)) || path.basename(dataDir),
+      isOpen,
+      profile: config.profile,
+    },
+  });
+});
+
+router.post('/api/project/open', authorizeJwt([UserRole.ADMIN]), (req, res) => {
+  if (config.profile !== 'local') {
+    return res.status(403).json({ message: 'Project switching is only available in local mode' });
+  }
+  const { path: dirPath } = req.body;
+  if (!dirPath || typeof dirPath !== 'string') {
+    return res.status(400).json({ message: 'path (string) is required' });
+  }
+  const resolved = path.resolve(dirPath);
+  if (!fs.existsSync(resolved)) {
+    return res.status(400).json({ message: `Path does not exist: ${resolved}` });
+  }
+  // Accept either the data-dictionaries folder itself or its parent
+  const dataDir = fs.existsSync(path.join(resolved, 'microservices'))
+    ? resolved
+    : fs.existsSync(path.join(resolved, 'data-dictionaries', 'microservices'))
+      ? path.join(resolved, 'data-dictionaries')
+      : null;
+  if (!dataDir) {
+    return res.status(400).json({
+      message: `No data-dictionaries structure found at ${resolved}. Use /api/project/init to create one.`,
+    });
+  }
+  config.dataDir = dataDir;
+  // Update workspace roots for the git backend if available
+  const roots = (req.app as any).__workspaceRoots as Map<string, string> | undefined;
+  if (roots) roots.set('dictionaries', dataDir);
+  res.json({ message: `Project opened: ${dataDir}`, data: { path: dataDir, name: path.basename(path.dirname(dataDir)) } });
+});
+
+router.post('/api/project/close', authorizeJwt([UserRole.ADMIN]), (req, res) => {
+  if (config.profile !== 'local') {
+    return res.status(403).json({ message: 'Project switching is only available in local mode' });
+  }
+  // Reset to the default (empty-ish) — callers should treat isOpen=false as "no project"
+  const emptyDir = path.join(require('os').tmpdir(), 'smart-data-dico-closed');
+  if (!fs.existsSync(emptyDir)) fs.mkdirSync(emptyDir, { recursive: true });
+  config.dataDir = emptyDir;
+  const roots = (req.app as any).__workspaceRoots as Map<string, string> | undefined;
+  if (roots) roots.set('dictionaries', emptyDir);
+  res.json({ message: 'Project closed' });
+});
+
+router.post('/api/project/init', authorizeJwt([UserRole.ADMIN]), (req, res) => {
+  if (config.profile !== 'local') {
+    return res.status(403).json({ message: 'Project initialization is only available in local mode' });
+  }
+  const { path: dirPath } = req.body;
+  if (!dirPath || typeof dirPath !== 'string') {
+    return res.status(400).json({ message: 'path (string) is required' });
+  }
+  const resolved = path.resolve(dirPath);
+  const dataDir = resolved.endsWith('data-dictionaries')
+    ? resolved
+    : path.join(resolved, 'data-dictionaries');
+  try {
+    fs.mkdirSync(path.join(dataDir, 'microservices'), { recursive: true });
+    fs.mkdirSync(path.join(dataDir, 'perspectives'), { recursive: true });
+    fs.mkdirSync(path.join(dataDir, 'diagrams'), { recursive: true });
+    if (!fs.existsSync(path.join(dataDir, 'stereotypes.yaml'))) {
+      fs.writeFileSync(path.join(dataDir, 'stereotypes.yaml'), '[]', 'utf-8');
+    }
+    // Auto-open the new project
+    config.dataDir = dataDir;
+    const roots = (req.app as any).__workspaceRoots as Map<string, string> | undefined;
+    if (roots) roots.set('dictionaries', dataDir);
+    res.json({ message: `Project initialized and opened: ${dataDir}`, data: { path: dataDir } });
+  } catch (e) {
+    res.status(500).json({ message: `Failed to initialize project: ${e}` });
+  }
+});
+
 // Model-level metadata (#94) — stored in data-dictionaries/metadata.yaml
 import fs from 'fs';
 import path from 'path';
 import YAML from 'yaml';
-const MODEL_META_PATH = path.join(process.cwd(), 'data-dictionaries', 'metadata.yaml');
+import { config } from '../kernel/config.js';
+const getModelMetaPath = () => path.join(config.dataDir, 'metadata.yaml');
 router.get('/api/model/metadata', (req, res) => {
   try {
-    if (!fs.existsSync(MODEL_META_PATH)) return res.json({ data: [] });
-    const raw = fs.readFileSync(MODEL_META_PATH, 'utf-8');
+    const p = getModelMetaPath();
+    if (!fs.existsSync(p)) return res.json({ data: [] });
+    const raw = fs.readFileSync(p, 'utf-8');
     res.json({ data: YAML.parse(raw) || [] });
   } catch (e) {
     res.status(500).json({ message: 'Failed to read model metadata', error: String(e) });
@@ -175,7 +266,7 @@ router.get('/api/model/metadata', (req, res) => {
 router.put('/api/model/metadata', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), (req, res) => {
   try {
     const metadata = req.body.metadata || req.body;
-    fs.writeFileSync(MODEL_META_PATH, YAML.stringify(Array.isArray(metadata) ? metadata : []), 'utf-8');
+    fs.writeFileSync(getModelMetaPath(), YAML.stringify(Array.isArray(metadata) ? metadata : []), 'utf-8');
     res.json({ message: 'Model metadata saved', data: metadata });
   } catch (e) {
     res.status(500).json({ message: 'Failed to write model metadata', error: String(e) });

@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { authApi } from '../services/api';
+import { authApi, projectApi } from '../services/api';
 import GitStatusIndicator from './GitStatusIndicator';
 import { useAppMode } from '../hooks/useAppMode';
 
@@ -37,12 +37,89 @@ interface NavbarProps {
   chatOpen?: boolean;
 }
 
+const RECENT_KEY = 'smart-data-dico-recent-projects';
+
 const Navbar = ({ toggleSidebar, toggleChat, chatOpen }: NavbarProps) => {
   const [isAuthenticated, setIsAuthenticated] = useState(authApi.isAuthenticated());
   const [searchQuery, setSearchQuery] = useState('');
   const navigate = useNavigate();
   const { theme, toggle: toggleTheme } = useTheme();
   const { mode } = useAppMode();
+
+  // Project state (#95)
+  const [projectName, setProjectName] = useState('');
+  const [projectPath, setProjectPath] = useState('');
+  const [projectOpen, setProjectOpen] = useState(true);
+  const [showProjectMenu, setShowProjectMenu] = useState(false);
+  const [showPathInput, setShowPathInput] = useState<'open' | 'init' | null>(null);
+  const [pathInput, setPathInput] = useState('');
+  const [projectError, setProjectError] = useState('');
+  const [recentProjects, setRecentProjects] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch { return []; }
+  });
+
+  const loadProject = useCallback(async () => {
+    try {
+      const info = await projectApi.get();
+      setProjectName(info.name);
+      setProjectPath(info.path);
+      setProjectOpen(info.isOpen);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { loadProject(); }, [loadProject]);
+
+  const addRecent = (p: string) => {
+    const updated = [p, ...recentProjects.filter(r => r !== p)].slice(0, 8);
+    setRecentProjects(updated);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(updated));
+  };
+
+  const handleOpenProject = async () => {
+    setProjectError('');
+    try {
+      await projectApi.open(pathInput);
+      addRecent(pathInput);
+      setShowPathInput(null);
+      setPathInput('');
+      loadProject();
+      window.location.reload();
+    } catch (e: any) {
+      setProjectError(e.response?.data?.message || 'Failed to open project');
+    }
+  };
+
+  const handleInitProject = async () => {
+    setProjectError('');
+    try {
+      await projectApi.init(pathInput);
+      addRecent(pathInput);
+      setShowPathInput(null);
+      setPathInput('');
+      loadProject();
+      window.location.reload();
+    } catch (e: any) {
+      setProjectError(e.response?.data?.message || 'Failed to init project');
+    }
+  };
+
+  const handleCloseProject = async () => {
+    try {
+      await projectApi.close();
+      loadProject();
+      window.location.reload();
+    } catch { /* ignore */ }
+  };
+
+  const handleOpenRecent = async (p: string) => {
+    try {
+      await projectApi.open(p);
+      addRecent(p);
+      setShowProjectMenu(false);
+      loadProject();
+      window.location.reload();
+    } catch { /* ignore */ }
+  };
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,7 +151,94 @@ const Navbar = ({ toggleSidebar, toggleChat, chatOpen }: NavbarProps) => {
         <Link to="/" className="btn btn-ghost btn-sm normal-case text-base font-bold px-2">
           Data Dictionary
         </Link>
+
+        {/* Project indicator (#95) */}
+        {projectName && (
+          <div className="relative ml-1">
+            <button
+              className="btn btn-ghost btn-xs normal-case gap-1 text-primary-content/80 hover:text-primary-content"
+              onClick={() => setShowProjectMenu(!showProjectMenu)}
+              title={projectPath}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+              </svg>
+              {projectName}
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            {showProjectMenu && (
+              <div className="absolute left-0 top-full mt-1 z-50 bg-base-100 text-base-content border border-base-300 rounded-lg shadow-lg min-w-[280px] p-2">
+                <div className="text-xs text-base-content/50 px-2 py-1 truncate" title={projectPath}>
+                  {projectPath}
+                </div>
+                <div className="divider my-1" />
+                <button className="btn btn-ghost btn-sm btn-block justify-start gap-2" onClick={() => { setShowProjectMenu(false); setShowPathInput('open'); setPathInput(''); setProjectError(''); }}>
+                  Open Project...
+                </button>
+                <button className="btn btn-ghost btn-sm btn-block justify-start gap-2" onClick={() => { setShowProjectMenu(false); setShowPathInput('init'); setPathInput(''); setProjectError(''); }}>
+                  New Project...
+                </button>
+                <button className="btn btn-ghost btn-sm btn-block justify-start gap-2 text-error" onClick={() => { setShowProjectMenu(false); handleCloseProject(); }}>
+                  Close Project
+                </button>
+                {recentProjects.length > 0 && (
+                  <>
+                    <div className="divider my-1" />
+                    <div className="text-xs text-base-content/50 px-2 py-1">Recent</div>
+                    {recentProjects.filter(p => p !== projectPath).slice(0, 5).map(p => (
+                      <button key={p} className="btn btn-ghost btn-xs btn-block justify-start truncate font-mono" title={p} onClick={() => handleOpenRecent(p)}>
+                        {p.split('/').slice(-2).join('/')}
+                      </button>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Path input modal (#95) */}
+      {showPathInput && (
+        <dialog className="modal modal-open" style={{ zIndex: 9999 }}>
+          <div className="modal-box max-w-md">
+            <h3 className="font-bold text-lg">
+              {showPathInput === 'open' ? 'Open Project' : 'New Project'}
+            </h3>
+            <p className="text-sm text-base-content/70 mt-1">
+              {showPathInput === 'open'
+                ? 'Enter the path to a folder containing data-dictionaries/'
+                : 'Enter the path where the new project should be created'}
+            </p>
+            {projectError && <div className="alert alert-error mt-2 py-2 text-sm">{projectError}</div>}
+            <div className="form-control mt-3">
+              <input
+                type="text"
+                className="input input-bordered font-mono text-sm"
+                placeholder="/Users/me/projects/my-dictionary"
+                value={pathInput}
+                onChange={e => setPathInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') showPathInput === 'open' ? handleOpenProject() : handleInitProject(); }}
+                autoFocus
+              />
+            </div>
+            <div className="modal-action">
+              <button className="btn btn-ghost" onClick={() => setShowPathInput(null)}>Cancel</button>
+              <button
+                className="btn btn-primary"
+                onClick={showPathInput === 'open' ? handleOpenProject : handleInitProject}
+                disabled={!pathInput.trim()}
+              >
+                {showPathInput === 'open' ? 'Open' : 'Create & Open'}
+              </button>
+            </div>
+          </div>
+          <form method="dialog" className="modal-backdrop"><button onClick={() => setShowPathInput(null)}>close</button></form>
+        </dialog>
+      )}
 
       <div className="navbar-end gap-1">
         {/* Git Status + Version Control */}

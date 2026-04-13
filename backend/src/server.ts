@@ -83,6 +83,9 @@ async function mountFrameworkRoutes() {
       const workspaceRoots = new Map<string, string>([
         ['dictionaries', config.dataDir],
       ]);
+      // Expose for project switching (#95) — updating this map re-points
+      // the git backend to the new data directory on next request.
+      (app as any).__workspaceRoots = workspaceRoots;
 
       const gitService = gitModule.createGitService(workspaceRoots);
       const gitEnricher = gitModule.createGitFileInfoEnricher({

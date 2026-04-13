@@ -5,18 +5,17 @@ import { Stereotype, StereotypeTarget, MetadataEntry } from '../models/EntitySch
 import { logger } from '../utils/logger.js';
 import { config } from '../kernel/config.js';
 
-const DATA_DICTIONARIES_DIR = config.dataDir;
-const STEREOTYPES_FILE = path.join(DATA_DICTIONARIES_DIR, 'stereotypes.yaml');
+const getStereotypesFile = () => path.join(config.dataDir, 'stereotypes.yaml');
 
 class StereotypeService {
   private readStereotypes(): Stereotype[] {
-    if (!fs.existsSync(STEREOTYPES_FILE)) return [];
-    const content = fs.readFileSync(STEREOTYPES_FILE, 'utf8');
+    if (!fs.existsSync(getStereotypesFile())) return [];
+    const content = fs.readFileSync(getStereotypesFile(), 'utf8');
     return YAML.parse(content) || [];
   }
 
   private writeStereotypes(stereotypes: Stereotype[]): void {
-    fs.writeFileSync(STEREOTYPES_FILE, YAML.stringify(stereotypes), 'utf8');
+    fs.writeFileSync(getStereotypesFile(), YAML.stringify(stereotypes), 'utf8');
   }
 
   async getAllStereotypes(appliesTo?: StereotypeTarget): Promise<Stereotype[]> {

@@ -12,15 +12,19 @@ dotenv.config();
 
 const isProduction = process.env.NODE_ENV === 'production';
 
+/** Mutable data directory — updated by /api/project/open (#95). */
+let _dataDir = process.env.DATA_DIR
+  || (isProduction
+    ? path.join(process.cwd(), 'data-dictionaries')
+    : path.join(process.cwd(), '..', 'data-dictionaries'));
+
 export const config = {
   /** Server port */
   port: parseInt(process.env.PORT || '3001', 10),
 
-  /** Base directory for data dictionaries (YAML files) */
-  dataDir: process.env.DATA_DIR
-    || (isProduction
-      ? path.join(process.cwd(), 'data-dictionaries')
-      : path.join(process.cwd(), '..', 'data-dictionaries')),
+  /** Base directory for data dictionaries (YAML files). Mutable at runtime (#95). */
+  get dataDir(): string { return _dataDir; },
+  set dataDir(v: string) { _dataDir = v; },
 
   /** Deployment profile: local | team | server */
   profile: (process.env.PROFILE || 'local') as 'local' | 'team' | 'server',

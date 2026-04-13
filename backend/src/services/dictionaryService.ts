@@ -8,8 +8,8 @@ import { ensureDirectoryStructure, listAllDictionaries, listAllEntities, listMic
 import { logger } from '../utils/logger.js';
 import { config } from '../kernel/config.js';
 
-// Base directory for data dictionaries - use centralized config
-const DATA_DICTIONARIES_DIR = config.dataDir;
+// Dynamic: reads current config.dataDir so project switching (#95) works.
+const getDataDir = () => config.dataDir;
 
 /**
  * Dictionary Service
@@ -33,7 +33,7 @@ export class DictionaryService {
       const nameError = this.validatePackageName(nameToValidate);
       if (nameError) return { success: false, errors: [nameError] };
 
-      const baseDir = path.join(DATA_DICTIONARIES_DIR, 'microservices', rootPackageName, ...packagePath);
+      const baseDir = path.join(getDataDir(), 'microservices', rootPackageName, ...packagePath);
       if (!fs.existsSync(baseDir)) {
         fs.mkdirSync(baseDir, { recursive: true });
       } else {
@@ -72,7 +72,7 @@ export class DictionaryService {
    */
   public async updatePackageAtPath(rootPackageName: string, packagePath: string[], packageData: Partial<Package>): Promise<{ success: boolean; errors?: string[]; package?: Package }> {
     try {
-      const baseDir = path.join(DATA_DICTIONARIES_DIR, 'microservices', rootPackageName, ...packagePath);
+      const baseDir = path.join(getDataDir(), 'microservices', rootPackageName, ...packagePath);
       if (!fs.existsSync(baseDir)) {
         return { success: false, errors: ['Package directory does not exist'] };
       }
@@ -115,7 +115,7 @@ export class DictionaryService {
    */
   public async deletePackageAtPath(rootPackageName: string, packagePath: string[], force = false): Promise<{ success: boolean; errors?: string[] }> {
     try {
-      const baseDir = path.join(DATA_DICTIONARIES_DIR, 'microservices', rootPackageName, ...packagePath);
+      const baseDir = path.join(getDataDir(), 'microservices', rootPackageName, ...packagePath);
       if (!fs.existsSync(baseDir)) {
         return { success: false, errors: ['Package directory does not exist'] };
       }
@@ -258,7 +258,7 @@ export class DictionaryService {
         };
       }
 
-      const metadataPath = path.join(DATA_DICTIONARIES_DIR, id, 'metadata.yaml');
+      const metadataPath = path.join(getDataDir(), id, 'metadata.yaml');
 
       if (!fs.existsSync(metadataPath)) {
         return null;
@@ -362,7 +362,7 @@ export class DictionaryService {
 
   public async getPackageHierarchy(rootPackage: string): Promise<Package | null> {
     try {
-      const dirPath = path.join(DATA_DICTIONARIES_DIR, 'microservices', rootPackage);
+      const dirPath = path.join(getDataDir(), 'microservices', rootPackage);
       if (!fs.existsSync(dirPath)) {
         return null;
       }
@@ -536,7 +536,7 @@ export class DictionaryService {
       };
 
       // Read relationships from package-level file
-      const packagePath = path.join(DATA_DICTIONARIES_DIR, 'microservices', microservice);
+      const packagePath = path.join(getDataDir(), 'microservices', microservice);
       const relationships = await readRelationshipsFile(packagePath);
 
       const children: any[] = [];
