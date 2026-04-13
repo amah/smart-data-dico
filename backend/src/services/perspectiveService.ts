@@ -183,16 +183,19 @@ class PerspectiveService {
       queue.push({ entityUuid: rootUuid, hopDistance: 0, pathSegments: [info.name], usedRelationships: new Set() });
     }
 
-    // Track visited paths to avoid duplicate processing
-    const visitedPaths = new Set<string>();
+    // Entity-visit-once (#96): each entity UUID resolves at most once,
+    // at the shortest hop distance (BFS guarantees this). Prevents
+    // exponential path explosion in cyclic relationship graphs.
+    const visitedEntities = new Set<string>();
 
     while (queue.length > 0) {
       const { entityUuid, hopDistance, pathSegments, usedRelationships, inboundNav } = queue.shift()!;
-      const currentPath = pathSegments.join('/');
 
-      // Skip if already visited this exact path
-      if (visitedPaths.has(currentPath)) continue;
-      visitedPaths.add(currentPath);
+      // Skip if this entity was already resolved via a shorter/earlier path
+      if (visitedEntities.has(entityUuid)) continue;
+      visitedEntities.add(entityUuid);
+
+      const currentPath = pathSegments.join('/');
 
       // Check for exclusion
       const node = nodesByPath.get(currentPath);
@@ -230,9 +233,11 @@ class PerspectiveService {
       // Don't traverse further from frontier nodes
       if (isFrontier) continue;
 
-      // Enqueue neighbors — skip relationships already used in this path (prevents cycles)
+      // Enqueue neighbors — skip already-visited entities and
+      // relationships already used in this path (prevents self-loops)
       const neighbors = adjacency.get(entityUuid) || [];
       for (const { neighborUuid, navName, relationshipUuid, fromCard, toCard } of neighbors) {
+        if (visitedEntities.has(neighborUuid)) continue;
         if (usedRelationships.has(relationshipUuid)) continue;
 
         const neighborInfo = entityMap.get(neighborUuid);
