@@ -1,4 +1,13 @@
-import { Perspective, ResolvedNode, ResolvedPerspective, PerspectiveNode, Relationship } from '../models/EntitySchema.js';
+import {
+  Perspective,
+  ResolvedNode,
+  ResolvedAttribute,
+  ResolvedPerspective,
+  PerspectiveNode,
+  Relationship,
+  Cardinality,
+  Entity,
+} from '../models/EntitySchema.js';
 import { listPerspectives, readPerspectiveFile, writePerspectiveFile, deletePerspectiveFile, getAllRelationships, listAllEntities, readEntityFile } from '../utils/fileOperations.js';
 import { generateUUID } from '../utils/uuid.js';
 import { logger } from '../utils/logger.js';
@@ -7,12 +16,46 @@ interface AdjacencyEntry {
   neighborUuid: string;
   navName: string;
   relationshipUuid: string;
+  /** Cardinality at the *origin* side of this edge (the side we're on). */
+  fromCard: Cardinality;
+  /** Cardinality at the *destination* side of this edge (the neighbor). */
+  toCard: Cardinality;
 }
 
 interface EntityInfo {
   uuid: string;
   name: string;
   service: string;
+  /** Slim attribute list for display in the perspective tree view. */
+  attributes: ResolvedAttribute[];
+  /** Entity-level metadata entries (for metadata-as-columns in the tree). */
+  metadata: MetadataEntry[];
+}
+
+/**
+ * Flatten an Entity's attributes to the slim shape used on ResolvedNode.
+ * Keeps only the fields the perspective tree renders, so we don't ship
+ * validation/metadata/nested items for every node.
+ *
+ * Also honours the legacy `metadata: [{ name: 'isPrimaryKey', value: true }]`
+ * shape that predates the top-level `Attribute.primaryKey` field — some
+ * older sample data and imported dictionaries still use it, and the tree
+ * view should flag those columns as PK without a data migration.
+ */
+function slimAttributes(entity: Entity): ResolvedAttribute[] {
+  return (entity.attributes || []).map(a => {
+    const out: ResolvedAttribute = {
+      name: a.name,
+      type: a.type,
+      required: !!a.required,
+    };
+    const legacyPk = (a.metadata || []).some(
+      m => m.name === 'isPrimaryKey' && m.value === true,
+    );
+    if (a.primaryKey || legacyPk) out.primaryKey = true;
+    if (a.metadata && a.metadata.length > 0) out.metadata = a.metadata;
+    return out;
+  });
 }
 
 class PerspectiveService {
@@ -115,8 +158,24 @@ class PerspectiveService {
     const maxDepth = perspective.maxDepth ?? 10;
     const resolvedNodes: ResolvedNode[] = [];
 
-    // BFS from each root entity
-    const queue: { entityUuid: string; hopDistance: number; pathSegments: string[]; usedRelationships: Set<string> }[] = [];
+    /**
+     * BFS queue item. `inboundNav` is the edge that reached this node from
+     * its parent during the traversal — undefined on roots. We carry it
+     * alongside the queue entry so it can be copied directly onto the
+     * resolved node without re-walking the adjacency map.
+     */
+    interface QueueItem {
+      entityUuid: string;
+      hopDistance: number;
+      pathSegments: string[];
+      usedRelationships: Set<string>;
+      inboundNav?: {
+        navName: string;
+        fromCard: Cardinality;
+        toCard: Cardinality;
+      };
+    }
+    const queue: QueueItem[] = [];
 
     for (const rootUuid of perspective.rootEntities) {
       const info = entityMap.get(rootUuid);
@@ -128,7 +187,7 @@ class PerspectiveService {
     const visitedPaths = new Set<string>();
 
     while (queue.length > 0) {
-      const { entityUuid, hopDistance, pathSegments, usedRelationships } = queue.shift()!;
+      const { entityUuid, hopDistance, pathSegments, usedRelationships, inboundNav } = queue.shift()!;
       const currentPath = pathSegments.join('/');
 
       // Skip if already visited this exact path
@@ -147,7 +206,7 @@ class PerspectiveService {
 
       const isFrontier = node?.traverse === false;
 
-      resolvedNodes.push({
+      const resolved: ResolvedNode = {
         entityUuid,
         entityName: info.name,
         service: info.service,
@@ -156,14 +215,24 @@ class PerspectiveService {
         isRoot: hopDistance === 0,
         isFrontier,
         isManualInclusion: false,
-      });
+        attributes: info.attributes,
+        metadata: info.metadata.length > 0 ? info.metadata : undefined,
+      };
+      if (inboundNav) {
+        resolved.navName = inboundNav.navName;
+        resolved.navCardinality = {
+          from: inboundNav.fromCard,
+          to: inboundNav.toCard,
+        };
+      }
+      resolvedNodes.push(resolved);
 
       // Don't traverse further from frontier nodes
       if (isFrontier) continue;
 
       // Enqueue neighbors — skip relationships already used in this path (prevents cycles)
       const neighbors = adjacency.get(entityUuid) || [];
-      for (const { neighborUuid, navName, relationshipUuid } of neighbors) {
+      for (const { neighborUuid, navName, relationshipUuid, fromCard, toCard } of neighbors) {
         if (usedRelationships.has(relationshipUuid)) continue;
 
         const neighborInfo = entityMap.get(neighborUuid);
@@ -183,6 +252,7 @@ class PerspectiveService {
           hopDistance: hopDistance + 1,
           pathSegments: newPath,
           usedRelationships: newUsed,
+          inboundNav: { navName, fromCard, toCard },
         });
       }
     }
@@ -242,12 +312,25 @@ class PerspectiveService {
     for (const entry of allEntities) {
       const entity = await readEntityFile(entry.microservice, entry.name);
       if (entity) {
-        map.set(entity.uuid, { uuid: entity.uuid, name: entity.name, service: entry.microservice });
+        map.set(entity.uuid, {
+          uuid: entity.uuid,
+          name: entity.name,
+          service: entry.microservice,
+          attributes: slimAttributes(entity),
+          metadata: entity.metadata || [],
+        });
       }
     }
     return map;
   }
 
+  /**
+   * Build undirected adjacency across all relationships. Each edge is
+   * stored *twice* — once at the source (neighbor = target) and once at
+   * the target (neighbor = source) — with nav-name and cardinality
+   * flipped for the direction of traversal. The BFS uses these tagged
+   * entries verbatim to emit navName/navCardinality on each child node.
+   */
   private async buildAdjacencyMap(): Promise<Map<string, AdjacencyEntry[]>> {
     const adjacency = new Map<string, AdjacencyEntry[]>();
 
@@ -259,13 +342,26 @@ class PerspectiveService {
         const srcNav = rel.source.name || rel.description || rel.uuid;
         const tgtNav = rel.target.name || rel.description || rel.uuid;
 
-        // Source → Target (using target nav name or description)
+        // Source → Target: arriving at the target end; navName is target
+        // side, from=source.cardinality, to=target.cardinality.
         if (!adjacency.has(srcUuid)) adjacency.set(srcUuid, []);
-        adjacency.get(srcUuid)!.push({ neighborUuid: tgtUuid, navName: tgtNav, relationshipUuid: rel.uuid });
+        adjacency.get(srcUuid)!.push({
+          neighborUuid: tgtUuid,
+          navName: tgtNav,
+          relationshipUuid: rel.uuid,
+          fromCard: rel.source.cardinality,
+          toCard: rel.target.cardinality,
+        });
 
-        // Target → Source (using source nav name or description)
+        // Target → Source: reverse traversal; flip both names and cards.
         if (!adjacency.has(tgtUuid)) adjacency.set(tgtUuid, []);
-        adjacency.get(tgtUuid)!.push({ neighborUuid: srcUuid, navName: srcNav, relationshipUuid: rel.uuid });
+        adjacency.get(tgtUuid)!.push({
+          neighborUuid: srcUuid,
+          navName: srcNav,
+          relationshipUuid: rel.uuid,
+          fromCard: rel.target.cardinality,
+          toCard: rel.source.cardinality,
+        });
       }
     }
 
