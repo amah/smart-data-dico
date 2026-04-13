@@ -84,6 +84,8 @@ export default function StereotypeForm({ initialValues, onSubmit, onCancel, isEd
           <option value="entity">Entity</option>
           <option value="attribute">Attribute</option>
           <option value="package">Package</option>
+          <option value="model">Model</option>
+          <option value="relationship">Relationship</option>
         </select>
       </div>
 

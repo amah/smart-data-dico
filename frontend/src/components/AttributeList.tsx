@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Attribute, AttributeType, Entity, Rule, RuleSeverityValue } from '../types';
-import { useStereotypeMetadata, getActiveColumns, getMetadataValue, setMetadataValue } from '../hooks/useStereotypeMetadata';
+import { useStereotypeMetadata, getMetadataValue, setMetadataValue } from '../hooks/useStereotypeMetadata';
 import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
 import InlineMetadataCell from './InlineMetadataCell';
 import EditableCell, { SelectOption } from './EditableCell';
@@ -53,7 +53,57 @@ const emptyDraft = (): DraftAttribute => ({
 const AttributeList = ({ attributes, entityName, entityUuid, serviceName, onAttributeUpdated }: AttributeListProps) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<AttributeType | 'all'>('all');
-  const { allColumns, loading: stereotypesLoading } = useStereotypeMetadata('attribute');
+  const { allColumns, columnsByStereotype } = useStereotypeMetadata('attribute');
+
+  // Column picker state (#91) — replaces auto-detect-only `getActiveColumns`
+  const ATTR_COL_KEY = 'attribute-list-columns';
+  const [visibleColumns, setVisibleColumns] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem(ATTR_COL_KEY);
+      if (saved) return new Set(JSON.parse(saved));
+    } catch { /* ignore */ }
+    return new Set<string>();
+  });
+  const [showColumnPicker, setShowColumnPicker] = useState(false);
+
+  // Auto-detect on first load when no localStorage exists
+  useEffect(() => {
+    if (attributes.length > 0 && allColumns.length > 0 && visibleColumns.size === 0) {
+      const used = new Set<string>();
+      for (const attr of attributes) {
+        for (const entry of attr.metadata || []) {
+          if (allColumns.some(c => c.name === entry.name)) used.add(entry.name);
+        }
+      }
+      if (used.size > 0) setVisibleColumns(used);
+    }
+  }, [attributes, allColumns]);
+
+  useEffect(() => {
+    localStorage.setItem(ATTR_COL_KEY, JSON.stringify([...visibleColumns]));
+  }, [visibleColumns]);
+
+  const toggleColumn = (name: string) => {
+    setVisibleColumns(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  const toggleGroup = (stereotypeId: string) => {
+    const groupCols = columnsByStereotype[stereotypeId] || [];
+    const allVisible = groupCols.every(c => visibleColumns.has(c.name));
+    setVisibleColumns(prev => {
+      const next = new Set(prev);
+      for (const col of groupCols) {
+        if (allVisible) next.delete(col.name);
+        else next.add(col.name);
+      }
+      return next;
+    });
+  };
 
   // Inline editing state
   const [drafts, setDrafts] = useState<DraftAttribute[]>([]);
@@ -101,8 +151,7 @@ const AttributeList = ({ attributes, entityName, entityUuid, serviceName, onAttr
     );
   };
 
-  // Detect which metadata columns are relevant for this set of attributes
-  const metadataColumns = getActiveColumns(attributes, allColumns);
+  const metadataColumns = allColumns.filter(c => visibleColumns.has(c.name));
 
   const filteredAttributes = attributes.filter(attr => {
     const matchesSearch = searchTerm === '' ||
@@ -275,6 +324,64 @@ const AttributeList = ({ attributes, entityName, entityUuid, serviceName, onAttr
             <option key={type} value={type}>{type}</option>
           ))}
         </select>
+
+        {/* Metadata column picker */}
+        {allColumns.length > 0 && (
+          <div className="relative">
+            <button
+              className="btn btn-sm btn-outline gap-1"
+              onClick={() => setShowColumnPicker(!showColumnPicker)}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" />
+              </svg>
+              Columns
+              {metadataColumns.length > 0 && (
+                <span className="badge badge-xs badge-primary">{metadataColumns.length}</span>
+              )}
+            </button>
+
+            {showColumnPicker && (
+              <div className="absolute right-0 top-full mt-1 z-50 bg-base-100 border border-base-300 rounded-lg shadow-lg p-3 min-w-[220px] max-h-[400px] overflow-y-auto">
+                {Object.entries(columnsByStereotype).map(([stId, cols]) => {
+                  const allOn = cols.every(c => visibleColumns.has(c.name));
+                  return (
+                    <div key={stId} className="mb-2">
+                      <label className="flex items-center gap-2 font-semibold text-sm cursor-pointer mb-1">
+                        <input
+                          type="checkbox"
+                          className="checkbox checkbox-xs checkbox-primary"
+                          checked={allOn}
+                          onChange={() => toggleGroup(stId)}
+                        />
+                        {cols[0]?.stereotypeName || stId}
+                      </label>
+                      {cols.map(col => (
+                        <label key={col.name} className="flex items-center gap-2 ml-4 text-sm cursor-pointer">
+                          <input
+                            type="checkbox"
+                            className="checkbox checkbox-xs"
+                            checked={visibleColumns.has(col.name)}
+                            onChange={() => toggleColumn(col.name)}
+                          />
+                          {col.label}
+                        </label>
+                      ))}
+                    </div>
+                  );
+                })}
+                <div className="border-t border-base-300 mt-2 pt-2 flex gap-2">
+                  <button className="btn btn-xs" onClick={() => setVisibleColumns(new Set(allColumns.map(c => c.name)))}>
+                    All
+                  </button>
+                  <button className="btn btn-xs" onClick={() => setVisibleColumns(new Set())}>
+                    None
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {filteredAttributes.length === 0 ? (
