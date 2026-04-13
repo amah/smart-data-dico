@@ -173,7 +173,7 @@ router.get('/api/filesystem/browse', (req, res) => {
   if (config.profile !== 'local') {
     return res.status(403).json({ message: 'Filesystem browsing is only available in local mode' });
   }
-  const dirPath = (req.query.path as string) || require('os').homedir();
+  const dirPath = (req.query.path as string) || os.homedir();
   const resolved = path.resolve(dirPath);
   if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
     return res.status(400).json({ message: `Not a directory: ${resolved}` });
@@ -247,7 +247,7 @@ router.post('/api/project/close', authorizeJwt([UserRole.ADMIN]), (req, res) => 
     return res.status(403).json({ message: 'Project switching is only available in local mode' });
   }
   // Reset to the default (empty-ish) — callers should treat isOpen=false as "no project"
-  const emptyDir = path.join(require('os').tmpdir(), 'smart-data-dico-closed');
+  const emptyDir = path.join(os.tmpdir(), 'smart-data-dico-closed');
   if (!fs.existsSync(emptyDir)) fs.mkdirSync(emptyDir, { recursive: true });
   config.dataDir = emptyDir;
   const roots = (req.app as any).__workspaceRoots as Map<string, string> | undefined;
@@ -287,6 +287,7 @@ router.post('/api/project/init', authorizeJwt([UserRole.ADMIN]), (req, res) => {
 // Model-level metadata (#94) — stored in data-dictionaries/metadata.yaml
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import YAML from 'yaml';
 import { config } from '../kernel/config.js';
 const getModelMetaPath = () => path.join(config.dataDir, 'metadata.yaml');
