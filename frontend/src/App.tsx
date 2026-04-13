@@ -13,6 +13,7 @@ import RuleBrowserPage from './pages/RuleBrowserPage';
 import IntegrityPage from './pages/IntegrityPage';
 import LogicalDiffPage from './pages/LogicalDiffPage';
 import PhysicalDiffPage from './pages/PhysicalDiffPage';
+import VisualizationPage from './pages/VisualizationPage';
 import PerspectiveListPage from './pages/PerspectiveListPage';
 import PerspectiveDetailPage from './pages/PerspectiveDetailPage';
 import PerspectiveCreatePage from './pages/PerspectiveCreatePage';
@@ -86,6 +87,11 @@ function App() {
 
         {/* Organization Diagram */}
         <Route path="diagram" element={<OrganizationDiagramPage />} />
+
+        {/* Visualization — per-entity, per-service, or perspective overlay */}
+        <Route path="visualization" element={<VisualizationPage />} />
+        <Route path="visualization/:service" element={<VisualizationPage />} />
+        <Route path="visualization/:service/:entity" element={<VisualizationPage />} />
 
         {/* Import/Export + Quality */}
         <Route path="import-export" element={<ImportExportPage />} />

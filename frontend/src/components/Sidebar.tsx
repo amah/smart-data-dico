@@ -47,7 +47,9 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
   }, []);
 
   const isActive = (path: string) => {
-    return location.pathname.startsWith(path);
+    // Exact match OR the pathname continues with '/' (sub-route).
+    // Prevents '/entities/Order' from matching '/entities/OrderItem'.
+    return location.pathname === path || location.pathname.startsWith(path + '/');
   };
 
   // Toggle expand/collapse for package tree
