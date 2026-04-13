@@ -6,7 +6,7 @@ import { generateUUID, generateEntityFilename } from './uuid.js';
 import { Entity, EntityAttribute, EntityRelationship, createEntityWithUUIDs } from '../models/EntitySchema.js';
 import { config } from '../kernel/config.js';
 
-const DATA_DICTIONARIES_DIR = config.dataDir;
+const getDataDir = () => config.dataDir;
 
 /**
  * Migrates all existing entities to use UUIDs
@@ -14,7 +14,7 @@ const DATA_DICTIONARIES_DIR = config.dataDir;
 export async function migrateEntitiesToUUID(): Promise<void> {
   logger.info('Starting migration of entities to UUID format...');
   
-  const microservicesDir = path.join(DATA_DICTIONARIES_DIR, 'microservices');
+  const microservicesDir = path.join(getDataDir(), 'microservices');
   
   if (!fs.existsSync(microservicesDir)) {
     logger.info('No microservices directory found, nothing to migrate');
@@ -140,7 +140,7 @@ function migrateRelationshipToUUID(rel: any): EntityRelationship {
 export async function migrateDiagramLayoutsToUUID(): Promise<void> {
   logger.info('Starting migration of diagram layouts to UUID format...');
   
-  const diagramsDir = path.join(DATA_DICTIONARIES_DIR, 'diagrams');
+  const diagramsDir = path.join(getDataDir(), 'diagrams');
   
   if (!fs.existsSync(diagramsDir)) {
     logger.info('No diagrams directory found, nothing to migrate');
@@ -209,7 +209,7 @@ export async function migrateDiagramLayoutsToUUID(): Promise<void> {
 async function buildEntityNameToUUIDMapping(): Promise<Map<string, string>> {
   const mapping = new Map<string, string>();
   
-  const microservicesDir = path.join(DATA_DICTIONARIES_DIR, 'microservices');
+  const microservicesDir = path.join(getDataDir(), 'microservices');
   
   if (!fs.existsSync(microservicesDir)) {
     return mapping;

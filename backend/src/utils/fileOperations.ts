@@ -9,7 +9,8 @@ import { generateEntityFilename, extractUUIDFromFilename } from './uuid.js';
 import { config } from '../kernel/config.js';
 
 // Base directory for data dictionaries
-const DATA_DICTIONARIES_DIR = config.dataDir;
+/** Always reads current config.dataDir so project switching (#95) works. */
+const getDataDir = () => config.dataDir;
 
 /**
  * Predicate: is a file in a package directory an entity YAML?
@@ -122,7 +123,7 @@ async function getGitService() {
   try {
     const gitModule = await import('@hamak/ui-remote-git-fs-backend');
     const workspaceRoots = new Map<string, string>([
-      ['dictionaries', DATA_DICTIONARIES_DIR],
+      ['dictionaries', getDataDir()],
     ]);
     gitServiceInstance = gitModule.createGitService(workspaceRoots);
     return gitServiceInstance;
@@ -136,7 +137,7 @@ async function getGitService() {
  * Ensures the data dictionaries directory structure exists
  */
 export async function ensureDirectoryStructure(): Promise<void> {
-  const baseDir = DATA_DICTIONARIES_DIR;
+  const baseDir = getDataDir();
   const microservicesDir = path.join(baseDir, 'microservices');
 
   if (!fs.existsSync(baseDir)) {
@@ -164,7 +165,7 @@ export async function ensureDirectoryStructure(): Promise<void> {
 export async function readEntityFile(packageName: string, entityName: string): Promise<Entity | null> {
   const startTime = process.hrtime();
   try {
-    const packagePath = path.join(DATA_DICTIONARIES_DIR, 'microservices', packageName);
+    const packagePath = path.join(getDataDir(), 'microservices', packageName);
 
     if (!fs.existsSync(packagePath)) {
       logger.warn(`Package directory not found: ${packagePath}`);
@@ -246,7 +247,7 @@ export async function writeEntityFile(entity: Entity, packageName?: string): Pro
       return false;
     }
 
-    const packageDir = path.join(DATA_DICTIONARIES_DIR, 'microservices', pkgName);
+    const packageDir = path.join(getDataDir(), 'microservices', pkgName);
 
     if (!fs.existsSync(packageDir)) {
       fs.mkdirSync(packageDir, { recursive: true });
@@ -350,7 +351,7 @@ export async function writeRelationshipsFile(packagePath: string, relationships:
  * Gets the full path for a package directory
  */
 export function getPackagePath(packageName: string): string {
-  return path.join(DATA_DICTIONARIES_DIR, 'microservices', packageName);
+  return path.join(getDataDir(), 'microservices', packageName);
 }
 
 /**
@@ -358,7 +359,7 @@ export function getPackagePath(packageName: string): string {
  */
 export async function listAllEntities(): Promise<Array<{ microservice: string; name: string; path: string }>> {
   try {
-    const microservicesDir = path.join(DATA_DICTIONARIES_DIR, 'microservices');
+    const microservicesDir = path.join(getDataDir(), 'microservices');
     const entities: Array<{ microservice: string; name: string; path: string }> = [];
 
     if (!fs.existsSync(microservicesDir)) {
@@ -395,7 +396,7 @@ export async function listAllEntities(): Promise<Array<{ microservice: string; n
 export async function listMicroserviceEntities(microservice: string): Promise<string[]> {
   const startTime = process.hrtime();
   try {
-    const microservicePath = path.join(DATA_DICTIONARIES_DIR, 'microservices', microservice);
+    const microservicePath = path.join(getDataDir(), 'microservices', microservice);
 
     if (!fs.existsSync(microservicePath)) {
       return [];
@@ -430,7 +431,7 @@ export async function listMicroserviceEntities(microservice: string): Promise<st
  */
 export async function listMicroservices(): Promise<string[]> {
   try {
-    const microservicesDir = path.join(DATA_DICTIONARIES_DIR, 'microservices');
+    const microservicesDir = path.join(getDataDir(), 'microservices');
 
     if (!fs.existsSync(microservicesDir)) {
       return [];
@@ -472,7 +473,7 @@ async function commitChanges(filePath: string, message: string): Promise<void> {
  */
 export async function deleteEntityFile(microservice: string, entityName: string): Promise<boolean> {
   try {
-    const microservicePath = path.join(DATA_DICTIONARIES_DIR, 'microservices', microservice);
+    const microservicePath = path.join(getDataDir(), 'microservices', microservice);
 
     if (!fs.existsSync(microservicePath)) {
       logger.warn(`Package directory not found: ${microservicePath}`);
@@ -528,7 +529,7 @@ export async function deleteEntityFile(microservice: string, entityName: string)
  */
 export async function writeDictionaryMetadata(dictionary: Dictionary): Promise<boolean> {
   try {
-    const dictionaryDir = path.join(DATA_DICTIONARIES_DIR, dictionary.id);
+    const dictionaryDir = path.join(getDataDir(), dictionary.id);
 
     if (!fs.existsSync(dictionaryDir)) {
       fs.mkdirSync(dictionaryDir, { recursive: true });
@@ -569,7 +570,7 @@ export async function writeDictionaryMetadata(dictionary: Dictionary): Promise<b
  */
 export async function listAllDictionaries(): Promise<string[]> {
   try {
-    const baseDir = DATA_DICTIONARIES_DIR;
+    const baseDir = getDataDir();
     const dictionaries: string[] = [];
 
     if (!fs.existsSync(baseDir)) {
@@ -603,14 +604,14 @@ export async function listAllDictionaries(): Promise<string[]> {
 
 // --- Perspective file operations ---
 
-const PERSPECTIVES_DIR = path.join(DATA_DICTIONARIES_DIR, 'perspectives');
+const getPerspectivesDir = () => path.join(getDataDir(), 'perspectives');
 
 export async function listPerspectives(): Promise<Perspective[]> {
   try {
-    if (!fs.existsSync(PERSPECTIVES_DIR)) return [];
-    const files = fs.readdirSync(PERSPECTIVES_DIR).filter(f => f.endsWith('.yaml'));
+    if (!fs.existsSync(getPerspectivesDir())) return [];
+    const files = fs.readdirSync(getPerspectivesDir()).filter(f => f.endsWith('.yaml'));
     return files.map(f => {
-      const content = fs.readFileSync(path.join(PERSPECTIVES_DIR, f), 'utf8');
+      const content = fs.readFileSync(path.join(getPerspectivesDir(), f), 'utf8');
       return YAML.parse(content) as Perspective;
     }).filter(Boolean);
   } catch (error) {
@@ -622,16 +623,16 @@ export async function listPerspectives(): Promise<Perspective[]> {
 export async function readPerspectiveFile(uuid: string): Promise<Perspective | null> {
   try {
     // First try direct filename match
-    const directPath = path.join(PERSPECTIVES_DIR, `${uuid}.yaml`);
+    const directPath = path.join(getPerspectivesDir(), `${uuid}.yaml`);
     if (fs.existsSync(directPath)) {
       const content = fs.readFileSync(directPath, 'utf8');
       return YAML.parse(content) as Perspective;
     }
     // Fall back to scanning all files for matching uuid field
-    if (!fs.existsSync(PERSPECTIVES_DIR)) return null;
-    const files = fs.readdirSync(PERSPECTIVES_DIR).filter(f => f.endsWith('.yaml'));
+    if (!fs.existsSync(getPerspectivesDir())) return null;
+    const files = fs.readdirSync(getPerspectivesDir()).filter(f => f.endsWith('.yaml'));
     for (const f of files) {
-      const content = fs.readFileSync(path.join(PERSPECTIVES_DIR, f), 'utf8');
+      const content = fs.readFileSync(path.join(getPerspectivesDir(), f), 'utf8');
       const perspective = YAML.parse(content) as Perspective;
       if (perspective?.uuid === uuid) return perspective;
     }
@@ -644,10 +645,10 @@ export async function readPerspectiveFile(uuid: string): Promise<Perspective | n
 
 export async function writePerspectiveFile(perspective: Perspective): Promise<boolean> {
   try {
-    if (!fs.existsSync(PERSPECTIVES_DIR)) {
-      fs.mkdirSync(PERSPECTIVES_DIR, { recursive: true });
+    if (!fs.existsSync(getPerspectivesDir())) {
+      fs.mkdirSync(getPerspectivesDir(), { recursive: true });
     }
-    const filePath = path.join(PERSPECTIVES_DIR, `${perspective.uuid}.yaml`);
+    const filePath = path.join(getPerspectivesDir(), `${perspective.uuid}.yaml`);
     fs.writeFileSync(filePath, YAML.stringify(perspective), 'utf8');
     return true;
   } catch (error) {
@@ -659,18 +660,18 @@ export async function writePerspectiveFile(perspective: Perspective): Promise<bo
 export async function deletePerspectiveFile(uuid: string): Promise<boolean> {
   try {
     // Try direct filename match first, then scan by uuid field
-    const directPath = path.join(PERSPECTIVES_DIR, `${uuid}.yaml`);
+    const directPath = path.join(getPerspectivesDir(), `${uuid}.yaml`);
     if (fs.existsSync(directPath)) {
       fs.unlinkSync(directPath);
       return true;
     }
-    if (!fs.existsSync(PERSPECTIVES_DIR)) return false;
-    const files = fs.readdirSync(PERSPECTIVES_DIR).filter(f => f.endsWith('.yaml'));
+    if (!fs.existsSync(getPerspectivesDir())) return false;
+    const files = fs.readdirSync(getPerspectivesDir()).filter(f => f.endsWith('.yaml'));
     for (const f of files) {
-      const content = fs.readFileSync(path.join(PERSPECTIVES_DIR, f), 'utf8');
+      const content = fs.readFileSync(path.join(getPerspectivesDir(), f), 'utf8');
       const perspective = YAML.parse(content) as Perspective;
       if (perspective?.uuid === uuid) {
-        fs.unlinkSync(path.join(PERSPECTIVES_DIR, f));
+        fs.unlinkSync(path.join(getPerspectivesDir(), f));
         return true;
       }
     }
@@ -689,7 +690,7 @@ export async function getAllRelationships(): Promise<{ packageName: string; rela
   try {
     const microservices = await listMicroservices();
     for (const ms of microservices) {
-      const pkgPath = path.join(DATA_DICTIONARIES_DIR, 'microservices', ms);
+      const pkgPath = path.join(getDataDir(), 'microservices', ms);
       const rels = await readRelationshipsFile(pkgPath);
       if (rels.length > 0) {
         result.push({ packageName: ms, relationships: rels });
@@ -705,7 +706,7 @@ export async function getAllRelationships(): Promise<{ packageName: string; rela
 
 export async function readComments(service: string, entityUuid: string): Promise<ReviewComment[]> {
   try {
-    const filePath = path.join(DATA_DICTIONARIES_DIR, 'microservices', service, `${entityUuid}.comments.yaml`);
+    const filePath = path.join(getDataDir(), 'microservices', service, `${entityUuid}.comments.yaml`);
     if (!fs.existsSync(filePath)) return [];
     const content = fs.readFileSync(filePath, 'utf8');
     return YAML.parse(content) || [];
@@ -717,7 +718,7 @@ export async function readComments(service: string, entityUuid: string): Promise
 
 export async function writeComments(service: string, entityUuid: string, comments: ReviewComment[]): Promise<boolean> {
   try {
-    const filePath = path.join(DATA_DICTIONARIES_DIR, 'microservices', service, `${entityUuid}.comments.yaml`);
+    const filePath = path.join(getDataDir(), 'microservices', service, `${entityUuid}.comments.yaml`);
     fs.writeFileSync(filePath, YAML.stringify(comments), 'utf8');
     return true;
   } catch (error) {
@@ -736,7 +737,7 @@ export async function writeComments(service: string, entityUuid: string, comment
 /** Read entity-sidecar rules for a single entity. */
 export async function readEntityRules(service: string, entityUuid: string): Promise<Rule[]> {
   try {
-    const filePath = path.join(DATA_DICTIONARIES_DIR, 'microservices', service, `${entityUuid}.rules.yaml`);
+    const filePath = path.join(getDataDir(), 'microservices', service, `${entityUuid}.rules.yaml`);
     if (!fs.existsSync(filePath)) return [];
     const content = fs.readFileSync(filePath, 'utf8');
     return YAML.parse(content) || [];
@@ -749,7 +750,7 @@ export async function readEntityRules(service: string, entityUuid: string): Prom
 /** Write entity-sidecar rules for a single entity. */
 export async function writeEntityRules(service: string, entityUuid: string, rules: Rule[]): Promise<boolean> {
   try {
-    const filePath = path.join(DATA_DICTIONARIES_DIR, 'microservices', service, `${entityUuid}.rules.yaml`);
+    const filePath = path.join(getDataDir(), 'microservices', service, `${entityUuid}.rules.yaml`);
     if (rules.length === 0) {
       // Delete the sidecar file when there are no rules left, to keep the tree clean
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
@@ -766,7 +767,7 @@ export async function writeEntityRules(service: string, entityUuid: string, rule
 /** Read package-scoped rules from a single package's rules.yaml. */
 export async function readPackageRules(service: string): Promise<Rule[]> {
   try {
-    const filePath = path.join(DATA_DICTIONARIES_DIR, 'microservices', service, 'rules.yaml');
+    const filePath = path.join(getDataDir(), 'microservices', service, 'rules.yaml');
     if (!fs.existsSync(filePath)) return [];
     const content = fs.readFileSync(filePath, 'utf8');
     return YAML.parse(content) || [];
@@ -779,7 +780,7 @@ export async function readPackageRules(service: string): Promise<Rule[]> {
 /** Write package-scoped rules. */
 export async function writePackageRules(service: string, rules: Rule[]): Promise<boolean> {
   try {
-    const filePath = path.join(DATA_DICTIONARIES_DIR, 'microservices', service, 'rules.yaml');
+    const filePath = path.join(getDataDir(), 'microservices', service, 'rules.yaml');
     if (rules.length === 0) {
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
       return true;
@@ -799,7 +800,7 @@ export async function writePackageRules(service: string, rules: Rule[]): Promise
 export async function listAllEntityRuleFiles(): Promise<Array<{ service: string; entityUuid: string }>> {
   const result: Array<{ service: string; entityUuid: string }> = [];
   try {
-    const microservicesDir = path.join(DATA_DICTIONARIES_DIR, 'microservices');
+    const microservicesDir = path.join(getDataDir(), 'microservices');
     if (!fs.existsSync(microservicesDir)) return [];
     const services = fs.readdirSync(microservicesDir).filter(s =>
       fs.statSync(path.join(microservicesDir, s)).isDirectory()
@@ -821,7 +822,7 @@ export async function listAllEntityRuleFiles(): Promise<Array<{ service: string;
 /** List all packages that have a package-level rules.yaml. */
 export async function listPackagesWithRules(): Promise<string[]> {
   try {
-    const microservicesDir = path.join(DATA_DICTIONARIES_DIR, 'microservices');
+    const microservicesDir = path.join(getDataDir(), 'microservices');
     if (!fs.existsSync(microservicesDir)) return [];
     return fs.readdirSync(microservicesDir).filter(service => {
       const serviceDir = path.join(microservicesDir, service);
@@ -864,13 +865,13 @@ export async function writePerspectiveRules(perspectiveUuid: string, rules: Rule
 // Global (cross-package) rules (#75)
 // ────────────────────────────────────────────────────────────────────────
 
-const GLOBAL_RULES_PATH = path.join(DATA_DICTIONARIES_DIR, 'rules.yaml');
+const getGlobalRulesPath = () => path.join(getDataDir(), 'rules.yaml');
 
 /** Read the global rules file (cross-package rules only). */
 export async function readGlobalRules(): Promise<Rule[]> {
   try {
-    if (!fs.existsSync(GLOBAL_RULES_PATH)) return [];
-    const content = fs.readFileSync(GLOBAL_RULES_PATH, 'utf8');
+    if (!fs.existsSync(getGlobalRulesPath())) return [];
+    const content = fs.readFileSync(getGlobalRulesPath(), 'utf8');
     return YAML.parse(content) || [];
   } catch (error) {
     logger.error(`Error reading global rules: ${error}`);
@@ -882,10 +883,10 @@ export async function readGlobalRules(): Promise<Rule[]> {
 export async function writeGlobalRules(rules: Rule[]): Promise<boolean> {
   try {
     if (rules.length === 0) {
-      if (fs.existsSync(GLOBAL_RULES_PATH)) fs.unlinkSync(GLOBAL_RULES_PATH);
+      if (fs.existsSync(getGlobalRulesPath())) fs.unlinkSync(getGlobalRulesPath());
       return true;
     }
-    fs.writeFileSync(GLOBAL_RULES_PATH, YAML.stringify(rules), 'utf8');
+    fs.writeFileSync(getGlobalRulesPath(), YAML.stringify(rules), 'utf8');
     return true;
   } catch (error) {
     logger.error(`Error writing global rules: ${error}`);

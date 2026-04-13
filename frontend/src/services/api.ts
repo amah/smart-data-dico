@@ -373,6 +373,26 @@ export const importExportApi = {
 };
 
 // Diff API (#86)
+// Project management (#95)
+export const projectApi = {
+  get: async () => {
+    const response = await api.get('/project');
+    return response.data.data;
+  },
+  open: async (dirPath: string) => {
+    const response = await api.post('/project/open', { path: dirPath });
+    return response.data;
+  },
+  close: async () => {
+    const response = await api.post('/project/close');
+    return response.data;
+  },
+  init: async (dirPath: string) => {
+    const response = await api.post('/project/init', { path: dirPath });
+    return response.data;
+  },
+};
+
 // Model-level metadata (#94)
 export const modelApi = {
   getMetadata: async () => {
