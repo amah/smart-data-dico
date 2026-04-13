@@ -59,7 +59,7 @@ const HomePage = () => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {packages.map((pkg) => (
-            <div key={pkg.name} className="card bg-base-200 shadow-sm hover:shadow-md transition-shadow">
+            <div key={pkg.name} className="card bg-base-200 border border-base-300 shadow-md hover:shadow-lg transition-shadow">
               <div className="card-body p-5">
                 <h3 className="card-title text-lg font-mono">{pkg.name}</h3>
                 <div className="text-xs text-base-content/60 mt-1">
