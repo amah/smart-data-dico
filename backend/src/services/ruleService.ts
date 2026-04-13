@@ -17,6 +17,8 @@ import {
   writePackageRules,
   readPerspectiveRules,
   writePerspectiveRules,
+  readGlobalRules,
+  writeGlobalRules,
   listAllEntityRuleFiles,
   listPackagesWithRules,
   listPerspectives,
@@ -62,6 +64,12 @@ class RuleService {
         const rules = await readPackageRules(pkg);
         all.push(...rules);
       }
+    }
+
+    // Global (cross-package) rules (#75)
+    if (!filters.scope || filters.scope === 'global') {
+      const globalRules = await readGlobalRules();
+      all.push(...globalRules);
     }
 
     // Perspective-scoped rules
@@ -123,7 +131,7 @@ class RuleService {
     if (errors.length > 0) {
       return { success: false, errors };
     }
-    const rule: Rule = {
+    let rule: Rule = {
       uuid: generateUUID(),
       name: input.name!,
       description: input.description!,
@@ -140,6 +148,8 @@ class RuleService {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
+    // Auto-promote/demote based on target packages (#75)
+    rule = await this.applyAutoScope(rule);
     const saved = await this.saveRuleToScope(rule);
     if (!saved) return { success: false, errors: ['Failed to write rule to storage'] };
     return { success: true, rule };
@@ -150,7 +160,7 @@ class RuleService {
     const existing = await this.getRule(uuid);
     if (!existing) return { success: false, errors: [`Rule ${uuid} not found`] };
 
-    const merged: Rule = {
+    let merged: Rule = {
       ...existing,
       ...input,
       uuid: existing.uuid,
@@ -159,6 +169,9 @@ class RuleService {
     };
     const errors = validateRule(merged);
     if (errors.length > 0) return { success: false, errors };
+
+    // Auto-promote/demote based on target packages (#75)
+    merged = await this.applyAutoScope(merged, existing.scope, existing.packageName);
 
     // If scope or scope-anchor changed, remove from old location first
     const scopeMoved =
@@ -217,6 +230,11 @@ class RuleService {
         const updated = [...existing.filter(r => r.uuid !== rule.uuid), rule];
         return writePerspectiveRules(rule.perspectiveUuid, updated);
       }
+      case 'global': {
+        const existing = await readGlobalRules();
+        const updated = [...existing.filter(r => r.uuid !== rule.uuid), rule];
+        return writeGlobalRules(updated);
+      }
       default:
         return false;
     }
@@ -245,9 +263,59 @@ class RuleService {
         const updated = existing.filter(r => r.uuid !== rule.uuid);
         return writePerspectiveRules(rule.perspectiveUuid, updated);
       }
+      case 'global': {
+        const existing = await readGlobalRules();
+        const updated = existing.filter(r => r.uuid !== rule.uuid);
+        return writeGlobalRules(updated);
+      }
       default:
         return false;
     }
+  }
+
+  // ─── Auto-promote / auto-demote (#75) ────────────────────────────────
+
+  /**
+   * Determine the correct scope for a rule based on its targets.
+   * Called before save. If targets span 2+ packages → global.
+   * If all targets are in one package → that package's scope (keep
+   * the caller's intent for entity vs package).
+   */
+  private resolveScope(rule: Rule): { scope: RuleScope; packageName?: string } {
+    const packages = new Set<string>();
+    for (const t of rule.targets) {
+      if (t.packageName) packages.add(t.packageName);
+    }
+    if (packages.size >= 2) {
+      return { scope: 'global' };
+    }
+    // If all targets share one package, use the caller's original scope
+    // (entity or package) rather than force-upgrading.
+    if (packages.size === 1) {
+      const pkg = [...packages][0];
+      if (rule.scope === 'global') {
+        // Auto-demote: was global, now all targets in one package → package scope
+        return { scope: 'package', packageName: pkg };
+      }
+    }
+    return { scope: rule.scope, packageName: rule.packageName };
+  }
+
+  /**
+   * Wrap around createRule/updateRule to apply auto-promote/demote.
+   * Checks if the resolved scope differs from what the caller requested
+   * and adjusts accordingly — including moving the rule between files.
+   */
+  private async applyAutoScope(rule: Rule, oldScope?: RuleScope, oldPkg?: string): Promise<Rule> {
+    const resolved = this.resolveScope(rule);
+    if (resolved.scope !== rule.scope) {
+      logger.info(`Auto-${resolved.scope === 'global' ? 'promote' : 'demote'} rule ${rule.uuid}: ${rule.scope} → ${resolved.scope}`);
+    }
+    rule.scope = resolved.scope;
+    if (resolved.packageName !== undefined) {
+      rule.packageName = resolved.packageName;
+    }
+    return rule;
   }
 }
 

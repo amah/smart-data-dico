@@ -29,6 +29,7 @@ const sourceChipFor = (rule: Rule): { label: string; cls: string } => {
     case 'entity': return { label: 'entity', cls: 'badge-primary' };
     case 'package': return { label: 'package', cls: 'badge-secondary' };
     case 'perspective': return { label: 'perspective', cls: 'badge-accent' };
+    case 'global': return { label: 'global', cls: 'badge-warning' };
     default: return { label: rule.scope, cls: 'badge-ghost' };
   }
 };
@@ -147,6 +148,13 @@ const EntityRulesList = ({
                       {rule.enforcement}
                     </span>
                     <span className={`badge badge-xs ${source.cls}`}>{source.label}</span>
+                    {rule.scope === 'global' && (
+                      <>
+                        {[...new Set(rule.targets.map(t => t.packageName).filter(Boolean))].map(pkg => (
+                          <span key={pkg} className="badge badge-xs badge-outline">{pkg}</span>
+                        ))}
+                      </>
+                    )}
                   </div>
                 </div>
 

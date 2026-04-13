@@ -67,6 +67,7 @@ const RuleBrowserPage = () => {
       case 'entity': return 'badge-primary';
       case 'package': return 'badge-secondary';
       case 'perspective': return 'badge-accent';
+      case 'global': return 'badge-warning';
       default: return 'badge-ghost';
     }
   };
@@ -113,6 +114,7 @@ const RuleBrowserPage = () => {
           <option value="entity">Entity</option>
           <option value="package">Package</option>
           <option value="perspective">Perspective</option>
+          <option value="global">Global (cross-package)</option>
         </select>
         <select
           className="select select-sm select-bordered"
@@ -190,6 +192,13 @@ const RuleBrowserPage = () => {
                       <span className={`badge badge-xs ${scopeBadgeClass(rule.scope)}`}>
                         {rule.scope}
                       </span>
+                      {rule.scope === 'global' && (
+                        <span className="ml-1">
+                          {[...new Set(rule.targets.map(t => t.packageName).filter(Boolean))].map(pkg => (
+                            <span key={pkg} className="badge badge-xs badge-outline ml-0.5">{pkg}</span>
+                          ))}
+                        </span>
+                      )}
                     </td>
                     <td className="max-w-md">
                       <div className="prose prose-xs prose-invert max-w-none line-clamp-2 text-sm">

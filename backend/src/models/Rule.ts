@@ -8,7 +8,7 @@
  */
 
 /** Where a rule lives — determines storage location and lookup */
-export type RuleScope = 'entity' | 'package' | 'perspective';
+export type RuleScope = 'entity' | 'package' | 'perspective' | 'global';
 
 /** Severity of a rule's violation — answers HOW BAD */
 export type RuleSeverityValue = 'info' | 'warning' | 'error';
@@ -42,6 +42,12 @@ export interface RuleTarget {
   uuid: string;
   /** For attributes: the parent entity UUID, so we can resolve without scanning */
   entityUuid?: string;
+  /**
+   * Package (service) the target lives in. Required on global rules so
+   * cross-package resolution can scope lookups without scanning every
+   * package. Set automatically by auto-promote when a rule becomes global.
+   */
+  packageName?: string;
   /** For perspective nodes: the path within the perspective (e.g. "Order.customer.address") */
   perspectivePath?: string;
 }
@@ -116,8 +122,8 @@ export function validateRule(rule: Partial<Rule>): string[] {
   if (!rule.enforcement || !['save', 'process', 'advisory'].includes(rule.enforcement)) {
     errors.push('Rule enforcement must be one of: save, process, advisory');
   }
-  if (!rule.scope || !['entity', 'package', 'perspective'].includes(rule.scope)) {
-    errors.push('Rule scope must be one of: entity, package, perspective');
+  if (!rule.scope || !['entity', 'package', 'perspective', 'global'].includes(rule.scope)) {
+    errors.push('Rule scope must be one of: entity, package, perspective, global');
   }
   if (!Array.isArray(rule.targets) || rule.targets.length === 0) {
     errors.push('Rule must have at least one target');
