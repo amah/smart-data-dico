@@ -19,7 +19,7 @@ interface EdgeCreationState {
   /** Close context menu */
   closeContextMenu: () => void;
   /** Confirm relationship creation */
-  confirmEdge: (data: { description: string; sourceCardinality: Cardinality; targetCardinality: Cardinality }) => Promise<void>;
+  confirmEdge: (data: { description: string; sourceCardinality: Cardinality; targetCardinality: Cardinality; sourceName: string; targetName: string }) => Promise<void>;
   /** Cancel edge creation */
   cancelEdge: () => void;
 }
@@ -142,6 +142,8 @@ export function useCytoscapeEdgeCreation(
     description: string;
     sourceCardinality: Cardinality;
     targetCardinality: Cardinality;
+    sourceName: string;
+    targetName: string;
   }) => {
     if (!pendingEdge) return;
 
@@ -151,10 +153,12 @@ export function useCytoscapeEdgeCreation(
       source: {
         entity: pendingEdge.sourceId,
         cardinality: data.sourceCardinality,
+        name: data.sourceName || undefined,
       },
       target: {
         entity: pendingEdge.targetId,
         cardinality: data.targetCardinality,
+        name: data.targetName || undefined,
       },
     };
 
