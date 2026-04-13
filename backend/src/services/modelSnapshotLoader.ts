@@ -25,9 +25,16 @@ import yaml from 'js-yaml';
 
 const execAsync = promisify(exec);
 
-/** Source descriptor for a model snapshot. */
+/**
+ * Source descriptor for a model snapshot.
+ *
+ * `'all-services'` loads every service from the current working copy at once
+ * (whole-model diff). For git-ref all-services, use `'git-ref'` with
+ * `service` omitted — the ref loader already walks every service directory.
+ */
 export type SnapshotSource =
   | { type: 'service'; name: string }
+  | { type: 'all-services' }
   | { type: 'git-ref'; ref: string; service?: string }
   | { type: 'snapshot'; data: ModelSnapshot };
 
@@ -38,6 +45,8 @@ export async function loadModelSnapshot(source: SnapshotSource): Promise<ModelSn
   switch (source.type) {
     case 'service':
       return loadServiceSnapshot(source.name);
+    case 'all-services':
+      return loadAllServicesSnapshot();
     case 'git-ref':
       return loadGitRefSnapshot(source.ref, source.service);
     case 'snapshot':
@@ -54,6 +63,26 @@ async function loadServiceSnapshot(serviceName: string): Promise<ModelSnapshot> 
 }
 
 /**
+ * Load every service from the current working copy into a single snapshot.
+ *
+ * Used by whole-model diffs — the returned `ModelSnapshot.packages` has one
+ * entry per service, and each package carries its `service` name so the
+ * diff engine can group results downstream.
+ */
+async function loadAllServicesSnapshot(): Promise<ModelSnapshot> {
+  const serviceNames = await listMicroservices();
+  const packages: PackageSnapshot[] = [];
+  for (const name of serviceNames) {
+    try {
+      packages.push(await loadPackageFromDisk(name));
+    } catch (e) {
+      logger.warn(`Failed to load service '${name}' for whole-model snapshot: ${e}`);
+    }
+  }
+  return { packages };
+}
+
+/**
  * Load a package's data from the current working copy on disk.
  */
 async function loadPackageFromDisk(serviceName: string): Promise<PackageSnapshot> {
@@ -61,7 +90,13 @@ async function loadPackageFromDisk(serviceName: string): Promise<PackageSnapshot
   const relationships = await serviceService.getPackageRelationships(serviceName);
   const rules = await ruleService.listRules({ packageName: serviceName });
 
-  return { packageName: serviceName, entities, relationships, rules };
+  return {
+    packageName: serviceName,
+    service: serviceName,
+    entities,
+    relationships,
+    rules,
+  };
 }
 
 /**
@@ -153,7 +188,13 @@ async function loadPackageFromGitRef(ref: string, serviceName: string): Promise<
       }
     }
 
-    return { packageName: serviceName, entities, relationships, rules };
+    return {
+      packageName: serviceName,
+      service: serviceName,
+      entities,
+      relationships,
+      rules,
+    };
   } catch (e) {
     logger.warn(`Failed to load package ${serviceName} at ${ref}: ${e}`);
     return null;

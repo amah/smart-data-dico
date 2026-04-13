@@ -104,6 +104,14 @@ export interface LogicalDiffSummary {
 /** A single package's data, as loaded from disk or a git ref. */
 export interface PackageSnapshot {
   packageName: string;
+  /**
+   * Service (root package) this snapshot belongs to. Populated by the loader
+   * so a ModelSnapshot that spans multiple services can disambiguate otherwise
+   * identically-named sub-packages and group diffs by service downstream.
+   * Optional for backwards compatibility with callers that build snapshots
+   * from memory without a hosting service.
+   */
+  service?: string;
   entities: Entity[];
   relationships: Relationship[];
   rules: Rule[];

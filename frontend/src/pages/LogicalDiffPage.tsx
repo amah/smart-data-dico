@@ -107,12 +107,23 @@ export default function LogicalDiffPage() {
     setLoading(true);
     setError(null);
     try {
-      const left = leftRef
-        ? { type: 'git-ref' as const, ref: leftRef, service }
-        : { type: 'service' as const, name: service };
-      const right = rightRef && rightRef !== 'HEAD'
-        ? { type: 'git-ref' as const, ref: rightRef, service }
-        : { type: 'service' as const, name: service };
+      const allServices = service === '__all__';
+      // When the user picks "All services", snapshot sources drop the
+      // `service` field so the backend loads every service at once.
+      const left = allServices
+        ? leftRef
+          ? { type: 'git-ref' as const, ref: leftRef }
+          : { type: 'all-services' as const }
+        : leftRef
+          ? { type: 'git-ref' as const, ref: leftRef, service }
+          : { type: 'service' as const, name: service };
+      const right = allServices
+        ? rightRef && rightRef !== 'HEAD'
+          ? { type: 'git-ref' as const, ref: rightRef }
+          : { type: 'all-services' as const }
+        : rightRef && rightRef !== 'HEAD'
+          ? { type: 'git-ref' as const, ref: rightRef, service }
+          : { type: 'service' as const, name: service };
 
       const result = await diffApi.logical(left, right);
       setDiff(result);
@@ -164,6 +175,7 @@ export default function LogicalDiffPage() {
             <label className="label"><span className="label-text">Service</span></label>
             <select className="select select-sm select-bordered" value={service} onChange={e => setService(e.target.value)}>
               <option value="">Select...</option>
+              <option value="__all__">All services (whole model)</option>
               {services.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>

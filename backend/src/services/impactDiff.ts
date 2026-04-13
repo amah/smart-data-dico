@@ -39,6 +39,12 @@ export interface DdlOperation {
   risk: RiskLevel;
   riskReason?: string;
   sql?: string;
+  /**
+   * Source service — only set by whole-model (all-services) impact diffs.
+   * Lets downstream consumers (migration export, UI grouping) know which
+   * service an op belongs to in a flattened list from multiple services.
+   */
+  service?: string;
 }
 
 export interface ImpactDiff {
