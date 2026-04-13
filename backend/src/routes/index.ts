@@ -162,6 +162,43 @@ router.get('/api/quality/report', getQualityReport);
 // Project management (#95) — open/close/init local folders
 // ═══════════════════════════════════════════════════════════════════════
 
+/**
+ * GET /api/filesystem/browse?path=/some/dir
+ *
+ * Lists subdirectories at the given path so the frontend can render a
+ * folder picker without needing the File System Access API (which can't
+ * return actual paths). Local-mode only.
+ */
+router.get('/api/filesystem/browse', (req, res) => {
+  if (config.profile !== 'local') {
+    return res.status(403).json({ message: 'Filesystem browsing is only available in local mode' });
+  }
+  const dirPath = (req.query.path as string) || require('os').homedir();
+  const resolved = path.resolve(dirPath);
+  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+    return res.status(400).json({ message: `Not a directory: ${resolved}` });
+  }
+  try {
+    const entries = fs.readdirSync(resolved, { withFileTypes: true });
+    const directories = entries
+      .filter(e => e.isDirectory() && !e.name.startsWith('.'))
+      .map(e => e.name)
+      .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    const hasDataDictionaries = fs.existsSync(path.join(resolved, 'data-dictionaries', 'microservices'))
+      || fs.existsSync(path.join(resolved, 'microservices'));
+    res.json({
+      data: {
+        path: resolved,
+        parent: path.dirname(resolved),
+        directories,
+        hasDataDictionaries,
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ message: `Failed to read directory: ${e}` });
+  }
+});
+
 router.get('/api/project', (req, res) => {
   const dataDir = config.dataDir;
   const isOpen = fs.existsSync(path.join(dataDir, 'microservices'));

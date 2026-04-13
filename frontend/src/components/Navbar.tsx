@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { authApi, projectApi } from '../services/api';
+import { authApi, projectApi, filesystemApi } from '../services/api';
 import GitStatusIndicator from './GitStatusIndicator';
 import { useAppMode } from '../hooks/useAppMode';
 
@@ -201,43 +201,16 @@ const Navbar = ({ toggleSidebar, toggleChat, chatOpen }: NavbarProps) => {
         )}
       </div>
 
-      {/* Path input modal (#95) */}
+      {/* Path input modal with folder browser (#95) */}
       {showPathInput && (
-        <dialog className="modal modal-open" style={{ zIndex: 9999 }}>
-          <div className="modal-box max-w-md">
-            <h3 className="font-bold text-lg">
-              {showPathInput === 'open' ? 'Open Project' : 'New Project'}
-            </h3>
-            <p className="text-sm text-base-content/70 mt-1">
-              {showPathInput === 'open'
-                ? 'Enter the path to a folder containing data-dictionaries/'
-                : 'Enter the path where the new project should be created'}
-            </p>
-            {projectError && <div className="alert alert-error mt-2 py-2 text-sm">{projectError}</div>}
-            <div className="form-control mt-3">
-              <input
-                type="text"
-                className="input input-bordered font-mono text-sm"
-                placeholder="/Users/me/projects/my-dictionary"
-                value={pathInput}
-                onChange={e => setPathInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') showPathInput === 'open' ? handleOpenProject() : handleInitProject(); }}
-                autoFocus
-              />
-            </div>
-            <div className="modal-action">
-              <button className="btn btn-ghost" onClick={() => setShowPathInput(null)}>Cancel</button>
-              <button
-                className="btn btn-primary"
-                onClick={showPathInput === 'open' ? handleOpenProject : handleInitProject}
-                disabled={!pathInput.trim()}
-              >
-                {showPathInput === 'open' ? 'Open' : 'Create & Open'}
-              </button>
-            </div>
-          </div>
-          <form method="dialog" className="modal-backdrop"><button onClick={() => setShowPathInput(null)}>close</button></form>
-        </dialog>
+        <FolderPickerModal
+          mode={showPathInput}
+          pathInput={pathInput}
+          setPathInput={setPathInput}
+          error={projectError}
+          onConfirm={showPathInput === 'open' ? handleOpenProject : handleInitProject}
+          onCancel={() => setShowPathInput(null)}
+        />
       )}
 
       <div className="navbar-end gap-1">
@@ -347,5 +320,156 @@ const Navbar = ({ toggleSidebar, toggleChat, chatOpen }: NavbarProps) => {
     </div>
   );
 };
+
+// ────────────────────────────────────────────────────────────────────────
+// Folder picker modal (#95) — server-side directory browsing
+// ────────────────────────────────────────────────────────────────────────
+
+function FolderPickerModal({
+  mode,
+  pathInput,
+  setPathInput,
+  error,
+  onConfirm,
+  onCancel,
+}: {
+  mode: 'open' | 'init';
+  pathInput: string;
+  setPathInput: (v: string) => void;
+  error: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const [browsePath, setBrowsePath] = useState('');
+  const [directories, setDirectories] = useState<string[]>([]);
+  const [parentPath, setParentPath] = useState('');
+  const [hasDataDic, setHasDataDic] = useState(false);
+  const [browseLoading, setBrowseLoading] = useState(false);
+
+  const browse = useCallback(async (dir?: string) => {
+    setBrowseLoading(true);
+    try {
+      const result = await filesystemApi.browse(dir);
+      setBrowsePath(result.path);
+      setParentPath(result.parent);
+      setDirectories(result.directories);
+      setHasDataDic(result.hasDataDictionaries);
+      setPathInput(result.path);
+    } catch { /* ignore */ }
+    setBrowseLoading(false);
+  }, [setPathInput]);
+
+  useEffect(() => { browse(); }, [browse]);
+
+  return (
+    <dialog className="modal modal-open" style={{ zIndex: 9999 }}>
+      <div className="modal-box max-w-lg">
+        <h3 className="font-bold text-lg">
+          {mode === 'open' ? 'Open Project' : 'New Project'}
+        </h3>
+        <p className="text-sm text-base-content/70 mt-1">
+          {mode === 'open'
+            ? 'Browse to a folder containing data-dictionaries/, or type a path'
+            : 'Browse to a folder where the new project should be created'}
+        </p>
+        {error && <div className="alert alert-error mt-2 py-2 text-sm">{error}</div>}
+
+        {/* Path text input */}
+        <div className="form-control mt-3">
+          <div className="input-group">
+            <input
+              type="text"
+              className="input input-bordered font-mono text-sm flex-1"
+              placeholder="/Users/me/projects/my-dictionary"
+              value={pathInput}
+              onChange={e => setPathInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') onConfirm();
+              }}
+            />
+            <button className="btn btn-square btn-outline" onClick={() => browse(pathInput)} title="Browse this path">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Folder browser */}
+        <div className="border border-base-300 rounded-lg mt-3 max-h-64 overflow-y-auto">
+          {browseLoading ? (
+            <div className="flex justify-center py-4">
+              <span className="loading loading-spinner loading-sm" />
+            </div>
+          ) : (
+            <ul className="menu menu-compact p-1">
+              {/* Current path */}
+              <li className="menu-title">
+                <span className="text-xs font-mono truncate" title={browsePath}>{browsePath}</span>
+              </li>
+              {/* Up to parent */}
+              {parentPath !== browsePath && (
+                <li>
+                  <button className="text-sm py-1" onClick={() => browse(parentPath)}>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-base-content/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                    </svg>
+                    ..
+                  </button>
+                </li>
+              )}
+              {/* Subdirectories */}
+              {directories.map(dir => {
+                const fullPath = browsePath + '/' + dir;
+                return (
+                  <li key={dir}>
+                    <button
+                      className="text-sm py-1"
+                      onClick={() => browse(fullPath)}
+                      onDoubleClick={() => { setPathInput(fullPath); onConfirm(); }}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-warning" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                      </svg>
+                      {dir}
+                      {dir === 'data-dictionaries' && (
+                        <span className="badge badge-xs badge-success ml-1">project</span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+              {directories.length === 0 && (
+                <li className="text-xs text-base-content/50 px-4 py-2">No subdirectories</li>
+              )}
+            </ul>
+          )}
+        </div>
+
+        {/* Status hint */}
+        {hasDataDic && mode === 'open' && (
+          <div className="text-sm text-success mt-2 flex items-center gap-1">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            data-dictionaries structure found
+          </div>
+        )}
+
+        <div className="modal-action">
+          <button className="btn btn-ghost" onClick={onCancel}>Cancel</button>
+          <button
+            className="btn btn-primary"
+            onClick={onConfirm}
+            disabled={!pathInput.trim()}
+          >
+            {mode === 'open' ? 'Open' : 'Create & Open'}
+          </button>
+        </div>
+      </div>
+      <form method="dialog" className="modal-backdrop"><button onClick={onCancel}>close</button></form>
+    </dialog>
+  );
+}
 
 export default Navbar;

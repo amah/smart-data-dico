@@ -374,6 +374,19 @@ export const importExportApi = {
 
 // Diff API (#86)
 // Project management (#95)
+export const filesystemApi = {
+  browse: async (dirPath?: string) => {
+    const params = dirPath ? `?path=${encodeURIComponent(dirPath)}` : '';
+    const response = await api.get(`/filesystem/browse${params}`);
+    return response.data.data as {
+      path: string;
+      parent: string;
+      directories: string[];
+      hasDataDictionaries: boolean;
+    };
+  },
+};
+
 export const projectApi = {
   get: async () => {
     const response = await api.get('/project');
