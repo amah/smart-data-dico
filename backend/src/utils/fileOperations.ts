@@ -859,3 +859,36 @@ export async function writePerspectiveRules(perspectiveUuid: string, rules: Rule
     return false;
   }
 }
+
+// ────────────────────────────────────────────────────────────────────────
+// Global (cross-package) rules (#75)
+// ────────────────────────────────────────────────────────────────────────
+
+const GLOBAL_RULES_PATH = path.join(DATA_DICTIONARIES_DIR, 'rules.yaml');
+
+/** Read the global rules file (cross-package rules only). */
+export async function readGlobalRules(): Promise<Rule[]> {
+  try {
+    if (!fs.existsSync(GLOBAL_RULES_PATH)) return [];
+    const content = fs.readFileSync(GLOBAL_RULES_PATH, 'utf8');
+    return YAML.parse(content) || [];
+  } catch (error) {
+    logger.error(`Error reading global rules: ${error}`);
+    return [];
+  }
+}
+
+/** Write the global rules file. Deletes the file when empty. */
+export async function writeGlobalRules(rules: Rule[]): Promise<boolean> {
+  try {
+    if (rules.length === 0) {
+      if (fs.existsSync(GLOBAL_RULES_PATH)) fs.unlinkSync(GLOBAL_RULES_PATH);
+      return true;
+    }
+    fs.writeFileSync(GLOBAL_RULES_PATH, YAML.stringify(rules), 'utf8');
+    return true;
+  } catch (error) {
+    logger.error(`Error writing global rules: ${error}`);
+    return false;
+  }
+}

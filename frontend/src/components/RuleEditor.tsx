@@ -31,6 +31,7 @@ const stereotypeTargetsForScope = (scope: RuleScope): StereotypeTarget[] => {
     case 'entity':      return ['entity', 'attribute'];
     case 'package':     return ['package', 'entity', 'attribute'];
     case 'perspective': return ['entity', 'attribute', 'package'];
+    case 'global':      return ['package', 'entity', 'attribute'];
     default:            return ['entity', 'attribute', 'package'];
   }
 };
@@ -102,14 +103,15 @@ const RuleEditor = ({ rule, onClose, onSaved }: RuleEditorProps) => {
     }
   }, [isNew, packageName, packages]);
 
-  // Build target list — for v1: one target per rule, derived from scope
+  // Build target list — for v1: one target per rule, derived from scope.
+  // For global rules: target carries packageName so cross-package resolution works.
   const buildTargets = (): RuleTarget[] => {
     if (scope === 'entity' && entityUuid) {
-      return [{ kind: 'entity', uuid: entityUuid }];
+      return [{ kind: 'entity', uuid: entityUuid, packageName }];
     }
-    if (scope === 'package' && packageName) {
+    if ((scope === 'package' || scope === 'global') && packageName) {
       const pkg = packages.find(p => p.name === packageName);
-      if (pkg) return [{ kind: 'entity', uuid: pkg.id }];
+      if (pkg) return [{ kind: 'entity', uuid: pkg.id, packageName }];
     }
     if (scope === 'perspective' && perspectiveUuid) {
       return [{ kind: 'perspective-node', uuid: perspectiveUuid }];
@@ -251,13 +253,22 @@ const RuleEditor = ({ rule, onClose, onSaved }: RuleEditorProps) => {
               <option value="entity">Entity (within a single entity)</option>
               <option value="package">Package (within a package)</option>
               <option value="perspective">Perspective</option>
+              <option value="global">Global (cross-package)</option>
             </select>
           </div>
         </div>
 
+        {/* Global scope banner (#75) */}
+        {scope === 'global' && (
+          <div className="alert alert-warning py-2 text-sm mb-3">
+            Global rules are stored in <code>data-dictionaries/rules.yaml</code> and reviewed by everyone.
+            Use a package-local rule unless the rule truly crosses package boundaries.
+          </div>
+        )}
+
         {/* Target picker */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-          {(scope === 'entity' || scope === 'package') && (
+          {(scope === 'entity' || scope === 'package' || scope === 'global') && (
             <div className="form-control">
               <label className="label py-1"><span className="label-text">Package</span></label>
               <select
