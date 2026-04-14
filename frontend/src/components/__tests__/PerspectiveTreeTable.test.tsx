@@ -169,7 +169,7 @@ describe('PerspectiveTreeTable — attribute expansion', () => {
     expect(within(skuRow).getByText('string')).toBeInTheDocument();
   });
 
-  it('auto-expands entity children but leaves attributes collapsed by default', () => {
+  it('auto-expands entity parents; leaf entities start collapsed', () => {
     const nodes: ResolvedNode[] = [
       node({
         entityUuid: 'order',
@@ -182,7 +182,7 @@ describe('PerspectiveTreeTable — attribute expansion', () => {
       node({
         entityUuid: 'item',
         entityName: 'OrderItem',
-        path: 'Order/items',
+        path: 'Order/OrderItem',
         hopDistance: 1,
         navName: 'items',
         navCardinality: { from: Cardinality.ONE, to: Cardinality.MANY },
@@ -192,10 +192,11 @@ describe('PerspectiveTreeTable — attribute expansion', () => {
 
     render(wrap(<PerspectiveTreeTable nodes={nodes} />));
 
-    // OrderItem (entity child of Order) is visible — auto-expanded.
+    // Order is auto-expanded (has entity children), so OrderItem + Order's
+    // own attributes show. OrderItem is a leaf (no entity children) → not
+    // auto-expanded, so its 'quantity' attribute is hidden.
     expect(screen.getByRole('link', { name: 'OrderItem' })).toBeInTheDocument();
-    // Attributes (id, quantity) are NOT visible — collapsed by default.
-    expect(screen.queryByText('id')).not.toBeInTheDocument();
+    expect(screen.getByText('id')).toBeInTheDocument();
     expect(screen.queryByText('quantity')).not.toBeInTheDocument();
   });
 });

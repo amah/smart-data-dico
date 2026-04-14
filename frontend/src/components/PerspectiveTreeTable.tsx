@@ -184,15 +184,12 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
 
   const activeMetaCols = allMetaCols.filter(c => visibleMetaCols.has(`${c.target}:${c.name}`));
 
-  // Two independent expansion dimensions:
-  //   - `entityExpanded`: controls whether an entity's *entity* descendants
-  //     are rendered (the graph traversal tree). Entity parents are
-  //     auto-expanded on first view so the BFS hierarchy is visible.
-  //   - `attrExpanded`: controls whether an entity's *attribute* leaves
-  //     are rendered. Always starts collapsed so the tree doesn't explode.
-  // Rolling these into one set made the default impossible to express
-  // ("entity children visible, attribute children hidden").
-  const [entityExpanded, setEntityExpanded] = useState<Set<string>>(() => {
+  // Single expansion dimension: a path in this Set means "show all my
+  // children (both entity descendants and attribute leaves)". Default:
+  // entities that have entity children start expanded so the graph
+  // hierarchy is visible on first view. The earlier two-set approach
+  // (separate entity/attr expansion) created non-toggleable states.
+  const [expanded, setExpanded] = useState<Set<string>>(() => {
     const initial = new Set<string>();
     function walk(items: TreeNode[]) {
       for (const item of items) {
@@ -207,28 +204,12 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
     walk(tree);
     return initial;
   });
-  const [attrExpanded, setAttrExpanded] = useState<Set<string>>(new Set());
 
   // Search filter
   const [filter, setFilter] = useState('');
 
-  /**
-   * One chevron per entity — clicking toggles *both* entity and
-   * attribute subtree visibility in lock-step. The intuition: the user
-   * clicks "expand Order" and sees everything beneath it (child entities
-   * and Order's own attributes). Clicking again collapses everything.
-   *
-   * Entities that only have attribute children (no child entities, e.g.
-   * leaf nodes in the traversal) use only the attribute dimension.
-   */
   const toggle = useCallback((path: string) => {
-    setEntityExpanded(prev => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-    setAttrExpanded(prev => {
+    setExpanded(prev => {
       const next = new Set(prev);
       if (next.has(path)) next.delete(path);
       else next.add(path);
@@ -248,13 +229,11 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
       }
     }
     walk(tree);
-    setEntityExpanded(all);
-    setAttrExpanded(all);
+    setExpanded(all);
   }, [tree]);
 
   const collapseAll = useCallback(() => {
-    setEntityExpanded(new Set());
-    setAttrExpanded(new Set());
+    setExpanded(new Set());
   }, []);
 
   // Filter: find matching nodes and keep their ancestors visible.
@@ -295,9 +274,8 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
   }, [tree, filter]);
 
   // Flatten visible rows for rendering.
-  // Entity descendants render iff the entity's path is in entityExpanded;
-  // attribute descendants render iff the entity's path is in attrExpanded.
-  // Filter matches force everything along the matching path to render.
+  // An entity's children (both entity descendants and attribute leaves)
+  // render iff the entity's path is in `expanded` OR a filter is active.
   const rows = useMemo(() => {
     const result: { node: TreeNode; indent: number; hasChildren: boolean; isExpanded: boolean }[] = [];
     function walk(items: TreeNode[], indent: number) {
@@ -306,20 +284,13 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
 
         if (item.kind === 'entity') {
           const hasChildren = item.children.length > 0;
-          // "isExpanded" in the row payload is what the chevron renders —
-          // show the rotated state if either dimension is open, so the
-          // UI matches what the user sees.
-          const isExpanded = entityExpanded.has(item.path) || attrExpanded.has(item.path);
+          const isExpanded = expanded.has(item.path);
           result.push({ node: item, indent, hasChildren, isExpanded });
 
-          // Decide which children to descend into.
-          const showEntityChildren = entityExpanded.has(item.path) || !!matchingPaths;
-          const showAttrChildren = attrExpanded.has(item.path) || !!matchingPaths;
-          if (!showEntityChildren && !showAttrChildren) continue;
+          const showChildren = isExpanded || !!matchingPaths;
+          if (!showChildren) continue;
           for (const child of item.children) {
-            if (child.kind === 'entity' && !showEntityChildren) continue;
-            if (child.kind === 'attribute' && !showAttrChildren) continue;
-            walkItem(child, indent + 1);
+            walk([child], indent + 1);
           }
         } else {
           // Attribute rows never have their own children — render flat.
@@ -327,12 +298,9 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
         }
       }
     }
-    function walkItem(item: TreeNode, indent: number) {
-      walk([item], indent);
-    }
     walk(tree, 0);
     return result;
-  }, [tree, entityExpanded, attrExpanded, matchingPaths]);
+  }, [tree, expanded, matchingPaths]);
 
   return (
     <div className="space-y-3">

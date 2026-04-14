@@ -242,7 +242,13 @@ class PerspectiveService {
 
         const neighborInfo = entityMap.get(neighborUuid);
         if (!neighborInfo) continue;
-        const newPath = [...pathSegments, navName];
+        // Path uses entity names for uniqueness — two different
+        // relationships can share the same nav end-name (e.g. Claim→Member
+        // and Claim→Provider both have target.name="claims"), which would
+        // cause path collisions if we used navName here. Entity-visit-once
+        // (#96) guarantees entity names are unique in the resolved tree.
+        // navName is still recorded on the resolved node for display.
+        const newPath = [...pathSegments, neighborInfo.name];
         const newPathStr = newPath.join('/');
 
         // Check if this path is excluded
