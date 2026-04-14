@@ -255,7 +255,42 @@ export interface RelationshipEnd {
 }
 
 /**
- * A relationship between two entities, stored at package level
+ * A single end of a relationship under the symmetric `ends[]` model (#99).
+ *
+ * Each end is identified by its entity and carries a `role` — the
+ * navigation property name **at that entity** for reaching the other end.
+ * This is symmetric by construction: going from A to B, use A's end's
+ * role as the nav name (= A's field for reaching B).
+ *
+ * Example — `Order --items--> OrderItem` one-to-many:
+ *   ends:
+ *     - { entity: OrderUuid,     role: items, cardinality: one  }   // Order.items
+ *     - { entity: OrderItemUuid, role: order, cardinality: many }   // OrderItem.order
+ */
+export interface RelationshipEndNamed {
+  /** UUID of the entity at this end */
+  entity: string;
+  /**
+   * Navigation property at **this entity** for reaching the opposite end.
+   * Optional for unidirectional relationships (one side has no nav property).
+   */
+  role?: string;
+  cardinality: Cardinality;
+  referenceAttributes?: string[];
+}
+
+/**
+ * A relationship between two entities, stored at package level.
+ *
+ * Supports two shapes for backward compatibility:
+ *   - **New (preferred, #99)**: `ends: [end1, end2]` — symmetric, each end
+ *     identifies itself by entity + role.
+ *   - **Legacy**: `source` + `target` — asymmetric; retained as fallback
+ *     until the migration (#100) converts all existing data.
+ *
+ * Resolvers prefer `ends[]` when present. Fallback uses source/target
+ * with the corrected semantic: `source.name` is the name used when going
+ * source→target (= source's field for reaching target).
  */
 export type RelationshipType = 'structural' | 'lineage';
 
@@ -263,9 +298,47 @@ export interface Relationship {
   uuid: string;
   description?: string;
   type?: RelationshipType;
+  /**
+   * New symmetric shape (#99) — preferred by new resolvers. On read, this
+   * is populated from source/target if the file only has the legacy shape
+   * (so consumers can always use `ends[]`). Must contain exactly two ends.
+   */
+  ends?: RelationshipEndNamed[];
   source: RelationshipEnd;
   target: RelationshipEnd;
   metadata?: MetadataEntry[];
+}
+
+/**
+ * Normalize a Relationship to the symmetric `ends[]` shape (#99).
+ *
+ * Always returns a pair of ends. If `ends[]` is present on the input,
+ * it wins (the new canonical shape). Otherwise synthesizes from
+ * source/target using the corrected semantic: `source.name` IS the role
+ * at the source's end (i.e. source entity's field name for reaching
+ * target).
+ *
+ * Callers use this helper to get a consistent two-end view regardless
+ * of which shape the stored data uses.
+ */
+export function normalizeRelationshipEnds(rel: Relationship): [RelationshipEndNamed, RelationshipEndNamed] {
+  if (rel.ends && rel.ends.length >= 2) {
+    return [rel.ends[0], rel.ends[1]];
+  }
+  return [
+    {
+      entity: rel.source.entity,
+      cardinality: rel.source.cardinality,
+      role: rel.source.name,
+      referenceAttributes: rel.source.referenceAttributes,
+    },
+    {
+      entity: rel.target.entity,
+      cardinality: rel.target.cardinality,
+      role: rel.target.name,
+      referenceAttributes: rel.target.referenceAttributes,
+    },
+  ];
 }
 
 export interface LineageNode {

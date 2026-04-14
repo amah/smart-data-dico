@@ -326,7 +326,21 @@ export interface RelationshipEnd {
 }
 
 /**
- * A relationship between two entities, stored at package level
+ * Symmetric end (#99). `role` = navigation property at THIS end's entity
+ * for reaching the opposite end. Traversal uses the origin end's role.
+ */
+export interface RelationshipEndNamed {
+  entity: string;
+  role?: string;
+  cardinality: Cardinality;
+  referenceAttributes?: string[];
+}
+
+/**
+ * A relationship between two entities, stored at package level.
+ *
+ * Dual-shape (#99): prefer `ends[]` (symmetric); falls back to
+ * source/target for backward compat until migration (#100) completes.
  */
 export type RelationshipType = 'structural' | 'lineage';
 
@@ -334,6 +348,8 @@ export interface Relationship {
   uuid: string;
   description?: string;
   type?: RelationshipType;
+  /** Preferred symmetric shape (#99) — must contain exactly two ends. */
+  ends?: RelationshipEndNamed[];
   source: RelationshipEnd;
   target: RelationshipEnd;
   metadata?: MetadataEntry[];

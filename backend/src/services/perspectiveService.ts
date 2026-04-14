@@ -7,6 +7,8 @@ import {
   Relationship,
   Cardinality,
   Entity,
+  MetadataEntry,
+  normalizeRelationshipEnds,
 } from '../models/EntitySchema.js';
 import { listPerspectives, readPerspectiveFile, writePerspectiveFile, deletePerspectiveFile, getAllRelationships, listAllEntities, readEntityFile } from '../utils/fileOperations.js';
 import { generateUUID } from '../utils/uuid.js';
@@ -337,10 +339,14 @@ class PerspectiveService {
 
   /**
    * Build undirected adjacency across all relationships. Each edge is
-   * stored *twice* — once at the source (neighbor = target) and once at
-   * the target (neighbor = source) — with nav-name and cardinality
-   * flipped for the direction of traversal. The BFS uses these tagged
-   * entries verbatim to emit navName/navCardinality on each child node.
+   * stored *twice* — once at each end — with the nav name taken from the
+   * ORIGIN end (#99 corrected semantic): when going from entity A to B,
+   * the nav name is A's own role (= A's field for reaching B). This is
+   * the symmetric form: each end's role is always "MY field for reaching
+   * the opposite end", regardless of source/target asymmetry.
+   *
+   * Uses `normalizeRelationshipEnds` so it works for both the new
+   * `ends[]` shape and legacy source/target shape transparently.
    */
   private async buildAdjacencyMap(): Promise<Map<string, AdjacencyEntry[]>> {
     const adjacency = new Map<string, AdjacencyEntry[]>();
@@ -348,30 +354,29 @@ class PerspectiveService {
     const allRels = await getAllRelationships();
     for (const { relationships } of allRels) {
       for (const rel of relationships) {
-        const srcUuid = rel.source.entity;
-        const tgtUuid = rel.target.entity;
-        const srcNav = rel.source.name || rel.description || rel.uuid;
-        const tgtNav = rel.target.name || rel.description || rel.uuid;
+        const [endA, endB] = normalizeRelationshipEnds(rel);
+        const fallback = rel.description || rel.uuid;
+        const roleA = endA.role || fallback;
+        const roleB = endB.role || fallback;
 
-        // Source → Target: arriving at the target end; navName is target
-        // side, from=source.cardinality, to=target.cardinality.
-        if (!adjacency.has(srcUuid)) adjacency.set(srcUuid, []);
-        adjacency.get(srcUuid)!.push({
-          neighborUuid: tgtUuid,
-          navName: tgtNav,
+        // A → B: origin is A, nav name is A's role (A's field for reaching B)
+        if (!adjacency.has(endA.entity)) adjacency.set(endA.entity, []);
+        adjacency.get(endA.entity)!.push({
+          neighborUuid: endB.entity,
+          navName: roleA,
           relationshipUuid: rel.uuid,
-          fromCard: rel.source.cardinality,
-          toCard: rel.target.cardinality,
+          fromCard: endA.cardinality,
+          toCard: endB.cardinality,
         });
 
-        // Target → Source: reverse traversal; flip both names and cards.
-        if (!adjacency.has(tgtUuid)) adjacency.set(tgtUuid, []);
-        adjacency.get(tgtUuid)!.push({
-          neighborUuid: srcUuid,
-          navName: srcNav,
+        // B → A: origin is B, nav name is B's role
+        if (!adjacency.has(endB.entity)) adjacency.set(endB.entity, []);
+        adjacency.get(endB.entity)!.push({
+          neighborUuid: endA.entity,
+          navName: roleB,
           relationshipUuid: rel.uuid,
-          fromCard: rel.target.cardinality,
-          toCard: rel.source.cardinality,
+          fromCard: endB.cardinality,
+          toCard: endA.cardinality,
         });
       }
     }
