@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { entityApi, servicesApi } from '../services/api';
 import { Entity, Package } from '../types';
 import { useStereotypeMetadata, getMetadataValue, setMetadataValue } from '../hooks/useStereotypeMetadata';
+import { useStickyTablePref } from '../hooks/useStickyTablePref';
 import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
 import EditableCell from './EditableCell';
 
@@ -24,6 +25,10 @@ const EntityFlatTable = () => {
 
   // Metadata-as-columns (#91)
   const { allColumns, columnsByStereotype } = useStereotypeMetadata('entity');
+  const [pinned, togglePinned] = useStickyTablePref('entity-flat');
+  const stickyHead = pinned ? 'sticky top-0 z-20 bg-base-100' : '';
+  const stickyFirstCol = pinned ? 'sticky left-0 z-10 bg-base-100' : '';
+  const stickyCorner = pinned ? 'sticky top-0 left-0 z-30 bg-base-100' : '';
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem(LOCALSTORAGE_KEY);
@@ -296,6 +301,13 @@ const EntityFlatTable = () => {
             </div>
           )}
           <button
+            className={`btn btn-sm ${pinned ? 'btn-primary' : 'btn-outline'}`}
+            onClick={togglePinned}
+            title={pinned ? 'Unfreeze header & first column' : 'Freeze header & first column'}
+          >
+            {pinned ? 'Frozen' : 'Freeze'}
+          </button>
+          <button
             className="btn btn-primary"
             onClick={() => setIsModalOpen(true)}
           >
@@ -332,22 +344,22 @@ const EntityFlatTable = () => {
       ) : error ? (
         <div className="alert alert-error">{error}</div>
       ) : (
-        <div className="overflow-x-auto bg-base-100 rounded-lg shadow p-1 flex-1 min-h-0">
+        <div className={`${pinned ? 'overflow-auto max-h-[70vh]' : 'overflow-x-auto'} bg-base-100 rounded-lg shadow p-1 flex-1 min-h-0`}>
           <table className="table table-zebra w-full">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Package</th>
-                <th>Description</th>
+                <th className={stickyCorner}>Name</th>
+                <th className={stickyHead}>Package</th>
+                <th className={stickyHead}>Description</th>
                 {activeMetaCols.map(col => (
-                  <th key={col.name} title={col.description}>
+                  <th key={col.name} title={col.description} className={stickyHead}>
                     <span className="flex items-center gap-1">
                       {col.label}
                       <span className="badge badge-xs badge-ghost font-normal">{col.stereotypeName}</span>
                     </span>
                   </th>
                 ))}
-                <th>Actions</th>
+                <th className={stickyHead}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -360,6 +372,7 @@ const EntityFlatTable = () => {
                   <tr key={entity.uuid}>
                     <EditableCell
                       value={entity.name}
+                      className={stickyFirstCol}
                       onSave={async (v) => {
                         await saveEntityField(packageName, entity.name, entity, 'name', v as string);
                       }}

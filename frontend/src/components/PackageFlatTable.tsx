@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { entityApi, packageApi } from '../services/api';
 import { Package } from '../types';
 import { useStereotypeMetadata, getMetadataValue, setMetadataValue } from '../hooks/useStereotypeMetadata';
+import { useStickyTablePref } from '../hooks/useStickyTablePref';
 import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
 import EditableCell from './EditableCell';
 
@@ -14,6 +15,10 @@ const PackageFlatTable = () => {
 
   // Metadata-as-columns (#92)
   const { allColumns, columnsByStereotype } = useStereotypeMetadata('package');
+  const [pinned, togglePinned] = useStickyTablePref('package-flat');
+  const stickyHead = pinned ? 'sticky top-0 z-20 bg-base-100' : '';
+  const stickyFirstCol = pinned ? 'sticky left-0 z-10 bg-base-100' : '';
+  const stickyCorner = pinned ? 'sticky top-0 left-0 z-30 bg-base-100' : '';
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem(LOCALSTORAGE_KEY);
@@ -131,6 +136,14 @@ const PackageFlatTable = () => {
     <div className="container mx-auto px-4 sm:px-6 lg:px-8 flex-1 flex flex-col min-h-0">
       <div className="flex justify-between items-center mb-2">
         <h1 className="text-lg font-semibold">Packages (Flat View)</h1>
+        <div className="flex items-center gap-2">
+          <button
+            className={`btn btn-sm ${pinned ? 'btn-primary' : 'btn-outline'}`}
+            onClick={togglePinned}
+            title={pinned ? 'Unfreeze header & first column' : 'Freeze header & first column'}
+          >
+            {pinned ? 'Frozen' : 'Freeze'}
+          </button>
 
         {/* Metadata column picker (#92) */}
         {allColumns.length > 0 && (
@@ -189,6 +202,7 @@ const PackageFlatTable = () => {
             )}
           </div>
         )}
+        </div>
       </div>
 
       {loading ? (
@@ -198,24 +212,24 @@ const PackageFlatTable = () => {
       ) : error ? (
         <div className="alert alert-error">{error}</div>
       ) : (
-        <div className="overflow-x-auto bg-base-100 rounded-lg shadow p-1 flex-1 min-h-0">
+        <div className={`${pinned ? 'overflow-auto max-h-[70vh]' : 'overflow-x-auto'} bg-base-100 rounded-lg shadow p-1 flex-1 min-h-0`}>
           <table className="table table-zebra w-full">
             <thead>
               <tr>
-                <th>Package Name</th>
-                <th>Description</th>
-                <th>Microservice</th>
-                <th>Entity Count</th>
+                <th className={stickyCorner}>Package Name</th>
+                <th className={stickyHead}>Description</th>
+                <th className={stickyHead}>Microservice</th>
+                <th className={stickyHead}>Entity Count</th>
                 {activeMetaCols.map(col => (
-                  <th key={col.name} title={col.description}>
+                  <th key={col.name} title={col.description} className={stickyHead}>
                     <span className="flex items-center gap-1">
                       {col.label}
                       <span className="badge badge-xs badge-ghost font-normal">{col.stereotypeName}</span>
                     </span>
                   </th>
                 ))}
-                <th>Created At</th>
-                <th>Updated At</th>
+                <th className={stickyHead}>Created At</th>
+                <th className={stickyHead}>Updated At</th>
               </tr>
             </thead>
             <tbody>
@@ -228,6 +242,7 @@ const PackageFlatTable = () => {
                   <tr key={pkg.id}>
                     <EditableCell
                       value={pkg.name}
+                      className={stickyFirstCol}
                       onSave={async (v) => {
                         await savePackageField(pkg, 'name', v as string);
                       }}

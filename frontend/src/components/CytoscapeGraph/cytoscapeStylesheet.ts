@@ -157,7 +157,7 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
     },
     // Expanded node
     {
-      selector: 'node[expanded]',
+      selector: 'node[?expanded]',
       style: {
         'text-valign': 'top',
         'font-size': 11,
