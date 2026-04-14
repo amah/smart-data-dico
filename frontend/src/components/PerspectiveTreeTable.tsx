@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import type { ResolvedNode, ResolvedAttribute, MetadataEntry } from '../types';
 import { Cardinality } from '../types';
 import { useStereotypeMetadata, setMetadataValue } from '../hooks/useStereotypeMetadata';
+import { useStickyTablePref } from '../hooks/useStickyTablePref';
 import InlineMetadataCell from './InlineMetadataCell';
 import { servicesApi } from '../services/api';
 import type { Entity, Attribute } from '../types';
@@ -144,6 +145,14 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
     return new Set<string>();
   });
   const [showColumnPicker, setShowColumnPicker] = useState(false);
+  const [pinned, togglePinned] = useStickyTablePref('perspective-tree');
+
+  // Sticky class helpers. The first column + thead get opaque backgrounds
+  // + z-index so they sit above scrolled content. Corner (thead first th)
+  // needs the highest z-index since it's pinned on both axes.
+  const stickyHead = pinned ? 'sticky top-0 z-20 bg-base-100' : '';
+  const stickyFirstCol = pinned ? 'sticky left-0 z-10 bg-base-100' : '';
+  const stickyCorner = pinned ? 'sticky top-0 left-0 z-30 bg-base-100' : '';
 
   // Persist column visibility
   const updateVisibleCols = useCallback((next: Set<string>) => {
@@ -315,6 +324,13 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
         />
         <button className="btn btn-xs btn-ghost" onClick={expandAll}>Expand all</button>
         <button className="btn btn-xs btn-ghost" onClick={collapseAll}>Collapse all</button>
+        <button
+          className={`btn btn-xs ${pinned ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={togglePinned}
+          title={pinned ? 'Unfreeze header & first column' : 'Freeze header & first column'}
+        >
+          {pinned ? 'Frozen' : 'Freeze'}
+        </button>
 
         {/* Metadata column picker (#93) */}
         {allMetaCols.length > 0 && (
@@ -396,17 +412,17 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
       </div>
 
       {/* Tree table */}
-      <div className="overflow-x-auto">
+      <div className={pinned ? 'overflow-auto max-h-[70vh] border border-base-300 rounded' : 'overflow-x-auto'}>
         <table className="table table-sm">
           <thead>
             <tr>
-              <th>Entity / Attribute</th>
-              <th>Type</th>
-              <th>Service</th>
-              <th>Hops</th>
-              <th>Status</th>
+              <th className={stickyCorner}>Entity / Attribute</th>
+              <th className={stickyHead}>Type</th>
+              <th className={stickyHead}>Service</th>
+              <th className={stickyHead}>Hops</th>
+              <th className={stickyHead}>Status</th>
               {activeMetaCols.map(col => (
-                <th key={`${col.target}:${col.name}`} title={col.description}>
+                <th key={`${col.target}:${col.name}`} title={col.description} className={stickyHead}>
                   <span className="flex items-center gap-1">
                     {col.label}
                     <span className="badge badge-xs badge-ghost font-normal">{col.target === 'entity' ? 'E' : 'A'}</span>
@@ -425,6 +441,7 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
                     indent={indent}
                     metaCols={activeMetaCols}
                     onMetadataUpdated={onMetadataUpdated}
+                    firstColClass={stickyFirstCol}
                   />
                 );
               }
@@ -438,6 +455,7 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
                   onToggle={() => toggle(treeNode.path)}
                   metaCols={activeMetaCols}
                   onMetadataUpdated={onMetadataUpdated}
+                  firstColClass={stickyFirstCol}
                 />
               );
             })}
@@ -512,6 +530,7 @@ function EntityRow({
   onToggle,
   metaCols,
   onMetadataUpdated,
+  firstColClass,
 }: {
   treeNode: TreeNode;
   indent: number;
@@ -520,12 +539,13 @@ function EntityRow({
   onToggle: () => void;
   metaCols: (MetadataColumn & { target: 'entity' | 'attribute' })[];
   onMetadataUpdated?: () => void;
+  firstColClass?: string;
 }) {
   const rn = treeNode.node!;
   const card = formatCardinality(rn.navCardinality);
   return (
     <tr className="hover">
-      <td>
+      <td className={firstColClass}>
         <div
           className="flex items-center gap-1 text-sm"
           style={{ paddingLeft: `${indent * 1.25}rem` }}
@@ -608,16 +628,18 @@ function AttributeRow({
   indent,
   metaCols,
   onMetadataUpdated,
+  firstColClass,
 }: {
   treeNode: TreeNode;
   indent: number;
   metaCols: (MetadataColumn & { target: 'entity' | 'attribute' })[];
   onMetadataUpdated?: () => void;
+  firstColClass?: string;
 }) {
   const attr = treeNode.attribute!;
   return (
     <tr className="hover">
-      <td>
+      <td className={firstColClass}>
         <div
           className="flex items-center gap-1 text-xs text-base-content/80"
           style={{ paddingLeft: `${indent * 1.25 + 0.5}rem` }}

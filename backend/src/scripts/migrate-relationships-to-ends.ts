@@ -170,10 +170,25 @@ function migrateFile(filePath: string, entities: Map<string, EntityInfo>, apply:
     decisions.push({ uuid: rel.uuid, kind: d.kind, reason: d.reason });
     if (d.kind === 'already-migrated') return rel;
     changed++;
-    // Emit new shape: ends[] first, drop source/target. Keep other fields.
+    // Dual-emit: ends[] (preferred, #99) + source/target (back-compat until
+    // all readers switch, #100 follow-up). Derived from ends[] so they stay
+    // consistent.
     const { source: _s, target: _t, ends: _e, ...rest } = rel;
     void _s; void _t; void _e;
-    return { ...rest, ends: d.ends };
+    const [endA, endB] = d.ends;
+    const source: End = {
+      entity: endA.entity,
+      cardinality: endA.cardinality,
+      ...(endA.role && { name: endA.role }),
+      ...(endA.referenceAttributes && { referenceAttributes: endA.referenceAttributes }),
+    };
+    const target: End = {
+      entity: endB.entity,
+      cardinality: endB.cardinality,
+      ...(endB.role && { name: endB.role }),
+      ...(endB.referenceAttributes && { referenceAttributes: endB.referenceAttributes }),
+    };
+    return { ...rest, ends: d.ends, source, target };
   });
   if (changed > 0 && apply) {
     fs.writeFileSync(filePath, YAML.stringify(migrated), 'utf8');
