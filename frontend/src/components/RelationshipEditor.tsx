@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
-import { Relationship, RelationshipEnd, Cardinality } from '../types';
+import { Relationship, RelationshipEnd, RelationshipEndNamed, Cardinality } from '../types';
 import { servicesApi, relationshipApi } from '../services/api';
 
 interface RelationshipFormData {
@@ -27,6 +27,21 @@ interface RelationshipEditorProps {
 }
 
 function toFormData(rel: Relationship): RelationshipFormData {
+  // Prefer ends[] (new symmetric shape, #99) when present
+  if (rel.ends && rel.ends.length >= 2) {
+    const [a, b] = rel.ends;
+    return {
+      description: rel.description || '',
+      sourceEntity: a.entity,
+      sourceCardinality: a.cardinality,
+      sourceName: a.role || '',
+      sourceReferenceAttributes: (a.referenceAttributes || []).join(', '),
+      targetEntity: b.entity,
+      targetCardinality: b.cardinality,
+      targetName: b.role || '',
+      targetReferenceAttributes: (b.referenceAttributes || []).join(', '),
+    };
+  }
   return {
     description: rel.description || '',
     sourceEntity: rel.source.entity,
@@ -47,27 +62,41 @@ function toRelationship(data: RelationshipFormData, uuid: string): Relationship 
     return trimmed.split(',').map(s => s.trim()).filter(Boolean);
   };
 
-  const source: RelationshipEnd = {
+  // Write the new ends[] shape (#99). Keep source/target for backward
+  // compat readers until all consumers switch.
+  const endA: RelationshipEndNamed = {
     entity: data.sourceEntity,
     cardinality: data.sourceCardinality,
-    ...(data.sourceName.trim() && { name: data.sourceName.trim() }),
+    ...(data.sourceName.trim() && { role: data.sourceName.trim() }),
     ...(parseAttrs(data.sourceReferenceAttributes) && {
       referenceAttributes: parseAttrs(data.sourceReferenceAttributes),
     }),
   };
-
-  const target: RelationshipEnd = {
+  const endB: RelationshipEndNamed = {
     entity: data.targetEntity,
     cardinality: data.targetCardinality,
-    ...(data.targetName.trim() && { name: data.targetName.trim() }),
+    ...(data.targetName.trim() && { role: data.targetName.trim() }),
     ...(parseAttrs(data.targetReferenceAttributes) && {
       referenceAttributes: parseAttrs(data.targetReferenceAttributes),
     }),
+  };
+  const source: RelationshipEnd = {
+    entity: endA.entity,
+    cardinality: endA.cardinality,
+    ...(endA.role && { name: endA.role }),
+    ...(endA.referenceAttributes && { referenceAttributes: endA.referenceAttributes }),
+  };
+  const target: RelationshipEnd = {
+    entity: endB.entity,
+    cardinality: endB.cardinality,
+    ...(endB.role && { name: endB.role }),
+    ...(endB.referenceAttributes && { referenceAttributes: endB.referenceAttributes }),
   };
 
   return {
     uuid,
     ...(data.description.trim() && { description: data.description.trim() }),
+    ends: [endA, endB],
     source,
     target,
   };
@@ -222,10 +251,10 @@ const RelationshipEditor = ({ isEdit = false, initialData, onSave, serviceProp, 
           )}
         </div>
 
-        {/* Navigation property name */}
+        {/* Role at this end */}
         <div className="form-control">
           <label className="label">
-            <span className="label-text">Navigation Property Name</span>
+            <span className="label-text">Role (at this end)</span>
           </label>
           <input
             type="text"
@@ -235,7 +264,7 @@ const RelationshipEditor = ({ isEdit = false, initialData, onSave, serviceProp, 
           />
           <label className="label">
             <span className="label-text-alt">
-              Name used to navigate this end of the relationship
+              Field name at THIS entity for reaching the other end — e.g. "items" on Order's end means <code>Order.items</code>
             </span>
           </label>
         </div>
@@ -267,6 +296,15 @@ const RelationshipEditor = ({ isEdit = false, initialData, onSave, serviceProp, 
         <h2 className="card-title text-2xl mb-6">
           {isEdit ? 'Edit Relationship' : 'Create New Relationship'}
         </h2>
+
+        <div className="alert alert-info mb-4 text-sm">
+          <span>
+            A relationship has two symmetric ends. Each end carries its own <b>role</b> —
+            the field name at THAT entity used to reach the other end.
+            Example: <code>Order — items / order → OrderItem</code> means
+            <code> Order.items</code> and <code>OrderItem.order</code>.
+          </span>
+        </div>
 
         {error && (
           <div className="alert alert-error mb-6">
