@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import EntityDetail from './EntityDetail';
 import AttributeEditor from './AttributeEditor';
+import RelationshipEditor from './RelationshipEditor';
 import PackageDetailPage from '../pages/PackageDetailPage';
-import { servicesApi } from '../services/api';
-import { Attribute } from '../types';
+import { servicesApi, relationshipApi } from '../services/api';
+import { Attribute, Relationship } from '../types';
 
 export default function PackageRouter() {
   const params = useParams();
@@ -19,6 +20,28 @@ export default function PackageRouter() {
     const entityName = segments[entitiesIndex + 1];
     const service = packagePath[0]; // Root package = service for backend API
     const rest = segments.slice(entitiesIndex + 2);
+
+    // Relationship routes: /relationships/create or /relationships/:uuid/edit
+    if (rest[0] === 'relationships') {
+      if (rest[1] === 'create') {
+        return (
+          <RelationshipEditor
+            key={`${service}-${entityName}-rel-create`}
+            serviceProp={service}
+            entityProp={entityName}
+          />
+        );
+      }
+      if (rest.length >= 2 && rest[2] === 'edit') {
+        return (
+          <RelationshipEditLoader
+            service={service}
+            entityName={entityName}
+            relationshipUuid={rest[1]}
+          />
+        );
+      }
+    }
 
     // Attribute routes: /attributes/create or /attributes/:name/edit
     if (rest[0] === 'attributes') {
@@ -105,6 +128,51 @@ function AttributeEditLoader({
       key={`${service}-${entityName}-${attributeName}`}
       isEdit={isEdit}
       initialData={attribute || undefined}
+      serviceProp={service}
+      entityProp={entityName}
+    />
+  );
+}
+
+/**
+ * Loads a relationship by UUID from the package's relationships.yaml,
+ * then renders the editor in edit mode with the existing data.
+ */
+function RelationshipEditLoader({
+  service,
+  entityName,
+  relationshipUuid,
+}: {
+  service: string;
+  entityName: string;
+  relationshipUuid: string;
+}) {
+  const [rel, setRel] = useState<Relationship | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    relationshipApi
+      .getPackageRelationships(service)
+      .then((rels: Relationship[]) => {
+        setRel(rels.find(r => r.uuid === relationshipUuid) || null);
+      })
+      .catch(() => setRel(null))
+      .finally(() => setLoading(false));
+  }, [service, relationshipUuid]);
+
+  if (loading) {
+    return (
+      <div className="flex justify-center p-8">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  return (
+    <RelationshipEditor
+      key={`${service}-${entityName}-${relationshipUuid}`}
+      isEdit
+      initialData={rel || undefined}
       serviceProp={service}
       entityProp={entityName}
     />

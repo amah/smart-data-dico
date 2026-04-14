@@ -182,7 +182,7 @@ const RelationshipList = ({ relationships, entityName, serviceName, onRelationsh
                   />
                   <td>
                     <Link
-                      to={`/services/${serviceName}/entities/${entityName}/relationships/${rel.uuid}/edit`}
+                      to={`/packages/${serviceName}/entities/${entityName}/relationships/${rel.uuid}/edit`}
                       className="btn btn-sm btn-ghost btn-square"
                       title="Open full editor (entity references, navigation names, attribute mapping)"
                     >
@@ -200,7 +200,7 @@ const RelationshipList = ({ relationships, entityName, serviceName, onRelationsh
 
       <div className="mt-6">
         <Link
-          to={`/services/${serviceName}/entities/${entityName}/relationships/create`}
+          to={`/packages/${serviceName}/entities/${entityName}/relationships/create`}
           className="btn btn-primary"
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">

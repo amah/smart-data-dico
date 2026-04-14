@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { Relationship, RelationshipEnd, Cardinality } from '../types';
-import { servicesApi } from '../services/api';
+import { servicesApi, relationshipApi } from '../services/api';
 
 interface RelationshipFormData {
   description: string;
@@ -20,6 +20,10 @@ interface RelationshipEditorProps {
   isEdit?: boolean;
   initialData?: Relationship;
   onSave?: (relationship: Relationship) => Promise<void>;
+  /** Service (root package) name — falls back to useParams if not provided. */
+  serviceProp?: string;
+  /** Owning entity name — falls back to useParams if not provided. */
+  entityProp?: string;
 }
 
 function toFormData(rel: Relationship): RelationshipFormData {
@@ -81,8 +85,10 @@ const defaultFormValues: RelationshipFormData = {
   targetReferenceAttributes: '',
 };
 
-const RelationshipEditor = ({ isEdit = false, initialData, onSave }: RelationshipEditorProps) => {
-  const { service, entity } = useParams<{ service: string; entity: string }>();
+const RelationshipEditor = ({ isEdit = false, initialData, onSave, serviceProp, entityProp }: RelationshipEditorProps) => {
+  const params = useParams<{ service: string; entity: string }>();
+  const service = serviceProp || params.service;
+  const entity = entityProp || params.entity;
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -144,31 +150,13 @@ const RelationshipEditor = ({ isEdit = false, initialData, onSave }: Relationshi
 
       if (onSave) {
         await onSave(relationship);
+      } else if (isEdit) {
+        await relationshipApi.updateRelationship(service, uuid, relationship);
       } else {
-        const response = await servicesApi.getEntitySchema(service, entity);
-        const entityData = response.data;
-
-        if (!entityData.relationships) {
-          entityData.relationships = [];
-        }
-
-        if (isEdit) {
-          const index = entityData.relationships.findIndex(
-            (rel: Relationship) => rel.uuid === uuid
-          );
-          if (index !== -1) {
-            entityData.relationships[index] = relationship;
-          } else {
-            throw new Error('Relationship not found');
-          }
-        } else {
-          entityData.relationships.push(relationship);
-        }
-
-        await servicesApi.updateEntity(service, entity, entityData);
+        await relationshipApi.createRelationship(service, relationship);
       }
 
-      navigate(`/services/${service}/entities/${entity}`);
+      navigate(`/packages/${service}/entities/${entity}`);
     } catch (err) {
       console.error('Error saving relationship:', err);
       setError('Failed to save relationship. Please try again.');
@@ -314,7 +302,7 @@ const RelationshipEditor = ({ isEdit = false, initialData, onSave }: Relationshi
             <button
               type="button"
               className="btn btn-ghost"
-              onClick={() => navigate(`/services/${service}/entities/${entity}`)}
+              onClick={() => navigate(`/packages/${service}/entities/${entity}`)}
               disabled={loading}
             >
               Cancel
