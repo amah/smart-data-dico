@@ -101,9 +101,15 @@ export default function QualityDashboardPage() {
                   <span className="text-sm text-base-content/60">{pkg.entityCount} entities</span>
                 </div>
                 <div className="flex gap-4 text-sm">
-                  <span title="Description coverage">Desc: {pkg.descriptionCoverage}%</span>
-                  <span title="Metadata compliance">Meta: {pkg.metadataCoverage}%</span>
-                  <span title="Relationship coverage">Rels: {pkg.relationshipCoverage}%</span>
+                  <span title="Description coverage — % of entities and attributes with a non-empty description">
+                    Desc: <span className={scoreColor(pkg.descriptionCoverage)}>{pkg.descriptionCoverage}%</span>
+                  </span>
+                  <span title="Metadata compliance — % of entities whose stereotype-required metadata is filled">
+                    Meta: <span className={scoreColor(pkg.metadataCoverage)}>{pkg.metadataCoverage}%</span>
+                  </span>
+                  <span title="Relationship coverage — % of entities that participate in at least one relationship">
+                    Rels: <span className={scoreColor(pkg.relationshipCoverage)}>{pkg.relationshipCoverage}%</span>
+                  </span>
                   <span className="text-base-content/40">{expandedPkg === pkg.name ? '▲' : '▼'}</span>
                 </div>
               </div>

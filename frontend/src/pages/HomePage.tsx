@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { servicesApi, packageApi } from '../services/api';
+
+type SortKey = 'name' | 'entities' | 'rels';
 
 interface PackageCard {
   name: string;
@@ -14,6 +16,8 @@ interface PackageCard {
 const HomePage = () => {
   const [packages, setPackages] = useState<PackageCard[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState('');
+  const [sortKey, setSortKey] = useState<SortKey>('name');
 
   useEffect(() => {
     const load = async () => {
@@ -49,6 +53,24 @@ const HomePage = () => {
   const totalEntities = packages.reduce((sum, pkg) => sum + pkg.entityCount, 0);
   const totalRels = packages.reduce((sum, pkg) => sum + pkg.relationshipCount, 0);
 
+  const visiblePackages = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    const filtered = q
+      ? packages.filter(p =>
+          p.name.toLowerCase().includes(q) ||
+          (p.description || '').toLowerCase().includes(q),
+        )
+      : packages;
+    const sorted = [...filtered].sort((a, b) => {
+      switch (sortKey) {
+        case 'entities': return b.entityCount - a.entityCount;
+        case 'rels':     return b.relationshipCount - a.relationshipCount;
+        default:         return a.name.localeCompare(b.name);
+      }
+    });
+    return sorted;
+  }, [packages, filter, sortKey]);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -75,8 +97,33 @@ const HomePage = () => {
           <Link to="/packages" className="btn btn-primary btn-sm mt-4">Get Started</Link>
         </div>
       ) : (
+        <>
+          {/* Filter + sort toolbar — only useful with a few packages */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              type="text"
+              placeholder="Filter packages..."
+              className="input input-sm input-bordered w-60"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            />
+            <select
+              className="select select-sm select-bordered"
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as SortKey)}
+            >
+              <option value="name">Sort: name</option>
+              <option value="entities">Sort: most entities</option>
+              <option value="rels">Sort: most relationships</option>
+            </select>
+            {filter && (
+              <span className="text-xs text-base-content/60">
+                {visiblePackages.length} of {packages.length}
+              </span>
+            )}
+          </div>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {packages.map((pkg) => (
+          {visiblePackages.map((pkg) => (
             <div key={pkg.name} className="card bg-base-200 border border-base-300 shadow-md hover:shadow-lg transition-shadow">
               <div className="card-body p-5">
                 <div className="flex items-start justify-between gap-2">
@@ -112,6 +159,7 @@ const HomePage = () => {
             </div>
           ))}
         </div>
+        </>
       )}
     </div>
   );
