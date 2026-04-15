@@ -23,6 +23,7 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
   const [batchText, setBatchText] = useState('');
   const [batchCreating, setBatchCreating] = useState(false);
   const [stereotypes, setStereotypes] = useState<Stereotype[]>([]);
+  const [entityFilter, setEntityFilter] = useState('');
 
   useEffect(() => {
     stereotypeApi.getAll('entity').then(setStereotypes).catch(() => {});
@@ -226,9 +227,18 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
       {/* Entities */}
       <div className="card bg-base-200">
         <div className="card-body">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
             <h2 className="card-title text-lg">Entities</h2>
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
+              {entityCount > 0 && (
+                <input
+                  type="text"
+                  placeholder="Filter by name or description..."
+                  className="input input-sm input-bordered w-60"
+                  value={entityFilter}
+                  onChange={(e) => setEntityFilter(e.target.value)}
+                />
+              )}
               <button className="btn btn-sm btn-outline" onClick={() => setShowBatchCreate(true)}>
                 Batch Add
               </button>
@@ -239,34 +249,50 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
           </div>
           {entityCount === 0 ? (
             <p className="text-base-content/50">No entities in this package.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="table table-sm">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Description</th>
-                    <th>Attributes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pkg.entities!.map((entity) => (
-                    <tr key={entity.uuid} className="hover">
-                      <td>
-                        <Link to={`${packageUrl}/entities/${entity.name}`} className="link link-primary font-mono">
-                          {entity.name}
-                        </Link>
-                      </td>
-                      <td className="text-sm text-base-content/70 max-w-xs truncate">
-                        {entity.description || '-'}
-                      </td>
-                      <td>{entity.attributes?.length ?? 0}</td>
+          ) : (() => {
+            const q = entityFilter.trim().toLowerCase();
+            const filtered = q
+              ? pkg.entities!.filter(e =>
+                  e.name.toLowerCase().includes(q) ||
+                  (e.description || '').toLowerCase().includes(q),
+                )
+              : pkg.entities!;
+            return (
+              <div className="overflow-x-auto">
+                <table className="table table-sm">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Description</th>
+                      <th>Attributes</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  </thead>
+                  <tbody>
+                    {filtered.map((entity) => (
+                      <tr key={entity.uuid} className="hover">
+                        <td>
+                          <Link to={`${packageUrl}/entities/${entity.name}`} className="link link-primary font-mono">
+                            {entity.name}
+                          </Link>
+                        </td>
+                        <td className="text-sm text-base-content/70 max-w-xs truncate">
+                          {entity.description || '-'}
+                        </td>
+                        <td>{entity.attributes?.length ?? 0}</td>
+                      </tr>
+                    ))}
+                    {filtered.length === 0 && (
+                      <tr>
+                        <td colSpan={3} className="text-center text-base-content/50 py-4">
+                          No entities match "{entityFilter}"
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
         </div>
       </div>
 

@@ -390,59 +390,71 @@ const EntityDetail = (props: EntityDetailProps) => {
       {/* Tabs + content */}
       <div className="card bg-base-100 shadow-sm flex-1 min-h-0 flex flex-col">
         <div className="card-body p-3 flex flex-col min-h-0">
-          <div className="tabs tabs-bordered tabs-sm">
-            <button
-              className={`tab ${activeTab === 'attributes' ? 'tab-active' : ''}`}
-              onClick={() => setActiveTab('attributes')}
-            >
-              Attributes ({entityData?.attributes?.length || 0})
-            </button>
-            <button
-              className={`tab ${activeTab === 'relationships' ? 'tab-active' : ''}`}
-              onClick={() => setActiveTab('relationships')}
-            >
-              Relationships ({relationships.length})
-            </button>
-            <button
-              className={`tab ${activeTab === 'metadata' ? 'tab-active' : ''}`}
-              onClick={() => setActiveTab('metadata')}
-            >
-              Metadata
-            </button>
-            <button
-              className={`tab ${activeTab === 'lineage' ? 'tab-active' : ''}`}
-              onClick={() => setActiveTab('lineage')}
-            >
-              Lineage
-            </button>
-            <button
-              className={`tab ${activeTab === 'impact' ? 'tab-active' : ''}`}
-              onClick={() => {
-                setActiveTab('impact');
-                if (!impact && entityData?.uuid) {
-                  setImpactLoading(true);
-                  servicesApi.getImpactAnalysis(entityData.uuid)
-                    .then(setImpact)
-                    .catch(() => {})
-                    .finally(() => setImpactLoading(false));
-                }
-              }}
-            >
-              Impact
-            </button>
-            <button
-              className={`tab ${activeTab === 'comments' ? 'tab-active' : ''}`}
-              onClick={() => setActiveTab('comments')}
-            >
-              Comments
-            </button>
-            <button
-              className={`tab ${activeTab === 'rules' ? 'tab-active' : ''}`}
-              onClick={() => setActiveTab('rules')}
-            >
-              Rules ({entityRules.length})
-            </button>
-          </div>
+          {(() => {
+            // Dim tabs whose content is empty so populated vs empty is
+            // pre-attentive. Metadata/Lineage/Impact/Comments don't expose
+            // a cheap count, so they stay at full opacity.
+            const attrCount = entityData?.attributes?.length || 0;
+            const relCount = relationships.length;
+            const ruleCount = entityRules.length;
+            const dim = (empty: boolean, active: boolean) =>
+              empty && !active ? 'opacity-50' : '';
+            return (
+              <div className="tabs tabs-bordered tabs-sm">
+                <button
+                  className={`tab ${activeTab === 'attributes' ? 'tab-active' : ''} ${dim(attrCount === 0, activeTab === 'attributes')}`}
+                  onClick={() => setActiveTab('attributes')}
+                >
+                  Attributes ({attrCount})
+                </button>
+                <button
+                  className={`tab ${activeTab === 'relationships' ? 'tab-active' : ''} ${dim(relCount === 0, activeTab === 'relationships')}`}
+                  onClick={() => setActiveTab('relationships')}
+                >
+                  Relationships ({relCount})
+                </button>
+                <button
+                  className={`tab ${activeTab === 'metadata' ? 'tab-active' : ''}`}
+                  onClick={() => setActiveTab('metadata')}
+                >
+                  Metadata
+                </button>
+                <button
+                  className={`tab ${activeTab === 'lineage' ? 'tab-active' : ''}`}
+                  onClick={() => setActiveTab('lineage')}
+                >
+                  Lineage
+                </button>
+                <button
+                  className={`tab ${activeTab === 'impact' ? 'tab-active' : ''}`}
+                  onClick={() => {
+                    setActiveTab('impact');
+                    if (!impact && entityData?.uuid) {
+                      setImpactLoading(true);
+                      servicesApi.getImpactAnalysis(entityData.uuid)
+                        .then(setImpact)
+                        .catch(() => {})
+                        .finally(() => setImpactLoading(false));
+                    }
+                  }}
+                >
+                  Impact
+                </button>
+                <button
+                  className={`tab ${activeTab === 'comments' ? 'tab-active' : ''}`}
+                  onClick={() => setActiveTab('comments')}
+                >
+                  Comments
+                </button>
+                <button
+                  className={`tab ${activeTab === 'rules' ? 'tab-active' : ''} ${dim(ruleCount === 0, activeTab === 'rules')}`}
+                  onClick={() => setActiveTab('rules')}
+                >
+                  Rules ({ruleCount})
+                </button>
+              </div>
+            );
+          })()}
 
           <div className="mt-2 flex-1 overflow-auto min-h-0">
             {activeTab === 'attributes' && entityData && (

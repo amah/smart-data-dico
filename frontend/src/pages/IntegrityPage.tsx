@@ -20,7 +20,7 @@
  * so switching tabs is instant.
  */
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { integrityApi } from '../services/api';
 import type { Rule, PhysicalConstraint, RuleSeverityValue, RuleEnforcement } from '../types';
 
@@ -76,6 +76,7 @@ const formatConstraintDetail = (c: PhysicalConstraint) => {
 };
 
 const IntegrityPage = () => {
+  const navigate = useNavigate();
   const [validation, setValidation] = useState<ValidationRow[]>([]);
   const [constraints, setConstraints] = useState<ConstraintRow[]>([]);
   const [rules, setRules] = useState<Rule[]>([]);
@@ -185,66 +186,86 @@ const IntegrityPage = () => {
   }, [filteredValidation, filteredConstraints, filteredRules]);
 
   // ─── Render helpers ─────────────────────────────────────────────────
-  const renderValidationRow = (v: ValidationRow) => (
-    <tr key={`v-${v.entityUuid}-${v.attributeUuid}-${v.kind}`} className="hover">
-      {tab === 'all' && (
-        <td>
-          <span className="badge badge-xs badge-info">validation</span>
-        </td>
-      )}
-      <td className="text-xs text-base-content/60">{v.service}</td>
-      <td>
-        <Link
-          to={`/packages/${v.service}/entities/${v.entityName}`}
-          className="link link-hover font-medium"
-        >
-          {v.entityName}
-        </Link>
-      </td>
-      <td className="font-mono text-sm">{v.attributeName}</td>
-      <td>
-        <span className={`badge badge-xs ${validationKindBadgeClass(v.kind)}`}>{v.kind}</span>
-      </td>
-      <td className="font-mono text-xs break-all">{formatValidationValue(v.value)}</td>
-    </tr>
-  );
 
-  const renderConstraintRow = (c: ConstraintRow) => (
-    <tr key={`c-${c.entityUuid}-${c.constraint.name || c.constraint.kind}-${(c.constraint.columns || []).join(',')}`} className="hover">
-      {tab === 'all' && (
+  // Compact category cell: colored single-letter chip with full name in
+  // a tooltip — saves ~80px per row vs. the full "validation" badge.
+  const categoryChip = (kind: 'validation' | 'constraint' | 'rule') => {
+    const map = {
+      validation: { letter: 'V', cls: 'badge-info', label: 'Validation' },
+      constraint: { letter: 'C', cls: 'badge-warning', label: 'Constraint' },
+      rule: { letter: 'R', cls: 'badge-success', label: 'Rule' },
+    } as const;
+    const { letter, cls, label } = map[kind];
+    return (
+      <span className={`badge badge-sm ${cls} font-mono`} title={label}>
+        {letter}
+      </span>
+    );
+  };
+
+  // Stop the row navigate from firing when a child link is clicked.
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
+
+  const renderValidationRow = (v: ValidationRow) => {
+    const href = `/packages/${v.service}/entities/${v.entityName}`;
+    return (
+      <tr
+        key={`v-${v.entityUuid}-${v.attributeUuid}-${v.kind}`}
+        className="hover cursor-pointer"
+        onClick={() => navigate(href)}
+      >
+        {tab === 'all' && <td className="w-8">{categoryChip('validation')}</td>}
+        <td className="text-xs text-base-content/60">{v.service}</td>
         <td>
-          <span className="badge badge-xs badge-warning">constraint</span>
+          <Link to={href} onClick={stop} className="link link-hover font-medium">
+            {v.entityName}
+          </Link>
         </td>
-      )}
-      <td className="text-xs text-base-content/60">{c.service}</td>
-      <td>
-        <Link
-          to={`/packages/${c.service}/entities/${c.entityName}`}
-          className="link link-hover font-medium"
-        >
-          {c.entityName}
-        </Link>
-      </td>
-      <td className="font-mono text-sm">{c.constraint.name || <span className="text-base-content/40">(unnamed)</span>}</td>
-      <td>
-        <span className={`badge badge-xs ${constraintKindBadgeClass(c.constraint.kind)}`}>
-          {c.constraint.kind}
-        </span>
-      </td>
-      <td className="font-mono text-xs break-all">{formatConstraintDetail(c.constraint)}</td>
-    </tr>
-  );
+        <td className="font-mono text-sm">{v.attributeName}</td>
+        <td>
+          <span className={`badge badge-xs ${validationKindBadgeClass(v.kind)}`}>{v.kind}</span>
+        </td>
+        <td className="font-mono text-xs break-all">{formatValidationValue(v.value)}</td>
+      </tr>
+    );
+  };
+
+  const renderConstraintRow = (c: ConstraintRow) => {
+    const href = `/packages/${c.service}/entities/${c.entityName}`;
+    return (
+      <tr
+        key={`c-${c.entityUuid}-${c.constraint.name || c.constraint.kind}-${(c.constraint.columns || []).join(',')}`}
+        className="hover cursor-pointer"
+        onClick={() => navigate(href)}
+      >
+        {tab === 'all' && <td className="w-8">{categoryChip('constraint')}</td>}
+        <td className="text-xs text-base-content/60">{c.service}</td>
+        <td>
+          <Link to={href} onClick={stop} className="link link-hover font-medium">
+            {c.entityName}
+          </Link>
+        </td>
+        <td className="font-mono text-sm">{c.constraint.name || <span className="text-base-content/40">(unnamed)</span>}</td>
+        <td>
+          <span className={`badge badge-xs ${constraintKindBadgeClass(c.constraint.kind)}`}>
+            {c.constraint.kind}
+          </span>
+        </td>
+        <td className="font-mono text-xs break-all">{formatConstraintDetail(c.constraint)}</td>
+      </tr>
+    );
+  };
 
   const renderRuleRow = (r: Rule) => (
-    <tr key={`r-${r.uuid}`} className="hover cursor-pointer">
-      {tab === 'all' && (
-        <td>
-          <span className="badge badge-xs badge-success">rule</span>
-        </td>
-      )}
+    <tr
+      key={`r-${r.uuid}`}
+      className="hover cursor-pointer"
+      onClick={() => navigate('/rules')}
+    >
+      {tab === 'all' && <td className="w-8">{categoryChip('rule')}</td>}
       <td className="text-xs text-base-content/60">{r.packageName || '—'}</td>
       <td>
-        <Link to="/rules" className="link link-hover font-medium">
+        <Link to="/rules" onClick={stop} className="link link-hover font-medium">
           {r.name}
         </Link>
       </td>
@@ -336,7 +357,7 @@ const IntegrityPage = () => {
           <table className="table table-sm">
             <thead>
               <tr>
-                {tab === 'all' && <th>Category</th>}
+                {tab === 'all' && <th className="w-8" title="Category: V=Validation, C=Constraint, R=Rule">Cat.</th>}
                 <th>Service</th>
                 <th>Entity</th>
                 {tab === 'validation' && <th>Attribute</th>}
