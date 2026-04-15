@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { servicesApi, stereotypeApi } from '../services/api';
 import type { SearchResult, Stereotype } from '../types';
 
@@ -12,6 +12,7 @@ const TYPE_BADGES: Record<string, string> = {
 };
 
 const SearchComponent = () => {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialQuery = searchParams.get('q') || '';
 
@@ -191,24 +192,31 @@ const SearchComponent = () => {
                 </tr>
               </thead>
               <tbody>
-                {results.map((result, index) => (
-                  <tr key={index} className="hover">
-                    <td>
-                      <span className={`badge badge-sm ${TYPE_BADGES[result.type] || 'badge-ghost'}`}>
-                        {result.type}
-                      </span>
-                    </td>
-                    <td className="font-mono font-medium">{highlightText(result.name, query)}</td>
-                    <td><span className="badge badge-ghost badge-sm">{result.service}</span></td>
-                    <td className="max-w-xs truncate text-sm">{highlightText(result.description, query)}</td>
-                    <td className="text-xs text-base-content/60">{result.matchContext || ''}</td>
-                    <td>
-                      <Link to={getResultLink(result)} className="btn btn-xs btn-ghost">
-                        View
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                {results.map((result, index) => {
+                  const href = getResultLink(result);
+                  return (
+                    <tr
+                      key={index}
+                      className="hover cursor-pointer"
+                      onClick={() => navigate(href)}
+                    >
+                      <td>
+                        <span className={`badge badge-sm ${TYPE_BADGES[result.type] || 'badge-ghost'}`}>
+                          {result.type}
+                        </span>
+                      </td>
+                      <td className="font-mono font-medium">{highlightText(result.name, query)}</td>
+                      <td><span className="badge badge-ghost badge-sm">{result.service}</span></td>
+                      <td className="max-w-xs truncate text-sm">{highlightText(result.description, query)}</td>
+                      <td className="text-xs text-base-content/60">{result.matchContext || ''}</td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <Link to={href} className="btn btn-xs btn-ghost">
+                          View
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
