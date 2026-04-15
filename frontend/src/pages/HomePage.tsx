@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { servicesApi, packageApi } from '../services/api';
+import { getRecentPackages } from '../hooks/useRecentPackages';
 
 type SortKey = 'name' | 'entities' | 'rels';
 
@@ -98,6 +99,26 @@ const HomePage = () => {
         </div>
       ) : (
         <>
+          {/* Recently viewed (#102 P3) */}
+          {(() => {
+            const recents = getRecentPackages().filter(name => packages.some(p => p.name === name));
+            if (recents.length === 0) return null;
+            return (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-base-content/60">Recently viewed:</span>
+                {recents.map(name => (
+                  <Link
+                    key={name}
+                    to={`/packages/${name}`}
+                    className="badge badge-outline badge-sm hover:badge-primary"
+                  >
+                    {name}
+                  </Link>
+                ))}
+              </div>
+            );
+          })()}
+
           {/* Filter + sort toolbar — only useful with a few packages */}
           <div className="flex items-center gap-2 flex-wrap">
             <input
@@ -122,7 +143,7 @@ const HomePage = () => {
               </span>
             )}
           </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
           {visiblePackages.map((pkg) => (
             <div key={pkg.name} className="card bg-base-200 border border-base-300 shadow-md hover:shadow-lg transition-shadow">
               <div className="card-body p-5">

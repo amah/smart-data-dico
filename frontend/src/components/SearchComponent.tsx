@@ -173,8 +173,9 @@ const SearchComponent = () => {
           <div className="form-control">
             <input
               type="text"
-              className="input input-bordered input-sm w-40"
-              placeholder="Has metadata..."
+              className="input input-bordered input-sm w-56"
+              placeholder='e.g. pii or pii=true'
+              title="Filter results that carry a metadata key (or key=value)"
               value={filters.hasMetadata}
               onChange={(e) => handleFilterChange('hasMetadata', e.target.value)}
             />

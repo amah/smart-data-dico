@@ -58,6 +58,14 @@ export default function GitStatusIndicator() {
       <button
         className="btn btn-ghost btn-sm gap-1 text-primary-content"
         onClick={() => setOpen(!open)}
+        title={(() => {
+          const parts: string[] = [`Workspace: ${status.branch || 'main'}`];
+          if (unsavedCount > 0) parts.push(`${unsavedCount} unsaved`);
+          if ((status.ahead || 0) > 0) parts.push(`↑${status.ahead} ahead of shared`);
+          if ((status.behind || 0) > 0) parts.push(`↓${status.behind} updates available`);
+          if (isClean) parts.push('clean');
+          return parts.join(' · ');
+        })()}
       >
         {/* Branch icon */}
         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
