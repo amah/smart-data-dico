@@ -4,6 +4,7 @@ import { packageApi, servicesApi, stereotypeApi } from '../services/api';
 import type { Package, Entity, Stereotype } from '../types';
 import PackageForm from '../components/PackageForm';
 import CytoscapeGraph from '../components/CytoscapeGraph';
+import { useRecordRecentPackage } from '../hooks/useRecentPackages';
 
 interface PackageDetailPageProps {
   packagePath: string[];
@@ -24,6 +25,13 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
   const [batchCreating, setBatchCreating] = useState(false);
   const [stereotypes, setStereotypes] = useState<Stereotype[]>([]);
   const [entityFilter, setEntityFilter] = useState('');
+  const [entitySort, setEntitySort] = useState<{ key: 'name' | 'description' | 'attributes'; dir: 'asc' | 'desc' }>({
+    key: 'name',
+    dir: 'asc',
+  });
+
+  // Track package visits for the "Recently viewed" strip on Home (#102 P3).
+  useRecordRecentPackage(packagePath[0]);
 
   useEffect(() => {
     stereotypeApi.getAll('entity').then(setStereotypes).catch(() => {});
@@ -251,20 +259,33 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
             <p className="text-base-content/50">No entities in this package.</p>
           ) : (() => {
             const q = entityFilter.trim().toLowerCase();
-            const filtered = q
+            const base = q
               ? pkg.entities!.filter(e =>
                   e.name.toLowerCase().includes(q) ||
                   (e.description || '').toLowerCase().includes(q),
                 )
               : pkg.entities!;
+            const filtered = [...base].sort((a, b) => {
+              const dir = entitySort.dir === 'asc' ? 1 : -1;
+              if (entitySort.key === 'attributes') {
+                return ((a.attributes?.length ?? 0) - (b.attributes?.length ?? 0)) * dir;
+              }
+              const av = (entitySort.key === 'description' ? (a.description || '') : a.name).toLowerCase();
+              const bv = (entitySort.key === 'description' ? (b.description || '') : b.name).toLowerCase();
+              return av.localeCompare(bv) * dir;
+            });
+            const toggleSort = (key: 'name' | 'description' | 'attributes') => setEntitySort(s =>
+              s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' },
+            );
+            const arrow = (key: string) => entitySort.key === key ? (entitySort.dir === 'asc' ? ' ▲' : ' ▼') : '';
             return (
               <div className="overflow-x-auto">
                 <table className="table table-sm">
                   <thead>
                     <tr>
-                      <th>Name</th>
-                      <th>Description</th>
-                      <th>Attributes</th>
+                      <th className="cursor-pointer select-none" onClick={() => toggleSort('name')}>Name{arrow('name')}</th>
+                      <th className="cursor-pointer select-none" onClick={() => toggleSort('description')}>Description{arrow('description')}</th>
+                      <th className="cursor-pointer select-none" onClick={() => toggleSort('attributes')}>Attributes{arrow('attributes')}</th>
                     </tr>
                   </thead>
                   <tbody>

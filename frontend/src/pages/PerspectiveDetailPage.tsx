@@ -11,6 +11,7 @@ export default function PerspectiveDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'paths' | 'graph' | 'annotations'>('paths');
+  const [statsExpanded, setStatsExpanded] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -57,25 +58,51 @@ export default function PerspectiveDetailPage() {
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="stats stats-horizontal shadow w-full">
-        <div className="stat">
-          <div className="stat-title">Root Entities</div>
-          <div className="stat-value text-lg">{rootNodes.length}</div>
+      {/* Stats — collapsed by default to a single line; click to expand. */}
+      {statsExpanded ? (
+        <div>
+          <button
+            className="btn btn-ghost btn-xs mb-1"
+            onClick={() => setStatsExpanded(false)}
+            title="Collapse stats"
+          >
+            ▲ Hide stats
+          </button>
+          <div className="stats stats-horizontal shadow w-full">
+            <div className="stat">
+              <div className="stat-title">Root Entities</div>
+              <div className="stat-value text-lg">{rootNodes.length}</div>
+            </div>
+            <div className="stat">
+              <div className="stat-title">Resolved Paths</div>
+              <div className="stat-value text-lg">{resolved.resolvedNodes.length}</div>
+            </div>
+            <div className="stat">
+              <div className="stat-title">Frontier Nodes</div>
+              <div className="stat-value text-lg">{frontierNodes.length}</div>
+            </div>
+            <div className="stat">
+              <div className="stat-title">Annotations</div>
+              <div className="stat-value text-lg">{annotations.length}</div>
+            </div>
+          </div>
         </div>
-        <div className="stat">
-          <div className="stat-title">Resolved Paths</div>
-          <div className="stat-value text-lg">{resolved.resolvedNodes.length}</div>
-        </div>
-        <div className="stat">
-          <div className="stat-title">Frontier Nodes</div>
-          <div className="stat-value text-lg">{frontierNodes.length}</div>
-        </div>
-        <div className="stat">
-          <div className="stat-title">Annotations</div>
-          <div className="stat-value text-lg">{annotations.length}</div>
-        </div>
-      </div>
+      ) : (
+        <button
+          className="btn btn-ghost btn-sm gap-3 -ml-2"
+          onClick={() => setStatsExpanded(true)}
+          title="Expand stats"
+        >
+          <span className="text-base-content/60">▼</span>
+          <span><b>{rootNodes.length}</b> roots</span>
+          <span>·</span>
+          <span><b>{resolved.resolvedNodes.length}</b> resolved</span>
+          <span>·</span>
+          <span><b>{frontierNodes.length}</b> frontier</span>
+          <span>·</span>
+          <span><b>{annotations.length}</b> annotations</span>
+        </button>
+      )}
 
       {/* Tabs */}
       <div>

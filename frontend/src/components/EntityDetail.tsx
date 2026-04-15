@@ -291,7 +291,7 @@ const EntityDetail = (props: EntityDetailProps) => {
         <button
           className="btn btn-ghost btn-xs"
           onClick={() => setShowInfo(!showInfo)}
-          title={showInfo ? 'Hide details' : 'Show details'}
+          title={showInfo ? 'Hide entity metadata' : 'Show entity metadata (description, status, stereotype)'}
         >
           <svg xmlns="http://www.w3.org/2000/svg" className={`h-3.5 w-3.5 transition-transform ${showInfo ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -309,7 +309,7 @@ const EntityDetail = (props: EntityDetailProps) => {
             Edit
           </Link>
           <button
-            className="btn btn-outline btn-sm"
+            className="btn btn-ghost btn-sm"
             onClick={handleCloneEntity}
             title="Duplicate this entity"
           >
