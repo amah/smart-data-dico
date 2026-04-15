@@ -398,7 +398,7 @@ const AttributeList = ({ attributes, entityName, entityUuid, serviceName, onAttr
               <tr>
                 <th>Name</th>
                 <th>Type</th>
-                <th>Description</th>
+                <th className="w-[40ch] min-w-[40ch]">Description</th>
                 <th>Required</th>
                 <th>Rules</th>
                 {metadataColumns.map(col => (
@@ -446,7 +446,12 @@ const AttributeList = ({ attributes, entityName, entityUuid, serviceName, onAttr
                   <EditableCell
                     value={attr.description || ''}
                     inputType="textarea"
-                    className="max-w-xs"
+                    className="w-[40ch] max-w-[40ch] align-top"
+                    renderDisplay={(v) => (
+                      <span className="line-clamp-2 leading-snug" title={String(v)}>
+                        {String(v) || <span className="text-base-content/30">—</span>}
+                      </span>
+                    )}
                     onSave={async (v) => {
                       await saveAttributeField(attr, (a) => ({ ...a, description: v as string }));
                     }}

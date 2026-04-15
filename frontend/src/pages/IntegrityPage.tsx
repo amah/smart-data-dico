@@ -67,6 +67,21 @@ const validationKindBadgeClass = (kind: string) => {
 const formatValidationValue = (v: number | string | string[]) =>
   Array.isArray(v) ? v.join(', ') : String(v);
 
+// Renderable form of a validation value. Enum lists become individual chips so
+// long lists don't read as a comma-joined wall of text.
+const renderValidationValue = (v: number | string | string[]) => {
+  if (Array.isArray(v)) {
+    return (
+      <span className="inline-flex flex-wrap gap-1">
+        {v.map((item, i) => (
+          <span key={i} className="badge badge-xs badge-ghost font-mono">{item}</span>
+        ))}
+      </span>
+    );
+  }
+  return <span className="font-mono text-xs break-all">{String(v)}</span>;
+};
+
 const formatConstraintDetail = (c: PhysicalConstraint) => {
   const parts: string[] = [];
   if (c.columns && c.columns.length > 0) parts.push(`(${c.columns.join(', ')})`);
@@ -86,6 +101,7 @@ const IntegrityPage = () => {
   const [tab, setTab] = useState<Tab>('all');
   const [search, setSearch] = useState('');
   const [groupBy, setGroupBy] = useState<'category' | 'entity'>('category');
+  const [severityFilter, setSeverityFilter] = useState<'all' | RuleSeverityValue>('all');
 
   const fetchReport = useCallback(async () => {
     setLoading(true);
@@ -135,10 +151,11 @@ const IntegrityPage = () => {
   const filteredRules = useMemo(
     () =>
       rules.filter(r =>
-        matches(`${r.name} ${r.description} ${(r.tags || []).join(' ')}`),
+        matches(`${r.name} ${r.description} ${(r.tags || []).join(' ')}`) &&
+        (severityFilter === 'all' || r.severity === severityFilter),
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rules, search],
+    [rules, search, severityFilter],
   );
 
   // ─── Tab counts (always derived from full filtered lists) ───────────
@@ -225,7 +242,7 @@ const IntegrityPage = () => {
         <td>
           <span className={`badge badge-xs ${validationKindBadgeClass(v.kind)}`}>{v.kind}</span>
         </td>
-        <td className="font-mono text-xs break-all">{formatValidationValue(v.value)}</td>
+        <td>{renderValidationValue(v.value)}</td>
       </tr>
     );
   };
@@ -336,6 +353,22 @@ const IntegrityPage = () => {
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
+        {(tab === 'all' || tab === 'rules') && (
+          <div className="flex items-center gap-1 text-xs">
+            <span className="text-base-content/60">Severity:</span>
+            <select
+              className="select select-bordered select-xs"
+              value={severityFilter}
+              onChange={e => setSeverityFilter(e.target.value as 'all' | RuleSeverityValue)}
+              title="Filter rules by severity (validation/constraint rows are unaffected)"
+            >
+              <option value="all">all</option>
+              <option value="error">error</option>
+              <option value="warning">warning</option>
+              <option value="info">info</option>
+            </select>
+          </div>
+        )}
         <div className="flex items-center gap-1 text-xs">
           <span className="text-base-content/60">Group by:</span>
           <select

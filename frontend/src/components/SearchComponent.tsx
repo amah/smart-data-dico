@@ -18,6 +18,7 @@ const SearchComponent = () => {
 
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<SearchResult[]>([]);
+  const [focusedIdx, setFocusedIdx] = useState(-1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState({
@@ -103,10 +104,22 @@ const SearchComponent = () => {
               <div className="join w-full">
                 <input
                   type="text"
-                  placeholder="Search entities, attributes, metadata, relationships..."
+                  placeholder="Search entities, attributes, metadata, relationships... (↑↓ to navigate, Enter to open)"
                   className="input input-bordered join-item w-full"
                   value={query}
-                  onChange={(e) => setQuery(e.target.value)}
+                  onChange={(e) => { setQuery(e.target.value); setFocusedIdx(-1); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      setFocusedIdx(i => Math.min(i + 1, results.length - 1));
+                    } else if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      setFocusedIdx(i => Math.max(i - 1, 0));
+                    } else if (e.key === 'Enter' && focusedIdx >= 0 && focusedIdx < results.length) {
+                      e.preventDefault();
+                      navigate(getResultLink(results[focusedIdx]));
+                    }
+                  }}
                 />
                 <button type="submit" className="btn btn-primary join-item">Search</button>
               </div>
@@ -197,7 +210,7 @@ const SearchComponent = () => {
                   return (
                     <tr
                       key={index}
-                      className="hover cursor-pointer"
+                      className={`hover cursor-pointer ${focusedIdx === index ? 'bg-primary/10' : ''}`}
                       onClick={() => navigate(href)}
                     >
                       <td>
