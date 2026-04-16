@@ -6,6 +6,7 @@ import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
 import InlineMetadataCell from './InlineMetadataCell';
 import EditableCell, { SelectOption } from './EditableCell';
 import RulesSidePanel from './RulesSidePanel';
+import { useResizableColumns, ResizeHandle, type ColumnDef } from '../hooks/useResizableColumns';
 import { servicesApi, ruleApi } from '../services/api';
 
 const ATTRIBUTE_TYPE_OPTIONS: SelectOption[] = Object.values(AttributeType).map((t) => ({
@@ -152,6 +153,17 @@ const AttributeList = ({ attributes, entityName, entityUuid, serviceName, onAttr
   };
 
   const metadataColumns = allColumns.filter(c => visibleColumns.has(c.name));
+
+  const attrColDefs: ColumnDef[] = useMemo(() => [
+    { key: 'name', defaultWidth: 160 },
+    { key: 'type', defaultWidth: 90 },
+    { key: 'description', defaultWidth: 350 },
+    { key: 'required', defaultWidth: 70 },
+    { key: 'rules', defaultWidth: 70 },
+    ...metadataColumns.map(col => ({ key: col.name, defaultWidth: 120 })),
+    { key: 'actions', defaultWidth: 80 },
+  ], [metadataColumns]);
+  const { widths: attrWidths, startResize: attrStartResize, resetWidths: attrResetWidths, tableStyle: attrTableStyle } = useResizableColumns('attribute-list', attrColDefs);
 
   const filteredAttributes = attributes.filter(attr => {
     const matchesSearch = searchTerm === '' ||
@@ -382,6 +394,9 @@ const AttributeList = ({ attributes, entityName, entityUuid, serviceName, onAttr
             )}
           </div>
         )}
+        <button className="btn btn-sm btn-ghost" onClick={attrResetWidths} title="Reset column widths">
+          Reset cols
+        </button>
       </div>
 
       {filteredAttributes.length === 0 ? (
@@ -393,23 +408,41 @@ const AttributeList = ({ attributes, entityName, entityUuid, serviceName, onAttr
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="table table-zebra w-full">
+          <table className="table table-zebra" style={attrTableStyle}>
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Type</th>
-                <th className="w-[40ch] min-w-[40ch]">Description</th>
-                <th>Required</th>
-                <th>Rules</th>
+                <th className="relative" style={{ width: attrWidths.name }}>
+                  Name
+                  <ResizeHandle onMouseDown={(e) => attrStartResize('name', e)} />
+                </th>
+                <th className="relative" style={{ width: attrWidths.type }}>
+                  Type
+                  <ResizeHandle onMouseDown={(e) => attrStartResize('type', e)} />
+                </th>
+                <th className="relative" style={{ width: attrWidths.description }}>
+                  Description
+                  <ResizeHandle onMouseDown={(e) => attrStartResize('description', e)} />
+                </th>
+                <th className="relative" style={{ width: attrWidths.required }}>
+                  Required
+                  <ResizeHandle onMouseDown={(e) => attrStartResize('required', e)} />
+                </th>
+                <th className="relative" style={{ width: attrWidths.rules }}>
+                  Rules
+                  <ResizeHandle onMouseDown={(e) => attrStartResize('rules', e)} />
+                </th>
                 {metadataColumns.map(col => (
-                  <th key={col.name} title={col.description}>
+                  <th key={col.name} title={col.description} className="relative" style={{ width: attrWidths[col.name] }}>
                     <span className="flex items-center gap-1">
                       {col.label}
                       <span className="badge badge-xs badge-ghost font-normal">{col.stereotypeName}</span>
                     </span>
+                    <ResizeHandle onMouseDown={(e) => attrStartResize(col.name, e)} />
                   </th>
                 ))}
-                <th>Actions</th>
+                <th className="relative" style={{ width: attrWidths.actions }}>
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody>

@@ -1,8 +1,9 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { entityApi, packageApi } from '../services/api';
 import { Package } from '../types';
 import { useStereotypeMetadata, getMetadataValue, setMetadataValue } from '../hooks/useStereotypeMetadata';
 import { useStickyTablePref } from '../hooks/useStickyTablePref';
+import { useResizableColumns, ResizeHandle, type ColumnDef } from '../hooks/useResizableColumns';
 import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
 import EditableCell from './EditableCell';
 
@@ -17,7 +18,7 @@ const PackageFlatTable = () => {
   const { allColumns, columnsByStereotype } = useStereotypeMetadata('package');
   const [pinned, togglePinned] = useStickyTablePref('package-flat');
   const stickyHead = pinned ? 'sticky top-0 z-20 bg-base-100' : '';
-  const stickyFirstCol = pinned ? 'sticky left-0 z-10 bg-base-100' : '';
+  const stickyFirstCol = pinned ? 'sticky left-0 z-10 sdd-sticky-col' : '';
   const stickyCorner = pinned ? 'sticky top-0 left-0 z-30 bg-base-100' : '';
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(() => {
     try {
@@ -86,6 +87,17 @@ const PackageFlatTable = () => {
 
   const activeMetaCols = allColumns.filter(c => visibleColumns.has(c.name));
 
+  const colDefs: ColumnDef[] = useMemo(() => [
+    { key: 'name', defaultWidth: 180 },
+    { key: 'description', defaultWidth: 300 },
+    { key: 'type', defaultWidth: 100 },
+    { key: 'entityCount', defaultWidth: 90 },
+    ...activeMetaCols.map(col => ({ key: col.name, defaultWidth: 120 })),
+    { key: 'createdAt', defaultWidth: 110 },
+    { key: 'updatedAt', defaultWidth: 110 },
+  ], [activeMetaCols]);
+  const { widths, startResize, resetWidths, tableStyle } = useResizableColumns('package-flat', colDefs);
+
   const renderMetaValue = (pkg: Package, col: MetadataColumn) => {
     const val = getMetadataValue(pkg as any, col.name);
     if (val === undefined || val === '') return <span className="text-base-content/30">-</span>;
@@ -143,6 +155,9 @@ const PackageFlatTable = () => {
             title={pinned ? 'Unfreeze header & first column' : 'Freeze header & first column'}
           >
             {pinned ? 'Frozen' : 'Freeze'}
+          </button>
+          <button className="btn btn-sm btn-ghost" onClick={resetWidths} title="Reset column widths">
+            Reset cols
           </button>
 
         {/* Metadata column picker (#92) */}
@@ -212,24 +227,42 @@ const PackageFlatTable = () => {
       ) : error ? (
         <div className="alert alert-error">{error}</div>
       ) : (
-        <div className={`${pinned ? 'overflow-auto max-h-[70vh]' : 'overflow-x-auto'} bg-base-100 rounded-lg shadow p-1 flex-1 min-h-0`}>
-          <table className="table table-zebra w-full">
+        <div className={`${pinned ? 'overflow-auto max-h-[70vh]' : 'overflow-x-auto p-1'} bg-base-100 rounded-lg shadow flex-1 min-h-0`}>
+          <table className={`table table-xs table-zebra ${pinned ? 'sdd-sticky-table' : ''}`} style={tableStyle}>
             <thead>
               <tr>
-                <th className={stickyCorner}>Package Name</th>
-                <th className={stickyHead}>Description</th>
-                <th className={stickyHead}>Microservice</th>
-                <th className={stickyHead}>Entity Count</th>
+                <th className={`${stickyCorner} relative`} style={{ width: widths.name }}>
+                  Package Name
+                  <ResizeHandle onMouseDown={(e) => startResize('name', e)} />
+                </th>
+                <th className={`${stickyHead} relative`} style={{ width: widths.description }}>
+                  Description
+                  <ResizeHandle onMouseDown={(e) => startResize('description', e)} />
+                </th>
+                <th className={`${stickyHead} relative`} style={{ width: widths.type }}>
+                  Microservice
+                  <ResizeHandle onMouseDown={(e) => startResize('type', e)} />
+                </th>
+                <th className={`${stickyHead} relative`} style={{ width: widths.entityCount }}>
+                  Entity Count
+                  <ResizeHandle onMouseDown={(e) => startResize('entityCount', e)} />
+                </th>
                 {activeMetaCols.map(col => (
-                  <th key={col.name} title={col.description} className={stickyHead}>
+                  <th key={col.name} title={col.description} className={`${stickyHead} relative`} style={{ width: widths[col.name] }}>
                     <span className="flex items-center gap-1">
                       {col.label}
                       <span className="badge badge-xs badge-ghost font-normal">{col.stereotypeName}</span>
                     </span>
+                    <ResizeHandle onMouseDown={(e) => startResize(col.name, e)} />
                   </th>
                 ))}
-                <th className={stickyHead}>Created At</th>
-                <th className={stickyHead}>Updated At</th>
+                <th className={`${stickyHead} relative`} style={{ width: widths.createdAt }}>
+                  Created At
+                  <ResizeHandle onMouseDown={(e) => startResize('createdAt', e)} />
+                </th>
+                <th className={`${stickyHead} relative`} style={{ width: widths.updatedAt }}>
+                  Updated At
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -250,7 +283,12 @@ const PackageFlatTable = () => {
                     <EditableCell
                       value={pkg.description || ''}
                       inputType="textarea"
-                      className="max-w-xs"
+                      className="w-[48ch] max-w-[48ch] align-top"
+                      renderDisplay={(v) => (
+                        <span className="line-clamp-2 leading-snug" title={String(v)}>
+                          {String(v) || <span className="text-base-content/30">—</span>}
+                        </span>
+                      )}
                       onSave={async (v) => {
                         await savePackageField(pkg, 'description', v as string);
                       }}
