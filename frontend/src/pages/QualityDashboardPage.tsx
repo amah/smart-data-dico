@@ -62,25 +62,15 @@ export default function QualityDashboardPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Quality Dashboard</h1>
-        <p className="text-base-content/70">Track documentation completeness across your data dictionary.</p>
-      </div>
-
-      {/* Overall stats */}
-      <div className="stats shadow w-full">
-        <div className="stat">
-          <div className="stat-title">Overall Score</div>
-          <div className={`stat-value ${scoreColor(report.overall)}`}>{report.overall}%</div>
-        </div>
-        <div className="stat">
-          <div className="stat-title">Packages</div>
-          <div className="stat-value text-lg">{report.packages.length}</div>
-        </div>
-        <div className="stat">
-          <div className="stat-title">Total Entities</div>
-          <div className="stat-value text-lg">{report.totalEntities}</div>
+    <div className="p-4 space-y-4">
+      {/* Compact header with inline stats */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-3">
+          <h1 className="text-xl font-bold">Quality Dashboard</h1>
+          <span className={`text-lg font-bold ${scoreColor(report.overall)}`}>{report.overall}%</span>
+          <span className="text-sm text-base-content/60">
+            {report.packages.length} packages · {report.totalEntities} entities
+          </span>
         </div>
       </div>
 
