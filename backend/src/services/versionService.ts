@@ -49,12 +49,29 @@ export class VersionService {
         return { success: false, errors: ['Git service not available'] };
       }
 
-      const status = await gitService.status('dictionaries', '.');
+      const status = await gitService.getStatus('dictionaries', '.');
       if (!status.files || status.files.length === 0) {
         return { success: false, errors: ['No changes to commit'] };
       }
 
-      const result = await gitService.commit('dictionaries', '.', { message });
+      // The workspace maps to a subdirectory (data-dictionaries/) but
+      // getStatus returns paths relative to the git repo root. Filter
+      // to data-dictionary files and strip the prefix so stage() can
+      // resolve them inside the workspace.
+      const dataDirName = config.dataDir.split('/').pop() || 'data-dictionaries';
+      const ddPrefix = dataDirName + '/';
+      const ddFiles = status.files
+        .map((f: any) => f.path as string)
+        .filter((p: string) => p.startsWith(ddPrefix))
+        .map((p: string) => p.slice(ddPrefix.length));
+
+      if (ddFiles.length === 0) {
+        return { success: false, errors: ['No data dictionary changes to commit'] };
+      }
+
+      await gitService.stage('dictionaries', '.', ddFiles);
+
+      const result = await gitService.commit('dictionaries', '.', message);
 
       logger.info(`Changes committed: ${result.hash || 'unknown'}`);
 
@@ -64,11 +81,12 @@ export class VersionService {
         commitHash: result.hash,
         timestamp: new Date(),
       };
-    } catch (error) {
-      logger.error(`Error committing changes: ${error}`);
+    } catch (error: any) {
+      const msg = error?.message || JSON.stringify(error);
+      logger.error(`Error committing changes: ${msg}`);
       return {
         success: false,
-        errors: [`Error committing changes: ${error}`],
+        errors: [`Error committing changes: ${msg}`],
       };
     }
   }
