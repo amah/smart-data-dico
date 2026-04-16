@@ -108,7 +108,8 @@ export function useResizableColumns(tableKey: string, columns: ColumnDef[]) {
   const totalWidth = Object.values(widths).reduce((s, w) => s + w, 0);
   const tableStyle: React.CSSProperties = {
     tableLayout: 'fixed',
-    width: totalWidth,
+    minWidth: totalWidth,
+    width: '100%',
   };
 
   return { widths, startResize, resetWidths, tableStyle };
