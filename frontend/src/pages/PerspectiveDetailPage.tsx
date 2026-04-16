@@ -11,7 +11,6 @@ export default function PerspectiveDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'paths' | 'graph' | 'annotations'>('paths');
-  const [statsExpanded, setStatsExpanded] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -45,64 +44,25 @@ export default function PerspectiveDetailPage() {
   const annotations = resolved.nodes?.filter((n) => n.metadata && n.metadata.length > 0) || [];
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">{resolved.name}</h1>
-          {resolved.description && <p className="text-base-content/70 mt-1">{resolved.description}</p>}
+    <div className="p-4 space-y-3">
+      {/* Compact header: title + description inline + stats + actions */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-3 flex-wrap min-w-0">
+          <h1 className="text-xl font-bold whitespace-nowrap">{resolved.name}</h1>
+          {resolved.description && (
+            <span className="text-sm text-base-content/60 truncate max-w-md" title={resolved.description}>
+              {resolved.description}
+            </span>
+          )}
+          <span className="text-xs text-base-content/50">
+            <b>{rootNodes.length}</b> roots · <b>{resolved.resolvedNodes.length}</b> resolved · <b>{frontierNodes.length}</b> frontier · <b>{annotations.length}</b> annotations
+          </span>
         </div>
         <div className="flex gap-2">
           <Link to={`/perspectives/${id}/edit`} className="btn btn-sm btn-ghost">Edit</Link>
           <button className="btn btn-sm btn-error btn-ghost" onClick={handleDelete}>Delete</button>
         </div>
       </div>
-
-      {/* Stats — collapsed by default to a single line; click to expand. */}
-      {statsExpanded ? (
-        <div>
-          <button
-            className="btn btn-ghost btn-xs mb-1"
-            onClick={() => setStatsExpanded(false)}
-            title="Collapse stats"
-          >
-            ▲ Hide stats
-          </button>
-          <div className="stats stats-horizontal shadow w-full">
-            <div className="stat">
-              <div className="stat-title">Root Entities</div>
-              <div className="stat-value text-lg">{rootNodes.length}</div>
-            </div>
-            <div className="stat">
-              <div className="stat-title">Resolved Paths</div>
-              <div className="stat-value text-lg">{resolved.resolvedNodes.length}</div>
-            </div>
-            <div className="stat">
-              <div className="stat-title">Frontier Nodes</div>
-              <div className="stat-value text-lg">{frontierNodes.length}</div>
-            </div>
-            <div className="stat">
-              <div className="stat-title">Annotations</div>
-              <div className="stat-value text-lg">{annotations.length}</div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <button
-          className="btn btn-ghost btn-sm gap-3 -ml-2"
-          onClick={() => setStatsExpanded(true)}
-          title="Expand stats"
-        >
-          <span className="text-base-content/60">▼</span>
-          <span><b>{rootNodes.length}</b> roots</span>
-          <span>·</span>
-          <span><b>{resolved.resolvedNodes.length}</b> resolved</span>
-          <span>·</span>
-          <span><b>{frontierNodes.length}</b> frontier</span>
-          <span>·</span>
-          <span><b>{annotations.length}</b> annotations</span>
-        </button>
-      )}
 
       {/* Tabs */}
       <div>

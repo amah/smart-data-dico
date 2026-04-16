@@ -4,6 +4,7 @@ import type { ResolvedNode, ResolvedAttribute, MetadataEntry } from '../types';
 import { Cardinality } from '../types';
 import { useStereotypeMetadata, setMetadataValue } from '../hooks/useStereotypeMetadata';
 import { useStickyTablePref } from '../hooks/useStickyTablePref';
+import { useResizableColumns, ResizeHandle, type ColumnDef } from '../hooks/useResizableColumns';
 import InlineMetadataCell from './InlineMetadataCell';
 import { servicesApi } from '../services/api';
 import type { Entity, Attribute } from '../types';
@@ -193,6 +194,20 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
 
   const activeMetaCols = allMetaCols.filter(c => visibleMetaCols.has(`${c.target}:${c.name}`));
 
+  // Resizable columns (#103)
+  const colDefs: ColumnDef[] = useMemo(() => [
+    { key: 'entity', defaultWidth: 300 },
+    { key: 'type', defaultWidth: 80 },
+    { key: 'service', defaultWidth: 120 },
+    { key: 'hops', defaultWidth: 50 },
+    { key: 'status', defaultWidth: 100 },
+    ...activeMetaCols.map(col => ({
+      key: `${col.target}:${col.name}`,
+      defaultWidth: 120,
+    })),
+  ], [activeMetaCols]);
+  const { widths, startResize, resetWidths, tableStyle } = useResizableColumns('perspective-tree', colDefs);
+
   // Single expansion dimension: a path in this Set means "show all my
   // children (both entity descendants and attribute leaves)". Default:
   // entities that have entity children start expanded so the graph
@@ -331,6 +346,9 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
         >
           {pinned ? 'Frozen' : 'Freeze'}
         </button>
+        <button className="btn btn-xs btn-ghost" onClick={resetWidths} title="Reset column widths">
+          Reset cols
+        </button>
 
         {/* Metadata column picker (#93) */}
         {allMetaCols.length > 0 && (
@@ -413,22 +431,41 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
 
       {/* Tree table */}
       <div className={pinned ? 'overflow-auto max-h-[70vh] border border-base-300 rounded' : 'overflow-x-auto'}>
-        <table className="table table-sm">
+        <table className="table table-sm" style={tableStyle}>
           <thead>
             <tr>
-              <th className={stickyCorner}>Entity / Attribute</th>
-              <th className={stickyHead}>Type</th>
-              <th className={stickyHead}>Service</th>
-              <th className={stickyHead}>Hops</th>
-              <th className={stickyHead}>Status</th>
-              {activeMetaCols.map(col => (
-                <th key={`${col.target}:${col.name}`} title={col.description} className={stickyHead}>
-                  <span className="flex items-center gap-1">
-                    {col.label}
-                    <span className="badge badge-xs badge-ghost font-normal">{col.target === 'entity' ? 'E' : 'A'}</span>
-                  </span>
-                </th>
-              ))}
+              <th className={`${stickyCorner} relative`} style={{ width: widths.entity }}>
+                Entity / Attribute
+                <ResizeHandle onMouseDown={(e) => startResize('entity', e)} />
+              </th>
+              <th className={`${stickyHead} relative`} style={{ width: widths.type }}>
+                Type
+                <ResizeHandle onMouseDown={(e) => startResize('type', e)} />
+              </th>
+              <th className={`${stickyHead} relative`} style={{ width: widths.service }}>
+                Service
+                <ResizeHandle onMouseDown={(e) => startResize('service', e)} />
+              </th>
+              <th className={`${stickyHead} relative`} style={{ width: widths.hops }}>
+                Hops
+                <ResizeHandle onMouseDown={(e) => startResize('hops', e)} />
+              </th>
+              <th className={`${stickyHead} relative`} style={{ width: widths.status }}>
+                Status
+                <ResizeHandle onMouseDown={(e) => startResize('status', e)} />
+              </th>
+              {activeMetaCols.map(col => {
+                const colKey = `${col.target}:${col.name}`;
+                return (
+                  <th key={colKey} title={col.description} className={`${stickyHead} relative`} style={{ width: widths[colKey] }}>
+                    <span className="flex items-center gap-1">
+                      {col.label}
+                      <span className="badge badge-xs badge-ghost font-normal">{col.target === 'entity' ? 'E' : 'A'}</span>
+                    </span>
+                    <ResizeHandle onMouseDown={(e) => startResize(colKey, e)} />
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
