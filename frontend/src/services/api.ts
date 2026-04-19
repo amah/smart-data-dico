@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-import { Entity, Relationship, Stereotype, StereotypeTarget, Perspective, ResolvedPerspective, PerspectiveNode, GraphData, ImpactAnalysis, ReviewComment, LineageResult, Rule, RuleScope, RuleSeverityValue, RuleEnforcement, PhysicalConstraint } from '../types';
+import { Entity, Relationship, Stereotype, StereotypeTarget, Perspective, ResolvedPerspective, PerspectiveNode, GraphData, ImpactAnalysis, ReviewComment, LineageResult, Rule, RuleScope, RuleSeverityValue, RuleEnforcement, PhysicalConstraint, MetadataEntry } from '../types';
 import { Package } from '../types';
 
 /**
@@ -524,6 +524,24 @@ export const perspectiveApi = {
   upsertNode: async (id: string, node: PerspectiveNode) => {
     const response = await api.put(`/perspectives/${id}/nodes`, node);
     return response.data;
+  },
+};
+
+// Model-level metadata API (#94)
+export interface ModelMetadataDoc {
+  stereotype?: string;
+  metadata: MetadataEntry[];
+}
+
+export const modelMetadataApi = {
+  get: async (): Promise<ModelMetadataDoc> => {
+    const response = await api.get('/model/metadata');
+    return response.data.data;
+  },
+
+  put: async (doc: ModelMetadataDoc): Promise<ModelMetadataDoc> => {
+    const response = await api.put('/model/metadata', doc);
+    return response.data.data;
   },
 };
 

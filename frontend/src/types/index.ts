@@ -348,6 +348,8 @@ export interface Relationship {
   uuid: string;
   description?: string;
   type?: RelationshipType;
+  /** Stereotype id (#94); stereotype must have appliesTo === 'relationship'. */
+  stereotype?: string;
   /** Preferred symmetric shape (#99) — must contain exactly two ends. */
   ends?: RelationshipEndNamed[];
   source: RelationshipEnd;

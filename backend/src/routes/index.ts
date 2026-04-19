@@ -5,6 +5,7 @@ import { diagramController } from '../controllers/diagramController.js';
 import { createDictionary, getDictionaries, getDictionaryById, getDictionaryEntries, getEntityAttributes, getPackageByPath, getPackageHierarchy, getRelatedEntities, getTabularData, saveEntity, listAllPackagesAndEntities, getFlatEntitiesAndAttributes, getEntityHierarchy, createRootPackage, createPackageAtPath, updatePackageAtPath, deletePackageAtPath } from '../controllers/dictionaryController.js';
 import { createEntity, deleteEntity, getAllServices, getEntitySchema, getGraphData, getServiceEntities, searchEntities, updateEntity, getPackageRelationships, createRelationship, updateRelationship, deleteRelationship, getImpactAnalysis, getLineage, submitEntity, approveEntity, returnEntity, getEntityComments, addEntityComment, resolveEntityComment } from '../controllers/serviceController.js';
 import { getAllStereotypes, getStereotype, createStereotype, updateStereotype, deleteStereotype } from '../controllers/stereotypeController.js';
+import { getModelMetadata, putModelMetadata } from '../controllers/modelMetadataController.js';
 import { getAllPerspectives, getPerspective, createPerspective, updatePerspective, deletePerspective, resolvePerspective, getPerspectiveGraph, upsertPerspectiveNode } from '../controllers/perspectiveController.js';
 import { listRules, getRule, getRulesForEntity, createRule, updateRule, deleteRule } from '../controllers/ruleController.js';
 import { getIntegrityReport } from '../controllers/integrityController.js';
@@ -89,6 +90,10 @@ router.get('/api/packages/:packageName/relationships', getPackageRelationships);
 router.post('/api/packages/:packageName/relationships', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), createRelationship);
 router.put('/api/packages/:packageName/relationships/:uuid', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), updateRelationship);
 router.delete('/api/packages/:packageName/relationships/:uuid', authorizeJwt([UserRole.ADMIN]), deleteRelationship);
+
+// Model-level metadata (#94)
+router.get('/api/model/metadata', getModelMetadata);
+router.put('/api/model/metadata', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), putModelMetadata);
 
 // Stereotype API
 router.get('/api/stereotypes', getAllStereotypes);
