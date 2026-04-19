@@ -75,8 +75,24 @@ const Navbar = ({ toggleSidebar, toggleChat, chatOpen }: NavbarProps) => {
     localStorage.setItem(RECENT_KEY, JSON.stringify(updated));
   };
 
+  const confirmIfDirty = async (action: string): Promise<boolean> => {
+    try {
+      const status = await projectApi.status();
+      if (status.clean) return true;
+      const n = status.files.length;
+      return window.confirm(
+        `You have ${n} uncommitted change${n === 1 ? '' : 's'} in the current project.\n\n` +
+        `${action} will leave them behind (they remain on disk but won't be tracked by the new project). ` +
+        `Commit or discard them first?\n\nProceed anyway?`,
+      );
+    } catch {
+      return true;
+    }
+  };
+
   const handleOpenProject = async () => {
     setProjectError('');
+    if (!(await confirmIfDirty('Opening a different project'))) return;
     try {
       await projectApi.open(pathInput);
       addRecent(pathInput);
@@ -91,6 +107,7 @@ const Navbar = ({ toggleSidebar, toggleChat, chatOpen }: NavbarProps) => {
 
   const handleInitProject = async () => {
     setProjectError('');
+    if (!(await confirmIfDirty('Initializing a new project'))) return;
     try {
       await projectApi.init(pathInput);
       addRecent(pathInput);
@@ -104,6 +121,7 @@ const Navbar = ({ toggleSidebar, toggleChat, chatOpen }: NavbarProps) => {
   };
 
   const handleCloseProject = async () => {
+    if (!(await confirmIfDirty('Closing the project'))) return;
     try {
       await projectApi.close();
       loadProject();
@@ -112,6 +130,7 @@ const Navbar = ({ toggleSidebar, toggleChat, chatOpen }: NavbarProps) => {
   };
 
   const handleOpenRecent = async (p: string) => {
+    if (!(await confirmIfDirty('Switching project'))) return;
     try {
       await projectApi.open(p);
       addRecent(p);

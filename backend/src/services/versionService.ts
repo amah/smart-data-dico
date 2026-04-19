@@ -92,6 +92,27 @@ export class VersionService {
   }
 
   /**
+   * Return the dirty state of the data-dictionary subtree (#95).
+   * Used to warn before switching/closing a project.
+   */
+  async getWorkingTreeStatus(): Promise<{ clean: boolean; files: string[] }> {
+    try {
+      const gitService = await getGitService();
+      if (!gitService) return { clean: true, files: [] };
+      const status = await gitService.getStatus('dictionaries', '.');
+      const dataDirName = config.dataDir.split('/').pop() || 'data-dictionaries';
+      const ddPrefix = dataDirName + '/';
+      const ddFiles: string[] = (status.files || [])
+        .map((f: any) => f.path as string)
+        .filter((p: string) => p.startsWith(ddPrefix));
+      return { clean: ddFiles.length === 0, files: ddFiles };
+    } catch (error) {
+      logger.warn(`getWorkingTreeStatus failed: ${error}`);
+      return { clean: true, files: [] };
+    }
+  }
+
+  /**
    * Get commit history
    */
   async getCommitHistory(limit: number = 10): Promise<CommitInfo[]> {

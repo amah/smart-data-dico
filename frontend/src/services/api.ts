@@ -392,6 +392,10 @@ export const projectApi = {
     const response = await api.get('/project');
     return response.data.data;
   },
+  status: async (): Promise<{ clean: boolean; files: string[] }> => {
+    const response = await api.get('/project/status');
+    return response.data.data;
+  },
   open: async (dirPath: string) => {
     const response = await api.post('/project/open', { path: dirPath });
     return response.data;
