@@ -5,7 +5,7 @@
  * This is the first plugin registered — all others depend on it.
  */
 
-import { createStorePlugin, type StorePluginConfig } from '@hamak/ui-store';
+import { createStorePlugin, type StorePluginConfig } from '@hamak/ui-store-impl';
 
 export function createAppStorePlugin() {
   const storeConfig: StorePluginConfig = {
