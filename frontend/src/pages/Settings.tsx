@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
-import { authApi } from '../services/api';
-import { User } from '../types';
+import { authApi, modelMetadataApi, stereotypeApi } from '../services/api';
+import { User, MetadataEntry, Stereotype } from '../types';
 import { useKeyboardShortcutsEnabled } from '../hooks/useKeyboardShortcuts';
+import MetadataEditor from '../components/MetadataEditor';
 import axios from 'axios';
 
 interface SettingsFormData {
@@ -28,6 +29,39 @@ const KNOWN_ENDPOINTS = [
 const Settings = () => {
   const { enabled: shortcutsEnabled, toggle: toggleShortcuts } = useKeyboardShortcutsEnabled();
   const [user, setUser] = useState<User | null>(null);
+
+  // Model-level metadata state (#94)
+  const [modelMetadata, setModelMetadata] = useState<MetadataEntry[]>([]);
+  const [modelStereotypeId, setModelStereotypeId] = useState<string>('');
+  const [modelStereotypes, setModelStereotypes] = useState<Stereotype[]>([]);
+  const [modelSaving, setModelSaving] = useState(false);
+  const [modelMessage, setModelMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  useEffect(() => {
+    modelMetadataApi.get().then((doc) => {
+      setModelMetadata(doc.metadata || []);
+      setModelStereotypeId(doc.stereotype || '');
+    }).catch(() => {});
+    stereotypeApi.getAll('model').then(setModelStereotypes).catch(() => {});
+  }, []);
+
+  const handleModelSave = async () => {
+    setModelSaving(true);
+    setModelMessage(null);
+    try {
+      await modelMetadataApi.put({
+        stereotype: modelStereotypeId || undefined,
+        metadata: modelMetadata,
+      });
+      setModelMessage({ type: 'success', text: 'Model metadata saved' });
+    } catch (err: any) {
+      setModelMessage({ type: 'error', text: err.response?.data?.message || 'Failed to save' });
+    } finally {
+      setModelSaving(false);
+    }
+  };
+
+  const selectedModelStereotype = modelStereotypes.find(s => s.id === modelStereotypeId) || null;
 
   // AI Config state
   const [aiProvider, setAiProvider] = useState('anthropic');
@@ -272,6 +306,50 @@ const Settings = () => {
                 </label>
               </div>
               
+              {/* Model Settings (#94) */}
+              <div className="md:col-span-2">
+                <h2 className="text-xl font-bold mb-4 mt-4">Model Settings</h2>
+                <p className="text-sm opacity-70 mb-3">
+                  Metadata for the data dictionary as a whole — e.g. data-classification, compliance framework, owner.
+                </p>
+
+                <div className="form-control max-w-md mb-4">
+                  <label className="label"><span className="label-text">Model Stereotype</span></label>
+                  <select
+                    className="select select-bordered select-sm"
+                    value={modelStereotypeId}
+                    onChange={(e) => setModelStereotypeId(e.target.value)}
+                  >
+                    <option value="">— None —</option>
+                    {modelStereotypes.map(s => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <MetadataEditor
+                  entries={modelMetadata}
+                  stereotype={selectedModelStereotype}
+                  onChange={setModelMetadata}
+                />
+
+                <div className="flex items-center gap-3 mt-4">
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={handleModelSave}
+                    disabled={modelSaving}
+                  >
+                    {modelSaving ? <><span className="loading loading-spinner loading-xs"></span> Saving...</> : 'Save Model Metadata'}
+                  </button>
+                  {modelMessage && (
+                    <span className={`text-sm ${modelMessage.type === 'success' ? 'text-success' : 'text-error'}`}>
+                      {modelMessage.text}
+                    </span>
+                  )}
+                </div>
+              </div>
+
               {/* AI Assistant */}
               <div className="md:col-span-2">
                 <h2 className="text-xl font-bold mb-4 mt-4">AI Assistant</h2>

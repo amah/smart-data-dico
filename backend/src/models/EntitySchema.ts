@@ -298,6 +298,8 @@ export interface Relationship {
   uuid: string;
   description?: string;
   type?: RelationshipType;
+  /** Stereotype id (#94); stereotype must have appliesTo === 'relationship'. */
+  stereotype?: string;
   /**
    * New symmetric shape (#99) — preferred by new resolvers. On read, this
    * is populated from source/target if the file only has the legacy shape

@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
-import { Relationship, RelationshipEnd, RelationshipEndNamed, Cardinality } from '../types';
-import { servicesApi, relationshipApi } from '../services/api';
+import { Relationship, RelationshipEnd, RelationshipEndNamed, Cardinality, Stereotype } from '../types';
+import { servicesApi, relationshipApi, stereotypeApi } from '../services/api';
 
 interface RelationshipFormData {
   description: string;
+  stereotype: string;
   sourceEntity: string;
   sourceCardinality: Cardinality;
   sourceName: string;
@@ -32,6 +33,7 @@ function toFormData(rel: Relationship): RelationshipFormData {
     const [a, b] = rel.ends;
     return {
       description: rel.description || '',
+      stereotype: rel.stereotype || '',
       sourceEntity: a.entity,
       sourceCardinality: a.cardinality,
       sourceName: a.role || '',
@@ -44,6 +46,7 @@ function toFormData(rel: Relationship): RelationshipFormData {
   }
   return {
     description: rel.description || '',
+    stereotype: rel.stereotype || '',
     sourceEntity: rel.source.entity,
     sourceCardinality: rel.source.cardinality,
     sourceName: rel.source.name || '',
@@ -96,6 +99,7 @@ function toRelationship(data: RelationshipFormData, uuid: string): Relationship 
   return {
     uuid,
     ...(data.description.trim() && { description: data.description.trim() }),
+    ...(data.stereotype && { stereotype: data.stereotype }),
     ends: [endA, endB],
     source,
     target,
@@ -104,6 +108,7 @@ function toRelationship(data: RelationshipFormData, uuid: string): Relationship 
 
 const defaultFormValues: RelationshipFormData = {
   description: '',
+  stereotype: '',
   sourceEntity: '',
   sourceCardinality: Cardinality.ONE,
   sourceName: '',
@@ -123,6 +128,11 @@ const RelationshipEditor = ({ isEdit = false, initialData, onSave, serviceProp, 
   const [error, setError] = useState<string | null>(null);
   const [availableEntities, setAvailableEntities] = useState<string[]>([]);
   const [loadingEntities, setLoadingEntities] = useState(false);
+  const [relationshipStereotypes, setRelationshipStereotypes] = useState<Stereotype[]>([]);
+
+  useEffect(() => {
+    stereotypeApi.getAll('relationship').then(setRelationshipStereotypes).catch(() => {});
+  }, []);
 
   const { register, handleSubmit, formState: { errors }, reset } = useForm<RelationshipFormData>({
     defaultValues: initialData ? toFormData(initialData) : defaultFormValues,
@@ -327,6 +337,22 @@ const RelationshipEditor = ({ isEdit = false, initialData, onSave, serviceProp, 
                 placeholder="Optional description of this relationship"
                 {...register('description')}
               ></textarea>
+            </div>
+
+            {/* Stereotype */}
+            <div className="form-control md:col-span-2">
+              <label className="label">
+                <span className="label-text">Stereotype</span>
+              </label>
+              <select
+                className="select select-bordered"
+                {...register('stereotype')}
+              >
+                <option value="">— None —</option>
+                {relationshipStereotypes.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
             </div>
 
             {/* Source section */}

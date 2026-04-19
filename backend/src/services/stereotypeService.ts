@@ -33,8 +33,8 @@ class StereotypeService {
     if (!data.id || !data.name || !data.appliesTo) {
       return { success: false, errors: ['id, name, and appliesTo are required'] };
     }
-    if (!['package', 'entity', 'attribute'].includes(data.appliesTo)) {
-      return { success: false, errors: ['appliesTo must be package, entity, or attribute'] };
+    if (!['package', 'entity', 'attribute', 'model', 'relationship'].includes(data.appliesTo)) {
+      return { success: false, errors: ['appliesTo must be one of: package, entity, attribute, model, relationship'] };
     }
 
     const all = this.readStereotypes();
