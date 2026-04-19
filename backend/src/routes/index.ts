@@ -217,6 +217,16 @@ router.get('/api/project', (req, res) => {
   });
 });
 
+router.get('/api/project/status', async (_req, res) => {
+  try {
+    const { versionService } = await import('../services/versionService.js');
+    const status = await versionService.getWorkingTreeStatus();
+    res.json({ data: status });
+  } catch (e) {
+    res.status(500).json({ message: `Failed to read project status: ${e}` });
+  }
+});
+
 router.post('/api/project/open', authorizeJwt([UserRole.ADMIN]), (req, res) => {
   if (config.profile !== 'local') {
     return res.status(403).json({ message: 'Project switching is only available in local mode' });
