@@ -326,6 +326,19 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
             </Link>
           </li>
 
+          {/* Derived Types (#107) */}
+          <li>
+            <Link
+              to="/types"
+              className={isActive('/types') ? 'active' : ''}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm3 1h6a1 1 0 010 2H7a1 1 0 010-2zm0 4h6a1 1 0 010 2H7a1 1 0 010-2zm0 4h4a1 1 0 010 2H7a1 1 0 010-2z" clipRule="evenodd" />
+              </svg>
+              Data Types
+            </Link>
+          </li>
+
           {/* Settings */}
           <li className="mt-1">
             <Link

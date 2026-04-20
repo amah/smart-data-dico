@@ -84,6 +84,16 @@ Multi-kind YAML (#106): any `.yaml` file inside a package folder may carry any s
 - **Review comments** and **entity-scoped rules**: inlined on the entity as `entity.reviewComments` and `entity.rules`. The legacy `*.comments.yaml` / `*.rules.yaml` sidecars were eliminated in #106.
 - **Diagrams** stored as JSON files in `data-dictionaries/diagrams/`.
 
+### Derived data types (#107)
+
+`dico.config.json.types[]` declares reusable **derived types** — named shapes built on a standard `AttributeType` (or on another derived type, transitively). Example:
+
+```json
+{ "name": "email", "basedOn": "string", "validation": { "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", "maxLength": 254 } }
+```
+
+An attribute can declare `type: email` instead of `string`; validation merges base→derived so the derived fields win. Circular derivation is a hard error at `PUT /api/config/types`. The attribute-type picker (frontend `AttributeEditor`) surfaces them in a "Derived" optgroup alongside the standard set. JSON Schema export emits each derived type as a named `$defs` entry, with attributes pointing at `#/$defs/<name>`. CRUD UI lives at `/types` (`DerivedTypesPage`).
+
 ### Validation / Constraint / Rule — three concepts, three homes (#85)
 
 These three words are kept strictly separate. **Do not collapse them.**

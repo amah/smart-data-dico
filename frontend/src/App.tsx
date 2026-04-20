@@ -37,6 +37,7 @@ import Register from './pages/Register';
 import ForgotPassword from './pages/ForgotPassword';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
+import DerivedTypesPage from './pages/DerivedTypesPage';
 
 // Package Navigation
 import PackageRouter from './components/PackageRouter';
@@ -147,6 +148,7 @@ function App() {
           </AuthGuard>
         } />
         <Route path="settings" element={<Settings />} />
+        <Route path="types" element={<DerivedTypesPage />} />
         
         {/* 404 - Not Found */}
         <Route path="*" element={<NotFoundPage />} />

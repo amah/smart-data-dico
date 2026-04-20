@@ -691,4 +691,34 @@ export const packageApi = {
   },
 };
 
+// Project-level config (#107) — currently just the derived-types array
+// under `dico.config.json.types[]`.
+export interface DerivedType {
+  name: string;
+  basedOn: string;
+  description?: string;
+  validation?: {
+    minLength?: number;
+    maxLength?: number;
+    pattern?: string;
+    format?: string;
+    minimum?: number;
+    maximum?: number;
+    precision?: number;
+    scale?: number;
+    enumValues?: string[];
+  };
+}
+
+export const configApi = {
+  getDerivedTypes: async (): Promise<DerivedType[]> => {
+    const response = await api.get('/config/types');
+    return response.data.data || [];
+  },
+  putDerivedTypes: async (types: DerivedType[]): Promise<DerivedType[]> => {
+    const response = await api.put('/config/types', types);
+    return response.data.data || types;
+  },
+};
+
 export default api;
