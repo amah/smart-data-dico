@@ -1,4 +1,8 @@
 import { Router } from 'express';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import { config } from '../kernel/config.js';
 
 import { getCurrentUser, login } from '../controllers/authController.js';
 import { diagramController } from '../controllers/diagramController.js';
@@ -189,8 +193,8 @@ router.get('/api/filesystem/browse', (req, res) => {
       .filter(e => e.isDirectory() && !e.name.startsWith('.'))
       .map(e => e.name)
       .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-    const hasDataDictionaries = fs.existsSync(path.join(resolved, 'data-dictionaries', 'microservices'))
-      || fs.existsSync(path.join(resolved, 'microservices'));
+    const hasDataDictionaries = fs.existsSync(path.join(resolved, 'dico.config.json'))
+      || fs.existsSync(path.join(resolved, 'data-dictionaries', 'dico.config.json'));
     res.json({
       data: {
         path: resolved,
@@ -206,7 +210,7 @@ router.get('/api/filesystem/browse', (req, res) => {
 
 router.get('/api/project', (req, res) => {
   const dataDir = config.dataDir;
-  const isOpen = fs.existsSync(path.join(dataDir, 'microservices'));
+  const isOpen = fs.existsSync(path.join(dataDir, 'dico.config.json'));
   res.json({
     data: {
       path: dataDir,
@@ -239,15 +243,15 @@ router.post('/api/project/open', authorizeJwt([UserRole.ADMIN]), (req, res) => {
   if (!fs.existsSync(resolved)) {
     return res.status(400).json({ message: `Path does not exist: ${resolved}` });
   }
-  // Accept either the data-dictionaries folder itself or its parent
-  const dataDir = fs.existsSync(path.join(resolved, 'microservices'))
+  // Accept either the project folder itself or its parent containing data-dictionaries/
+  const dataDir = fs.existsSync(path.join(resolved, 'dico.config.json'))
     ? resolved
-    : fs.existsSync(path.join(resolved, 'data-dictionaries', 'microservices'))
+    : fs.existsSync(path.join(resolved, 'data-dictionaries', 'dico.config.json'))
       ? path.join(resolved, 'data-dictionaries')
       : null;
   if (!dataDir) {
     return res.status(400).json({
-      message: `No data-dictionaries structure found at ${resolved}. Use /api/project/init to create one.`,
+      message: `No dico.config.json found at ${resolved}. Use /api/project/init to create one.`,
     });
   }
   config.dataDir = dataDir;
@@ -283,11 +287,18 @@ router.post('/api/project/init', authorizeJwt([UserRole.ADMIN]), (req, res) => {
     ? resolved
     : path.join(resolved, 'data-dictionaries');
   try {
+    // Project marker + .dico/ system folder (#104)
+    fs.mkdirSync(path.join(dataDir, '.dico'), { recursive: true });
+    fs.mkdirSync(path.join(dataDir, '.dico', 'diagrams'), { recursive: true });
     fs.mkdirSync(path.join(dataDir, 'microservices'), { recursive: true });
     fs.mkdirSync(path.join(dataDir, 'perspectives'), { recursive: true });
-    fs.mkdirSync(path.join(dataDir, 'diagrams'), { recursive: true });
-    if (!fs.existsSync(path.join(dataDir, 'stereotypes.yaml'))) {
-      fs.writeFileSync(path.join(dataDir, 'stereotypes.yaml'), '[]', 'utf-8');
+    const configPath = path.join(dataDir, 'dico.config.json');
+    if (!fs.existsSync(configPath)) {
+      fs.writeFileSync(configPath, JSON.stringify({ version: 1 }, null, 2) + '\n', 'utf-8');
+    }
+    const stereotypesPath = path.join(dataDir, '.dico', 'stereotypes.yaml');
+    if (!fs.existsSync(stereotypesPath)) {
+      fs.writeFileSync(stereotypesPath, '[]', 'utf-8');
     }
     // Auto-open the new project
     config.dataDir = dataDir;
@@ -296,33 +307,6 @@ router.post('/api/project/init', authorizeJwt([UserRole.ADMIN]), (req, res) => {
     res.json({ message: `Project initialized and opened: ${dataDir}`, data: { path: dataDir } });
   } catch (e) {
     res.status(500).json({ message: `Failed to initialize project: ${e}` });
-  }
-});
-
-// Model-level metadata (#94) — stored in data-dictionaries/metadata.yaml
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
-import YAML from 'yaml';
-import { config } from '../kernel/config.js';
-const getModelMetaPath = () => path.join(config.dataDir, 'metadata.yaml');
-router.get('/api/model/metadata', (req, res) => {
-  try {
-    const p = getModelMetaPath();
-    if (!fs.existsSync(p)) return res.json({ data: [] });
-    const raw = fs.readFileSync(p, 'utf-8');
-    res.json({ data: YAML.parse(raw) || [] });
-  } catch (e) {
-    res.status(500).json({ message: 'Failed to read model metadata', error: String(e) });
-  }
-});
-router.put('/api/model/metadata', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), (req, res) => {
-  try {
-    const metadata = req.body.metadata || req.body;
-    fs.writeFileSync(getModelMetaPath(), YAML.stringify(Array.isArray(metadata) ? metadata : []), 'utf-8');
-    res.json({ message: 'Model metadata saved', data: metadata });
-  } catch (e) {
-    res.status(500).json({ message: 'Failed to write model metadata', error: String(e) });
   }
 });
 
