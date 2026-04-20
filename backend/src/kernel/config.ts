@@ -12,11 +12,18 @@ dotenv.config();
 
 const isProduction = process.env.NODE_ENV === 'production';
 
-/** Mutable data directory — updated by /api/project/open (#95). */
+/**
+ * Mutable data directory — updated by /api/project/open (#95).
+ *
+ * Production deployments point at their own project dir (via `DATA_DIR`
+ * env or the CLI `--data-dir` flag). Dev defaults to the repo's bundled
+ * sample project (`samples/eshop/`), which is the only sample the repo
+ * ships (#post-107).
+ */
 let _dataDir = process.env.DATA_DIR
   || (isProduction
     ? path.join(process.cwd(), 'data-dictionaries')
-    : path.join(process.cwd(), '..', 'data-dictionaries'));
+    : path.join(process.cwd(), '..', 'samples', 'eshop'));
 
 export const config = {
   /** Server port */
