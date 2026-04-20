@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useForm, Controller } from 'react-hook-form';
 import { Attribute, AttributeType, AttributeValidation } from '../types';
-import { servicesApi } from '../services/api';
+import { servicesApi, configApi, DerivedType } from '../services/api';
 
 interface AttributeEditorProps {
   isEdit?: boolean;
@@ -111,6 +111,14 @@ const AttributeEditor = ({ isEdit = false, initialData, onSave, serviceProp, ent
   const [selectedType, setSelectedType] = useState<AttributeType>(
     initialData?.type || AttributeType.STRING
   );
+  // Derived types from dico.config.json (#107) — augment the picker with
+  // user-defined types (email, money, …) alongside the standard set.
+  const [derivedTypes, setDerivedTypes] = useState<DerivedType[]>([]);
+  useEffect(() => {
+    configApi.getDerivedTypes().then(setDerivedTypes).catch(() => {
+      // Project may not be open yet; ignore silently
+    });
+  }, []);
 
   const { register, handleSubmit, control, formState: { errors }, reset, watch } = useForm<AttributeFormValues>({
     defaultValues: initialData ? attributeToFormValues(initialData) : defaultFormValues
@@ -225,9 +233,20 @@ const AttributeEditor = ({ isEdit = false, initialData, onSave, serviceProp, ent
                 className={`select select-bordered ${errors.type ? 'select-error' : ''}`}
                 {...register('type', { required: 'Type is required' })}
               >
-                {Object.values(AttributeType).map(type => (
-                  <option key={type} value={type}>{type}</option>
-                ))}
+                <optgroup label="Standard">
+                  {Object.values(AttributeType).map(type => (
+                    <option key={type} value={type}>{type}</option>
+                  ))}
+                </optgroup>
+                {derivedTypes.length > 0 && (
+                  <optgroup label="Derived">
+                    {derivedTypes.map(dt => (
+                      <option key={dt.name} value={dt.name}>
+                        {dt.name} — based on {dt.basedOn}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
               {errors.type && (
                 <label className="label">

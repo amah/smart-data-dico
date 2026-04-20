@@ -1,1 +1,31 @@
-{"version": 1}
+{
+  "version": 1,
+  "types": [
+    {
+      "name": "email",
+      "basedOn": "string",
+      "description": "RFC-5322 email",
+      "validation": {
+        "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+        "maxLength": 254
+      }
+    },
+    {
+      "name": "work-email",
+      "basedOn": "email",
+      "description": "Work-only email",
+      "validation": {
+        "maxLength": 200
+      }
+    },
+    {
+      "name": "money",
+      "basedOn": "number",
+      "description": "Money w/ 2 decimal places",
+      "validation": {
+        "precision": 12,
+        "scale": 2
+      }
+    }
+  ]
+}

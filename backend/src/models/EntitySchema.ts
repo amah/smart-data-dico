@@ -465,10 +465,11 @@ export const entitySchema: Schema = {
           uuid: { type: 'string', pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' },
           name: { type: 'string' },
           description: { type: 'string' },
-          type: {
-            type: 'string',
-            enum: Object.values(AttributeType)
-          },
+          // Accept a standard AttributeType OR the name of a derived type
+          // declared under `dico.config.json.types[]` (#107). The derived
+          // resolver rejects unknown names at config-validate time; here
+          // we only require that the field is a string.
+          type: { type: 'string' },
           required: { type: 'boolean' },
           unique: { type: 'boolean' },
           primaryKey: { type: 'boolean' },

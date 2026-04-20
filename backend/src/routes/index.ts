@@ -27,6 +27,7 @@ import {
 } from '../controllers/diffController.js';
 import { commitChanges, getCommitHistory, revertToCommit } from '../controllers/versionController.js';
 import { importJsonSchema, importSqlDdl, previewSqlDdl, diffSqlDdl, commitSqlDdl, previewOracleSchema, previewDbSchema, exportJsonSchema, exportMarkdown, getQualityReport } from '../controllers/importExportController.js';
+import { getDerivedTypes, putDerivedTypes } from '../controllers/dicoConfigController.js';
 import { authenticate, UserRole } from '../middleware/auth.js';
 import { authorizeJwt, verifyToken } from '../middleware/jwtAuth.js';
 
@@ -308,6 +309,10 @@ router.post('/api/project/init', authorizeJwt([UserRole.ADMIN]), (req, res) => {
     res.status(500).json({ message: `Failed to initialize project: ${e}` });
   }
 });
+
+// Derived data types (#107) — stored under `dico.config.json.types[]`
+router.get('/api/config/types', getDerivedTypes);
+router.put('/api/config/types', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), putDerivedTypes);
 
 // Graph API for visualization
 router.get('/api/graph/:service', getGraphData);

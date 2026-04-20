@@ -1,5 +1,6 @@
-import { Entity, AttributeType, Attribute, Relationship } from '../models/EntitySchema.js';
+import { Entity, AttributeType, Attribute, Relationship, AttributeValidation } from '../models/EntitySchema.js';
 import { listMicroserviceEntities, readEntityFile, readRelationshipsFile, getPackagePath } from '../utils/fileOperations.js';
+import { listDerivedTypes, resolveAttributeType, DerivedType } from './dicoConfigService.js';
 import { logger } from '../utils/logger.js';
 
 const ATTR_TO_JSON_SCHEMA: Record<string, string> = {
@@ -21,6 +22,7 @@ const ATTR_TO_JSON_SCHEMA: Record<string, string> = {
 class ExportService {
   async exportToJsonSchema(service: string): Promise<any> {
     const entityNames = await listMicroserviceEntities(service);
+    const derivedTypes = await listDerivedTypes();
     const definitions: Record<string, any> = {};
 
     for (const rawName of entityNames) {
@@ -32,7 +34,7 @@ class ExportService {
       const required: string[] = [];
 
       for (const attr of entity.attributes) {
-        properties[attr.name] = this.attributeToJsonSchema(attr);
+        properties[attr.name] = this.attributeToJsonSchema(attr, derivedTypes);
         if (attr.required) required.push(attr.name);
       }
 
@@ -44,29 +46,53 @@ class ExportService {
       };
     }
 
+    // Derived types expose as named $defs (#107). Attributes that declare
+    // a derived type point at `#/$defs/<name>`, so consumers can dereference
+    // once and apply validation to every attribute that uses the type.
+    const $defs: Record<string, any> = {};
+    for (const dt of derivedTypes) {
+      $defs[dt.name] = this.derivedTypeToJsonSchema(dt, derivedTypes);
+    }
+
     return {
       $schema: 'http://json-schema.org/draft-07/schema#',
       title: `${service} Data Dictionary`,
+      ...(Object.keys($defs).length > 0 ? { $defs } : {}),
       definitions,
     };
   }
 
-  private attributeToJsonSchema(attr: Attribute): any {
+  private derivedTypeToJsonSchema(dt: DerivedType, all: DerivedType[]): any {
+    const resolved = resolveAttributeType(dt.name, all);
+    if (!resolved) return { description: dt.description };
+    const schema: any = {
+      type: ATTR_TO_JSON_SCHEMA[resolved.baseType] || 'string',
+      description: dt.description || undefined,
+    };
+    this.applyValidationToSchema(schema, resolved.validation);
+    return schema;
+  }
+
+  private attributeToJsonSchema(attr: Attribute, derivedTypes: DerivedType[] = []): any {
+    // If the attribute declares a derived type, point at the $defs entry
+    // and layer the attribute-level validation on top.
+    if (!Object.values(AttributeType).includes(attr.type as AttributeType)) {
+      const resolved = resolveAttributeType(attr.type, derivedTypes);
+      if (resolved) {
+        const schema: any = { $ref: `#/$defs/${attr.type}` };
+        if (attr.description) schema.description = attr.description;
+        this.applyValidationToSchema(schema, attr.validation);
+        if (attr.defaultValue !== undefined) schema.default = attr.defaultValue;
+        return schema;
+      }
+    }
+
     const schema: any = {
       type: ATTR_TO_JSON_SCHEMA[attr.type] || 'string',
       description: attr.description || undefined,
     };
 
-    if (attr.validation) {
-      if (attr.validation.minLength !== undefined) schema.minLength = attr.validation.minLength;
-      if (attr.validation.maxLength !== undefined) schema.maxLength = attr.validation.maxLength;
-      if (attr.validation.pattern) schema.pattern = attr.validation.pattern;
-      if (attr.validation.minimum !== undefined) schema.minimum = attr.validation.minimum;
-      if (attr.validation.maximum !== undefined) schema.maximum = attr.validation.maximum;
-      if (attr.validation.enumValues) {
-        schema.enum = attr.validation.enumValues;
-      }
-    }
+    this.applyValidationToSchema(schema, attr.validation);
 
     if (attr.type === AttributeType.DATETIME || attr.type === AttributeType.DATE_TIME) {
       schema.format = 'date-time';
@@ -79,6 +105,17 @@ class ExportService {
     if (attr.defaultValue !== undefined) schema.default = attr.defaultValue;
 
     return schema;
+  }
+
+  private applyValidationToSchema(schema: any, v?: AttributeValidation): void {
+    if (!v) return;
+    if (v.minLength !== undefined) schema.minLength = v.minLength;
+    if (v.maxLength !== undefined) schema.maxLength = v.maxLength;
+    if (v.pattern) schema.pattern = v.pattern;
+    if (v.minimum !== undefined) schema.minimum = v.minimum;
+    if (v.maximum !== undefined) schema.maximum = v.maximum;
+    if (v.enumValues) schema.enum = v.enumValues;
+    if (v.format) schema.format = v.format;
   }
 
   async exportToMarkdown(service: string): Promise<string> {
