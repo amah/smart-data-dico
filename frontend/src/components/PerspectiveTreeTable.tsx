@@ -585,7 +585,7 @@ function EntityRow({
       <td className={firstColClass}>
         <div
           className="flex items-center gap-1 text-sm"
-          style={{ paddingLeft: `${indent * 1.25}rem` }}
+          style={{ paddingLeft: `${indent * 0.75}rem` }}
         >
           {hasChildren ? (
             <button
@@ -679,7 +679,7 @@ function AttributeRow({
       <td className={firstColClass}>
         <div
           className="flex items-center gap-1 text-xs text-base-content/80"
-          style={{ paddingLeft: `${indent * 1.25 + 0.5}rem` }}
+          style={{ paddingLeft: `${indent * 0.75 + 0.25}rem` }}
         >
           <span className="w-5 text-base-content/30">·</span>
           <span className="font-mono">{attr.name}</span>

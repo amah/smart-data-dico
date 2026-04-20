@@ -18,3 +18,23 @@ body {
   min-width: 320px;
   min-height: 100vh;
 }
+
+/*
+ * Sticky table helpers (#101). DaisyUI's .table-zebra applies an alternating
+ * background on every other tbody row via --b2; the pinned first column
+ * must match that stripe to avoid a white vertical stripe cutting across
+ * gray rows. Subtle shadow on the sticky thead and first column separates
+ * them visually from the content they overlap.
+ */
+.sdd-sticky-table thead th {
+  box-shadow: inset 0 -1px 0 hsl(var(--b3, var(--bc) / 0.1));
+}
+.sdd-sticky-table > tbody > tr:nth-child(even) > td.sdd-sticky-col {
+  background-color: hsl(var(--b2));
+}
+.sdd-sticky-table > tbody > tr:nth-child(odd) > td.sdd-sticky-col {
+  background-color: hsl(var(--b1));
+}
+.sdd-sticky-col {
+  box-shadow: inset -1px 0 0 hsl(var(--b3, var(--bc) / 0.1));
+}
