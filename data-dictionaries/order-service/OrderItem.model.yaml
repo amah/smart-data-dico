@@ -1,0 +1,148 @@
+entities:
+  - id: order-item-1
+    name: OrderItem
+    description: Order item representing a product in an order
+    microservice: order-service
+    version: 1.0.0
+    attributes:
+      - name: id
+        description: Unique identifier for the order item
+        type: string
+        required: true
+        unique: true
+        metadata:
+          - name: isPrimaryKey
+            value: true
+        uuid: af6b70a0-0c01-4a20-a320-181769a6715a
+      - name: orderId
+        description: ID of the order this item belongs to
+        type: string
+        required: true
+        metadata:
+          - name: isForeignKey
+            value: true
+        uuid: 58f3041b-43b1-4df4-a8a0-4619007a0fa3
+      - name: productId
+        description: ID of the product
+        type: string
+        required: true
+        metadata:
+          - name: isForeignKey
+            value: true
+        uuid: 7e48498c-7b77-4d61-95ba-fc1d5fba7ffb
+      - name: productSku
+        description: SKU of the product at the time of order
+        type: string
+        required: true
+        uuid: 6c944c76-3f37-4e08-87cc-e0f0786d4442
+      - name: productName
+        description: Name of the product at the time of order
+        type: string
+        required: true
+        uuid: 11c46607-db09-4839-a586-c7fe92ca055d
+      - name: quantity
+        description: Quantity of the product ordered
+        type: integer
+        required: true
+        uuid: a76a0973-e9e4-480d-a21f-bf13bf516fec
+        validation:
+          minimum: 1
+      - name: unitPrice
+        description: Unit price of the product in cents at the time of order
+        type: number
+        required: true
+        uuid: 518919fb-6d7d-44e2-ac12-475013a5c170
+        validation:
+          minimum: 0
+          precision: 10
+          scale: 2
+      - name: currency
+        description: Currency code for the price
+        type: string
+        required: true
+        defaultValue: USD
+        uuid: b8162d92-e128-4f68-ba54-46aa17e231f6
+        validation:
+          minLength: 3
+          maxLength: 3
+      - name: totalPrice
+        description: Total price for this item (quantity * unitPrice) in cents
+        type: number
+        required: true
+        uuid: fe67ec8c-4e49-42cc-b814-ceaf3d24507f
+        validation:
+          minimum: 0
+          precision: 10
+          scale: 2
+      - name: discountAmount
+        description: Discount amount applied to this item in cents
+        type: number
+        required: false
+        defaultValue: 0
+        uuid: 8dd7f5e5-1493-4807-aec5-a7cac07a1bd7
+        validation:
+          minimum: 0
+          precision: 10
+          scale: 2
+      - name: taxAmount
+        description: Tax amount applied to this item in cents
+        type: number
+        required: false
+        defaultValue: 0
+        uuid: f4e2a9e6-a323-452c-9c4f-bda77341b2c5
+        validation:
+          minimum: 0
+          precision: 10
+          scale: 2
+      - name: metadata
+        description: Additional metadata for the order item
+        type: object
+        required: false
+        properties:
+          color:
+            name: color
+            description: Color variant of the product
+            type: string
+            required: false
+            uuid: 0057d005-6d44-4a0a-8585-0e3dac7218bd
+          size:
+            name: size
+            description: Size variant of the product
+            type: string
+            required: false
+            uuid: ab840e6a-b9fb-449b-b720-7b5b2a1cd273
+          weight:
+            name: weight
+            description: Weight of the product in grams
+            type: number
+            required: false
+            uuid: 78295d3e-63ee-4e85-a33a-b21863c9917e
+        uuid: 8de9cd57-d4b6-406c-b395-67d4f075ecb3
+      - name: createdAt
+        description: Timestamp when the order item was created
+        type: datetime
+        required: true
+        uuid: 8bac757d-4eaa-491e-9334-8ce6780f25f8
+      - name: updatedAt
+        description: Timestamp when the order item was last updated
+        type: datetime
+        required: true
+        uuid: 16c306a5-7fec-4f6e-8382-eb6cfb09a740
+    relationships:
+      - name: order
+        description: Order that contains this item
+        type: belongsTo
+        target: order-service.Order
+        inverseName: orderItems
+        required: true
+        foreignKey: orderId
+        uuid: 0a2887f6-db6d-44aa-910a-094f0cdc74cb
+      - name: product
+        description: Product referenced by this order item
+        type: belongsTo
+        target: product-service.Product
+        inverseName: orderItems
+        required: true
+        foreignKey: productId
+        uuid: 20dc19fe-43cf-447f-9cdd-54c9faff0521
+    uuid: c30df0bf-7c41-4aa8-9b18-91a054384255

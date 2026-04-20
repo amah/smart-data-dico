@@ -1,0 +1,232 @@
+entities:
+  - id: order-1
+    name: Order
+    description: Order entity representing a customer purchase
+    microservice: order-service
+    version: 1.0.0
+    constraints:
+      - kind: unique
+        name: uq_orders_order_number
+        columns:
+          - order_number
+      - kind: check
+        name: chk_orders_total_positive
+        expression: total_amount >= 0
+      - kind: foreignKey
+        name: fk_orders_user
+        columns:
+          - user_id
+        references:
+          table: users
+          columns:
+            - id
+    attributes:
+      - name: id
+        description: Unique identifier for the order
+        type: string
+        required: true
+        unique: true
+        metadata:
+          - name: isPrimaryKey
+            value: true
+        uuid: d1a14e8a-745d-4997-8b7a-dc4fa49025d9
+      - name: orderNumber
+        description: Human-readable order number
+        type: string
+        required: true
+        unique: true
+        examples:
+          - ORD-20250522-A1B2
+        uuid: 291d2c7a-ef6e-4b84-ab82-78cb142123cc
+        validation:
+          pattern: ^ORD-[0-9]{8}-[A-Z0-9]{4}$
+      - name: userId
+        description: ID of the user who placed the order
+        type: string
+        required: true
+        metadata:
+          - name: isForeignKey
+            value: true
+        uuid: e7bce4ad-6895-4658-b887-99185e43f39f
+      - name: status
+        description: Current status of the order
+        type: enum
+        required: true
+        defaultValue: PENDING
+        uuid: 72366c79-4bf5-434d-90d7-024b45664b55
+        validation:
+          enumValues:
+            - PENDING
+            - PROCESSING
+            - SHIPPED
+            - DELIVERED
+            - CANCELLED
+            - REFUNDED
+      - name: totalAmount
+        description: Total order amount in cents
+        type: number
+        required: true
+        uuid: 74dda811-a63f-4067-9c50-f441318bd2f4
+        validation:
+          minimum: 0
+          precision: 10
+          scale: 2
+      - name: currency
+        description: Currency code for the order
+        type: string
+        required: true
+        defaultValue: USD
+        uuid: 86c8ea76-ca77-4c41-a207-279b295a4bbb
+        validation:
+          minLength: 3
+          maxLength: 3
+      - name: paymentMethod
+        description: Payment method used
+        type: enum
+        required: true
+        uuid: 30b23724-1831-40c6-8f2f-1b709685dcec
+        validation:
+          enumValues:
+            - CREDIT_CARD
+            - DEBIT_CARD
+            - PAYPAL
+            - BANK_TRANSFER
+            - CRYPTO
+      - name: paymentStatus
+        description: Status of the payment
+        type: enum
+        required: true
+        defaultValue: PENDING
+        uuid: b5939da2-3559-4697-a0fe-842e6148739e
+        validation:
+          enumValues:
+            - PENDING
+            - AUTHORIZED
+            - PAID
+            - FAILED
+            - REFUNDED
+      - name: shippingAddress
+        description: Shipping address for the order
+        type: object
+        required: true
+        properties:
+          fullName:
+            name: fullName
+            description: Recipient's full name
+            type: string
+            required: true
+            uuid: dae75b8d-a5c7-406b-b71f-a46493a1841c
+          street:
+            name: street
+            description: Street address
+            type: string
+            required: true
+            uuid: 38c8b931-8f42-4712-98a7-e85257bfd083
+          city:
+            name: city
+            description: City
+            type: string
+            required: true
+            uuid: 1749f744-453f-419a-b97e-99efa5ebad8a
+          state:
+            name: state
+            description: State or province
+            type: string
+            required: true
+            uuid: ee0d46f5-459b-43c3-8d04-ec4b288ed459
+          postalCode:
+            name: postalCode
+            description: Postal or ZIP code
+            type: string
+            required: true
+            uuid: 2667589c-86f5-4e88-a3a5-6e0c80d7a838
+          country:
+            name: country
+            description: Country
+            type: string
+            required: true
+            uuid: 962d4d9c-b3bf-4eb3-9caa-23826b07a4d3
+          phoneNumber:
+            name: phoneNumber
+            description: Contact phone number
+            type: string
+            required: true
+            uuid: 6949d323-6b89-4a08-883b-5a03aaed1ccc
+        uuid: 7e87e904-ef8e-488b-bbfd-7f065daaceef
+      - name: billingAddress
+        description: Billing address for the order
+        type: object
+        required: true
+        properties:
+          fullName:
+            name: fullName
+            description: Billing recipient's full name
+            type: string
+            required: true
+            uuid: c07fd271-3ec1-4a5d-adcb-8c25aec234f9
+          street:
+            name: street
+            description: Street address
+            type: string
+            required: true
+            uuid: c839357b-b35a-4c2a-88dc-cb4dd9d1c5c8
+          city:
+            name: city
+            description: City
+            type: string
+            required: true
+            uuid: ba1c2cd2-7485-49aa-b8db-0314fb9c4f20
+          state:
+            name: state
+            description: State or province
+            type: string
+            required: true
+            uuid: e65fd817-28f6-41de-a889-1407856a91d0
+          postalCode:
+            name: postalCode
+            description: Postal or ZIP code
+            type: string
+            required: true
+            uuid: 5da264b4-fdef-4895-b30d-b36a32f91efa
+          country:
+            name: country
+            description: Country
+            type: string
+            required: true
+            uuid: a92a2a00-b2d3-45cf-9e48-62939de29170
+        uuid: 6626801a-4864-44b8-94a4-ac1e3323abcb
+      - name: notes
+        description: Additional notes for the order
+        type: string
+        required: false
+        uuid: 9b32a287-e6a8-4c32-a30a-2b9bb9e10a0c
+        validation:
+          maxLength: 1000
+      - name: createdAt
+        description: Timestamp when the order was created
+        type: datetime
+        required: true
+        uuid: cd605ee0-da90-4919-aa42-d4751786ce5f
+      - name: updatedAt
+        description: Timestamp when the order was last updated
+        type: datetime
+        required: true
+        uuid: a640d223-d18e-417a-b7c2-b396ddc18903
+    relationships:
+      - name: user
+        description: User who placed the order
+        type: belongsTo
+        target: user-service.User
+        inverseName: orders
+        required: true
+        foreignKey: userId
+        uuid: 3011b55a-2165-4c62-85c8-d99dbd3825e2
+      - name: orderItems
+        description: Items included in this order
+        type: hasMany
+        target: order-service.OrderItem
+        inverseName: order
+        required: true
+        uuid: 62d1bfdb-c92c-4a7a-9749-75fd0959212b
+    uuid: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
+    updatedAt: 2025-05-28T18:03:59.062Z

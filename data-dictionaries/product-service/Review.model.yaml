@@ -1,0 +1,126 @@
+entities:
+  - id: review-1
+    name: Review
+    description: Product review entity for customer feedback
+    microservice: product-service
+    version: 1.0.0
+    attributes:
+      - name: id
+        description: Unique identifier for the review
+        type: string
+        required: true
+        unique: true
+        metadata:
+          - name: isPrimaryKey
+            value: true
+        uuid: 04212836-b96f-4504-98cd-b0ed0cdf473f
+      - name: productId
+        description: ID of the product being reviewed
+        type: string
+        required: true
+        metadata:
+          - name: isForeignKey
+            value: true
+        uuid: 6c8a9319-b9ae-4e74-8b1e-1240b07ffde6
+      - name: userId
+        description: ID of the user who wrote the review
+        type: string
+        required: true
+        metadata:
+          - name: isForeignKey
+            value: true
+        uuid: d989cf4d-43bb-4858-9487-569c9d005d51
+      - name: rating
+        description: Rating given to the product (1-5 stars)
+        type: integer
+        required: true
+        uuid: 9aa89a8b-c1b3-412b-8a66-346230cd7442
+        validation:
+          minimum: 1
+          maximum: 5
+      - name: title
+        description: Review title
+        type: string
+        required: true
+        uuid: 2883edae-f951-4108-8dba-c871ba6ab4a9
+        validation:
+          minLength: 5
+          maxLength: 200
+      - name: content
+        description: Review content
+        type: string
+        required: true
+        uuid: e1675ae5-b48b-4eef-895a-a41fcb71c6d0
+        validation:
+          minLength: 10
+          maxLength: 5000
+      - name: isVerifiedPurchase
+        description: Whether the reviewer purchased the product
+        type: boolean
+        required: true
+        defaultValue: false
+        uuid: adcf8bca-a7b2-4224-be64-ec3dd544a43b
+      - name: helpfulVotes
+        description: Number of helpful votes received
+        type: integer
+        required: true
+        defaultValue: 0
+        uuid: a0992fb2-935b-4d42-a5af-f71b5e2aea18
+        validation:
+          minimum: 0
+      - name: totalVotes
+        description: Total number of votes received
+        type: integer
+        required: true
+        defaultValue: 0
+        uuid: 3fd537da-3b94-4a66-a50c-5ab951c336a7
+        validation:
+          minimum: 0
+      - name: isApproved
+        description: Whether the review is approved for display
+        type: boolean
+        required: true
+        defaultValue: false
+        uuid: 6b2c8589-6ad8-4149-b077-f447f691f4c4
+      - name: moderatorNotes
+        description: Notes from content moderator
+        type: string
+        required: false
+        uuid: b26ec80e-84f6-4c5b-8dbf-81eb04302e6f
+        validation:
+          maxLength: 1000
+      - name: createdAt
+        description: Timestamp when the review was created
+        type: datetime
+        required: true
+        uuid: db8ccd9c-b873-4ec1-bf8c-b6b14c91f81e
+      - name: updatedAt
+        description: Timestamp when the review was last updated
+        type: datetime
+        required: true
+        uuid: 16c4dd89-5c5f-46ff-b89d-914e28ed1cd5
+    relationships:
+      - name: product
+        description: Product being reviewed
+        type: belongsTo
+        target: product-service.Product
+        inverseName: reviews
+        required: true
+        foreignKey: productId
+        uuid: b3d3b35f-888c-4370-a7c5-7d4b1cea7676
+      - name: user
+        description: User who wrote the review
+        type: belongsTo
+        target: user-service.User
+        inverseName: reviews
+        required: true
+        foreignKey: userId
+        uuid: 0e298523-1dd0-4c19-b627-9a75a8235774
+      - name: replies
+        description: Replies to this review
+        type: hasMany
+        target: product-service.ReviewReply
+        inverseName: review
+        required: false
+        uuid: fb0ec354-bf64-4d22-ae01-dcaab33fb184
+    uuid: 6b0431f8-8330-4b4c-954e-8dec12c56d93

@@ -1,0 +1,189 @@
+entities:
+  - id: product-1
+    name: Product
+    description: Product entity representing items available for purchase
+    microservice: product-service
+    version: 1.0.0
+    constraints:
+      - kind: unique
+        name: uq_products_sku
+        columns:
+          - sku
+      - kind: check
+        name: chk_products_price_positive
+        expression: price > 0
+    attributes:
+      - name: id
+        description: Unique identifier for the product
+        type: string
+        required: true
+        unique: true
+        metadata:
+          - name: isPrimaryKey
+            value: true
+        uuid: 014d25be-3b3d-4fe9-a7b1-39c861193ee0
+      - name: sku
+        description: Stock Keeping Unit - unique product identifier
+        type: string
+        required: true
+        unique: true
+        examples:
+          - PROD12345
+        uuid: cb6c044f-b6a9-48ce-beea-ec25a9cbd2de
+        validation:
+          pattern: ^[A-Z0-9]{8,12}$
+      - name: name
+        description: Product name
+        type: string
+        required: true
+        uuid: f5aabde0-0c62-4a4a-91ff-9c4d5fb857df
+        validation:
+          minLength: 3
+          maxLength: 200
+      - name: description
+        description: Detailed product description
+        type: string
+        required: true
+        uuid: 023cc3c3-e9e6-481a-8db5-b69c4dd74a50
+        validation:
+          maxLength: 5000
+      - name: price
+        description: Product price in cents
+        type: number
+        required: true
+        uuid: 53ed3a4b-c2b9-41a2-a0d8-2c455f0a18f9
+        validation:
+          minimum: 0
+          precision: 10
+          scale: 2
+      - name: currency
+        description: Currency code for the price
+        type: string
+        required: true
+        defaultValue: USD
+        examples:
+          - USD
+          - EUR
+          - GBP
+        uuid: e029dc3f-63ac-4979-8695-cc38859021dc
+        validation:
+          minLength: 3
+          maxLength: 3
+      - name: categoryId
+        description: ID of the category this product belongs to
+        type: string
+        required: true
+        metadata:
+          - name: isForeignKey
+            value: true
+        uuid: 58aeb1f5-e2cf-44a1-96f4-b1833646f528
+      - name: images
+        description: Array of product image URLs
+        type: array
+        required: false
+        items:
+          name: imageUrl
+          description: URL to a product image
+          type: string
+          format: uri
+          uuid: f6d0657d-7abd-4dd9-9e14-e884feacf0b3
+        uuid: 591860d2-a486-48d1-917d-760a8bb20f3b
+      - name: tags
+        description: Array of tags for the product
+        type: array
+        required: false
+        items:
+          name: tag
+          description: Product tag
+          type: string
+          uuid: a5097d0a-c1cb-4056-8b91-07729a585b48
+        uuid: cf0f4a2b-5b98-44cb-bb68-aa9233a9c955
+      - name: weight
+        description: Product weight in grams
+        type: number
+        required: false
+        uuid: 5563ca6a-dc51-4051-9823-97b9a59affbc
+        validation:
+          minimum: 0
+      - name: dimensions
+        description: Product dimensions
+        type: object
+        required: false
+        properties:
+          length:
+            name: length
+            description: Length in centimeters
+            type: number
+            required: true
+            minimum: 0
+            uuid: 2f477054-e02c-4aaa-b73e-792a87364fd6
+          width:
+            name: width
+            description: Width in centimeters
+            type: number
+            required: true
+            minimum: 0
+            uuid: 5dfdc57b-04ac-4f2e-90bc-776a6c846998
+          height:
+            name: height
+            description: Height in centimeters
+            type: number
+            required: true
+            minimum: 0
+            uuid: 7189a434-6b5c-4881-9f22-fc11a1bd241b
+        uuid: c5ea2dcc-bba5-42cb-a537-31c37bb42625
+      - name: inStock
+        description: Whether the product is in stock
+        type: boolean
+        required: true
+        defaultValue: true
+        uuid: 3675788e-9c70-4730-abe6-d9516252cf38
+      - name: stockQuantity
+        description: Available quantity in stock
+        type: integer
+        required: true
+        defaultValue: 0
+        uuid: 97f5156f-afdd-4400-af71-f74a2a3d47cd
+        validation:
+          minimum: 0
+      - name: createdAt
+        description: Timestamp when the product was created
+        type: datetime
+        required: true
+        uuid: 19ffbc66-f669-4096-a06f-9551ec681e67
+      - name: updatedAt
+        description: Timestamp when the product was last updated
+        type: datetime
+        required: true
+        uuid: e6328f2e-2669-461e-bd82-5b06b4b49055
+    relationships:
+      - name: category
+        description: Category this product belongs to
+        type: belongsTo
+        target: product-service.Category
+        inverseName: products
+        required: true
+        foreignKey: categoryId
+        uuid: 12766bc3-c9cf-4d05-b95d-9fc45c1daa24
+      - name: reviews
+        description: Reviews for this product
+        type: hasMany
+        target: product-service.Review
+        inverseName: product
+        required: false
+        uuid: 968f9ace-ecb9-4045-862a-94b2ceb30095
+      - name: orderItems
+        description: Order items containing this product
+        type: hasMany
+        target: order-service.OrderItem
+        inverseName: product
+        required: false
+        uuid: ffbc305a-23f4-463f-afd9-1fcd5aa6a9ab
+      - name: wishlistItems
+        description: Wishlist entries for this product
+        type: hasMany
+        target: user-service.Wishlist
+        inverseName: product
+        required: false
+        uuid: f199399c-10ff-4610-aad5-f8317075ae3d
+    uuid: 0375ab51-bca0-4bed-9b4b-cf22178010c8

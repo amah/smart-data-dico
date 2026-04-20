@@ -4,7 +4,7 @@ import YAML from 'yaml';
 
 import { Dictionary, Package } from '../models/Dictionary.js';
 import { Entity, Relationship } from '../models/EntitySchema.js';
-import { ensureDirectoryStructure, listAllDictionaries, listAllEntities, listMicroserviceEntities, listMicroservices, readEntityFile, readRelationshipsFile, writeDictionaryMetadata, normalizeEntityMetadata } from '../utils/fileOperations.js';
+import { ensureDirectoryStructure, listAllDictionaries, listAllEntities, listMicroserviceEntities, listMicroservices, loadPackage, readEntityFile, readRelationshipsFile, writeDictionaryMetadata, normalizeEntityMetadata } from '../utils/fileOperations.js';
 import { logger } from '../utils/logger.js';
 import { config } from '../kernel/config.js';
 
@@ -146,8 +146,8 @@ export class DictionaryService {
   }
 
   /**
-   * Recursively builds a Package hierarchy from a directory.
-   * Now also reads relationships.yaml at each package level.
+   * Builds a Package hierarchy via `loadPackage` (#106 — content-driven
+   * load that merges all `.yaml` sections regardless of filename).
    */
   private async buildPackageHierarchy(dirPath: string, packageName: string): Promise<Package> {
     if (!fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) {
@@ -159,43 +159,38 @@ export class DictionaryService {
         entities: [],
         subPackages: [],
         relationships: [],
-        metadata: undefined
+        metadata: undefined,
       };
     }
 
-    // Read package metadata if present
     let packageMeta: Partial<Package> = {};
     const metaPath = path.join(dirPath, 'metadata.yaml');
     if (fs.existsSync(metaPath)) {
-      const metaContent = fs.readFileSync(metaPath, 'utf8');
-      packageMeta = YAML.parse(metaContent) as Partial<Package>;
+      try {
+        packageMeta = YAML.parse(fs.readFileSync(metaPath, 'utf8')) as Partial<Package>;
+      } catch (e) {
+        logger.warn(`Failed to parse package metadata.yaml: ${metaPath}: ${e}`);
+      }
     }
 
-    // Read relationships from package-level file
-    const relationships = await readRelationshipsFile(dirPath);
+    // Content-driven load — pulls entities / relationships from every `.yaml`
+    // in the package folder via the #106 sections format.
+    let entities: Entity[] = [];
+    let relationships: Relationship[] = [];
+    try {
+      const model = await loadPackage(packageName);
+      entities = model.entities;
+      relationships = model.relationships;
+    } catch (e) {
+      logger.warn(`Failed to load package ${packageName}: ${e}`);
+    }
 
-    // List all files and subdirectories
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-    const entities: Entity[] = [];
+    // Walk subdirectories for nested packages (still supported for nested layouts).
     const subPackages: Package[] = [];
-
-    for (const entry of entries) {
-      const entryPath = path.join(dirPath, entry.name);
+    for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
       if (entry.isDirectory()) {
-        const subpkg = await this.buildPackageHierarchy(entryPath, entry.name);
+        const subpkg = await this.buildPackageHierarchy(path.join(dirPath, entry.name), entry.name);
         subPackages.push(subpkg);
-      } else if (entry.isFile() && entry.name.endsWith('.entity.yaml')) {
-        // #105: canonical entity filename is `<Name>.entity.yaml`. All other
-        // `.yaml` files at the package level (package.yaml, metadata.yaml,
-        // relationships.yaml, rules.yaml, *.comments.yaml, *.rules.yaml)
-        // are excluded by the suffix check.
-        try {
-          const fileContent = fs.readFileSync(entryPath, 'utf8');
-          const entity = normalizeEntityMetadata(YAML.parse(fileContent) as Entity);
-          if (entity) entities.push(entity);
-        } catch (e) {
-          logger.warn(`Failed to parse entity YAML: ${entryPath}: ${e}`);
-        }
       }
     }
 
@@ -207,7 +202,7 @@ export class DictionaryService {
       entities,
       subPackages,
       relationships,
-      metadata: packageMeta.metadata
+      metadata: packageMeta.metadata,
     };
   }
 

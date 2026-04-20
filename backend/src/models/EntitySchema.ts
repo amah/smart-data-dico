@@ -1,5 +1,6 @@
 import { Validator } from 'jsonschema';
 import { generateUUID, isValidUUID } from '../utils/uuid.js';
+import type { Rule } from './Rule.js';
 type Schema = any; // Using any as a workaround for missing type definitions
 
 /**
@@ -426,6 +427,18 @@ export interface Entity {
    * the AttributeValidation rationale for the three-concept split.
    */
   constraints?: PhysicalConstraint[];
+  /**
+   * Review comments for this entity (#106). Replaces the legacy
+   * `{uuid}.comments.yaml` sidecar files that were eliminated in the
+   * multi-kind YAML migration.
+   */
+  reviewComments?: ReviewComment[];
+  /**
+   * Entity-scoped rules attached directly to this entity (#106). Replaces
+   * the legacy `{uuid}.rules.yaml` sidecar files. Rules listed here have
+   * `scope: 'entity'` and `entityUuid` equal to this entity's uuid.
+   */
+  rules?: Rule[];
   createdAt?: string;
   updatedAt?: string;
 }
@@ -506,6 +519,8 @@ export const entitySchema: Schema = {
         },
       },
     },
+    reviewComments: { type: 'array' },
+    rules: { type: 'array' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' }
   }
