@@ -5,7 +5,7 @@ import { logger } from './logger.js';
 import { Entity, Relationship, Perspective, ReviewComment, validateEntity } from '../models/EntitySchema.js';
 import { Rule } from '../models/Rule.js';
 import { Dictionary } from '../models/Dictionary.js';
-import { generateEntityFilename, extractUUIDFromFilename } from './uuid.js';
+import { generateEntityFilename, sanitizeFsName } from './uuid.js';
 import { config } from '../kernel/config.js';
 
 // Base directory for data dictionaries
@@ -13,23 +13,21 @@ import { config } from '../kernel/config.js';
 const getDataDir = () => config.dataDir;
 
 /**
- * Predicate: is a file in a package directory an entity YAML?
- *
- * Excludes structural / sidecar files that share the .yaml extension:
- *   - metadata.yaml      (package metadata)
- *   - relationships.yaml (package relationships)
- *   - rules.yaml         (package-scoped rules — #74)
- *   - *.comments.yaml    (entity review comments)
- *   - *.rules.yaml       (entity-sidecar rules — #74)
+ * Reserved top-level directory names that must not be treated as packages (#105).
+ * `.dico/` holds project-level system files; `perspectives/` is the global perspective
+ * folder (obsoleted by #106 but still read here); `.git/` and `node_modules/` are
+ * obvious filesystem noise.
+ */
+const RESERVED_DIRS = new Set(['.dico', '.git', 'node_modules', 'perspectives']);
+
+/**
+ * Predicate: is a file an entity YAML? Post-#105 canonical form is
+ * `<Name>.entity.yaml`. Dedicated filenames (`package.yaml`, `metadata.yaml`,
+ * `relationships.yaml`, `rules.yaml`, `*.comments.yaml`, `*.rules.yaml`) are
+ * excluded.
  */
 function isEntityFile(file: string): boolean {
-  if (!file.endsWith('.yaml') && !file.endsWith('.yml')) return false;
-  if (file === 'metadata.yaml') return false;
-  if (file === 'relationships.yaml') return false;
-  if (file === 'rules.yaml') return false;
-  if (file.endsWith('.comments.yaml')) return false;
-  if (file.endsWith('.rules.yaml')) return false;
-  return true;
+  return file.endsWith('.entity.yaml');
 }
 
 /**
@@ -135,7 +133,8 @@ async function getGitService() {
 
 /**
  * Ensures the data dictionaries directory structure exists.
- * Layout (#104): project-level system files live under `.dico/`.
+ * Layout (#104, #105): system files under `.dico/`; packages are top-level
+ * folders created on demand by `ensurePackageDirectoryStructure`.
  */
 export async function ensureDirectoryStructure(): Promise<void> {
   const baseDir = getDataDir();
@@ -150,84 +149,50 @@ export async function ensureDirectoryStructure(): Promise<void> {
     fs.mkdirSync(dicoDir, { recursive: true });
     logger.info(`Created .dico/ system directory: ${dicoDir}`);
   }
+}
 
-  const microservicesDir = path.join(baseDir, 'microservices');
-  if (!fs.existsSync(microservicesDir)) {
-    fs.mkdirSync(microservicesDir, { recursive: true });
-    logger.info(`Created microservices directory: ${microservicesDir}`);
+/**
+ * Ensure a named package folder exists with a `package.yaml` marker (#105).
+ */
+export function ensurePackageDirectoryStructure(packageName: string): void {
+  const packageDir = getPackagePath(packageName);
+  if (!fs.existsSync(packageDir)) {
+    fs.mkdirSync(packageDir, { recursive: true });
+    logger.info(`Created package directory: ${packageDir}`);
   }
-
-  const perspectivesDir = path.join(baseDir, 'perspectives');
-  if (!fs.existsSync(perspectivesDir)) {
-    fs.mkdirSync(perspectivesDir, { recursive: true });
-    logger.info(`Created perspectives directory: ${perspectivesDir}`);
+  const markerPath = path.join(packageDir, 'package.yaml');
+  if (!fs.existsSync(markerPath)) {
+    fs.writeFileSync(markerPath, YAML.stringify({ name: packageName }), 'utf8');
   }
 }
 
 /**
- * Reads an entity from a YAML file
- * @param packageName Package (service) name
- * @param entityName Entity name
+ * Reads an entity from a YAML file at `<package>/<Name>.entity.yaml` (#105).
+ * Falls back to a content scan for casing / sanitization edge cases.
  */
 export async function readEntityFile(packageName: string, entityName: string): Promise<Entity | null> {
-  const startTime = process.hrtime();
   try {
-    const packagePath = path.join(getDataDir(), 'microservices', packageName);
+    const packagePath = path.join(getDataDir(), packageName);
+    if (!fs.existsSync(packagePath)) return null;
 
-    if (!fs.existsSync(packagePath)) {
-      logger.warn(`Package directory not found: ${packagePath}`);
-      return null;
+    const canonicalPath = path.join(packagePath, `${sanitizeFsName(entityName)}.entity.yaml`);
+    if (fs.existsSync(canonicalPath)) {
+      const content = fs.readFileSync(canonicalPath, 'utf8');
+      return normalizeEntityMetadata(YAML.parse(content) as Entity);
     }
 
-    // Try to find file by name (could be UUID-based or legacy name-based)
-    const files = fs.readdirSync(packagePath)
-      .filter(file => file.endsWith('.yaml') || file.endsWith('.yml'));
-
-    let filePath: string | null = null;
-
-    // First try legacy naming convention
-    const legacyPath = path.join(packagePath, `${entityName}.yaml`);
-    if (fs.existsSync(legacyPath)) {
-      filePath = legacyPath;
-    } else {
-      // Try to find by UUID-based filename that contains the entity name
-      for (const file of files) {
-        if (file === 'metadata.yaml' || file === 'relationships.yaml') continue;
-        const fullPath = path.join(packagePath, file);
-        try {
-          const content = fs.readFileSync(fullPath, 'utf8');
-          const entity = YAML.parse(content) as Entity;
-          if (entity.name === entityName) {
-            filePath = fullPath;
-            break;
-          }
-        } catch (error) {
-          continue;
-        }
+    // Fallback: match by `entity.name` (e.g. renames awaiting a file move)
+    const files = fs.readdirSync(packagePath).filter(isEntityFile);
+    for (const file of files) {
+      try {
+        const content = fs.readFileSync(path.join(packagePath, file), 'utf8');
+        const entity = YAML.parse(content) as Entity;
+        if (entity?.name === entityName) return normalizeEntityMetadata(entity);
+      } catch {
+        continue;
       }
     }
-
-    if (!filePath) {
-      logger.warn(`Entity file not found: ${packageName}.${entityName}`);
-      return null;
-    }
-
-    const readStartTime = process.hrtime();
-    const fileContent = fs.readFileSync(filePath, 'utf8');
-    const readEndTime = process.hrtime(readStartTime);
-    const readTimeMs = Number((readEndTime[0] * 1e3 + readEndTime[1] / 1e6).toFixed(2));
-
-    const parseStartTime = process.hrtime();
-    const entity = normalizeEntityMetadata(YAML.parse(fileContent) as Entity);
-    const parseEndTime = process.hrtime(parseStartTime);
-    const parseTimeMs = Number((parseEndTime[0] * 1e3 + parseEndTime[1] / 1e6).toFixed(2));
-
-    const endTime = process.hrtime(startTime);
-    const totalTimeMs = Number((endTime[0] * 1e3 + endTime[1] / 1e6).toFixed(2));
-
-    logger.debug(`Read entity ${packageName}.${entityName}: ${totalTimeMs}ms (read: ${readTimeMs}ms, parse: ${parseTimeMs}ms)`);
-
-    return entity;
+    return null;
   } catch (error) {
     logger.error(`Error reading entity file: ${error}`);
     return null;
@@ -235,9 +200,10 @@ export async function readEntityFile(packageName: string, entityName: string): P
 }
 
 /**
- * Writes an entity to a YAML file
- * @param entity Entity to write
- * @param packageName Package name (directory under microservices/)
+ * Writes an entity as `<package>/<Name>.entity.yaml` (#105). Ensures the
+ * package folder + `package.yaml` marker exist. If an existing file owns
+ * this entity (same UUID) under a different name, it's removed first so
+ * renames don't leave orphan files.
  */
 export async function writeEntityFile(entity: Entity, packageName?: string): Promise<boolean> {
   try {
@@ -246,47 +212,32 @@ export async function writeEntityFile(entity: Entity, packageName?: string): Pro
       logger.error(`Invalid entity: ${validation.errors.join(', ')}`);
       return false;
     }
-
-    // Use packageName parameter or fall back to a default
-    const pkgName = packageName;
-    if (!pkgName) {
+    if (!packageName) {
       logger.error('Package name is required to write entity file');
       return false;
     }
 
-    const packageDir = path.join(getDataDir(), 'microservices', pkgName);
+    ensurePackageDirectoryStructure(packageName);
+    const packageDir = getPackagePath(packageName);
 
-    if (!fs.existsSync(packageDir)) {
-      fs.mkdirSync(packageDir, { recursive: true });
-      logger.info(`Created package directory: ${packageDir}`);
-    }
+    const newFilename = generateEntityFilename(entity.uuid, entity.name);
 
-    // Check if there's an existing file for this entity (by name) to remove it
-    const existingFiles = fs.readdirSync(packageDir).filter(isEntityFile);
-
-    for (const file of existingFiles) {
-      const fullPath = path.join(packageDir, file);
+    // Remove any prior file owning this UUID under a different name (rename case)
+    for (const file of fs.readdirSync(packageDir).filter(isEntityFile)) {
+      if (file === newFilename) continue;
       try {
-        const content = fs.readFileSync(fullPath, 'utf8');
-        const existingEntity = YAML.parse(content) as Entity;
-        if (existingEntity.name === entity.name) {
-          const newFilename = generateEntityFilename(entity.uuid, entity.name);
-          if (file !== newFilename) {
-            fs.unlinkSync(fullPath);
-            logger.info(`Removed old entity file: ${fullPath}`);
-          }
-          break;
+        const existing = YAML.parse(fs.readFileSync(path.join(packageDir, file), 'utf8')) as Entity;
+        if (existing?.uuid === entity.uuid) {
+          fs.unlinkSync(path.join(packageDir, file));
+          logger.info(`Removed prior entity file on rename: ${file}`);
         }
-      } catch (error) {
+      } catch {
         continue;
       }
     }
 
-    const filename = generateEntityFilename(entity.uuid, entity.name);
-    const filePath = path.join(packageDir, filename);
-    const yamlContent = YAML.stringify(entity);
-
-    fs.writeFileSync(filePath, yamlContent, 'utf8');
+    const filePath = path.join(packageDir, newFilename);
+    fs.writeFileSync(filePath, YAML.stringify(entity), 'utf8');
     logger.info(`Entity written to file: ${filePath}`);
 
     try {
@@ -355,103 +306,70 @@ export async function writeRelationshipsFile(packagePath: string, relationships:
 }
 
 /**
- * Gets the full path for a package directory
+ * Gets the full path for a package directory (#105 — packages are
+ * top-level folders of the project root).
  */
 export function getPackagePath(packageName: string): string {
-  return path.join(getDataDir(), 'microservices', packageName);
+  return path.join(getDataDir(), packageName);
 }
 
 /**
- * Lists all available entities across all packages
+ * List all packages — top-level folders containing `package.yaml`.
+ */
+export async function listPackages(): Promise<string[]> {
+  const baseDir = getDataDir();
+  if (!fs.existsSync(baseDir)) return [];
+  return fs.readdirSync(baseDir).filter(name => {
+    if (RESERVED_DIRS.has(name)) return false;
+    const p = path.join(baseDir, name);
+    try {
+      if (!fs.statSync(p).isDirectory()) return false;
+    } catch {
+      return false;
+    }
+    return fs.existsSync(path.join(p, 'package.yaml'));
+  });
+}
+
+/**
+ * Lists all entities across all packages (#105 — flat package layout).
  */
 export async function listAllEntities(): Promise<Array<{ microservice: string; name: string; path: string }>> {
-  try {
-    const microservicesDir = path.join(getDataDir(), 'microservices');
-    const entities: Array<{ microservice: string; name: string; path: string }> = [];
-
-    if (!fs.existsSync(microservicesDir)) {
-      return entities;
+  const entities: Array<{ microservice: string; name: string; path: string }> = [];
+  const packages = await listPackages();
+  for (const microservice of packages) {
+    const packagePath = getPackagePath(microservice);
+    const files = fs.readdirSync(packagePath).filter(isEntityFile);
+    for (const file of files) {
+      const name = file.replace(/\.entity\.yaml$/, '');
+      entities.push({ microservice, name, path: path.join(packagePath, file) });
     }
-
-    const microservices = fs.readdirSync(microservicesDir)
-      .filter((item: string) => fs.statSync(path.join(microservicesDir, item)).isDirectory());
-
-    for (const microservice of microservices) {
-      const microservicePath = path.join(microservicesDir, microservice);
-      const files = fs.readdirSync(microservicePath).filter(isEntityFile);
-
-      for (const file of files) {
-        const name = path.basename(file, path.extname(file));
-        entities.push({
-          microservice,
-          name,
-          path: path.join(microservicePath, file)
-        });
-      }
-    }
-
-    return entities;
-  } catch (error) {
-    logger.error(`Error listing entities: ${error}`);
-    return [];
   }
+  return entities;
 }
 
 /**
- * Lists all entities for a specific package
+ * Lists all entity names in a specific package.
  */
 export async function listMicroserviceEntities(microservice: string): Promise<string[]> {
-  const startTime = process.hrtime();
   try {
-    const microservicePath = path.join(getDataDir(), 'microservices', microservice);
-
-    if (!fs.existsSync(microservicePath)) {
-      return [];
-    }
-
-    const readStartTime = process.hrtime();
-    const allFiles = fs.readdirSync(microservicePath);
-    const readEndTime = process.hrtime(readStartTime);
-    const readTimeMs = Number((readEndTime[0] * 1e3 + readEndTime[1] / 1e6).toFixed(2));
-
-    const processStartTime = process.hrtime();
-    const files = allFiles
+    const packagePath = getPackagePath(microservice);
+    if (!fs.existsSync(packagePath)) return [];
+    return fs.readdirSync(packagePath)
       .filter(isEntityFile)
-      .map((file: string) => path.basename(file, path.extname(file)));
-    const processEndTime = process.hrtime(processStartTime);
-    const processTimeMs = Number((processEndTime[0] * 1e3 + processEndTime[1] / 1e6).toFixed(2));
-
-    const endTime = process.hrtime(startTime);
-    const totalTimeMs = Number((endTime[0] * 1e3 + endTime[1] / 1e6).toFixed(2));
-
-    logger.debug(`Listed ${files.length} entities for ${microservice}: ${totalTimeMs}ms (read: ${readTimeMs}ms, process: ${processTimeMs}ms)`);
-
-    return files;
+      .map(file => file.replace(/\.entity\.yaml$/, ''));
   } catch (error) {
-    logger.error(`Error listing microservice entities: ${error}`);
+    logger.error(`Error listing package entities: ${error}`);
     return [];
   }
 }
 
 /**
- * Lists all available microservices
+ * @deprecated Use `listPackages()` — kept as an alias during the #105
+ * cutover for existing callers that use "microservice" vocabulary.
  */
 export async function listMicroservices(): Promise<string[]> {
-  try {
-    const microservicesDir = path.join(getDataDir(), 'microservices');
-
-    if (!fs.existsSync(microservicesDir)) {
-      return [];
-    }
-
-    const microservices = fs.readdirSync(microservicesDir)
-      .filter((item: string) => fs.statSync(path.join(microservicesDir, item)).isDirectory());
-
-    return microservices;
-  } catch (error) {
-    logger.error(`Error listing microservices: ${error}`);
-    return [];
-  }
+  return listPackages();
 }
 
 /**
@@ -476,37 +394,28 @@ async function commitChanges(filePath: string, message: string): Promise<void> {
 }
 
 /**
- * Deletes an entity file
+ * Deletes an entity file (`<Name>.entity.yaml`). Falls back to scanning
+ * file contents for the case of name-to-filename drift.
  */
 export async function deleteEntityFile(microservice: string, entityName: string): Promise<boolean> {
   try {
-    const microservicePath = path.join(getDataDir(), 'microservices', microservice);
-
-    if (!fs.existsSync(microservicePath)) {
-      logger.warn(`Package directory not found: ${microservicePath}`);
+    const packagePath = getPackagePath(microservice);
+    if (!fs.existsSync(packagePath)) {
+      logger.warn(`Package directory not found: ${packagePath}`);
       return false;
     }
 
-    const files = fs.readdirSync(microservicePath).filter(isEntityFile);
-
     let filePath: string | null = null;
-
-    const legacyPath = path.join(microservicePath, `${entityName}.yaml`);
-    if (fs.existsSync(legacyPath)) {
-      filePath = legacyPath;
+    const canonical = path.join(packagePath, `${sanitizeFsName(entityName)}.entity.yaml`);
+    if (fs.existsSync(canonical)) {
+      filePath = canonical;
     } else {
-      for (const file of files) {
-        const fullPath = path.join(microservicePath, file);
+      for (const file of fs.readdirSync(packagePath).filter(isEntityFile)) {
+        const fullPath = path.join(packagePath, file);
         try {
-          const content = fs.readFileSync(fullPath, 'utf8');
-          const entity = YAML.parse(content) as Entity;
-          if (entity.name === entityName) {
-            filePath = fullPath;
-            break;
-          }
-        } catch (error) {
-          continue;
-        }
+          const entity = YAML.parse(fs.readFileSync(fullPath, 'utf8')) as Entity;
+          if (entity?.name === entityName) { filePath = fullPath; break; }
+        } catch { continue; }
       }
     }
 
@@ -584,16 +493,17 @@ export async function listAllDictionaries(): Promise<string[]> {
       return [];
     }
 
-    const items = fs.readdirSync(baseDir);
+    // Packages at the project root (#105)
+    dictionaries.push(...await listPackages());
 
+    const items = fs.readdirSync(baseDir);
     for (const item of items) {
+      if (RESERVED_DIRS.has(item)) continue;
+      if (dictionaries.includes(item)) continue;
       const itemPath = path.join(baseDir, item);
 
       if (fs.statSync(itemPath).isDirectory()) {
-        if (item === 'microservices') {
-          const microservices = await listMicroservices();
-          dictionaries.push(...microservices);
-        } else {
+        {
           const metadataPath = path.join(itemPath, 'metadata.yaml');
           if (fs.existsSync(metadataPath)) {
             dictionaries.push(item);
@@ -697,7 +607,7 @@ export async function getAllRelationships(): Promise<{ packageName: string; rela
   try {
     const microservices = await listMicroservices();
     for (const ms of microservices) {
-      const pkgPath = path.join(getDataDir(), 'microservices', ms);
+      const pkgPath = path.join(getDataDir(), ms);
       const rels = await readRelationshipsFile(pkgPath);
       if (rels.length > 0) {
         result.push({ packageName: ms, relationships: rels });
@@ -713,7 +623,7 @@ export async function getAllRelationships(): Promise<{ packageName: string; rela
 
 export async function readComments(service: string, entityUuid: string): Promise<ReviewComment[]> {
   try {
-    const filePath = path.join(getDataDir(), 'microservices', service, `${entityUuid}.comments.yaml`);
+    const filePath = path.join(getDataDir(), service, `${entityUuid}.comments.yaml`);
     if (!fs.existsSync(filePath)) return [];
     const content = fs.readFileSync(filePath, 'utf8');
     return YAML.parse(content) || [];
@@ -725,7 +635,7 @@ export async function readComments(service: string, entityUuid: string): Promise
 
 export async function writeComments(service: string, entityUuid: string, comments: ReviewComment[]): Promise<boolean> {
   try {
-    const filePath = path.join(getDataDir(), 'microservices', service, `${entityUuid}.comments.yaml`);
+    const filePath = path.join(getDataDir(), service, `${entityUuid}.comments.yaml`);
     fs.writeFileSync(filePath, YAML.stringify(comments), 'utf8');
     return true;
   } catch (error) {
@@ -737,14 +647,14 @@ export async function writeComments(service: string, entityUuid: string, comment
 // --- Rule file operations (#74) ---
 //
 // Three storage locations:
-//   1. Entity-sidecar: data-dictionaries/microservices/{svc}/{entityUuid}.rules.yaml
-//   2. Package:        data-dictionaries/microservices/{svc}/rules.yaml
+//   1. Entity-sidecar: data-dictionaries/{svc}/{entityUuid}.rules.yaml
+//   2. Package:        data-dictionaries/{svc}/rules.yaml
 //   3. Perspective:    embedded in data-dictionaries/perspectives/{uuid}.yaml under a `rules` array
 
 /** Read entity-sidecar rules for a single entity. */
 export async function readEntityRules(service: string, entityUuid: string): Promise<Rule[]> {
   try {
-    const filePath = path.join(getDataDir(), 'microservices', service, `${entityUuid}.rules.yaml`);
+    const filePath = path.join(getDataDir(), service, `${entityUuid}.rules.yaml`);
     if (!fs.existsSync(filePath)) return [];
     const content = fs.readFileSync(filePath, 'utf8');
     return YAML.parse(content) || [];
@@ -757,7 +667,7 @@ export async function readEntityRules(service: string, entityUuid: string): Prom
 /** Write entity-sidecar rules for a single entity. */
 export async function writeEntityRules(service: string, entityUuid: string, rules: Rule[]): Promise<boolean> {
   try {
-    const filePath = path.join(getDataDir(), 'microservices', service, `${entityUuid}.rules.yaml`);
+    const filePath = path.join(getDataDir(), service, `${entityUuid}.rules.yaml`);
     if (rules.length === 0) {
       // Delete the sidecar file when there are no rules left, to keep the tree clean
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
@@ -774,7 +684,7 @@ export async function writeEntityRules(service: string, entityUuid: string, rule
 /** Read package-scoped rules from a single package's rules.yaml. */
 export async function readPackageRules(service: string): Promise<Rule[]> {
   try {
-    const filePath = path.join(getDataDir(), 'microservices', service, 'rules.yaml');
+    const filePath = path.join(getDataDir(), service, 'rules.yaml');
     if (!fs.existsSync(filePath)) return [];
     const content = fs.readFileSync(filePath, 'utf8');
     return YAML.parse(content) || [];
@@ -787,7 +697,7 @@ export async function readPackageRules(service: string): Promise<Rule[]> {
 /** Write package-scoped rules. */
 export async function writePackageRules(service: string, rules: Rule[]): Promise<boolean> {
   try {
-    const filePath = path.join(getDataDir(), 'microservices', service, 'rules.yaml');
+    const filePath = path.join(getDataDir(), service, 'rules.yaml');
     if (rules.length === 0) {
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
       return true;
@@ -807,13 +717,9 @@ export async function writePackageRules(service: string, rules: Rule[]): Promise
 export async function listAllEntityRuleFiles(): Promise<Array<{ service: string; entityUuid: string }>> {
   const result: Array<{ service: string; entityUuid: string }> = [];
   try {
-    const microservicesDir = path.join(getDataDir(), 'microservices');
-    if (!fs.existsSync(microservicesDir)) return [];
-    const services = fs.readdirSync(microservicesDir).filter(s =>
-      fs.statSync(path.join(microservicesDir, s)).isDirectory()
-    );
-    for (const service of services) {
-      const serviceDir = path.join(microservicesDir, service);
+    const packages = await listPackages();
+    for (const service of packages) {
+      const serviceDir = getPackagePath(service);
       const files = fs.readdirSync(serviceDir).filter(f => f.endsWith('.rules.yaml') && f !== 'rules.yaml');
       for (const file of files) {
         const entityUuid = file.replace('.rules.yaml', '');
@@ -829,13 +735,10 @@ export async function listAllEntityRuleFiles(): Promise<Array<{ service: string;
 /** List all packages that have a package-level rules.yaml. */
 export async function listPackagesWithRules(): Promise<string[]> {
   try {
-    const microservicesDir = path.join(getDataDir(), 'microservices');
-    if (!fs.existsSync(microservicesDir)) return [];
-    return fs.readdirSync(microservicesDir).filter(service => {
-      const serviceDir = path.join(microservicesDir, service);
-      if (!fs.statSync(serviceDir).isDirectory()) return false;
-      return fs.existsSync(path.join(serviceDir, 'rules.yaml'));
-    });
+    const packages = await listPackages();
+    return packages.filter(service =>
+      fs.existsSync(path.join(getPackagePath(service), 'rules.yaml')),
+    );
   } catch (error) {
     logger.error(`Error listing packages with rules: ${error}`);
     return [];
