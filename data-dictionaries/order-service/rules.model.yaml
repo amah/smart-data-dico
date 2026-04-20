@@ -1,0 +1,20 @@
+rules:
+  - uuid: a77a3526-2fcb-40a9-be0b-69cd32ccb825
+    name: order-total-positive
+    description: |-
+      ## Order total must be positive
+
+      The `Order.totalAmount` field must always be **greater than zero**.
+
+      Violations indicate a bug in order creation or pricing.
+    severity: error
+    scope: package
+    targets:
+      - kind: entity
+        uuid: order-service
+    packageName: order-service
+    tags:
+      - data-quality
+      - finance
+    createdAt: 2026-04-07T10:54:56.816Z
+    updatedAt: 2026-04-07T10:54:56.816Z

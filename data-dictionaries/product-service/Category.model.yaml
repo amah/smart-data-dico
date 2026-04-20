@@ -1,0 +1,109 @@
+entities:
+  - id: category-1
+    name: Category
+    description: Product category entity for organizing products
+    microservice: product-service
+    version: 1.0.0
+    attributes:
+      - name: id
+        description: Unique identifier for the category
+        type: string
+        required: true
+        unique: true
+        metadata:
+          - name: isPrimaryKey
+            value: true
+        uuid: 74836db5-1ed2-44cb-9540-ce8496c2b314
+      - name: name
+        description: Category name
+        type: string
+        required: true
+        examples:
+          - Electronics
+          - Clothing
+          - Books
+        uuid: d846bf41-88b8-4665-a88a-de66c668ee8c
+        validation:
+          minLength: 2
+          maxLength: 100
+      - name: description
+        description: Category description
+        type: string
+        required: false
+        uuid: c73a7b3b-6038-4b1d-9fee-dca423a11486
+        validation:
+          maxLength: 500
+      - name: parentCategoryId
+        description: ID of the parent category (for hierarchical categories)
+        type: string
+        required: false
+        metadata:
+          - name: isForeignKey
+            value: true
+        uuid: 673c9b68-c113-43c9-baab-c75ef958f68a
+      - name: slug
+        description: URL-friendly category identifier
+        type: string
+        required: true
+        unique: true
+        examples:
+          - electronics
+          - mens-clothing
+        uuid: f3196bf6-320f-46df-bff4-0798331535ff
+        validation:
+          pattern: ^[a-z0-9-]+$
+      - name: imageUrl
+        description: Category image URL
+        type: string
+        required: false
+        uuid: 33a839ee-6c51-48f7-ada9-7f5e9a862325
+        validation:
+          format: uri
+      - name: isActive
+        description: Whether the category is active
+        type: boolean
+        required: true
+        defaultValue: true
+        uuid: b474439b-9534-405a-aa76-3eafd33d13a5
+      - name: sortOrder
+        description: Sort order for displaying categories
+        type: integer
+        required: false
+        defaultValue: 0
+        uuid: d70e0644-cb3a-4d08-9f16-37f127b384b0
+        validation:
+          minimum: 0
+      - name: createdAt
+        description: Timestamp when the category was created
+        type: datetime
+        required: true
+        uuid: 98a3f5dd-d1f3-46ec-9f08-27f46966019e
+      - name: updatedAt
+        description: Timestamp when the category was last updated
+        type: datetime
+        required: true
+        uuid: 704639c8-b068-43d6-a5af-b181c154a52b
+    relationships:
+      - name: products
+        description: Products in this category
+        type: hasMany
+        target: product-service.Product
+        inverseName: category
+        required: false
+        uuid: 000554a0-9bdf-4749-84a1-6de09c35b59a
+      - name: parentCategory
+        description: Parent category (for hierarchical structure)
+        type: belongsTo
+        target: product-service.Category
+        inverseName: subcategories
+        required: false
+        foreignKey: parentCategoryId
+        uuid: c5a08009-249e-4241-9fd3-558367d80b67
+      - name: subcategories
+        description: Child categories under this category
+        type: hasMany
+        target: product-service.Category
+        inverseName: parentCategory
+        required: false
+        uuid: 361c6342-c03c-4cfc-bc72-a1c85dea9126
+    uuid: f24b182f-9a15-41b6-b2d8-822dca2d1647

@@ -1,0 +1,138 @@
+entities:
+  - id: user-1
+    name: User
+    description: User entity representing a system user
+    microservice: user-service
+    version: 1.0.0
+    constraints:
+      - kind: unique
+        name: uq_users_username
+        columns:
+          - username
+      - kind: unique
+        name: uq_users_email
+        columns:
+          - email
+    attributes:
+      - name: id
+        description: Unique identifier for the user
+        type: string
+        required: true
+        unique: true
+        metadata:
+          - name: isPrimaryKey
+            value: true
+        uuid: 3a80a002-2e03-4e32-a6dd-514afbf59f31
+      - name: username
+        description: Username for login
+        type: string
+        required: true
+        unique: true
+        uuid: 77cdefec-b47f-44b6-866c-6eb62ad95cd7
+        validation:
+          minLength: 3
+          maxLength: 50
+          pattern: ^[a-zA-Z0-9_-]+$
+      - name: email
+        description: User's email address
+        type: string
+        required: true
+        unique: true
+        examples:
+          - user@example.com
+        uuid: e77c0a63-724f-456b-93d1-5ab4db53cb97
+        validation:
+          format: email
+      - name: firstName
+        description: User's first name
+        type: string
+        required: true
+        uuid: 7463e549-de08-4724-8455-2733070d1c01
+        validation:
+          maxLength: 100
+      - name: lastName
+        description: User's last name
+        type: string
+        required: true
+        uuid: 5404ce21-91a2-4fe0-bf1a-b410b6e014d4
+        validation:
+          maxLength: 100
+      - name: password
+        description: Hashed password for authentication
+        type: string
+        required: true
+        metadata:
+          - name: sensitive
+            value: true
+        uuid: bc2bd6bf-319c-48c9-a1d8-7dddff7f1cbe
+        validation:
+          minLength: 8
+      - name: role
+        description: User's role in the system
+        type: enum
+        required: true
+        defaultValue: USER
+        uuid: c8adc594-331c-422c-848c-94b460bc759a
+        validation:
+          enumValues:
+            - ADMIN
+            - USER
+            - GUEST
+      - name: active
+        description: Whether the user account is active
+        type: boolean
+        required: true
+        defaultValue: true
+        uuid: 7ca8cc7e-5661-4f5c-ad18-78d0925e9666
+      - name: lastLogin
+        description: Timestamp of the user's last login
+        type: datetime
+        required: false
+        uuid: f4dcf671-e993-4f14-bf5e-6a8f1df9e6cd
+      - name: createdAt
+        description: Timestamp when the user was created
+        type: datetime
+        required: true
+        uuid: d36b0687-c4be-4a90-b278-5eca8eb5a644
+      - name: updatedAt
+        description: Timestamp when the user was last updated
+        type: datetime
+        required: true
+        uuid: df082d6b-bcb2-4fa9-bf8b-2460369229aa
+    relationships:
+      - name: profile
+        description: User's profile information
+        type: hasOne
+        target: user-service.Profile
+        inverseName: user
+        required: false
+        uuid: d80a1f17-a03b-4bb9-9848-be18fb0010e7
+      - name: orders
+        description: Orders placed by the user
+        type: hasMany
+        target: order-service.Order
+        inverseName: user
+        required: false
+        uuid: 3273b6ae-3b14-4584-8d19-60af2f92265a
+      - name: reviews
+        description: Product reviews written by the user
+        type: hasMany
+        target: product-service.Review
+        inverseName: user
+        required: false
+        uuid: f5533a49-040c-4f9a-8537-419ce661e8b6
+      - name: reviewReplies
+        description: Review replies written by the user
+        type: hasMany
+        target: product-service.ReviewReply
+        inverseName: user
+        required: false
+        uuid: fd708582-7eb8-4121-86f3-91481b0af665
+      - name: wishlistItems
+        description: Products in the user's wishlist
+        type: hasMany
+        target: user-service.Wishlist
+        inverseName: user
+        required: false
+        uuid: d3d1e887-55ce-40c8-8668-8c9284a148bc
+    uuid: 702d22b1-7296-436a-b1a0-434b8b662577

@@ -74,11 +74,14 @@ The frontend uses `@hamak/app-framework` microkernel with these plugins (registe
 - Mock dev users: admin/admin123, editor/editor123, viewer/viewer123
 
 ### Data model
-- **Entities** belong to packages. Each entity is a YAML file (`{uuid}_{name}.yaml`) with attributes, metadata, stereotype, and status (draft/submitted/approved/returned).
-- **Relationships** stored at package level in `relationships.yaml` with source/target entity UUIDs and cardinality.
+
+Multi-kind YAML (#106): any `.yaml` file inside a package folder may carry any subset of four top-level sections — `entities:`, `relationships:`, `rules:`, `perspectives:`. The loader is **content-driven**: it scans every file in the package folder, merges the sections, and raises a hard error with both paths on identifier collisions (same entity name, rule uuid, perspective uuid, relationship uuid). Filenames are a human convention only — `*.model.yaml` for mixed content, `*.perspective.yaml` for perspective-centric files, `package.yaml` reserved as the package marker.
+
+- **Entities** belong to packages. Live in any `.yaml` under the package folder as an `entities:` entry. Default convention: one entity per `<Name>.model.yaml`. Entities carry attributes, metadata, stereotype, status, and (inline since #106) `reviewComments` and `rules`.
+- **Relationships** at package level in a `relationships:` section (conventionally `relationships.model.yaml`), with source/target entity UUIDs and cardinality.
 - **Stereotypes** define metadata schemas per element type. Stored in `data-dictionaries/stereotypes.yaml`.
-- **Perspectives** define business views with BFS entity resolution and path-based annotations. Stored in `data-dictionaries/perspectives/{uuid}.yaml`.
-- **Review comments** stored as sidecar files: `{entityUuid}.comments.yaml`.
+- **Perspectives** define business views with BFS entity resolution and path-based annotations. Live anywhere in a package as a `perspectives:` section; default convention is one perspective per `<Name>.perspective.yaml` inside the owning package. The legacy project-root `perspectives/` folder is gone (#106).
+- **Review comments** and **entity-scoped rules**: inlined on the entity as `entity.reviewComments` and `entity.rules`. The legacy `*.comments.yaml` / `*.rules.yaml` sidecars were eliminated in #106.
 - **Diagrams** stored as JSON files in `data-dictionaries/diagrams/`.
 
 ### Validation / Constraint / Rule — three concepts, three homes (#85)

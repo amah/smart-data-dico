@@ -5,7 +5,7 @@ import { logger } from './logger.js';
 import { Entity, Relationship, Perspective, ReviewComment, validateEntity } from '../models/EntitySchema.js';
 import { Rule } from '../models/Rule.js';
 import { Dictionary } from '../models/Dictionary.js';
-import { generateEntityFilename, sanitizeFsName } from './uuid.js';
+import { sanitizeFsName } from './uuid.js';
 import { config } from '../kernel/config.js';
 
 // Base directory for data dictionaries
@@ -13,22 +13,20 @@ import { config } from '../kernel/config.js';
 const getDataDir = () => config.dataDir;
 
 /**
- * Reserved top-level directory names that must not be treated as packages (#105).
- * `.dico/` holds project-level system files; `perspectives/` is the global perspective
- * folder (obsoleted by #106 but still read here); `.git/` and `node_modules/` are
- * obvious filesystem noise.
+ * Reserved top-level directory names that must not be treated as packages (#105/#106).
+ * `.dico/` holds project-level system files; `.git/` and `node_modules/` are
+ * filesystem noise. The legacy `perspectives/` project-root folder was
+ * eliminated in #106 — perspectives now live inside packages as sections.
  */
-const RESERVED_DIRS = new Set(['.dico', '.git', 'node_modules', 'perspectives']);
+const RESERVED_DIRS = new Set(['.dico', '.git', 'node_modules']);
 
 /**
- * Predicate: is a file an entity YAML? Post-#105 canonical form is
- * `<Name>.entity.yaml`. Dedicated filenames (`package.yaml`, `metadata.yaml`,
- * `relationships.yaml`, `rules.yaml`, `*.comments.yaml`, `*.rules.yaml`) are
- * excluded.
+ * Reserved filenames at the package level (#106). `package.yaml` is the
+ * package marker (#105). `metadata.yaml` is legacy dictionary metadata.
+ * All other `.yaml` files in a package folder are treated as multi-kind
+ * modeling content and fed into `loadPackage`.
  */
-function isEntityFile(file: string): boolean {
-  return file.endsWith('.entity.yaml');
-}
+const RESERVED_PACKAGE_FILES = new Set(['package.yaml', 'metadata.yaml']);
 
 /**
  * Validation field names recognized by `AttributeValidation` (#85). Used by
@@ -42,55 +40,27 @@ const VALIDATION_FIELD_NAMES = [
 ] as const;
 
 /**
- * Normalize legacy entity shapes on read.
+ * Normalize legacy entity shapes on read. See original implementation
+ * history for the three legacy cases handled here (metadata object→array,
+ * flat validation fields, legacy `constraints` name).
  *
- * Three pre-existing legacy formats need normalizing so the rest of the
- * system can assume canonical shapes:
- *
- *  1. Attribute metadata stored as a plain object instead of MetadataEntry[]
- *     (e.g. `metadata: {isPrimaryKey: true}` → `metadata: [{name: ..., value: ...}]`)
- *
- *  2. Validation fields stored flat on the attribute (e.g. `format: email`
- *     directly on the attribute) → moved into `attr.validation.format`.
- *
- *  3. Validation fields stored nested under the legacy name `constraints`
- *     (#85: renamed to `validation`) → moved into `attr.validation`. This
- *     keeps every entity YAML on disk readable regardless of which era it
- *     was written in, while the canonical in-memory shape is always
- *     `attr.validation`.
- *
- * The legacy `attribute.constraints` name is retired in #85 because the
- * word "constraint" is now reserved for *physical* DB constraints (unique,
- * check, foreignKey, …) stored under `entity.metadata['physical.constraints']`.
- * Three concepts, three homes — see #85 for the rationale.
- *
- * **Non-mutating** (#77): the input entity is left untouched. We deep-clone
- * the entity first via JSON round-trip (Entity is plain JSON-serializable
- * data so this is safe and cheap relative to the YAML parse that produced
- * it). This guarantees that an incidental write of the same entity object
- * back to disk won't persist the legacy→canonical normalization as a
- * spurious diff.
+ * Non-mutating — deep-clones the entity before normalizing.
  */
 export function normalizeEntityMetadata(entity: Entity | null): Entity | null {
   if (!entity) return entity;
-  // Deep clone first so the on-disk shape is preserved if the input is
-  // later written back (e.g. via servicesApi.updateEntity from an inline edit).
   const cloned: Entity = JSON.parse(JSON.stringify(entity));
   if (cloned.attributes) {
     for (const attr of cloned.attributes) {
-      // 1. Metadata: object → MetadataEntry[]
       if (attr.metadata && !Array.isArray(attr.metadata)) {
         attr.metadata = Object.entries(attr.metadata as any).map(
           ([name, value]) => ({ name, value: value as any }),
         );
       }
-      // 2. Legacy nested-as-`constraints` → canonical `validation` (#85)
       const legacyConstraints = (attr as any).constraints;
       if (legacyConstraints && typeof legacyConstraints === 'object') {
         attr.validation = { ...(attr.validation || {}), ...legacyConstraints };
         delete (attr as any).constraints;
       }
-      // 3. Legacy flat validation fields → canonical nested `validation`
       const flat: Record<string, any> = {};
       let hasFlat = false;
       for (const field of VALIDATION_FIELD_NAMES) {
@@ -113,7 +83,10 @@ export function normalizeEntityMetadata(entity: Entity | null): Entity | null {
   return cloned;
 }
 
-// Lazy-loaded git service from @hamak/ui-remote-git-fs-backend
+// ────────────────────────────────────────────────────────────────────────
+// Git service (lazy)
+// ────────────────────────────────────────────────────────────────────────
+
 let gitServiceInstance: any = null;
 
 async function getGitService() {
@@ -131,19 +104,31 @@ async function getGitService() {
   }
 }
 
-/**
- * Ensures the data dictionaries directory structure exists.
- * Layout (#104, #105): system files under `.dico/`; packages are top-level
- * folders created on demand by `ensurePackageDirectoryStructure`.
- */
+async function commitChanges(filePath: string, message: string): Promise<void> {
+  if (!config.git.autoCommit) return;
+  try {
+    const gitService = await getGitService();
+    if (!gitService) {
+      logger.warn('Git service not available, skipping commit');
+      return;
+    }
+    await gitService.commit('dictionaries', '.', { message, paths: [filePath] });
+    logger.info(`Changes committed: ${message}`);
+  } catch (error) {
+    logger.error(`Git error: ${error}`);
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Directory structure
+// ────────────────────────────────────────────────────────────────────────
+
 export async function ensureDirectoryStructure(): Promise<void> {
   const baseDir = getDataDir();
-
   if (!fs.existsSync(baseDir)) {
     fs.mkdirSync(baseDir, { recursive: true });
     logger.info(`Created base directory: ${baseDir}`);
   }
-
   const dicoDir = path.join(baseDir, '.dico');
   if (!fs.existsSync(dicoDir)) {
     fs.mkdirSync(dicoDir, { recursive: true });
@@ -151,9 +136,6 @@ export async function ensureDirectoryStructure(): Promise<void> {
   }
 }
 
-/**
- * Ensure a named package folder exists with a `package.yaml` marker (#105).
- */
 export function ensurePackageDirectoryStructure(packageName: string): void {
   const packageDir = getPackagePath(packageName);
   if (!fs.existsSync(packageDir)) {
@@ -166,44 +148,222 @@ export function ensurePackageDirectoryStructure(packageName: string): void {
   }
 }
 
+export function getPackagePath(packageName: string): string {
+  return path.join(getDataDir(), packageName);
+}
+
+export async function listPackages(): Promise<string[]> {
+  const baseDir = getDataDir();
+  if (!fs.existsSync(baseDir)) return [];
+  return fs.readdirSync(baseDir).filter(name => {
+    if (RESERVED_DIRS.has(name)) return false;
+    const p = path.join(baseDir, name);
+    try {
+      if (!fs.statSync(p).isDirectory()) return false;
+    } catch {
+      return false;
+    }
+    return fs.existsSync(path.join(p, 'package.yaml'));
+  });
+}
+
+/** @deprecated Use `listPackages()`. */
+export async function listMicroservices(): Promise<string[]> {
+  return listPackages();
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Multi-kind YAML core (#106)
+// ────────────────────────────────────────────────────────────────────────
+
 /**
- * Reads an entity from a YAML file at `<package>/<Name>.entity.yaml` (#105).
- * Falls back to a content scan for casing / sanitization edge cases.
+ * A parsed package: all `.yaml` files in the package folder merged into
+ * one logical model with per-identifier ownership tracking so writes can
+ * rewrite the right file.
+ */
+export interface PackageModel {
+  packageName: string;
+  entities: Entity[];
+  /** Package-scope relationships */
+  relationships: Relationship[];
+  /** Package-scope rules (entity-scoped rules live on `entity.rules`). */
+  rules: Rule[];
+  /** Perspectives owned by this package. */
+  perspectives: Perspective[];
+  /** Ownership maps (absolute file path) so writes can find the owning file. */
+  ownership: {
+    entityByName: Map<string, string>;
+    entityByUuid: Map<string, string>;
+    relationshipByUuid: Map<string, string>;
+    ruleByUuid: Map<string, string>;
+    perspectiveByUuid: Map<string, string>;
+  };
+}
+
+/**
+ * One parsed YAML file's sections — the on-disk shape after #106. Any
+ * subset of sections may be present; missing ones default to `[]`.
+ */
+interface SectionsFile {
+  entities: Entity[];
+  relationships: Relationship[];
+  rules: Rule[];
+  perspectives: Perspective[];
+}
+
+function parseSections(filePath: string): SectionsFile {
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    const parsed = YAML.parse(raw) || {};
+    return {
+      entities: Array.isArray(parsed.entities) ? parsed.entities : [],
+      relationships: Array.isArray(parsed.relationships) ? parsed.relationships : [],
+      rules: Array.isArray(parsed.rules) ? parsed.rules : [],
+      perspectives: Array.isArray(parsed.perspectives) ? parsed.perspectives : [],
+    };
+  } catch (e) {
+    logger.warn(`Failed to parse YAML: ${filePath}: ${e}`);
+    return { entities: [], relationships: [], rules: [], perspectives: [] };
+  }
+}
+
+/**
+ * Write sections back to a file. If every section is empty, delete the
+ * file (prevents empty YAML from lingering after the last entity is
+ * moved or deleted). Preserves stable section order for diff-friendly
+ * commits.
+ */
+function writeSections(filePath: string, sections: SectionsFile): void {
+  const payload: any = {};
+  if (sections.entities.length > 0) payload.entities = sections.entities;
+  if (sections.relationships.length > 0) payload.relationships = sections.relationships;
+  if (sections.rules.length > 0) payload.rules = sections.rules;
+  if (sections.perspectives.length > 0) payload.perspectives = sections.perspectives;
+
+  if (Object.keys(payload).length === 0) {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    return;
+  }
+  fs.writeFileSync(filePath, YAML.stringify(payload), 'utf8');
+}
+
+function listPackageYamlFiles(packageName: string): string[] {
+  const dir = getPackagePath(packageName);
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir)
+    .filter(f => f.endsWith('.yaml') && !RESERVED_PACKAGE_FILES.has(f))
+    .map(f => path.join(dir, f))
+    .sort();
+}
+
+/**
+ * Load every `.yaml` file in a package folder and merge their sections
+ * (#106). Identifier collisions (same entity name / relationship uuid /
+ * rule uuid / perspective uuid) are hard errors with both paths reported.
+ */
+export async function loadPackage(packageName: string): Promise<PackageModel> {
+  const model: PackageModel = {
+    packageName,
+    entities: [],
+    relationships: [],
+    rules: [],
+    perspectives: [],
+    ownership: {
+      entityByName: new Map(),
+      entityByUuid: new Map(),
+      relationshipByUuid: new Map(),
+      ruleByUuid: new Map(),
+      perspectiveByUuid: new Map(),
+    },
+  };
+
+  const files = listPackageYamlFiles(packageName);
+  for (const filePath of files) {
+    const sections = parseSections(filePath);
+
+    for (const raw of sections.entities) {
+      if (!raw?.name || !raw?.uuid) continue;
+      const existingByName = model.ownership.entityByName.get(raw.name);
+      if (existingByName) {
+        throw new Error(
+          `Duplicate entity name '${raw.name}' in package '${packageName}': ${existingByName} and ${filePath}`,
+        );
+      }
+      const existingByUuid = model.ownership.entityByUuid.get(raw.uuid);
+      if (existingByUuid) {
+        throw new Error(
+          `Duplicate entity uuid '${raw.uuid}' in package '${packageName}': ${existingByUuid} and ${filePath}`,
+        );
+      }
+      model.ownership.entityByName.set(raw.name, filePath);
+      model.ownership.entityByUuid.set(raw.uuid, filePath);
+      const normalized = normalizeEntityMetadata(raw);
+      if (normalized) model.entities.push(normalized);
+    }
+
+    for (const rel of sections.relationships) {
+      if (!rel?.uuid) continue;
+      const existing = model.ownership.relationshipByUuid.get(rel.uuid);
+      if (existing) {
+        throw new Error(
+          `Duplicate relationship uuid '${rel.uuid}' in package '${packageName}': ${existing} and ${filePath}`,
+        );
+      }
+      model.ownership.relationshipByUuid.set(rel.uuid, filePath);
+      model.relationships.push(rel);
+    }
+
+    for (const rule of sections.rules) {
+      if (!rule?.uuid) continue;
+      const existing = model.ownership.ruleByUuid.get(rule.uuid);
+      if (existing) {
+        throw new Error(
+          `Duplicate rule uuid '${rule.uuid}' in package '${packageName}': ${existing} and ${filePath}`,
+        );
+      }
+      model.ownership.ruleByUuid.set(rule.uuid, filePath);
+      model.rules.push(rule);
+    }
+
+    for (const p of sections.perspectives) {
+      if (!p?.uuid) continue;
+      const existing = model.ownership.perspectiveByUuid.get(p.uuid);
+      if (existing) {
+        throw new Error(
+          `Duplicate perspective uuid '${p.uuid}' in package '${packageName}': ${existing} and ${filePath}`,
+        );
+      }
+      model.ownership.perspectiveByUuid.set(p.uuid, filePath);
+      model.perspectives.push(p);
+    }
+  }
+
+  return model;
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Entity CRUD (backed by loadPackage)
+// ────────────────────────────────────────────────────────────────────────
+
+/**
+ * Reads a single entity from a package. Delegates to `loadPackage` and
+ * matches by name. Legacy normalization is applied inside `loadPackage`.
  */
 export async function readEntityFile(packageName: string, entityName: string): Promise<Entity | null> {
   try {
-    const packagePath = path.join(getDataDir(), packageName);
-    if (!fs.existsSync(packagePath)) return null;
-
-    const canonicalPath = path.join(packagePath, `${sanitizeFsName(entityName)}.entity.yaml`);
-    if (fs.existsSync(canonicalPath)) {
-      const content = fs.readFileSync(canonicalPath, 'utf8');
-      return normalizeEntityMetadata(YAML.parse(content) as Entity);
-    }
-
-    // Fallback: match by `entity.name` (e.g. renames awaiting a file move)
-    const files = fs.readdirSync(packagePath).filter(isEntityFile);
-    for (const file of files) {
-      try {
-        const content = fs.readFileSync(path.join(packagePath, file), 'utf8');
-        const entity = YAML.parse(content) as Entity;
-        if (entity?.name === entityName) return normalizeEntityMetadata(entity);
-      } catch {
-        continue;
-      }
-    }
-    return null;
+    const pkg = await loadPackage(packageName);
+    return pkg.entities.find(e => e.name === entityName) || null;
   } catch (error) {
-    logger.error(`Error reading entity file: ${error}`);
+    logger.error(`Error reading entity ${packageName}.${entityName}: ${error}`);
     return null;
   }
 }
 
 /**
- * Writes an entity as `<package>/<Name>.entity.yaml` (#105). Ensures the
- * package folder + `package.yaml` marker exist. If an existing file owns
- * this entity (same UUID) under a different name, it's removed first so
- * renames don't leave orphan files.
+ * Writes an entity into its owning file, or creates `<Name>.model.yaml`
+ * for new entities (#106 default write convention). Renames update the
+ * owning file in-place; the owning file is always looked up by uuid to
+ * handle the rename case.
  */
 export async function writeEntityFile(entity: Entity, packageName?: string): Promise<boolean> {
   try {
@@ -220,32 +380,39 @@ export async function writeEntityFile(entity: Entity, packageName?: string): Pro
     ensurePackageDirectoryStructure(packageName);
     const packageDir = getPackagePath(packageName);
 
-    const newFilename = generateEntityFilename(entity.uuid, entity.name);
+    // Locate the owning file by uuid OR by name (handles both renames
+    // and fresh writes that happen to reuse a name).
+    const files = listPackageYamlFiles(packageName);
+    let ownerFile: string | null = null;
+    let ownerSections: SectionsFile | null = null;
 
-    // Remove any prior file owning this UUID under a different name (rename case)
-    for (const file of fs.readdirSync(packageDir).filter(isEntityFile)) {
-      if (file === newFilename) continue;
-      try {
-        const existing = YAML.parse(fs.readFileSync(path.join(packageDir, file), 'utf8')) as Entity;
-        if (existing?.uuid === entity.uuid) {
-          fs.unlinkSync(path.join(packageDir, file));
-          logger.info(`Removed prior entity file on rename: ${file}`);
-        }
-      } catch {
-        continue;
+    for (const f of files) {
+      const s = parseSections(f);
+      const idx = s.entities.findIndex(e => e?.uuid === entity.uuid || e?.name === entity.name);
+      if (idx >= 0) {
+        ownerFile = f;
+        ownerSections = s;
+        break;
       }
     }
 
-    const filePath = path.join(packageDir, newFilename);
-    fs.writeFileSync(filePath, YAML.stringify(entity), 'utf8');
-    logger.info(`Entity written to file: ${filePath}`);
-
-    try {
-      await commitChanges(filePath, `Updated entity: ${entity.name} (${entity.uuid})`);
-    } catch (gitError) {
-      logger.warn(`Git operations failed: ${gitError}`);
+    if (ownerFile && ownerSections) {
+      ownerSections.entities = ownerSections.entities.filter(
+        e => e.uuid !== entity.uuid && e.name !== entity.name,
+      );
+      ownerSections.entities.push(entity);
+      writeSections(ownerFile, ownerSections);
+      logger.info(`Entity written: ${entity.name} → ${ownerFile}`);
+      await commitChanges(ownerFile, `Updated entity: ${entity.name} (${entity.uuid})`);
+      return true;
     }
 
+    const newFilePath = path.join(packageDir, `${sanitizeFsName(entity.name)}.model.yaml`);
+    writeSections(newFilePath, {
+      entities: [entity], relationships: [], rules: [], perspectives: [],
+    });
+    logger.info(`Entity written to new file: ${newFilePath}`);
+    await commitChanges(newFilePath, `Added entity: ${entity.name} (${entity.uuid})`);
     return true;
   } catch (error) {
     logger.error(`Error writing entity file: ${error}`);
@@ -254,23 +421,79 @@ export async function writeEntityFile(entity: Entity, packageName?: string): Pro
 }
 
 /**
- * Reads relationships from a package's relationships.yaml file
+ * Deletes an entity from its owning file. If that was the only content
+ * in the file, `writeSections` removes the file itself.
+ */
+export async function deleteEntityFile(packageName: string, entityName: string): Promise<boolean> {
+  try {
+    const files = listPackageYamlFiles(packageName);
+    for (const f of files) {
+      const s = parseSections(f);
+      const before = s.entities.length;
+      s.entities = s.entities.filter(e => e.name !== entityName);
+      if (s.entities.length !== before) {
+        writeSections(f, s);
+        logger.info(`Entity deleted from: ${f}`);
+        await commitChanges(f, `Deleted entity: ${entityName}`);
+        return true;
+      }
+    }
+    logger.warn(`Entity not found for deletion: ${packageName}.${entityName}`);
+    return false;
+  } catch (error) {
+    logger.error(`Error deleting entity file: ${error}`);
+    return false;
+  }
+}
+
+/**
+ * Lists every entity name across every package (post-#106 flat layout).
+ * Returns `{ microservice, name, path }` tuples where `path` is the file
+ * that currently owns the entity.
+ */
+export async function listAllEntities(): Promise<Array<{ microservice: string; name: string; path: string }>> {
+  const entities: Array<{ microservice: string; name: string; path: string }> = [];
+  const packages = await listPackages();
+  for (const microservice of packages) {
+    try {
+      const pkg = await loadPackage(microservice);
+      for (const entity of pkg.entities) {
+        entities.push({
+          microservice,
+          name: entity.name,
+          path: pkg.ownership.entityByName.get(entity.name) || '',
+        });
+      }
+    } catch (e) {
+      logger.warn(`Failed to load package ${microservice}: ${e}`);
+    }
+  }
+  return entities;
+}
+
+export async function listMicroserviceEntities(microservice: string): Promise<string[]> {
+  try {
+    const pkg = await loadPackage(microservice);
+    return pkg.entities.map(e => e.name);
+  } catch (error) {
+    logger.error(`Error listing package entities: ${error}`);
+    return [];
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Relationships — package-level, section-based (#106)
+// ────────────────────────────────────────────────────────────────────────
+
+/**
+ * Read all relationships in a package. Merges `relationships:` sections
+ * from every `.yaml` in the package folder.
  */
 export async function readRelationshipsFile(packagePath: string): Promise<Relationship[]> {
   try {
-    const filePath = path.join(packagePath, 'relationships.yaml');
-    if (!fs.existsSync(filePath)) {
-      return [];
-    }
-
-    const content = fs.readFileSync(filePath, 'utf8');
-    const parsed = YAML.parse(content);
-
-    if (!parsed || !Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed as Relationship[];
+    const packageName = path.basename(packagePath);
+    const pkg = await loadPackage(packageName);
+    return pkg.relationships;
   } catch (error) {
     logger.error(`Error reading relationships file: ${error}`);
     return [];
@@ -278,26 +501,44 @@ export async function readRelationshipsFile(packagePath: string): Promise<Relati
 }
 
 /**
- * Writes relationships to a package's relationships.yaml file
+ * Write the package's relationships list. Consolidates onto the first
+ * file that currently owns any relationship, clearing other owners'
+ * relationship sections. Falls back to `relationships.model.yaml` if no
+ * file currently owns relationships.
  */
 export async function writeRelationshipsFile(packagePath: string, relationships: Relationship[]): Promise<boolean> {
   try {
-    if (!fs.existsSync(packagePath)) {
-      fs.mkdirSync(packagePath, { recursive: true });
+    const packageName = path.basename(packagePath);
+    ensurePackageDirectoryStructure(packageName);
+
+    const files = listPackageYamlFiles(packageName);
+    let targetFile: string | null = null;
+
+    for (const f of files) {
+      const s = parseSections(f);
+      if (s.relationships.length > 0) {
+        if (targetFile === null) {
+          targetFile = f;
+        } else {
+          // Another file also held relationships — clear it so we don't
+          // leave duplicates after consolidation.
+          s.relationships = [];
+          writeSections(f, s);
+        }
+      }
     }
 
-    const filePath = path.join(packagePath, 'relationships.yaml');
-    const yamlContent = YAML.stringify(relationships);
-
-    fs.writeFileSync(filePath, yamlContent, 'utf8');
-    logger.info(`Relationships written to file: ${filePath}`);
-
-    try {
-      await commitChanges(filePath, `Updated relationships in ${path.basename(packagePath)}`);
-    } catch (gitError) {
-      logger.warn(`Git operations failed: ${gitError}`);
+    if (!targetFile) {
+      targetFile = path.join(packagePath, 'relationships.model.yaml');
     }
 
+    const existing = fs.existsSync(targetFile)
+      ? parseSections(targetFile)
+      : { entities: [], relationships: [], rules: [], perspectives: [] };
+    existing.relationships = relationships;
+    writeSections(targetFile, existing);
+    logger.info(`Relationships written to: ${targetFile}`);
+    await commitChanges(targetFile, `Updated relationships in ${packageName}`);
     return true;
   } catch (error) {
     logger.error(`Error writing relationships file: ${error}`);
@@ -306,143 +547,380 @@ export async function writeRelationshipsFile(packagePath: string, relationships:
 }
 
 /**
- * Gets the full path for a package directory (#105 — packages are
- * top-level folders of the project root).
+ * Collects all relationships across every package for cross-service BFS.
  */
-export function getPackagePath(packageName: string): string {
-  return path.join(getDataDir(), packageName);
+export async function getAllRelationships(): Promise<{ packageName: string; relationships: Relationship[] }[]> {
+  const result: { packageName: string; relationships: Relationship[] }[] = [];
+  try {
+    const packages = await listPackages();
+    for (const name of packages) {
+      try {
+        const pkg = await loadPackage(name);
+        if (pkg.relationships.length > 0) {
+          result.push({ packageName: name, relationships: pkg.relationships });
+        }
+      } catch (e) {
+        logger.warn(`Failed to read relationships for package ${name}: ${e}`);
+      }
+    }
+  } catch (error) {
+    logger.error(`Error collecting all relationships: ${error}`);
+  }
+  return result;
 }
 
-/**
- * List all packages — top-level folders containing `package.yaml`.
- */
-export async function listPackages(): Promise<string[]> {
-  const baseDir = getDataDir();
-  if (!fs.existsSync(baseDir)) return [];
-  return fs.readdirSync(baseDir).filter(name => {
-    if (RESERVED_DIRS.has(name)) return false;
-    const p = path.join(baseDir, name);
-    try {
-      if (!fs.statSync(p).isDirectory()) return false;
-    } catch {
+// ────────────────────────────────────────────────────────────────────────
+// Review comments — inlined on entity (#106; sidecars eliminated)
+// ────────────────────────────────────────────────────────────────────────
+
+/** Read review comments inlined on an entity by uuid. */
+export async function readComments(service: string, entityUuid: string): Promise<ReviewComment[]> {
+  try {
+    const pkg = await loadPackage(service);
+    const entity = pkg.entities.find(e => e.uuid === entityUuid);
+    return entity?.reviewComments || [];
+  } catch (error) {
+    logger.error(`Error reading comments: ${error}`);
+    return [];
+  }
+}
+
+/** Write review comments inlined on an entity by uuid. Persists via writeEntityFile. */
+export async function writeComments(service: string, entityUuid: string, comments: ReviewComment[]): Promise<boolean> {
+  try {
+    const pkg = await loadPackage(service);
+    const entity = pkg.entities.find(e => e.uuid === entityUuid);
+    if (!entity) {
+      logger.warn(`Entity not found for comments: ${service}.${entityUuid}`);
       return false;
     }
-    return fs.existsSync(path.join(p, 'package.yaml'));
-  });
-}
-
-/**
- * Lists all entities across all packages (#105 — flat package layout).
- */
-export async function listAllEntities(): Promise<Array<{ microservice: string; name: string; path: string }>> {
-  const entities: Array<{ microservice: string; name: string; path: string }> = [];
-  const packages = await listPackages();
-  for (const microservice of packages) {
-    const packagePath = getPackagePath(microservice);
-    const files = fs.readdirSync(packagePath).filter(isEntityFile);
-    for (const file of files) {
-      const name = file.replace(/\.entity\.yaml$/, '');
-      entities.push({ microservice, name, path: path.join(packagePath, file) });
-    }
-  }
-  return entities;
-}
-
-/**
- * Lists all entity names in a specific package.
- */
-export async function listMicroserviceEntities(microservice: string): Promise<string[]> {
-  try {
-    const packagePath = getPackagePath(microservice);
-    if (!fs.existsSync(packagePath)) return [];
-    return fs.readdirSync(packagePath)
-      .filter(isEntityFile)
-      .map(file => file.replace(/\.entity\.yaml$/, ''));
+    entity.reviewComments = comments.length > 0 ? comments : undefined;
+    return await writeEntityFile(entity, service);
   } catch (error) {
-    logger.error(`Error listing package entities: ${error}`);
+    logger.error(`Error writing comments: ${error}`);
+    return false;
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Rules — three scopes (entity-inlined, package-section, perspective, global)
+// ────────────────────────────────────────────────────────────────────────
+
+/** Read entity-scoped rules inlined on the entity (replaces the sidecar — #106). */
+export async function readEntityRules(service: string, entityUuid: string): Promise<Rule[]> {
+  try {
+    const pkg = await loadPackage(service);
+    const entity = pkg.entities.find(e => e.uuid === entityUuid);
+    return entity?.rules || [];
+  } catch (error) {
+    logger.error(`Error reading entity rules: ${error}`);
+    return [];
+  }
+}
+
+/** Write entity-scoped rules inline on the entity; persists via writeEntityFile. */
+export async function writeEntityRules(service: string, entityUuid: string, rules: Rule[]): Promise<boolean> {
+  try {
+    const pkg = await loadPackage(service);
+    const entity = pkg.entities.find(e => e.uuid === entityUuid);
+    if (!entity) {
+      logger.warn(`Entity not found for rules: ${service}.${entityUuid}`);
+      return false;
+    }
+    entity.rules = rules.length > 0 ? rules : undefined;
+    return await writeEntityFile(entity, service);
+  } catch (error) {
+    logger.error(`Error writing entity rules: ${error}`);
+    return false;
+  }
+}
+
+/** Read package-scoped rules (merged across all `.yaml` files in the package). */
+export async function readPackageRules(service: string): Promise<Rule[]> {
+  try {
+    const pkg = await loadPackage(service);
+    return pkg.rules;
+  } catch (error) {
+    logger.error(`Error reading package rules: ${error}`);
     return [];
   }
 }
 
 /**
- * @deprecated Use `listPackages()` — kept as an alias during the #105
- * cutover for existing callers that use "microservice" vocabulary.
+ * Write package-scoped rules. Consolidates to the first file that currently
+ * owns any rule (clearing others) or creates `rules.model.yaml` if none.
  */
-export async function listMicroservices(): Promise<string[]> {
-  return listPackages();
-}
-
-/**
- * Commits changes to git via @hamak/ui-remote-git-fs-backend
- */
-async function commitChanges(filePath: string, message: string): Promise<void> {
-  if (!config.git.autoCommit) return;
-
+export async function writePackageRules(service: string, rules: Rule[]): Promise<boolean> {
   try {
-    const gitService = await getGitService();
-    if (!gitService) {
-      logger.warn('Git service not available, skipping commit');
-      return;
-    }
+    ensurePackageDirectoryStructure(service);
+    const packageDir = getPackagePath(service);
+    const files = listPackageYamlFiles(service);
+    let targetFile: string | null = null;
 
-    await gitService.commit('dictionaries', '.', { message, paths: [filePath] });
-    logger.info(`Changes committed: ${message}`);
-  } catch (error) {
-    logger.error(`Git error: ${error}`);
-    throw error;
-  }
-}
-
-/**
- * Deletes an entity file (`<Name>.entity.yaml`). Falls back to scanning
- * file contents for the case of name-to-filename drift.
- */
-export async function deleteEntityFile(microservice: string, entityName: string): Promise<boolean> {
-  try {
-    const packagePath = getPackagePath(microservice);
-    if (!fs.existsSync(packagePath)) {
-      logger.warn(`Package directory not found: ${packagePath}`);
-      return false;
-    }
-
-    let filePath: string | null = null;
-    const canonical = path.join(packagePath, `${sanitizeFsName(entityName)}.entity.yaml`);
-    if (fs.existsSync(canonical)) {
-      filePath = canonical;
-    } else {
-      for (const file of fs.readdirSync(packagePath).filter(isEntityFile)) {
-        const fullPath = path.join(packagePath, file);
-        try {
-          const entity = YAML.parse(fs.readFileSync(fullPath, 'utf8')) as Entity;
-          if (entity?.name === entityName) { filePath = fullPath; break; }
-        } catch { continue; }
+    for (const f of files) {
+      const s = parseSections(f);
+      if (s.rules.length > 0) {
+        if (targetFile === null) {
+          targetFile = f;
+        } else {
+          s.rules = [];
+          writeSections(f, s);
+        }
       }
     }
 
-    if (!filePath) {
-      logger.warn(`Entity file not found for deletion: ${microservice}.${entityName}`);
-      return false;
+    if (!targetFile) {
+      targetFile = path.join(packageDir, 'rules.model.yaml');
     }
 
-    fs.unlinkSync(filePath);
-    logger.info(`Entity file deleted: ${filePath}`);
-
-    try {
-      await commitChanges(filePath, `Deleted entity: ${entityName}`);
-    } catch (gitError) {
-      logger.warn(`Git operations failed: ${gitError}`);
-    }
-
+    const existing = fs.existsSync(targetFile)
+      ? parseSections(targetFile)
+      : { entities: [], relationships: [], rules: [], perspectives: [] };
+    existing.rules = rules;
+    writeSections(targetFile, existing);
+    logger.info(`Package rules written to: ${targetFile}`);
+    await commitChanges(targetFile, `Updated rules in ${service}`);
     return true;
   } catch (error) {
-    logger.error(`Error deleting entity file: ${error}`);
+    logger.error(`Error writing package rules: ${error}`);
     return false;
   }
 }
 
 /**
- * Writes dictionary metadata to a YAML file
+ * List every (service, entityUuid) pair that has inlined entity-scoped
+ * rules. Replaces the sidecar directory walk from the pre-#106 layout.
  */
+export async function listAllEntityRuleFiles(): Promise<Array<{ service: string; entityUuid: string }>> {
+  const result: Array<{ service: string; entityUuid: string }> = [];
+  try {
+    const packages = await listPackages();
+    for (const service of packages) {
+      try {
+        const pkg = await loadPackage(service);
+        for (const entity of pkg.entities) {
+          if (entity.rules && entity.rules.length > 0) {
+            result.push({ service, entityUuid: entity.uuid });
+          }
+        }
+      } catch (e) {
+        logger.warn(`Failed to load package ${service} for rule listing: ${e}`);
+      }
+    }
+  } catch (error) {
+    logger.error(`Error listing entity rule files: ${error}`);
+  }
+  return result;
+}
+
+/** Packages that currently have at least one package-scope rule. */
+export async function listPackagesWithRules(): Promise<string[]> {
+  try {
+    const packages = await listPackages();
+    const result: string[] = [];
+    for (const service of packages) {
+      try {
+        const pkg = await loadPackage(service);
+        if (pkg.rules.length > 0) result.push(service);
+      } catch { /* skip */ }
+    }
+    return result;
+  } catch (error) {
+    logger.error(`Error listing packages with rules: ${error}`);
+    return [];
+  }
+}
+
+/** Read rules embedded in a perspective. */
+export async function readPerspectiveRules(perspectiveUuid: string): Promise<Rule[]> {
+  try {
+    const perspective = await readPerspectiveFile(perspectiveUuid);
+    if (!perspective) return [];
+    return (perspective.rules as Rule[]) || [];
+  } catch (error) {
+    logger.error(`Error reading perspective rules: ${error}`);
+    return [];
+  }
+}
+
+/** Write rules embedded in a perspective (preserves the rest of the perspective). */
+export async function writePerspectiveRules(perspectiveUuid: string, rules: Rule[]): Promise<boolean> {
+  try {
+    const perspective = await readPerspectiveFile(perspectiveUuid);
+    if (!perspective) return false;
+    perspective.rules = rules;
+    perspective.updatedAt = new Date().toISOString();
+    return await writePerspectiveFile(perspective);
+  } catch (error) {
+    logger.error(`Error writing perspective rules: ${error}`);
+    return false;
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Global (cross-package) rules (#75) — project-root rules.yaml
+// ────────────────────────────────────────────────────────────────────────
+
+const getGlobalRulesPath = () => path.join(getDataDir(), 'rules.yaml');
+
+export async function readGlobalRules(): Promise<Rule[]> {
+  try {
+    if (!fs.existsSync(getGlobalRulesPath())) return [];
+    const content = fs.readFileSync(getGlobalRulesPath(), 'utf8');
+    return YAML.parse(content) || [];
+  } catch (error) {
+    logger.error(`Error reading global rules: ${error}`);
+    return [];
+  }
+}
+
+export async function writeGlobalRules(rules: Rule[]): Promise<boolean> {
+  try {
+    if (rules.length === 0) {
+      if (fs.existsSync(getGlobalRulesPath())) fs.unlinkSync(getGlobalRulesPath());
+      return true;
+    }
+    fs.writeFileSync(getGlobalRulesPath(), YAML.stringify(rules), 'utf8');
+    return true;
+  } catch (error) {
+    logger.error(`Error writing global rules: ${error}`);
+    return false;
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Perspectives — package-embedded (#106; global folder eliminated)
+// ────────────────────────────────────────────────────────────────────────
+
+/**
+ * List every perspective across every package. The legacy project-root
+ * `perspectives/` folder is no longer supported (eliminated by migration).
+ */
+export async function listPerspectives(): Promise<Perspective[]> {
+  const all: Perspective[] = [];
+  try {
+    const packages = await listPackages();
+    for (const pkg of packages) {
+      try {
+        const model = await loadPackage(pkg);
+        all.push(...model.perspectives);
+      } catch (e) {
+        logger.warn(`Failed to load perspectives for ${pkg}: ${e}`);
+      }
+    }
+  } catch (error) {
+    logger.error(`Error listing perspectives: ${error}`);
+  }
+  return all;
+}
+
+/** Locate the package + file that owns a perspective by uuid. */
+async function findPerspectiveOwner(uuid: string): Promise<{ packageName: string; filePath: string } | null> {
+  const packages = await listPackages();
+  for (const pkg of packages) {
+    try {
+      const model = await loadPackage(pkg);
+      const filePath = model.ownership.perspectiveByUuid.get(uuid);
+      if (filePath) return { packageName: pkg, filePath };
+    } catch { /* skip */ }
+  }
+  return null;
+}
+
+export async function readPerspectiveFile(uuid: string): Promise<Perspective | null> {
+  try {
+    const packages = await listPackages();
+    for (const pkg of packages) {
+      try {
+        const model = await loadPackage(pkg);
+        const p = model.perspectives.find(x => x.uuid === uuid);
+        if (p) return p;
+      } catch { /* skip */ }
+    }
+    return null;
+  } catch (error) {
+    logger.error(`Error reading perspective ${uuid}: ${error}`);
+    return null;
+  }
+}
+
+/**
+ * Write a perspective. Placement rules:
+ *   1. If a file already owns this perspective, rewrite it there.
+ *   2. Otherwise, place it in the package of its first root entity as
+ *      `<Name>.perspective.yaml` (#106 default convention).
+ *   3. If no root-entity package can be resolved, fall back to the first
+ *      package on disk so the write doesn't silently fail.
+ */
+export async function writePerspectiveFile(perspective: Perspective): Promise<boolean> {
+  try {
+    const owner = await findPerspectiveOwner(perspective.uuid);
+    if (owner) {
+      const sections = parseSections(owner.filePath);
+      sections.perspectives = sections.perspectives.filter(p => p.uuid !== perspective.uuid);
+      sections.perspectives.push(perspective);
+      writeSections(owner.filePath, sections);
+      await commitChanges(owner.filePath, `Updated perspective: ${perspective.name}`);
+      return true;
+    }
+
+    // New perspective — pick an owner package
+    const targetPackage = await resolvePerspectiveHomePackage(perspective);
+    if (!targetPackage) {
+      logger.error(`Cannot write perspective ${perspective.uuid}: no package found`);
+      return false;
+    }
+    ensurePackageDirectoryStructure(targetPackage);
+    const filename = `${sanitizeFsName(perspective.name || perspective.uuid)}.perspective.yaml`;
+    const filePath = path.join(getPackagePath(targetPackage), filename);
+
+    const sections: SectionsFile = fs.existsSync(filePath)
+      ? parseSections(filePath)
+      : { entities: [], relationships: [], rules: [], perspectives: [] };
+    sections.perspectives.push(perspective);
+    writeSections(filePath, sections);
+    await commitChanges(filePath, `Added perspective: ${perspective.name}`);
+    return true;
+  } catch (error) {
+    logger.error(`Error writing perspective: ${error}`);
+    return false;
+  }
+}
+
+/** First-root-entity's package, or the first package, or null. */
+async function resolvePerspectiveHomePackage(perspective: Perspective): Promise<string | null> {
+  const packages = await listPackages();
+  if (perspective.rootEntities && perspective.rootEntities.length > 0) {
+    const rootUuid = perspective.rootEntities[0];
+    for (const pkg of packages) {
+      try {
+        const model = await loadPackage(pkg);
+        if (model.ownership.entityByUuid.has(rootUuid)) return pkg;
+      } catch { /* skip */ }
+    }
+  }
+  return packages[0] || null;
+}
+
+export async function deletePerspectiveFile(uuid: string): Promise<boolean> {
+  try {
+    const owner = await findPerspectiveOwner(uuid);
+    if (!owner) return false;
+    const sections = parseSections(owner.filePath);
+    sections.perspectives = sections.perspectives.filter(p => p.uuid !== uuid);
+    writeSections(owner.filePath, sections);
+    await commitChanges(owner.filePath, `Deleted perspective ${uuid}`);
+    return true;
+  } catch (error) {
+    logger.error(`Error deleting perspective ${uuid}: ${error}`);
+    return false;
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Dictionary metadata (legacy)
+// ────────────────────────────────────────────────────────────────────────
+
 export async function writeDictionaryMetadata(dictionary: Dictionary): Promise<boolean> {
   try {
     const dictionaryDir = path.join(getDataDir(), dictionary.id);
@@ -460,20 +938,12 @@ export async function writeDictionaryMetadata(dictionary: Dictionary): Promise<b
       description: dictionary.description,
       metadataDefinitions: dictionary.metadataDefinitions,
       createdAt: dictionary.createdAt,
-      updatedAt: dictionary.updatedAt
+      updatedAt: dictionary.updatedAt,
     };
 
-    const yamlContent = YAML.stringify(metadata);
-
-    fs.writeFileSync(filePath, yamlContent, 'utf8');
+    fs.writeFileSync(filePath, YAML.stringify(metadata), 'utf8');
     logger.info(`Dictionary metadata written to file: ${filePath}`);
-
-    try {
-      await commitChanges(filePath, `Updated dictionary metadata: ${dictionary.name}`);
-    } catch (gitError) {
-      logger.warn(`Git operations failed: ${gitError}`);
-    }
-
+    await commitChanges(filePath, `Updated dictionary metadata: ${dictionary.name}`);
     return true;
   } catch (error) {
     logger.error(`Error writing dictionary metadata: ${error}`);
@@ -481,19 +951,12 @@ export async function writeDictionaryMetadata(dictionary: Dictionary): Promise<b
   }
 }
 
-/**
- * Lists all available dictionaries
- */
 export async function listAllDictionaries(): Promise<string[]> {
   try {
     const baseDir = getDataDir();
     const dictionaries: string[] = [];
+    if (!fs.existsSync(baseDir)) return [];
 
-    if (!fs.existsSync(baseDir)) {
-      return [];
-    }
-
-    // Packages at the project root (#105)
     dictionaries.push(...await listPackages());
 
     const items = fs.readdirSync(baseDir);
@@ -501,13 +964,10 @@ export async function listAllDictionaries(): Promise<string[]> {
       if (RESERVED_DIRS.has(item)) continue;
       if (dictionaries.includes(item)) continue;
       const itemPath = path.join(baseDir, item);
-
       if (fs.statSync(itemPath).isDirectory()) {
-        {
-          const metadataPath = path.join(itemPath, 'metadata.yaml');
-          if (fs.existsSync(metadataPath)) {
-            dictionaries.push(item);
-          }
+        const metadataPath = path.join(itemPath, 'metadata.yaml');
+        if (fs.existsSync(metadataPath)) {
+          dictionaries.push(item);
         }
       }
     }
@@ -516,290 +976,5 @@ export async function listAllDictionaries(): Promise<string[]> {
   } catch (error) {
     logger.error(`Error listing all dictionaries: ${error}`);
     return [];
-  }
-}
-
-// --- Perspective file operations ---
-
-const getPerspectivesDir = () => path.join(getDataDir(), 'perspectives');
-
-export async function listPerspectives(): Promise<Perspective[]> {
-  try {
-    if (!fs.existsSync(getPerspectivesDir())) return [];
-    const files = fs.readdirSync(getPerspectivesDir()).filter(f => f.endsWith('.yaml'));
-    return files.map(f => {
-      const content = fs.readFileSync(path.join(getPerspectivesDir(), f), 'utf8');
-      return YAML.parse(content) as Perspective;
-    }).filter(Boolean);
-  } catch (error) {
-    logger.error(`Error listing perspectives: ${error}`);
-    return [];
-  }
-}
-
-export async function readPerspectiveFile(uuid: string): Promise<Perspective | null> {
-  try {
-    // First try direct filename match
-    const directPath = path.join(getPerspectivesDir(), `${uuid}.yaml`);
-    if (fs.existsSync(directPath)) {
-      const content = fs.readFileSync(directPath, 'utf8');
-      return YAML.parse(content) as Perspective;
-    }
-    // Fall back to scanning all files for matching uuid field
-    if (!fs.existsSync(getPerspectivesDir())) return null;
-    const files = fs.readdirSync(getPerspectivesDir()).filter(f => f.endsWith('.yaml'));
-    for (const f of files) {
-      const content = fs.readFileSync(path.join(getPerspectivesDir(), f), 'utf8');
-      const perspective = YAML.parse(content) as Perspective;
-      if (perspective?.uuid === uuid) return perspective;
-    }
-    return null;
-  } catch (error) {
-    logger.error(`Error reading perspective ${uuid}: ${error}`);
-    return null;
-  }
-}
-
-export async function writePerspectiveFile(perspective: Perspective): Promise<boolean> {
-  try {
-    if (!fs.existsSync(getPerspectivesDir())) {
-      fs.mkdirSync(getPerspectivesDir(), { recursive: true });
-    }
-    const filePath = path.join(getPerspectivesDir(), `${perspective.uuid}.yaml`);
-    fs.writeFileSync(filePath, YAML.stringify(perspective), 'utf8');
-    return true;
-  } catch (error) {
-    logger.error(`Error writing perspective: ${error}`);
-    return false;
-  }
-}
-
-export async function deletePerspectiveFile(uuid: string): Promise<boolean> {
-  try {
-    // Try direct filename match first, then scan by uuid field
-    const directPath = path.join(getPerspectivesDir(), `${uuid}.yaml`);
-    if (fs.existsSync(directPath)) {
-      fs.unlinkSync(directPath);
-      return true;
-    }
-    if (!fs.existsSync(getPerspectivesDir())) return false;
-    const files = fs.readdirSync(getPerspectivesDir()).filter(f => f.endsWith('.yaml'));
-    for (const f of files) {
-      const content = fs.readFileSync(path.join(getPerspectivesDir(), f), 'utf8');
-      const perspective = YAML.parse(content) as Perspective;
-      if (perspective?.uuid === uuid) {
-        fs.unlinkSync(path.join(getPerspectivesDir(), f));
-        return true;
-      }
-    }
-    return false;
-  } catch (error) {
-    logger.error(`Error deleting perspective ${uuid}: ${error}`);
-    return false;
-  }
-}
-
-/**
- * Collects all relationships from all packages for cross-service BFS traversal.
- */
-export async function getAllRelationships(): Promise<{ packageName: string; relationships: Relationship[] }[]> {
-  const result: { packageName: string; relationships: Relationship[] }[] = [];
-  try {
-    const microservices = await listMicroservices();
-    for (const ms of microservices) {
-      const pkgPath = path.join(getDataDir(), ms);
-      const rels = await readRelationshipsFile(pkgPath);
-      if (rels.length > 0) {
-        result.push({ packageName: ms, relationships: rels });
-      }
-    }
-  } catch (error) {
-    logger.error(`Error collecting all relationships: ${error}`);
-  }
-  return result;
-}
-
-// --- Review comment file operations ---
-
-export async function readComments(service: string, entityUuid: string): Promise<ReviewComment[]> {
-  try {
-    const filePath = path.join(getDataDir(), service, `${entityUuid}.comments.yaml`);
-    if (!fs.existsSync(filePath)) return [];
-    const content = fs.readFileSync(filePath, 'utf8');
-    return YAML.parse(content) || [];
-  } catch (error) {
-    logger.error(`Error reading comments: ${error}`);
-    return [];
-  }
-}
-
-export async function writeComments(service: string, entityUuid: string, comments: ReviewComment[]): Promise<boolean> {
-  try {
-    const filePath = path.join(getDataDir(), service, `${entityUuid}.comments.yaml`);
-    fs.writeFileSync(filePath, YAML.stringify(comments), 'utf8');
-    return true;
-  } catch (error) {
-    logger.error(`Error writing comments: ${error}`);
-    return false;
-  }
-}
-
-// --- Rule file operations (#74) ---
-//
-// Three storage locations:
-//   1. Entity-sidecar: data-dictionaries/{svc}/{entityUuid}.rules.yaml
-//   2. Package:        data-dictionaries/{svc}/rules.yaml
-//   3. Perspective:    embedded in data-dictionaries/perspectives/{uuid}.yaml under a `rules` array
-
-/** Read entity-sidecar rules for a single entity. */
-export async function readEntityRules(service: string, entityUuid: string): Promise<Rule[]> {
-  try {
-    const filePath = path.join(getDataDir(), service, `${entityUuid}.rules.yaml`);
-    if (!fs.existsSync(filePath)) return [];
-    const content = fs.readFileSync(filePath, 'utf8');
-    return YAML.parse(content) || [];
-  } catch (error) {
-    logger.error(`Error reading entity rules: ${error}`);
-    return [];
-  }
-}
-
-/** Write entity-sidecar rules for a single entity. */
-export async function writeEntityRules(service: string, entityUuid: string, rules: Rule[]): Promise<boolean> {
-  try {
-    const filePath = path.join(getDataDir(), service, `${entityUuid}.rules.yaml`);
-    if (rules.length === 0) {
-      // Delete the sidecar file when there are no rules left, to keep the tree clean
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      return true;
-    }
-    fs.writeFileSync(filePath, YAML.stringify(rules), 'utf8');
-    return true;
-  } catch (error) {
-    logger.error(`Error writing entity rules: ${error}`);
-    return false;
-  }
-}
-
-/** Read package-scoped rules from a single package's rules.yaml. */
-export async function readPackageRules(service: string): Promise<Rule[]> {
-  try {
-    const filePath = path.join(getDataDir(), service, 'rules.yaml');
-    if (!fs.existsSync(filePath)) return [];
-    const content = fs.readFileSync(filePath, 'utf8');
-    return YAML.parse(content) || [];
-  } catch (error) {
-    logger.error(`Error reading package rules: ${error}`);
-    return [];
-  }
-}
-
-/** Write package-scoped rules. */
-export async function writePackageRules(service: string, rules: Rule[]): Promise<boolean> {
-  try {
-    const filePath = path.join(getDataDir(), service, 'rules.yaml');
-    if (rules.length === 0) {
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      return true;
-    }
-    fs.writeFileSync(filePath, YAML.stringify(rules), 'utf8');
-    return true;
-  } catch (error) {
-    logger.error(`Error writing package rules: ${error}`);
-    return false;
-  }
-}
-
-/**
- * List all entity-sidecar rule files across all packages.
- * Returns tuples of (service, entityUuid) so callers can read each.
- */
-export async function listAllEntityRuleFiles(): Promise<Array<{ service: string; entityUuid: string }>> {
-  const result: Array<{ service: string; entityUuid: string }> = [];
-  try {
-    const packages = await listPackages();
-    for (const service of packages) {
-      const serviceDir = getPackagePath(service);
-      const files = fs.readdirSync(serviceDir).filter(f => f.endsWith('.rules.yaml') && f !== 'rules.yaml');
-      for (const file of files) {
-        const entityUuid = file.replace('.rules.yaml', '');
-        result.push({ service, entityUuid });
-      }
-    }
-  } catch (error) {
-    logger.error(`Error listing entity rule files: ${error}`);
-  }
-  return result;
-}
-
-/** List all packages that have a package-level rules.yaml. */
-export async function listPackagesWithRules(): Promise<string[]> {
-  try {
-    const packages = await listPackages();
-    return packages.filter(service =>
-      fs.existsSync(path.join(getPackagePath(service), 'rules.yaml')),
-    );
-  } catch (error) {
-    logger.error(`Error listing packages with rules: ${error}`);
-    return [];
-  }
-}
-
-/** Read perspective-scoped rules from a single perspective YAML. */
-export async function readPerspectiveRules(perspectiveUuid: string): Promise<Rule[]> {
-  try {
-    const perspective = await readPerspectiveFile(perspectiveUuid);
-    if (!perspective) return [];
-    return (perspective.rules as Rule[]) || [];
-  } catch (error) {
-    logger.error(`Error reading perspective rules: ${error}`);
-    return [];
-  }
-}
-
-/** Write perspective-scoped rules — preserves the rest of the perspective YAML. */
-export async function writePerspectiveRules(perspectiveUuid: string, rules: Rule[]): Promise<boolean> {
-  try {
-    const perspective = await readPerspectiveFile(perspectiveUuid);
-    if (!perspective) return false;
-    perspective.rules = rules;
-    perspective.updatedAt = new Date().toISOString();
-    return await writePerspectiveFile(perspective);
-  } catch (error) {
-    logger.error(`Error writing perspective rules: ${error}`);
-    return false;
-  }
-}
-
-// ────────────────────────────────────────────────────────────────────────
-// Global (cross-package) rules (#75)
-// ────────────────────────────────────────────────────────────────────────
-
-const getGlobalRulesPath = () => path.join(getDataDir(), 'rules.yaml');
-
-/** Read the global rules file (cross-package rules only). */
-export async function readGlobalRules(): Promise<Rule[]> {
-  try {
-    if (!fs.existsSync(getGlobalRulesPath())) return [];
-    const content = fs.readFileSync(getGlobalRulesPath(), 'utf8');
-    return YAML.parse(content) || [];
-  } catch (error) {
-    logger.error(`Error reading global rules: ${error}`);
-    return [];
-  }
-}
-
-/** Write the global rules file. Deletes the file when empty. */
-export async function writeGlobalRules(rules: Rule[]): Promise<boolean> {
-  try {
-    if (rules.length === 0) {
-      if (fs.existsSync(getGlobalRulesPath())) fs.unlinkSync(getGlobalRulesPath());
-      return true;
-    }
-    fs.writeFileSync(getGlobalRulesPath(), YAML.stringify(rules), 'utf8');
-    return true;
-  } catch (error) {
-    logger.error(`Error writing global rules: ${error}`);
-    return false;
   }
 }

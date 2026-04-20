@@ -1,0 +1,19 @@
+entities:
+  - uuid: 2e47ea53-9c5c-4dee-8948-49391355d73b
+    id: 2e47ea53-9c5c-4dee-8948-49391355d73b
+    name: Quote
+    description: ""
+    microservice: order-service
+    version: 1.0.0
+    attributes:
+      - uuid: cd018dcb-2328-4fd7-960a-874e14aa2e87
+        name: UUID
+        description: Unique ID
+        type: string
+        required: true
+    relationships: []
+    metadata:
+      - name: package
+        value: order-service
+    createdAt: 2025-05-28T16:35:13.210Z
+    updatedAt: 2025-05-28T16:35:42.706Z
