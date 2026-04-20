@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Smart Data Dictionary Management System — a full-stack app for creating, editing, versioning, and sharing data dictionaries. Uses **file-based persistence** (YAML/JSON files in `data-dictionaries/`), not a traditional database. Built on the **@hamak/app-framework** microkernel architecture for modularity and plugin support.
+Smart Data Dictionary Management System — a full-stack app for creating, editing, versioning, and sharing data dictionaries. Uses **file-based persistence** (YAML/JSON files in a project folder identified by `dico.config.json`), not a traditional database. In dev mode the backend serves the bundled sample project at `samples/eshop/` (the only sample the repo ships). Production deployments point at their own project via the `DATA_DIR` env var or the CLI `--data-dir` flag. Built on the **@hamak/app-framework** microkernel architecture for modularity and plugin support.
 
 ## Commands
 
@@ -28,7 +28,7 @@ Smart Data Dictionary Management System — a full-stack app for creating, editi
 ## Architecture
 
 ### Monorepo with two apps
-- **`backend/`** — Express + TypeScript (ESM via `tsx`). Layered: controllers → services → models. Data persisted as YAML files under `data-dictionaries/microservices/{service-name}/`.
+- **`backend/`** — Express + TypeScript (ESM via `tsx`). Layered: controllers → services → models. Data persisted as YAML files under the project root — one top-level folder per package (e.g. `samples/eshop/order-service/`) and project-level system files under `.dico/`.
 - **`frontend/`** — React 18 + Vite + TypeScript (ESM). Styled with Tailwind CSS + DaisyUI. Uses @hamak/app-framework microkernel with Redux store, Cytoscape.js for visualization.
 
 ### Backend layers
@@ -79,10 +79,10 @@ Multi-kind YAML (#106): any `.yaml` file inside a package folder may carry any s
 
 - **Entities** belong to packages. Live in any `.yaml` under the package folder as an `entities:` entry. Default convention: one entity per `<Name>.model.yaml`. Entities carry attributes, metadata, stereotype, status, and (inline since #106) `reviewComments` and `rules`.
 - **Relationships** at package level in a `relationships:` section (conventionally `relationships.model.yaml`), with source/target entity UUIDs and cardinality.
-- **Stereotypes** define metadata schemas per element type. Stored in `data-dictionaries/stereotypes.yaml`.
+- **Stereotypes** define metadata schemas per element type. Stored in `<project-root>/.dico/stereotypes.yaml`.
 - **Perspectives** define business views with BFS entity resolution and path-based annotations. Live anywhere in a package as a `perspectives:` section; default convention is one perspective per `<Name>.perspective.yaml` inside the owning package. The legacy project-root `perspectives/` folder is gone (#106).
 - **Review comments** and **entity-scoped rules**: inlined on the entity as `entity.reviewComments` and `entity.rules`. The legacy `*.comments.yaml` / `*.rules.yaml` sidecars were eliminated in #106.
-- **Diagrams** stored as JSON files in `data-dictionaries/diagrams/`.
+- **Diagrams** stored as JSON files in `<project-root>/.dico/diagrams/`.
 
 ### Derived data types (#107)
 
