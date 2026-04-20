@@ -70,23 +70,23 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
           const packageUrl = `/packages/${currentPath.join('/')}`;
           return (
             <li key={pkg.id}>
-              <div className="flex items-center">
+              <div className="flex items-center gap-0.5 px-0">
                 {(pkg.subPackages && pkg.subPackages.length > 0) || (pkg.entities && pkg.entities.length > 0) ? (
                   <button
-                    className="mr-1 btn btn-xs btn-ghost"
+                    className="btn btn-ghost btn-xs !min-h-0 !h-4 !w-4 !p-0 text-[10px] leading-none"
                     onClick={() => togglePackage(pkg.id)}
                     aria-label={expandedPackages[pkg.id] ? 'Collapse' : 'Expand'}
                     type="button"
                   >
                     {expandedPackages[pkg.id] ? '▼' : '▶'}
                   </button>
-                ) : null}
-                <Link to={packageUrl} className={`font-semibold ${isActive(packageUrl) ? 'active' : ''}`}>
+                ) : <span className="w-4" />}
+                <Link to={packageUrl} className={`font-semibold px-1 ${isActive(packageUrl) ? 'active' : ''}`}>
                   {pkg.name}
                 </Link>
               </div>
               {expandedPackages[pkg.id] && (
-                <div className="ml-2">
+                <div className="pl-3">
                   {pkg.entities && pkg.entities.length > 0 && (
                     <ul>
                       {pkg.entities.map((entity) => {
@@ -164,7 +164,7 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
   return (
     <div className="h-full flex flex-col">
       <nav className="flex-1 overflow-y-auto p-2 pt-3">
-        <ul className="menu menu-sm p-0 [--tw-bg-opacity:0.05]">
+        <ul className="menu menu-sm p-0 [--tw-bg-opacity:0.05] [&_ul]:pl-1 [&_ul]:ml-0 [&_ul]:before:hidden">
           <li>
             <Link
               to="/"
@@ -189,7 +189,7 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
                 ) : packagesError ? (
                   <div className="text-error p-2 text-xs">{packagesError}</div>
                 ) : packages.length > 0 ? (
-                  <div className="ml-1">
+                  <div>
                     {renderPackageTree(packages)}
                   </div>
                 ) : (
