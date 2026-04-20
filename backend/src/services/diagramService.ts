@@ -1,9 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { config } from '../kernel/config.js';
 import { logger } from '../utils/logger.js';
-
-// Use the same base directory as in fileOperations.ts
-const DATA_DICTIONARIES_BASE = path.join(process.cwd(), '..', 'data-dictionaries');
 
 export interface DiagramLayout {
   id: string;
@@ -26,14 +24,14 @@ export interface DiagramLayout {
   updatedAt: string;
 }
 
-const DIAGRAMS_DIR = path.join(DATA_DICTIONARIES_BASE, 'diagrams');
+const getDiagramsDir = () => path.join(config.dataDir, '.dico', 'diagrams');
 
 export class DiagramService {
   private async ensureDiagramsDirectory(): Promise<void> {
     try {
-      await fs.access(DIAGRAMS_DIR);
+      await fs.access(getDiagramsDir());
     } catch {
-      await fs.mkdir(DIAGRAMS_DIR, { recursive: true });
+      await fs.mkdir(getDiagramsDir(), { recursive: true });
     }
   }
 
@@ -49,7 +47,7 @@ export class DiagramService {
       };
 
       const filename = `${layout.id}.json`;
-      const filepath = path.join(DIAGRAMS_DIR, filename);
+      const filepath = path.join(getDiagramsDir(), filename);
       
       await fs.writeFile(filepath, JSON.stringify(diagramLayout, null, 2));
       
@@ -64,7 +62,7 @@ export class DiagramService {
   async loadDiagramLayout(id: string): Promise<DiagramLayout | null> {
     try {
       const filename = `${id}.json`;
-      const filepath = path.join(DIAGRAMS_DIR, filename);
+      const filepath = path.join(getDiagramsDir(), filename);
       
       const data = await fs.readFile(filepath, 'utf-8');
       const layout = JSON.parse(data) as DiagramLayout;
@@ -96,7 +94,7 @@ export class DiagramService {
       };
 
       const filename = `${id}.json`;
-      const filepath = path.join(DIAGRAMS_DIR, filename);
+      const filepath = path.join(getDiagramsDir(), filename);
       
       await fs.writeFile(filepath, JSON.stringify(updatedLayout, null, 2));
       
@@ -111,7 +109,7 @@ export class DiagramService {
   async deleteDiagramLayout(id: string): Promise<void> {
     try {
       const filename = `${id}.json`;
-      const filepath = path.join(DIAGRAMS_DIR, filename);
+      const filepath = path.join(getDiagramsDir(), filename);
       
       await fs.unlink(filepath);
       
@@ -130,14 +128,14 @@ export class DiagramService {
     try {
       await this.ensureDiagramsDirectory();
       
-      const files = await fs.readdir(DIAGRAMS_DIR);
+      const files = await fs.readdir(getDiagramsDir());
       const jsonFiles = files.filter(file => file.endsWith('.json'));
       
       const layouts: DiagramLayout[] = [];
       
       for (const file of jsonFiles) {
         try {
-          const filepath = path.join(DIAGRAMS_DIR, file);
+          const filepath = path.join(getDiagramsDir(), file);
           const data = await fs.readFile(filepath, 'utf-8');
           const layout = JSON.parse(data) as DiagramLayout;
           

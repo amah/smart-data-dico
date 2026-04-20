@@ -134,17 +134,24 @@ async function getGitService() {
 }
 
 /**
- * Ensures the data dictionaries directory structure exists
+ * Ensures the data dictionaries directory structure exists.
+ * Layout (#104): project-level system files live under `.dico/`.
  */
 export async function ensureDirectoryStructure(): Promise<void> {
   const baseDir = getDataDir();
-  const microservicesDir = path.join(baseDir, 'microservices');
 
   if (!fs.existsSync(baseDir)) {
     fs.mkdirSync(baseDir, { recursive: true });
     logger.info(`Created base directory: ${baseDir}`);
   }
 
+  const dicoDir = path.join(baseDir, '.dico');
+  if (!fs.existsSync(dicoDir)) {
+    fs.mkdirSync(dicoDir, { recursive: true });
+    logger.info(`Created .dico/ system directory: ${dicoDir}`);
+  }
+
+  const microservicesDir = path.join(baseDir, 'microservices');
   if (!fs.existsSync(microservicesDir)) {
     fs.mkdirSync(microservicesDir, { recursive: true });
     logger.info(`Created microservices directory: ${microservicesDir}`);

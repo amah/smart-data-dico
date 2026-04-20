@@ -11,7 +11,7 @@ interface ModelMetadataDoc {
   metadata: MetadataEntry[];
 }
 
-const getModelMetadataFile = () => path.join(config.dataDir, 'metadata.yaml');
+const getModelMetadataFile = () => path.join(config.dataDir, '.dico', 'metadata.yaml');
 
 function readModelMetadata(): ModelMetadataDoc {
   const file = getModelMetadataFile();

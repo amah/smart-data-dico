@@ -5,7 +5,7 @@ import { Stereotype, StereotypeTarget, MetadataEntry } from '../models/EntitySch
 import { logger } from '../utils/logger.js';
 import { config } from '../kernel/config.js';
 
-const getStereotypesFile = () => path.join(config.dataDir, 'stereotypes.yaml');
+const getStereotypesFile = () => path.join(config.dataDir, '.dico', 'stereotypes.yaml');
 
 class StereotypeService {
   private readStereotypes(): Stereotype[] {
