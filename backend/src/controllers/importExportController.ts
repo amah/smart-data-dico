@@ -98,7 +98,7 @@ export const diffSqlDdl = async (req: Request, res: Response) => {
     // Relationship diffs (#82)
     let relationshipDiffs;
     if (parsedRelationships && parsedRelationships.length > 0) {
-      const packagePath = path.join(process.cwd(), 'data-dictionaries', 'microservices', targetService);
+      const packagePath = path.join(process.cwd(), 'data-dictionaries', targetService);
       const existingRels = await readRelationshipsFile(packagePath);
       relationshipDiffs = diffRelationships(parsedRelationships, existingRels);
     }
@@ -173,7 +173,7 @@ export const commitSqlDdl = async (req: Request, res: Response) => {
     // ── Relationship merge + write (#82) ─────────────────────────────────
     let relCounts = { added: 0, merged: 0, unchanged: 0, removedInSource: 0 };
     if (parsedRelationships && parsedRelationships.length > 0) {
-      const packagePath = path.join(process.cwd(), 'data-dictionaries', 'microservices', targetService);
+      const packagePath = path.join(process.cwd(), 'data-dictionaries', targetService);
       const existingRels = await readRelationshipsFile(packagePath);
 
       // Build UUID map: parsed entity UUID → merged entity UUID

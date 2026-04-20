@@ -287,11 +287,10 @@ router.post('/api/project/init', authorizeJwt([UserRole.ADMIN]), (req, res) => {
     ? resolved
     : path.join(resolved, 'data-dictionaries');
   try {
-    // Project marker + .dico/ system folder (#104)
+    // Project marker + .dico/ system folder (#104). Packages live at the
+    // project root and are created on demand (#105).
     fs.mkdirSync(path.join(dataDir, '.dico'), { recursive: true });
     fs.mkdirSync(path.join(dataDir, '.dico', 'diagrams'), { recursive: true });
-    fs.mkdirSync(path.join(dataDir, 'microservices'), { recursive: true });
-    fs.mkdirSync(path.join(dataDir, 'perspectives'), { recursive: true });
     const configPath = path.join(dataDir, 'dico.config.json');
     if (!fs.existsSync(configPath)) {
       fs.writeFileSync(configPath, JSON.stringify({ version: 1 }, null, 2) + '\n', 'utf-8');

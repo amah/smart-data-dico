@@ -33,7 +33,7 @@ export class DictionaryService {
       const nameError = this.validatePackageName(nameToValidate);
       if (nameError) return { success: false, errors: [nameError] };
 
-      const baseDir = path.join(getDataDir(), 'microservices', rootPackageName, ...packagePath);
+      const baseDir = path.join(getDataDir(), rootPackageName, ...packagePath);
       if (!fs.existsSync(baseDir)) {
         fs.mkdirSync(baseDir, { recursive: true });
       } else {
@@ -72,7 +72,7 @@ export class DictionaryService {
    */
   public async updatePackageAtPath(rootPackageName: string, packagePath: string[], packageData: Partial<Package>): Promise<{ success: boolean; errors?: string[]; package?: Package }> {
     try {
-      const baseDir = path.join(getDataDir(), 'microservices', rootPackageName, ...packagePath);
+      const baseDir = path.join(getDataDir(), rootPackageName, ...packagePath);
       if (!fs.existsSync(baseDir)) {
         return { success: false, errors: ['Package directory does not exist'] };
       }
@@ -115,7 +115,7 @@ export class DictionaryService {
    */
   public async deletePackageAtPath(rootPackageName: string, packagePath: string[], force = false): Promise<{ success: boolean; errors?: string[] }> {
     try {
-      const baseDir = path.join(getDataDir(), 'microservices', rootPackageName, ...packagePath);
+      const baseDir = path.join(getDataDir(), rootPackageName, ...packagePath);
       if (!fs.existsSync(baseDir)) {
         return { success: false, errors: ['Package directory does not exist'] };
       }
@@ -184,15 +184,11 @@ export class DictionaryService {
       if (entry.isDirectory()) {
         const subpkg = await this.buildPackageHierarchy(entryPath, entry.name);
         subPackages.push(subpkg);
-      } else if (
-        entry.isFile() &&
-        entry.name.endsWith('.yaml') &&
-        entry.name !== 'metadata.yaml' &&
-        entry.name !== 'relationships.yaml' &&
-        entry.name !== 'rules.yaml' &&                  // package-scoped rules (#74)
-        !entry.name.endsWith('.comments.yaml') &&       // entity comments sidecar
-        !entry.name.endsWith('.rules.yaml')             // entity-scoped rules sidecar (#74)
-      ) {
+      } else if (entry.isFile() && entry.name.endsWith('.entity.yaml')) {
+        // #105: canonical entity filename is `<Name>.entity.yaml`. All other
+        // `.yaml` files at the package level (package.yaml, metadata.yaml,
+        // relationships.yaml, rules.yaml, *.comments.yaml, *.rules.yaml)
+        // are excluded by the suffix check.
         try {
           const fileContent = fs.readFileSync(entryPath, 'utf8');
           const entity = normalizeEntityMetadata(YAML.parse(fileContent) as Entity);
@@ -362,7 +358,7 @@ export class DictionaryService {
 
   public async getPackageHierarchy(rootPackage: string): Promise<Package | null> {
     try {
-      const dirPath = path.join(getDataDir(), 'microservices', rootPackage);
+      const dirPath = path.join(getDataDir(), rootPackage);
       if (!fs.existsSync(dirPath)) {
         return null;
       }
@@ -536,7 +532,7 @@ export class DictionaryService {
       };
 
       // Read relationships from package-level file
-      const packagePath = path.join(getDataDir(), 'microservices', microservice);
+      const packagePath = path.join(getDataDir(), microservice);
       const relationships = await readRelationshipsFile(packagePath);
 
       const children: any[] = [];

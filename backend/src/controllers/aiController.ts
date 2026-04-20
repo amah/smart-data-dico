@@ -149,9 +149,9 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
         if (!parsed.name || !parsed.attributes) return { success: false, error: 'Missing name or attributes' };
 
         const pkgName = parsed.packageName || 'default';
-        const { listMicroservices, ensureDirectoryStructure } = await import('../utils/fileOperations.js');
-        const existing = await listMicroservices();
-        if (!existing.includes(pkgName)) await ensureDirectoryStructure(pkgName);
+        const { listPackages, ensurePackageDirectoryStructure } = await import('../utils/fileOperations.js');
+        const existing = await listPackages();
+        if (!existing.includes(pkgName)) ensurePackageDirectoryStructure(pkgName);
 
         const entity = {
           uuid: crypto.randomUUID(),
@@ -313,10 +313,10 @@ export const aiChat = async (req: Request, res: Response) => {
                 };
               }
               const pkgName = parsed.packageName || 'default';
-              const { listMicroservices, ensureDirectoryStructure } = await import('../utils/fileOperations.js');
-              const existingServices = await listMicroservices();
+              const { listPackages, ensurePackageDirectoryStructure } = await import('../utils/fileOperations.js');
+              const existingServices = await listPackages();
               if (!existingServices.includes(pkgName)) {
-                await ensureDirectoryStructure(pkgName);
+                ensurePackageDirectoryStructure(pkgName);
               }
 
               const attrs = (parsed.attributes || []).map((a: any) => ({

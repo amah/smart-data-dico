@@ -19,23 +19,27 @@ export function isValidUUID(uuid: string): boolean {
 }
 
 /**
- * Generates a human-readable filename using UUID and name
- * @param uuid The UUID of the entity
- * @param name The name of the entity
- * @returns A filename in format: uuid_name.yaml
+ * Generates a canonical entity filename from its name (#105).
+ * Format: `<Name>.entity.yaml`. The UUID prefix of the legacy format
+ * (`<uuid>_<Name>.yaml`) is dropped — name uniqueness within a package
+ * is enforced at the service layer instead.
+ *
+ * Sanitization: reject `/ \ : * .` and leading `.`; collapse whitespace
+ * to single underscores. Case is preserved.
  */
-export function generateEntityFilename(uuid: string, name: string): string {
-  // Sanitize name for filename (remove special characters, replace spaces with underscores)
-  const sanitizedName = name.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
-  return `${uuid}_${sanitizedName}.yaml`;
+export function generateEntityFilename(_uuid: string, name: string): string {
+  const sanitized = sanitizeFsName(name);
+  return `${sanitized}.entity.yaml`;
 }
 
 /**
- * Extracts UUID from a filename
- * @param filename The filename to extract UUID from
- * @returns The UUID or null if not found
+ * Normalize a name for use as a filename / folder name. Strips characters
+ * that would break paths on any common filesystem, plus a leading dot
+ * (reserved for system files such as `.dico/`).
  */
-export function extractUUIDFromFilename(filename: string): string | null {
-  const match = filename.match(/^([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})/i);
-  return match ? match[1] : null;
+export function sanitizeFsName(name: string): string {
+  const trimmed = name.trim().replace(/^\.+/, '');
+  return trimmed
+    .replace(/[\\/:*?"<>|]/g, '')
+    .replace(/\s+/g, '_');
 }
