@@ -204,27 +204,184 @@ export interface PackageModel {
  * One parsed YAML file's sections — the on-disk shape after #106. Any
  * subset of sections may be present; missing ones default to `[]`.
  */
-interface SectionsFile {
+export interface SectionsFile {
   entities: Entity[];
   relationships: Relationship[];
   rules: Rule[];
   perspectives: Perspective[];
 }
 
-function parseSections(filePath: string): SectionsFile {
+/**
+ * Parse the sections format from a YAML string. Exported so the git-ref
+ * loader in `modelSnapshotLoader` can reuse the same parsing — it reads
+ * files via `git show <ref>:<path>` rather than `fs.readFileSync`, but
+ * the downstream shape is identical. `label` is used purely for error
+ * messages (can be a file path, a git ref + path, etc.).
+ *
+ * Legacy-shape support for git-ref reads against pre-#106 commits:
+ *   - A top-level object with `uuid` + `attributes` is treated as one
+ *     entity wrapped in an `entities:` section (pre-#106 entity files).
+ *   - A top-level YAML array is routed by `filename`:
+ *       `relationships.yaml` → `relationships:`
+ *       `rules.yaml` or `*.rules.yaml` → `rules:`
+ * This lets the diff engine compare against commits older than the
+ * multi-kind YAML cutover without rewriting their files.
+ */
+export function parseSectionsFromString(raw: string, label: string, filename?: string): SectionsFile {
   try {
-    const raw = fs.readFileSync(filePath, 'utf8');
-    const parsed = YAML.parse(raw) || {};
-    return {
-      entities: Array.isArray(parsed.entities) ? parsed.entities : [],
-      relationships: Array.isArray(parsed.relationships) ? parsed.relationships : [],
-      rules: Array.isArray(parsed.rules) ? parsed.rules : [],
-      perspectives: Array.isArray(parsed.perspectives) ? parsed.perspectives : [],
-    };
+    const parsed = YAML.parse(raw);
+    if (!parsed) return { entities: [], relationships: [], rules: [], perspectives: [] };
+
+    // Legacy pre-#106: single-entity file (unwrapped `{ uuid, name, attributes }`).
+    // Check FIRST because pre-#100 entity files also carried a top-level
+    // `relationships:` key (per-entity relationships) that would otherwise
+    // collide with the multi-kind detector below.
+    if (typeof parsed === 'object' && !Array.isArray(parsed)
+      && typeof parsed.uuid === 'string' && Array.isArray(parsed.attributes)) {
+      return { entities: [parsed as Entity], relationships: [], rules: [], perspectives: [] };
+    }
+
+    // Multi-kind sections format (#106 — current)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && (
+      'entities' in parsed || 'relationships' in parsed ||
+      'rules' in parsed || 'perspectives' in parsed
+    )) {
+      return {
+        entities: Array.isArray(parsed.entities) ? parsed.entities : [],
+        relationships: Array.isArray(parsed.relationships) ? parsed.relationships : [],
+        rules: Array.isArray(parsed.rules) ? parsed.rules : [],
+        perspectives: Array.isArray(parsed.perspectives) ? parsed.perspectives : [],
+      };
+    }
+
+    // Legacy pre-#106: top-level YAML array. Route by filename.
+    if (Array.isArray(parsed) && filename) {
+      if (filename === 'relationships.yaml') {
+        return { entities: [], relationships: parsed, rules: [], perspectives: [] };
+      }
+      if (filename === 'rules.yaml' || filename.endsWith('.rules.yaml')) {
+        return { entities: [], relationships: [], rules: parsed, perspectives: [] };
+      }
+    }
+
+    return { entities: [], relationships: [], rules: [], perspectives: [] };
   } catch (e) {
-    logger.warn(`Failed to parse YAML: ${filePath}: ${e}`);
+    logger.warn(`Failed to parse YAML: ${label}: ${e}`);
     return { entities: [], relationships: [], rules: [], perspectives: [] };
   }
+}
+
+function parseSections(filePath: string): SectionsFile {
+  try {
+    return parseSectionsFromString(fs.readFileSync(filePath, 'utf8'), filePath);
+  } catch (e) {
+    logger.warn(`Failed to read YAML: ${filePath}: ${e}`);
+    return { entities: [], relationships: [], rules: [], perspectives: [] };
+  }
+}
+
+/**
+ * One (label, sections) pair for `mergePackageSections`. `label` is used
+ * in collision error messages (an absolute path for disk files, a git
+ * ref + path for git-ref loads).
+ */
+export interface ParsedSections {
+  label: string;
+  sections: SectionsFile;
+}
+
+/**
+ * Pure merge + collision check over one package's parsed files. Shared
+ * by the on-disk loader (`loadPackage`) and the git-ref loader so both
+ * produce identical snapshots and enforce the same identity rules.
+ *
+ * Identifier collisions (same entity name, entity uuid, relationship
+ * uuid, rule uuid, perspective uuid) are hard errors reporting both
+ * owner labels.
+ */
+export function mergePackageSections(
+  packageName: string,
+  parsed: ParsedSections[],
+): PackageModel {
+  const model: PackageModel = {
+    packageName,
+    entities: [],
+    relationships: [],
+    rules: [],
+    perspectives: [],
+    ownership: {
+      entityByName: new Map(),
+      entityByUuid: new Map(),
+      relationshipByUuid: new Map(),
+      ruleByUuid: new Map(),
+      perspectiveByUuid: new Map(),
+    },
+  };
+
+  for (const { label, sections } of parsed) {
+    for (const raw of sections.entities) {
+      if (!raw?.name || !raw?.uuid) continue;
+      const byName = model.ownership.entityByName.get(raw.name);
+      if (byName) {
+        throw new Error(
+          `Duplicate entity name '${raw.name}' in package '${packageName}': ${byName} and ${label}`,
+        );
+      }
+      const byUuid = model.ownership.entityByUuid.get(raw.uuid);
+      if (byUuid) {
+        throw new Error(
+          `Duplicate entity uuid '${raw.uuid}' in package '${packageName}': ${byUuid} and ${label}`,
+        );
+      }
+      model.ownership.entityByName.set(raw.name, label);
+      model.ownership.entityByUuid.set(raw.uuid, label);
+      const normalized = normalizeEntityMetadata(raw);
+      if (normalized) model.entities.push(normalized);
+    }
+
+    for (const rel of sections.relationships) {
+      if (!rel?.uuid) continue;
+      const existing = model.ownership.relationshipByUuid.get(rel.uuid);
+      if (existing) {
+        throw new Error(
+          `Duplicate relationship uuid '${rel.uuid}' in package '${packageName}': ${existing} and ${label}`,
+        );
+      }
+      model.ownership.relationshipByUuid.set(rel.uuid, label);
+      model.relationships.push(rel);
+    }
+
+    for (const rule of sections.rules) {
+      if (!rule?.uuid) continue;
+      const existing = model.ownership.ruleByUuid.get(rule.uuid);
+      if (existing) {
+        throw new Error(
+          `Duplicate rule uuid '${rule.uuid}' in package '${packageName}': ${existing} and ${label}`,
+        );
+      }
+      model.ownership.ruleByUuid.set(rule.uuid, label);
+      model.rules.push(rule);
+    }
+
+    for (const p of sections.perspectives) {
+      if (!p?.uuid) continue;
+      const existing = model.ownership.perspectiveByUuid.get(p.uuid);
+      if (existing) {
+        throw new Error(
+          `Duplicate perspective uuid '${p.uuid}' in package '${packageName}': ${existing} and ${label}`,
+        );
+      }
+      model.ownership.perspectiveByUuid.set(p.uuid, label);
+      model.perspectives.push(p);
+    }
+  }
+
+  return model;
+}
+
+/** Returns the filenames considered reserved at the package level. */
+export function getReservedPackageFiles(): ReadonlySet<string> {
+  return RESERVED_PACKAGE_FILES;
 }
 
 /**
@@ -258,87 +415,17 @@ function listPackageYamlFiles(packageName: string): string[] {
 
 /**
  * Load every `.yaml` file in a package folder and merge their sections
- * (#106). Identifier collisions (same entity name / relationship uuid /
- * rule uuid / perspective uuid) are hard errors with both paths reported.
+ * (#106). Thin wrapper over `mergePackageSections` that reads from disk;
+ * the git-ref loader in `modelSnapshotLoader` calls the same merger with
+ * contents fetched via `git show`.
  */
 export async function loadPackage(packageName: string): Promise<PackageModel> {
-  const model: PackageModel = {
-    packageName,
-    entities: [],
-    relationships: [],
-    rules: [],
-    perspectives: [],
-    ownership: {
-      entityByName: new Map(),
-      entityByUuid: new Map(),
-      relationshipByUuid: new Map(),
-      ruleByUuid: new Map(),
-      perspectiveByUuid: new Map(),
-    },
-  };
-
   const files = listPackageYamlFiles(packageName);
-  for (const filePath of files) {
-    const sections = parseSections(filePath);
-
-    for (const raw of sections.entities) {
-      if (!raw?.name || !raw?.uuid) continue;
-      const existingByName = model.ownership.entityByName.get(raw.name);
-      if (existingByName) {
-        throw new Error(
-          `Duplicate entity name '${raw.name}' in package '${packageName}': ${existingByName} and ${filePath}`,
-        );
-      }
-      const existingByUuid = model.ownership.entityByUuid.get(raw.uuid);
-      if (existingByUuid) {
-        throw new Error(
-          `Duplicate entity uuid '${raw.uuid}' in package '${packageName}': ${existingByUuid} and ${filePath}`,
-        );
-      }
-      model.ownership.entityByName.set(raw.name, filePath);
-      model.ownership.entityByUuid.set(raw.uuid, filePath);
-      const normalized = normalizeEntityMetadata(raw);
-      if (normalized) model.entities.push(normalized);
-    }
-
-    for (const rel of sections.relationships) {
-      if (!rel?.uuid) continue;
-      const existing = model.ownership.relationshipByUuid.get(rel.uuid);
-      if (existing) {
-        throw new Error(
-          `Duplicate relationship uuid '${rel.uuid}' in package '${packageName}': ${existing} and ${filePath}`,
-        );
-      }
-      model.ownership.relationshipByUuid.set(rel.uuid, filePath);
-      model.relationships.push(rel);
-    }
-
-    for (const rule of sections.rules) {
-      if (!rule?.uuid) continue;
-      const existing = model.ownership.ruleByUuid.get(rule.uuid);
-      if (existing) {
-        throw new Error(
-          `Duplicate rule uuid '${rule.uuid}' in package '${packageName}': ${existing} and ${filePath}`,
-        );
-      }
-      model.ownership.ruleByUuid.set(rule.uuid, filePath);
-      model.rules.push(rule);
-    }
-
-    for (const p of sections.perspectives) {
-      if (!p?.uuid) continue;
-      const existing = model.ownership.perspectiveByUuid.get(p.uuid);
-      if (existing) {
-        throw new Error(
-          `Duplicate perspective uuid '${p.uuid}' in package '${packageName}': ${existing} and ${filePath}`,
-        );
-      }
-      model.ownership.perspectiveByUuid.set(p.uuid, filePath);
-      model.perspectives.push(p);
-    }
-  }
-
-  return model;
+  const parsed: ParsedSections[] = files.map(filePath => ({
+    label: filePath,
+    sections: parseSections(filePath),
+  }));
+  return mergePackageSections(packageName, parsed);
 }
 
 // ────────────────────────────────────────────────────────────────────────
