@@ -17,6 +17,8 @@ import CytoscapeInfoPanel from './CytoscapeInfoPanel';
 import CytoscapeLegend from './CytoscapeLegend';
 import { useCytoscapeEdgeCreation } from './useCytoscapeEdgeCreation';
 import CreateRelationshipModal from './CreateRelationshipModal';
+import { useCytoscapeEntityCreation } from './useCytoscapeEntityCreation';
+import CreateEntityModal from './CreateEntityModal';
 
 export default function CytoscapeGraph({
   service: serviceProp,
@@ -88,15 +90,26 @@ export default function CytoscapeGraph({
     [navigate],
   );
 
-  // Interactions
+  // Interactions — default tap navigates; Alt/Option click opens info panel
   const { tooltip, infoPanel, setInfoPanel, applySearchFilter } =
-    useCytoscapeInteractions(cyRef);
+    useCytoscapeInteractions(cyRef, handleNodeClick);
 
   // Perspective overlay
   useCytoscapePerspectiveOverlay(cyRef, perspectiveId);
 
   // Edge creation (right-click → connect)
   const edgeCreation = useCytoscapeEdgeCreation(cyRef);
+
+  // Entity creation (background right-click or toolbar "+")
+  const packageOptions = useMemo(() => {
+    const set = new Set<string>(services);
+    if (service) set.add(service);
+    return Array.from(set).sort();
+  }, [services, service]);
+  const entityCreation = useCytoscapeEntityCreation(cyRef, {
+    packageOptions,
+    defaultPackage: service || packageOptions[0] || '',
+  });
 
   // Run layout after elements load (once)
   useEffect(() => {
@@ -167,6 +180,7 @@ export default function CytoscapeGraph({
         onLoadLayout={persistence.loadLayout}
         onDeleteLayout={persistence.deleteLayout}
         exportFilenameBase={service}
+        onAddEntity={packageOptions.length > 0 ? () => entityCreation.startCreate(service || packageOptions[0]) : undefined}
       />
 
       <div className="relative flex-1 min-h-0">
@@ -254,6 +268,16 @@ export default function CytoscapeGraph({
           targetLabel={edgeCreation.pendingEdge.targetLabel}
           onConfirm={edgeCreation.confirmEdge}
           onCancel={edgeCreation.cancelEdge}
+        />
+      )}
+
+      {/* Entity creation modal */}
+      {entityCreation.pending && (
+        <CreateEntityModal
+          packageOptions={entityCreation.pending.packageOptions}
+          defaultPackage={entityCreation.pending.defaultPackage}
+          onConfirm={entityCreation.confirmCreate}
+          onCancel={entityCreation.cancelCreate}
         />
       )}
     </div>

@@ -44,15 +44,21 @@ export function useCytoscapeInteractions(
       setTooltip(null);
     };
 
-    // Node tap - navigate or show info
+    // Node tap — default: navigate to entity details (if handler provided).
+    // Alt/Option held: show inline info panel instead.
+    // Skip entirely while edge-creation connect mode is active (the edge-creation
+    // hook owns the tap in that state).
     const onNodeTap = (evt: any) => {
       const node = evt.target;
       if (node.isParent()) return;
+      if (cy.nodes('.connect-source').length > 0) return;
       const service = node.data('service');
       const label = node.data('label');
       const attributes = node.data('attributes') as Attribute[];
+      const oe = evt.originalEvent;
+      const modifierHeld = !!(oe && (oe.altKey || oe.metaKey));
 
-      if (onNodeClick) {
+      if (onNodeClick && !modifierHeld) {
         onNodeClick(service, label);
       } else {
         setInfoPanel({
