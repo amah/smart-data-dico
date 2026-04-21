@@ -18,6 +18,8 @@ interface CytoscapeToolbarProps {
   onDeleteLayout: (id: string) => void;
   // Export filename base (e.g. service/package name). Falls back to "diagram".
   exportFilenameBase?: string;
+  // When provided, adds a "+" button that opens the create-entity modal.
+  onAddEntity?: () => void;
 }
 
 export default function CytoscapeToolbar({
@@ -33,6 +35,7 @@ export default function CytoscapeToolbar({
   onLoadLayout,
   onDeleteLayout,
   exportFilenameBase,
+  onAddEntity,
 }: CytoscapeToolbarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSaveDialog, setShowSaveDialog] = useState(false);
@@ -136,6 +139,16 @@ export default function CytoscapeToolbar({
       <button className="btn btn-xs btn-ghost" onClick={onRunLayout} title="Re-run layout">
         Re-layout
       </button>
+
+      {onAddEntity && (
+        <button
+          className="btn btn-xs btn-primary"
+          onClick={onAddEntity}
+          title="Add entity (or right-click empty canvas)"
+        >
+          + Entity
+        </button>
+      )}
 
       <div className="divider divider-horizontal mx-0 h-6" />
 
