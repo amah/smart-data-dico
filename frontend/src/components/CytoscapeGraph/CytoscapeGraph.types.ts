@@ -3,7 +3,7 @@ import type { Attribute, Package } from '../../types';
 
 export type GraphMode = 'service' | 'organization';
 
-export type LayoutName = 'dagre' | 'fcose';
+export type LayoutName = 'dagre' | 'fcose' | 'elk';
 
 export type LayoutDirection = 'TB' | 'LR' | 'BT' | 'RL';
 

@@ -61,25 +61,38 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
   const neutral = resolveColor('--n', '#2a323c');
 
   const sheets: StylesheetStyle[] = [
-    // Node base
+    // Node base — two-line UML-style compartment
     {
       selector: 'node[type = "entity"]',
       style: {
-        label: 'data(label)',
+        label: 'data(displayLabel)',
         'text-valign': 'center',
         'text-halign': 'center',
+        'text-wrap': 'wrap',
+        'text-max-width': '160px',
+        'line-height': 1.3,
         'background-color': bg,
         'border-width': 2,
         'border-color': neutral,
         color: fg,
-        'font-size': 14,
+        'font-size': 13,
         'font-weight': 'bold',
         'font-family': 'ui-sans-serif, system-ui, sans-serif',
-        width: 160,
-        height: 45,
+        width: 180,
+        height: 60,
         shape: 'roundrectangle',
-        'text-wrap': 'ellipsis',
-        'text-max-width': '140px',
+        'transition-property': 'border-width, border-color, overlay-opacity',
+        'transition-duration': 150,
+      } as any,
+    },
+    // Node hover (class toggled from useCytoscapeInteractions)
+    {
+      selector: 'node[type = "entity"].hover',
+      style: {
+        'border-width': 3,
+        'z-index': 5,
+        'overlay-opacity': 0.08,
+        'overlay-color': primary,
       } as any,
     },
     // PK indicator
@@ -94,16 +107,18 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
     {
       selector: ':parent',
       style: {
-        'background-color': bg,
-        'background-opacity': 0.15,
+        'background-color': neutral,
+        'background-opacity': 0.06,
         'border-style': 'dashed',
         'border-width': 2,
         'border-color': neutral,
+        'border-opacity': 0.4,
         'text-valign': 'top',
         'text-halign': 'center',
         'font-weight': 'bold',
         'font-size': 15,
-        padding: '24px',
+        'text-margin-y': -6,
+        padding: '28px',
         label: 'data(label)',
         color: fg,
       } as any,
@@ -112,20 +127,24 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
     {
       selector: 'edge',
       style: {
-        width: 2,
+        width: 1.5,
         'line-color': neutral,
+        'line-opacity': 0.7,
         'target-arrow-color': neutral,
         'target-arrow-shape': 'triangle',
+        'arrow-scale': 1.2,
         'curve-style': 'bezier',
         'source-label': 'data(sourceCardinality)',
         'target-label': 'data(targetCardinality)',
-        'source-text-offset': 20,
-        'target-text-offset': 20,
+        'source-text-offset': 22,
+        'target-text-offset': 22,
         'font-size': 11,
+        'font-family': 'ui-sans-serif, system-ui, sans-serif',
         color: fg,
         'text-background-color': bg,
-        'text-background-opacity': 0.8,
-        'text-background-padding': '2px',
+        'text-background-opacity': 0.9,
+        'text-background-padding': '3px',
+        'text-background-shape': 'roundrectangle',
       } as any,
     },
     // Selected

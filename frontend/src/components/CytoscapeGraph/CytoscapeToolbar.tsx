@@ -16,6 +16,8 @@ interface CytoscapeToolbarProps {
   onSaveLayout: (name: string) => void;
   onLoadLayout: (id: string) => void;
   onDeleteLayout: (id: string) => void;
+  // Export filename base (e.g. service/package name). Falls back to "diagram".
+  exportFilenameBase?: string;
 }
 
 export default function CytoscapeToolbar({
@@ -30,6 +32,7 @@ export default function CytoscapeToolbar({
   onSaveLayout,
   onLoadLayout,
   onDeleteLayout,
+  exportFilenameBase,
 }: CytoscapeToolbarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSaveDialog, setShowSaveDialog] = useState(false);
@@ -63,14 +66,29 @@ export default function CytoscapeToolbar({
     if (cy) cy.fit(undefined, 40);
   };
 
+  const filenameBase = (exportFilenameBase || 'diagram').replace(/[^a-z0-9-_]/gi, '_');
+
   const handleExportPng = () => {
     const cy = cyRef.current;
     if (!cy) return;
     const png = cy.png({ full: true, scale: 2, bg: 'white' });
     const link = document.createElement('a');
     link.href = png;
-    link.download = 'graph.png';
+    link.download = `${filenameBase}.png`;
     link.click();
+  };
+
+  const handleExportSvg = () => {
+    const cy = cyRef.current as (Core & { svg?: (opts?: { full?: boolean; bg?: string }) => string }) | null;
+    if (!cy || typeof cy.svg !== 'function') return;
+    const svg = cy.svg({ full: true, bg: 'white' });
+    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${filenameBase}.svg`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -80,9 +98,16 @@ export default function CytoscapeToolbar({
         <button
           className={`join-item btn btn-xs ${layoutName === 'dagre' ? 'btn-primary' : 'btn-ghost'}`}
           onClick={() => onLayoutChange('dagre')}
-          title="Hierarchical layout"
+          title="Hierarchical layout (Dagre)"
         >
           Dagre
+        </button>
+        <button
+          className={`join-item btn btn-xs ${layoutName === 'elk' ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={() => onLayoutChange('elk')}
+          title="Structured layout with orthogonal edges (ELK)"
+        >
+          ELK
         </button>
         <button
           className={`join-item btn btn-xs ${layoutName === 'fcose' ? 'btn-primary' : 'btn-ghost'}`}
@@ -94,7 +119,7 @@ export default function CytoscapeToolbar({
       </div>
 
       {/* Direction */}
-      {layoutName === 'dagre' && (
+      {(layoutName === 'dagre' || layoutName === 'elk') && (
         <div className="join">
           {(['TB', 'LR', 'BT', 'RL'] as LayoutDirection[]).map((dir) => (
             <button
@@ -186,9 +211,26 @@ export default function CytoscapeToolbar({
       )}
 
       {/* Export */}
-      <button className="btn btn-xs btn-ghost ml-auto" onClick={handleExportPng} title="Export as PNG">
-        Export PNG
-      </button>
+      <div className="dropdown dropdown-end ml-auto">
+        <label tabIndex={0} className="btn btn-xs btn-ghost" title="Export diagram">
+          Export
+        </label>
+        <ul
+          tabIndex={0}
+          className="dropdown-content z-50 menu p-1 shadow bg-base-100 rounded-box w-36 text-sm"
+        >
+          <li>
+            <button className="justify-start" onClick={handleExportPng}>
+              PNG
+            </button>
+          </li>
+          <li>
+            <button className="justify-start" onClick={handleExportSvg}>
+              SVG
+            </button>
+          </li>
+        </ul>
+      </div>
     </div>
   );
 }

@@ -14,6 +14,7 @@ import { useCytoscapePerspectiveOverlay } from './useCytoscapePerspectiveOverlay
 import CytoscapeToolbar from './CytoscapeToolbar';
 import CytoscapeTooltip from './CytoscapeTooltip';
 import CytoscapeInfoPanel from './CytoscapeInfoPanel';
+import CytoscapeLegend from './CytoscapeLegend';
 import { useCytoscapeEdgeCreation } from './useCytoscapeEdgeCreation';
 import CreateRelationshipModal from './CreateRelationshipModal';
 
@@ -57,7 +58,7 @@ export default function CytoscapeGraph({
   }, [nodes, edges, mode, packages]);
 
   // Styles (theme-aware)
-  const { stylesheet } = useCytoscapeStyles(
+  const { stylesheet, serviceColorMap } = useCytoscapeStyles(
     { current: null } as any, // Will be set after instance creation
     services,
   );
@@ -165,6 +166,7 @@ export default function CytoscapeGraph({
         onSaveLayout={handleSaveLayout}
         onLoadLayout={persistence.loadLayout}
         onDeleteLayout={persistence.deleteLayout}
+        exportFilenameBase={service}
       />
 
       <div className="relative flex-1 min-h-0">
@@ -182,6 +184,14 @@ export default function CytoscapeGraph({
 
         {/* Cytoscape container */}
         <div ref={containerRef} className="w-full h-full" />
+
+        {/* Legend overlay */}
+        {elements.length > 0 && (
+          <CytoscapeLegend
+            serviceColorMap={serviceColorMap}
+            showPerspectiveStates={!!perspectiveId}
+          />
+        )}
 
         {/* Tooltip overlay */}
         {tooltip && <CytoscapeTooltip data={tooltip} />}
