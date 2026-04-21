@@ -2,7 +2,7 @@
 
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'node:path';
-import { existsSync, mkdirSync, cpSync } from 'fs';
+import { existsSync, mkdirSync, cpSync, writeFileSync } from 'fs';
 import { spawn } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -44,19 +44,30 @@ if (flags.help) {
 const port = flags.port || process.env.PORT || '3001';
 const dataDir = resolve(flags.dataDir || process.env.DATA_DIR || './data-dictionaries');
 
-// Ensure data directory exists
+// Bootstrap the project on first run. The layout matches the current
+// conventions:
+//   - `dico.config.json`       — project marker (#104)
+//   - `.dico/stereotypes.yaml` — project-level stereotypes (#104)
+// Packages and perspectives are created on demand — no empty subfolders.
 if (!existsSync(dataDir)) {
   mkdirSync(dataDir, { recursive: true });
   console.log(`Created data directory: ${dataDir}`);
 
-  const defaultStereotypes = join(PKG_ROOT, 'data-dictionaries', 'stereotypes.yaml');
-  if (existsSync(defaultStereotypes)) {
-    cpSync(defaultStereotypes, join(dataDir, 'stereotypes.yaml'));
-    console.log('Copied default stereotypes');
+  const dicoDir = join(dataDir, '.dico');
+  mkdirSync(dicoDir, { recursive: true });
+
+  const configPath = join(dataDir, 'dico.config.json');
+  if (!existsSync(configPath)) {
+    writeFileSync(configPath, JSON.stringify({ version: 1 }, null, 2) + '\n', 'utf-8');
   }
 
-  mkdirSync(join(dataDir, 'microservices'), { recursive: true });
-  mkdirSync(join(dataDir, 'perspectives'), { recursive: true });
+  // Default stereotypes are shipped under the bundled sample.
+  const defaultStereotypes = join(PKG_ROOT, 'samples', 'eshop', '.dico', 'stereotypes.yaml');
+  const targetStereotypes = join(dicoDir, 'stereotypes.yaml');
+  if (existsSync(defaultStereotypes) && !existsSync(targetStereotypes)) {
+    cpSync(defaultStereotypes, targetStereotypes);
+    console.log('Copied default stereotypes to .dico/stereotypes.yaml');
+  }
 }
 
 // Determine how to run the server:

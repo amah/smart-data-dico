@@ -388,7 +388,7 @@ function FolderPickerModal({
         </h3>
         <p className="text-sm text-base-content/70 mt-1">
           {mode === 'open'
-            ? 'Browse to a folder containing data-dictionaries/, or type a path'
+            ? 'Browse to a project folder containing dico.config.json, or type a path'
             : 'Browse to a folder where the new project should be created'}
         </p>
         {error && <div className="alert alert-error mt-2 py-2 text-sm">{error}</div>}
@@ -451,9 +451,6 @@ function FolderPickerModal({
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                       </svg>
                       {dir}
-                      {dir === 'data-dictionaries' && (
-                        <span className="badge badge-xs badge-success ml-1">project</span>
-                      )}
                     </button>
                   </li>
                 );
@@ -471,7 +468,7 @@ function FolderPickerModal({
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
-            data-dictionaries structure found
+            dico.config.json found — project folder
           </div>
         )}
 

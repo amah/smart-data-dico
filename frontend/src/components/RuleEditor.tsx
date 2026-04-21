@@ -261,7 +261,7 @@ const RuleEditor = ({ rule, onClose, onSaved }: RuleEditorProps) => {
         {/* Global scope banner (#75) */}
         {scope === 'global' && (
           <div className="alert alert-warning py-2 text-sm mb-3">
-            Global rules are stored in <code>data-dictionaries/rules.yaml</code> and reviewed by everyone.
+            Global rules are stored at the project root as <code>rules.yaml</code> and reviewed by everyone.
             Use a package-local rule unless the rule truly crosses package boundaries.
           </div>
         )}
