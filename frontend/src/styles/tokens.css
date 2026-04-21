@@ -1,0 +1,209 @@
+/* ──────────────────────────────────────────────────────────────
+   Design tokens — ported from design_handoff/tokens.css.
+   Phase 1 ships the Calm variant only (light + a derived dark).
+   Bold + Mono are Phase 6.
+
+   Structure:
+     :root                                 → static tokens (typography, scale, motion, densities)
+     [data-variant="calm"][data-theme=*]   → per-theme palette + DaisyUI var aliases
+
+   DaisyUI compatibility:
+     Our CSS lives at higher specificity than DaisyUI's own [data-theme="light|dark"]
+     rules, so existing .btn / .badge / .card / .input / .modal pick up the new
+     palette without code changes. Values for --p / --b1 / --bc / … are in the
+     HSL-tuple format DaisyUI expects (no hsl() wrapper).
+   ────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Typography */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Consolas', ui-monospace, monospace;
+
+  /* Scale */
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 14px;
+  --fs-xl: 16px;
+  --fs-2xl: 20px;
+  --fs-3xl: 28px;
+
+  /* Radii */
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
+
+  /* Motion */
+  --dur-fast: 120ms;
+  --dur-med:  220ms;
+
+  /* Row densities (Phase 3 will let users swap the active one) */
+  --row-comfortable: 44px;
+  --row-compact:     32px;
+  --row-dense:       26px;
+  --row-height: var(--row-comfortable);
+}
+
+/* ───────── Calm — light (default) ───────── */
+[data-variant="calm"],
+[data-variant="calm"][data-theme="light"] {
+  /* Design tokens */
+  --bg:            #fafaf9;
+  --bg-raised:     #ffffff;
+  --bg-subtle:     #f4f4f2;
+  --bg-hover:      #f0f0ed;
+  --bg-active:     #e8e8e4;
+
+  --border:        #e7e6e1;
+  --border-strong: #d4d3cd;
+  --border-focus:  #8b7fd8;
+
+  --text:          #1a1a17;
+  --text-muted:    #6b6a63;
+  --text-subtle:   #908f87;
+
+  --accent:        #6b5fcf;
+  --accent-fg:     #ffffff;
+  --accent-soft:   #ece9fa;
+
+  --meta-bg:       #fbfaf5;
+  --meta-border:   #ede9d8;
+  --meta-label:    #8a7a4a;
+
+  --success:       #4a8560;
+  --warning:       #b8873d;
+  --danger:        #b85a5a;
+
+  --success-soft:  rgba(74, 133, 96, 0.10);
+  --warning-soft:  rgba(184, 135, 61, 0.10);
+  --danger-soft:   rgba(184, 90, 90, 0.10);
+
+  --pii-direct:    #b85a5a;
+  --pii-indirect:  #b8873d;
+  --pii-possible:  #8a8a6a;
+
+  --shadow-sm: 0 1px 0 rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.08), 0 2px 6px rgba(0, 0, 0, 0.04);
+
+  /* DaisyUI aliases */
+  --p:  247 51% 59%;
+  --pc: 0 0% 100%;
+  --pf: 247 45% 50%;
+
+  --s:  41 30% 42%;
+  --sc: 0 0% 100%;
+
+  --a:  249 70% 95%;
+  --ac: 247 51% 45%;
+
+  --n:  60 7% 40%;
+  --nc: 0 0% 100%;
+
+  --b1: 60 11% 98%;
+  --b2: 60 7% 95%;
+  --b3: 60 8% 93%;
+  --bc: 60 7% 10%;
+
+  --su: 144 28% 41%;
+  --suc: 0 0% 100%;
+  --wa: 36 52% 48%;
+  --wac: 0 0% 100%;
+  --er: 0 39% 54%;
+  --erc: 0 0% 100%;
+  --in: 210 15% 45%;
+  --inc: 0 0% 100%;
+
+  --rounded-box:   var(--radius-lg);
+  --rounded-btn:   var(--radius-sm);
+  --rounded-badge: var(--radius-sm);
+}
+
+/* ───────── Calm — dark (derived) ─────────
+   design_handoff specs Bold as the night theme, but we need a dark
+   palette tonight so the existing light/dark toggle keeps working.
+   This is a minimal derivation: Calm accent retained, surfaces darkened. */
+[data-variant="calm"][data-theme="dark"] {
+  --bg:            #1a1915;
+  --bg-raised:     #22201b;
+  --bg-subtle:     #1e1c18;
+  --bg-hover:      #2a2824;
+  --bg-active:     #322f2a;
+
+  --border:        #2c2a26;
+  --border-strong: #3d3a33;
+  --border-focus:  #a89cdf;
+
+  --text:          #edece4;
+  --text-muted:    #9a988f;
+  --text-subtle:   #6d6b62;
+
+  --accent:        #8f83dd;
+  --accent-fg:     #0f0e17;
+  --accent-soft:   #2a2540;
+
+  --meta-bg:       #1f1e19;
+  --meta-border:   #2a2720;
+  --meta-label:    #b8a97a;
+
+  --success:       #6aa578;
+  --warning:       #d3a05a;
+  --danger:        #d47878;
+
+  --success-soft:  rgba(106, 165, 120, 0.14);
+  --warning-soft:  rgba(211, 160, 90, 0.14);
+  --danger-soft:   rgba(212, 120, 120, 0.16);
+
+  --pii-direct:    #d47878;
+  --pii-indirect:  #d3a05a;
+  --pii-possible:  #b0ae9a;
+
+  --shadow-sm: 0 1px 0 rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 10px 28px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.35);
+
+  /* DaisyUI aliases */
+  --p:  249 58% 69%;
+  --pc: 250 26% 8%;
+  --pf: 249 55% 60%;
+
+  --s:  41 35% 59%;
+  --sc: 0 0% 0%;
+
+  --a:  247 28% 20%;
+  --ac: 249 58% 80%;
+
+  --n:  48 5% 58%;
+  --nc: 0 0% 100%;
+
+  --b1: 45 11% 9%;
+  --b2: 45 10% 11%;
+  --b3: 45 9% 14%;
+  --bc: 48 21% 91%;
+
+  --su: 144 27% 53%;
+  --suc: 0 0% 100%;
+  --wa: 33 58% 59%;
+  --wac: 0 0% 100%;
+  --er: 0 55% 65%;
+  --erc: 0 0% 100%;
+  --in: 210 15% 65%;
+  --inc: 0 0% 100%;
+}
+
+/* ───────── Utilities ─────────
+   Opt-in. We do NOT override body font-size here so existing Tailwind
+   spacing (built on 16px rem) keeps working. Phase 4 migrates pages
+   onto the 13px base one at a time. */
+
+.mono {
+  font-family: var(--font-mono);
+  font-feature-settings: "zero" 1, "ss01" 1;
+}
+
+/* Focus — spec: 2px accent outline, 1px offset, :focus-visible only.
+   Scoped to the variant root so it doesn't disturb surfaces not yet migrated. */
+[data-variant="calm"] :focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 1px;
+}

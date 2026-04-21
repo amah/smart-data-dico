@@ -38,6 +38,7 @@ import ForgotPassword from './pages/ForgotPassword';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import DerivedTypesPage from './pages/DerivedTypesPage';
+import DesignTokensPage from './pages/DesignTokensPage';
 
 // Package Navigation
 import PackageRouter from './components/PackageRouter';
@@ -149,7 +150,10 @@ function App() {
         } />
         <Route path="settings" element={<Settings />} />
         <Route path="types" element={<DerivedTypesPage />} />
-        
+
+        {/* Design system showcase — Phase 1 wiring check (#114) */}
+        <Route path="design/tokens" element={<DesignTokensPage />} />
+
         {/* 404 - Not Found */}
         <Route path="*" element={<NotFoundPage />} />
       </Route>
