@@ -34,8 +34,10 @@ npx @hamak/smart-data-dico --data-dir ./my-data-dictionary
 npm install -g @hamak/smart-data-dico
 smart-data-dico --data-dir ./my-project
 
-# Via source
-node bin/cli.js --data-dir ./data-dictionaries
+# Via source (dev)
+node bin/cli.js --data-dir ./my-project
+# …or run the dev stack directly — `npm run dev` in backend/ defaults to
+# `samples/eshop/` (the repo's bundled sample) when no DATA_DIR is set.
 ```
 
 ### Characteristics
@@ -52,32 +54,38 @@ node bin/cli.js --data-dir ./data-dictionaries
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | 3001 | Server port |
-| `DATA_DIR` | `./data-dictionaries` | Data directory path |
+| `DATA_DIR` | `./data-dictionaries` (CLI) / `samples/eshop/` (dev source) | Data directory path |
 | `PROFILE` | `local` | Must be `local` for desktop mode |
 | `ANTHROPIC_API_KEY` | - | AI provider key (optional, or configure in Settings) |
 
-### File Structure
+### File Structure (post-#104/#105/#106)
+
+A project is any folder containing `dico.config.json` (#104). Packages are top-level folders inside the project root — each carrying a `package.yaml` marker (#105). Any `.yaml` file inside a package may declare any subset of `entities:`, `relationships:`, `rules:`, `perspectives:` sections (#106).
 
 ```
 ~/.dico-app/                           # App-level config (per machine)
 ├── dico-app.json                      # AI settings, preferences
 └── storage/
     └── conversations/                 # AI chat history
-        ├── {uuid}.json
-        └── ...
+        └── {uuid}.json
 
-./my-data-dictionary/                  # Data directory (per project)
-├── microservices/
-│   ├── billing/
-│   │   ├── metadata.yaml
-│   │   ├── relationships.yaml
-│   │   └── {uuid}_{EntityName}.yaml
-│   └── ...
-├── perspectives/
-│   └── {uuid}.yaml
-├── diagrams/
-│   └── {id}.json
-└── stereotypes.yaml
+./my-project/                          # Project root (named anything)
+├── dico.config.json                   # Project marker + derived-types registry (#107)
+├── rules.yaml                         # (optional) global cross-package rules
+├── .dico/                             # Project-level system files
+│   ├── stereotypes.yaml               # Metadata schemas per element type
+│   ├── metadata.yaml                  # (optional) model-level metadata (#94)
+│   └── diagrams/                      # Saved diagram layouts
+│       └── {id}.json
+├── order-service/                     # One folder per package
+│   ├── package.yaml                   # Package marker
+│   ├── Order.model.yaml               # `entities:` + optional other sections
+│   ├── OrderItem.model.yaml
+│   ├── relationships.model.yaml       # `relationships:` (conventional filename)
+│   ├── rules.model.yaml               # `rules:` (package scope)
+│   └── Ordering.perspective.yaml      # `perspectives:` (one convention)
+└── user-service/
+    └── …
 ```
 
 ## Server Mode (Profile: `team` or `server`)
@@ -137,11 +145,12 @@ docker-compose up -d
 
 ```
 /data/
-├── dictionaries/                      # Shared data (all users)
-│   ├── microservices/
-│   ├── perspectives/
-│   ├── diagrams/
-│   └── stereotypes.yaml
+├── dictionaries/                      # Shared project folder (all users)
+│   ├── dico.config.json               # Project marker (#104)
+│   ├── .dico/                         # stereotypes, diagrams, model metadata
+│   ├── <pkg>/package.yaml             # One folder per package (#105)
+│   │   └── *.model.yaml               # Multi-kind sections (#106)
+│   └── rules.yaml                     # (optional) global rules
 └── users/                             # Per-user storage
     ├── {userId}/
     │   ├── prefs.json                 # User preferences
@@ -149,6 +158,8 @@ docker-compose up -d
     │       └── {uuid}.json
     └── ...
 ```
+
+The Docker image ships with no bundled project — operators supply their own at the mount point (see `docker-compose.yml`). The repo's `samples/eshop/` is a dev-only fixture and is excluded from the production build via `.dockerignore`.
 
 ## Architecture Diagram
 
@@ -164,7 +175,7 @@ Desktop Mode:
 │  └─ Filesystem + Git            │
 ├─────────────────────────────────┤
 │ Local filesystem                │
-│  ├─ ./data-dictionaries/        │
+│  ├─ <project>/dico.config.json  │
 │  └─ ~/.dico-app/                │
 └─────────────────────────────────┘
 
