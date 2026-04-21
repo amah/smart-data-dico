@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { diffApi, versionApi, servicesApi } from '../services/api';
 
@@ -89,18 +89,30 @@ export default function LogicalDiffPage() {
   const [commits, setCommits] = useState<any[]>([]);
   const [service, setService] = useState(searchParams.get('service') || '');
   const [leftRef, setLeftRef] = useState(searchParams.get('left') || '');
+  const [leftRefText, setLeftRefText] = useState('');
   const [rightRef, setRightRef] = useState(searchParams.get('right') || 'HEAD');
+  const [rightRefText, setRightRefText] = useState('');
   const [diff, setDiff] = useState<LogicalDiff | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<DiffStatus | 'all'>('all');
 
-  // Load services and commits on mount
-  useState(() => {
+  // Load services and commits on mount. Note: must be useEffect (was a
+  // buggy `useState(() => ...)` that only fired the fetches once in the
+  // initializer but didn't register an effect, so re-renders re-fired
+  // the fetches needlessly — and the initial selects stayed empty until
+  // the first network response).
+  useEffect(() => {
     servicesApi.getAllServices().then((data: any) => setServices(data.data || [])).catch(() => {});
     versionApi.getCommitHistory(50).then((data: any) => setCommits(data.data || [])).catch(() => {});
-  });
+  }, []);
+
+  // Resolve the final left/right refs. A non-empty free-text input wins
+  // over the dropdown — lets the user paste a SHA / branch / tag that
+  // isn't in the recent-commits list.
+  const leftRefEffective = leftRefText.trim() || leftRef;
+  const rightRefEffective = rightRefText.trim() || rightRef;
 
   const runDiff = useCallback(async () => {
     if (!service) return;
@@ -108,21 +120,23 @@ export default function LogicalDiffPage() {
     setError(null);
     try {
       const allServices = service === '__all__';
+      const leftRefValue = leftRefEffective;
+      const rightRefValue = rightRefEffective;
       // When the user picks "All services", snapshot sources drop the
       // `service` field so the backend loads every service at once.
       const left = allServices
-        ? leftRef
-          ? { type: 'git-ref' as const, ref: leftRef }
+        ? leftRefValue
+          ? { type: 'git-ref' as const, ref: leftRefValue }
           : { type: 'all-services' as const }
-        : leftRef
-          ? { type: 'git-ref' as const, ref: leftRef, service }
+        : leftRefValue
+          ? { type: 'git-ref' as const, ref: leftRefValue, service }
           : { type: 'service' as const, name: service };
       const right = allServices
-        ? rightRef && rightRef !== 'HEAD'
-          ? { type: 'git-ref' as const, ref: rightRef }
+        ? rightRefValue && rightRefValue !== 'HEAD'
+          ? { type: 'git-ref' as const, ref: rightRefValue }
           : { type: 'all-services' as const }
-        : rightRef && rightRef !== 'HEAD'
-          ? { type: 'git-ref' as const, ref: rightRef, service }
+        : rightRefValue && rightRefValue !== 'HEAD'
+          ? { type: 'git-ref' as const, ref: rightRefValue, service }
           : { type: 'service' as const, name: service };
 
       const result = await diffApi.logical(left, right);
@@ -133,13 +147,13 @@ export default function LogicalDiffPage() {
         if (pkg.status !== 'unchanged') exp.add(pkg.packageName);
       }
       setExpanded(exp);
-      setSearchParams({ service, left: leftRef, right: rightRef });
+      setSearchParams({ service, left: leftRefValue, right: rightRefValue });
     } catch (e: any) {
       setError(e.message || 'Failed to compute diff');
     } finally {
       setLoading(false);
     }
-  }, [service, leftRef, rightRef, setSearchParams]);
+  }, [service, leftRefEffective, rightRefEffective, setSearchParams]);
 
   const toggle = useCallback((key: string) => {
     setExpanded(prev => {
@@ -180,22 +194,52 @@ export default function LogicalDiffPage() {
             </select>
           </div>
           <div className="form-control">
-            <label className="label"><span className="label-text">Left (before)</span></label>
-            <select className="select select-sm select-bordered" value={leftRef} onChange={e => setLeftRef(e.target.value)}>
+            <label className="label">
+              <span className="label-text">Left (before)</span>
+              {leftRefText.trim() && <span className="label-text-alt text-info">free-text wins</span>}
+            </label>
+            <select
+              className="select select-sm select-bordered"
+              value={leftRef}
+              onChange={e => setLeftRef(e.target.value)}
+              disabled={!!leftRefText.trim()}
+            >
               <option value="">Working copy</option>
               {commits.map((c: any) => (
                 <option key={c.hash} value={c.hash}>{c.hash?.slice(0, 7)} — {c.message?.slice(0, 40)}</option>
               ))}
             </select>
+            <input
+              type="text"
+              className="input input-sm input-bordered mt-1 font-mono"
+              placeholder="…or ref (HEAD~1, branch, tag, SHA)"
+              value={leftRefText}
+              onChange={e => setLeftRefText(e.target.value)}
+            />
           </div>
           <div className="form-control">
-            <label className="label"><span className="label-text">Right (after)</span></label>
-            <select className="select select-sm select-bordered" value={rightRef} onChange={e => setRightRef(e.target.value)}>
+            <label className="label">
+              <span className="label-text">Right (after)</span>
+              {rightRefText.trim() && <span className="label-text-alt text-info">free-text wins</span>}
+            </label>
+            <select
+              className="select select-sm select-bordered"
+              value={rightRef}
+              onChange={e => setRightRef(e.target.value)}
+              disabled={!!rightRefText.trim()}
+            >
               <option value="HEAD">Working copy</option>
               {commits.map((c: any) => (
                 <option key={c.hash} value={c.hash}>{c.hash?.slice(0, 7)} — {c.message?.slice(0, 40)}</option>
               ))}
             </select>
+            <input
+              type="text"
+              className="input input-sm input-bordered mt-1 font-mono"
+              placeholder="…or ref (HEAD, branch, tag, SHA)"
+              value={rightRefText}
+              onChange={e => setRightRefText(e.target.value)}
+            />
           </div>
           <button className="btn btn-sm btn-primary" onClick={runDiff} disabled={!service || loading}>
             {loading ? <span className="loading loading-spinner loading-xs" /> : 'Compare'}
