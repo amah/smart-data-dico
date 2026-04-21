@@ -39,15 +39,19 @@ export class DictionaryService {
       } else {
         return { success: false, errors: ['Package directory already exists'] };
       }
-      const metaPath = path.join(baseDir, 'metadata.yaml');
-      const metaContent = YAML.stringify({
+      // `package.yaml` is the #105 package marker that `listPackages()` uses
+      // to distinguish a package folder from a plain subdirectory — see
+      // fileOperations.ts. Writing `metadata.yaml` here (the pre-#105 name)
+      // hid newly created sub-packages from the tree.
+      const markerPath = path.join(baseDir, 'package.yaml');
+      const markerContent = YAML.stringify({
         id: packageData.id || packagePath[packagePath.length - 1],
         name: packageData.name || packagePath[packagePath.length - 1],
         description: packageData.description,
         type: packageData.type,
-        metadata: packageData.metadata || []
+        metadata: packageData.metadata || [],
       });
-      fs.writeFileSync(metaPath, metaContent, 'utf8');
+      fs.writeFileSync(markerPath, markerContent, 'utf8');
       return {
         success: true,
         package: {
@@ -76,11 +80,15 @@ export class DictionaryService {
       if (!fs.existsSync(baseDir)) {
         return { success: false, errors: ['Package directory does not exist'] };
       }
-      const metaPath = path.join(baseDir, 'metadata.yaml');
-      if (!fs.existsSync(metaPath)) {
-        return { success: false, errors: ['metadata.yaml does not exist'] };
+      // Read the #105 marker, falling back to the legacy name so existing
+      // packages on disk still update cleanly.
+      const markerPath = path.join(baseDir, 'package.yaml');
+      const legacyPath = path.join(baseDir, 'metadata.yaml');
+      const readPath = fs.existsSync(markerPath) ? markerPath : fs.existsSync(legacyPath) ? legacyPath : null;
+      if (!readPath) {
+        return { success: false, errors: ['package.yaml does not exist'] };
       }
-      const oldMeta = YAML.parse(fs.readFileSync(metaPath, 'utf8')) || {};
+      const oldMeta = YAML.parse(fs.readFileSync(readPath, 'utf8')) || {};
       const newMeta = {
         ...oldMeta,
         ...packageData,
@@ -88,9 +96,12 @@ export class DictionaryService {
         name: packageData.name || oldMeta.name,
         description: packageData.description ?? oldMeta.description,
         type: packageData.type ?? oldMeta.type,
-        metadata: packageData.metadata ?? oldMeta.metadata
+        metadata: packageData.metadata ?? oldMeta.metadata,
       };
-      fs.writeFileSync(metaPath, YAML.stringify(newMeta), 'utf8');
+      // Always write the canonical #105 marker. If we migrated from a
+      // legacy metadata.yaml, delete it to avoid two-source-of-truth drift.
+      fs.writeFileSync(markerPath, YAML.stringify(newMeta), 'utf8');
+      if (readPath === legacyPath) fs.unlinkSync(legacyPath);
       return {
         success: true,
         package: {
@@ -120,16 +131,15 @@ export class DictionaryService {
         return { success: false, errors: ['Package directory does not exist'] };
       }
 
-      // Non-empty check unless force=true
+      // Non-empty check unless force=true. Reserved filenames are the
+      // post-#105 package marker (`package.yaml`) and the legacy
+      // `metadata.yaml` (still present in some older packages).
       if (!force) {
         const entries = fs.readdirSync(baseDir);
         const hasEntities = entries.some(e =>
           e.endsWith('.yaml') &&
-          e !== 'metadata.yaml' &&
-          e !== 'relationships.yaml' &&
-          e !== 'rules.yaml' &&
-          !e.endsWith('.comments.yaml') &&
-          !e.endsWith('.rules.yaml')
+          e !== 'package.yaml' &&
+          e !== 'metadata.yaml'
         );
         const hasSubPackages = entries.some(e => fs.statSync(path.join(baseDir, e)).isDirectory());
         if (hasEntities || hasSubPackages) {
@@ -163,13 +173,17 @@ export class DictionaryService {
       };
     }
 
+    // #105 marker first, legacy `metadata.yaml` as fallback.
     let packageMeta: Partial<Package> = {};
-    const metaPath = path.join(dirPath, 'metadata.yaml');
-    if (fs.existsSync(metaPath)) {
+    const markerPath = path.join(dirPath, 'package.yaml');
+    const legacyMetaPath = path.join(dirPath, 'metadata.yaml');
+    const readPath = fs.existsSync(markerPath) ? markerPath
+      : fs.existsSync(legacyMetaPath) ? legacyMetaPath : null;
+    if (readPath) {
       try {
-        packageMeta = YAML.parse(fs.readFileSync(metaPath, 'utf8')) as Partial<Package>;
+        packageMeta = YAML.parse(fs.readFileSync(readPath, 'utf8')) as Partial<Package>;
       } catch (e) {
-        logger.warn(`Failed to parse package metadata.yaml: ${metaPath}: ${e}`);
+        logger.warn(`Failed to parse package marker: ${readPath}: ${e}`);
       }
     }
 
