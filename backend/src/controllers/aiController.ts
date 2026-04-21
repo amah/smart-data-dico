@@ -1,10 +1,11 @@
 import { Request, Response } from 'express';
-import { streamText, generateText, tool, convertToModelMessages, createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai';
+import { streamText, generateText, tool, stepCountIs, convertToModelMessages, createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai';
 import { z } from 'zod';
 import { logger } from '../utils/logger.js';
 import { config } from '../kernel/config.js';
 import { getConfigSection, setConfigSection, CONFIG_FILE } from '../utils/appDir.js';
 import { conversationService } from '../services/conversationService.js';
+import { EntityStatus } from '../models/EntitySchema.js';
 
 // --- AI Configuration ---
 
@@ -73,9 +74,8 @@ async function getModel() {
   const provider = createOpenAI({
     apiKey: cfg.apiKey,
     ...(cfg.baseURL ? { baseURL: cfg.baseURL } : {}),
-    compatibility: 'compatible', // Don't use strict mode for tools
   });
-  return provider(cfg.model, { structuredOutputs: false });
+  return provider(cfg.model);
 }
 
 // Dynamic import of services (they use ESM)
@@ -295,7 +295,7 @@ export const aiChat = async (req: Request, res: Response) => {
       tools: {
         createEntity: tool({
           description: 'Create a new entity with attributes in a package. The entityJson parameter must be a JSON string with this structure: {"packageName":"pkg","name":"EntityName","description":"...","stereotype":"aggregate-root","attributes":[{"name":"id","type":"string","description":"...","required":true,"primaryKey":true}]}',
-          parameters: z.object({
+          inputSchema: z.object({
             entityJson: z.string().describe('JSON string containing packageName, name, description, stereotype (optional), and attributes array. Each attribute has name, type, description, required, primaryKey (optional), enumValues (optional).'),
           }),
           execute: async (params) => {
@@ -334,7 +334,7 @@ export const aiChat = async (req: Request, res: Response) => {
                 name: parsed.name,
                 description: parsed.description || '',
                 stereotype: parsed.stereotype,
-                status: 'draft',
+                status: EntityStatus.DRAFT,
                 attributes: attrs,
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
@@ -355,7 +355,7 @@ export const aiChat = async (req: Request, res: Response) => {
 
         createRelationship: tool({
           description: 'Create a relationship. Pass a JSON string: {"packageName":"pkg","sourceEntityName":"Order","targetEntityName":"Customer","description":"...","sourceCardinality":"many","targetCardinality":"one"}',
-          parameters: z.object({
+          inputSchema: z.object({
             relationshipJson: z.string().describe('JSON string with packageName, sourceEntityName, targetEntityName, description, sourceCardinality (one|many), targetCardinality (one|many)'),
           }),
           execute: async (params) => {
@@ -390,7 +390,7 @@ export const aiChat = async (req: Request, res: Response) => {
 
         listEntities: tool({
           description: 'List all entities in a package or all packages',
-          parameters: z.object({
+          inputSchema: z.object({
             packageName: z.string().optional().describe('Package name, or omit to list all packages'),
           }),
           execute: async (params) => {
@@ -410,7 +410,7 @@ export const aiChat = async (req: Request, res: Response) => {
 
         getEntityDetails: tool({
           description: 'Get detailed information about an entity including attributes and relationships',
-          parameters: z.object({
+          inputSchema: z.object({
             packageName: z.string(),
             entityName: z.string(),
           }),
@@ -434,7 +434,7 @@ export const aiChat = async (req: Request, res: Response) => {
 
         listStereotypes: tool({
           description: 'List available stereotypes and their metadata definitions',
-          parameters: z.object({}),
+          inputSchema: z.object({}),
           execute: async () => {
             try {
               const stereotypes = await services.stereotypeService.getAllStereotypes();
@@ -450,7 +450,7 @@ export const aiChat = async (req: Request, res: Response) => {
 
         navigateTo: tool({
           description: 'Navigate the user to a specific page in the application',
-          parameters: z.object({
+          inputSchema: z.object({
             path: z.string().describe('The URL path to navigate to, e.g. /packages/e-commerce or /diagram'),
             reason: z.string().describe('Why navigating here'),
           }),
@@ -459,7 +459,7 @@ export const aiChat = async (req: Request, res: Response) => {
           },
         }),
       },
-      maxSteps: 20,
+      stopWhen: stepCountIs(20),
     });
 
     // Use toUIMessageStreamResponse and pipe to Express,
@@ -580,7 +580,7 @@ export const aiTestTools = async (req: Request, res: Response) => {
       tools: {
         createEntity: tool({
           description: 'Create an entity. entityJson is a JSON string.',
-          parameters: z.object({
+          inputSchema: z.object({
             entityJson: z.string().describe('JSON with name, packageName, attributes'),
           }),
           execute: async (params) => {
@@ -588,7 +588,7 @@ export const aiTestTools = async (req: Request, res: Response) => {
           },
         }),
       },
-      maxSteps: 3,
+      stopWhen: stepCountIs(3),
     });
     res.json({
       text: result.text,
