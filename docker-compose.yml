@@ -6,6 +6,12 @@ services:
     ports:
       - "3001:3001"
     volumes:
+      # Mount the operator's project folder — the one containing
+      # `dico.config.json` and the package folders. The image ships with no
+      # bundled sample (see Dockerfile), so this path must exist on the host
+      # and hold the project data before the container starts. For a quick
+      # trial run you can point it at a copy of `samples/eshop/`, but the
+      # folder must live outside the image.
       - ./data-dictionaries:/app/data-dictionaries
     environment:
       - NODE_ENV=production

@@ -9,3 +9,7 @@ frontend/dist
 backend/node_modules
 backend/dist
 plans
+# Dev-only fixtures — must not ship in the production image.
+samples
+.claude
+.playwright-mcp
