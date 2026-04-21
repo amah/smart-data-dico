@@ -39,6 +39,7 @@ import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import DerivedTypesPage from './pages/DerivedTypesPage';
 import DesignTokensPage from './pages/DesignTokensPage';
+import DesignPrimitivesPage from './pages/DesignPrimitivesPage';
 
 // Package Navigation
 import PackageRouter from './components/PackageRouter';
@@ -153,6 +154,8 @@ function App() {
 
         {/* Design system showcase — Phase 1 wiring check (#114) */}
         <Route path="design/tokens" element={<DesignTokensPage />} />
+        {/* Design system primitives — Phase 2 (#115) */}
+        <Route path="design/primitives" element={<DesignPrimitivesPage />} />
 
         {/* 404 - Not Found */}
         <Route path="*" element={<NotFoundPage />} />
