@@ -28,8 +28,11 @@ COPY --from=build-backend /app/backend/dist ./dist
 # Copy built frontend into public/ for static serving
 COPY --from=build-frontend /app/frontend/dist ./public
 
-# Copy default data dictionaries
-COPY data-dictionaries ./data-dictionaries
+# Prod containers ship with no bundled sample — operators supply their own
+# project folder via a volume mount (see docker-compose.yml) or by pointing
+# `DATA_DIR` at a mount target. The repo's `samples/eshop/` is a dev fixture
+# and is intentionally excluded from the image. `/app/data-dictionaries` is
+# the expected mount point at runtime.
 
 # Environment
 ENV NODE_ENV=production
