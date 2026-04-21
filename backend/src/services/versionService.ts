@@ -1,5 +1,9 @@
 import { logger } from '../utils/logger.js';
 import { config } from '../kernel/config.js';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 /**
  * Interface for commit information
@@ -113,24 +117,43 @@ export class VersionService {
   }
 
   /**
-   * Get commit history
+   * Get commit history at the project's data dir (#110).
+   *
+   * Uses raw `git log` at `config.dataDir` instead of the hamak git
+   * service's `log`: the service returns an empty list in our setup (the
+   * project lives as a subfolder of a larger repo), and the fix is in
+   * upstream hamak-land. Shelling out is also faster for read-only
+   * listing since we skip the adapter layer entirely.
+   *
+   * `--follow` is deliberately absent — we want commits that touch the
+   * project folder, not one specific file. `-n <limit>` caps output.
    */
   async getCommitHistory(limit: number = 10): Promise<CommitInfo[]> {
+    // Tab-separated fields + newline-separated records. Commit messages
+    // can contain tabs in theory, so we also cap `%s` (subject only, no
+    // body), and split on the first N-1 tabs per line.
     try {
-      const gitService = await getGitService();
-      if (!gitService) return [];
-
-      const logResult = await gitService.log('dictionaries', '.', { maxCount: limit });
-
-      if (!logResult || !Array.isArray(logResult)) return [];
-
-      return logResult.map((entry: any) => ({
-        hash: entry.hash || entry.oid || '',
-        date: entry.date || entry.timestamp || '',
-        message: entry.message || '',
-        author_name: entry.author_name || entry.author?.name || '',
-        author_email: entry.author_email || entry.author?.email || '',
-      }));
+      // No path filter — the diff UI wants to browse the repo's recent
+      // history as a whole; a user might pick a commit that didn't touch
+      // the project folder and still want to diff against it.
+      const { stdout } = await execAsync(
+        'git log --format=%H%x09%ai%x09%an%x09%ae%x09%s -n ' + limit,
+        { cwd: config.dataDir, maxBuffer: 10 * 1024 * 1024 },
+      );
+      return stdout
+        .split('\n')
+        .map(line => line.trim())
+        .filter(Boolean)
+        .map(line => {
+          const parts = line.split('\t');
+          return {
+            hash: parts[0] || '',
+            date: parts[1] || '',
+            author_name: parts[2] || '',
+            author_email: parts[3] || '',
+            message: parts.slice(4).join('\t'),
+          };
+        });
     } catch (error) {
       logger.error(`Error getting commit history: ${error}`);
       return [];
