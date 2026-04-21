@@ -4,6 +4,10 @@ import cytoscape, { type Core, type ElementDefinition, type StylesheetStyle } fr
 import dagre from 'cytoscape-dagre';
 // @ts-expect-error - no types for cytoscape-fcose
 import fcose from 'cytoscape-fcose';
+// @ts-expect-error - no types for cytoscape-elk
+import elk from 'cytoscape-elk';
+// @ts-expect-error - no types for cytoscape-svg
+import svg from 'cytoscape-svg';
 
 let extensionsRegistered = false;
 
@@ -11,6 +15,8 @@ function registerExtensions() {
   if (extensionsRegistered) return;
   cytoscape.use(dagre);
   cytoscape.use(fcose);
+  cytoscape.use(elk);
+  cytoscape.use(svg);
   extensionsRegistered = true;
 }
 

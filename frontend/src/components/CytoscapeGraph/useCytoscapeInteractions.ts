@@ -22,10 +22,11 @@ export function useCytoscapeInteractions(
     const cy = cyRef.current;
     if (!cy) return;
 
-    // Node hover - tooltip
+    // Node hover - tooltip + hover class for styling
     const onMouseOver = (evt: any) => {
       const node = evt.target;
       if (node.isParent()) return;
+      node.addClass('hover');
       const pos = node.renderedPosition();
       setTooltip({
         label: node.data('label'),
@@ -37,7 +38,9 @@ export function useCytoscapeInteractions(
       });
     };
 
-    const onMouseOut = () => {
+    const onMouseOut = (evt: any) => {
+      const node = evt.target;
+      if (node && node.removeClass) node.removeClass('hover');
       setTooltip(null);
     };
 
@@ -163,18 +166,13 @@ function toggleNodeExpansionInternal(cy: Core, nodeId: string) {
 
     node.style({
       label: `${node.data('label')}\n${'\u2500'.repeat(20)}\n${attrLines}${suffix}`,
-      height: Math.max(50, 40 + attrs.length * 16),
-      width: 220,
+      height: Math.max(60, 40 + attrs.length * 16),
+      width: 240,
       'text-valign': 'top',
       'font-size': 10,
     });
   } else {
-    node.style({
-      label: node.data('label'),
-      height: 50,
-      width: 180,
-      'text-valign': 'center',
-      'font-size': 13,
-    });
+    // Clear inline overrides so the base stylesheet (displayLabel, default size) reapplies
+    node.removeStyle('label height width text-valign font-size');
   }
 }

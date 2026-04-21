@@ -21,6 +21,27 @@ export function useCytoscapeLayout(cyRef: React.RefObject<Core | null>) {
           animate: true,
           animationDuration: 300,
         };
+      } else if (name === 'elk') {
+        // ELK 'layered' algorithm: orthogonal routing, structured hierarchical layout
+        const elkDirection =
+          direction === 'LR' ? 'RIGHT'
+          : direction === 'RL' ? 'LEFT'
+          : direction === 'BT' ? 'UP'
+          : 'DOWN';
+        layoutOptions = {
+          name: 'elk',
+          animate: true,
+          animationDuration: 300,
+          nodeDimensionsIncludeLabels: true,
+          padding: 40,
+          elk: {
+            algorithm: 'layered',
+            'elk.direction': elkDirection,
+            'elk.spacing.nodeNode': 40,
+            'elk.layered.spacing.nodeNodeBetweenLayers': 80,
+            'elk.edgeRouting': 'ORTHOGONAL',
+          },
+        };
       } else {
         // fcose
         layoutOptions = {
