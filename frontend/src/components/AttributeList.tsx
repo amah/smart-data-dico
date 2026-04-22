@@ -10,6 +10,7 @@ import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
 import RulesSidePanel from './RulesSidePanel';
 import { servicesApi, ruleApi } from '../services/api';
 import {
+  BatchActionBar,
   Button,
   Chip,
   ColumnChooser,
@@ -135,6 +136,8 @@ const AttributeList = ({
   // Drafts are added via the side-panel "Add attribute" button.
   const [drafts, setDrafts] = useState<DraftAttribute[]>([]);
   const [saving, setSaving] = useState(false);
+  const [selection, setSelection] = useState<Set<string | number>>(() => new Set());
+  const [bulkSaving, setBulkSaving] = useState(false);
 
   const fetchEntityRules = useCallback(async () => {
     if (!entityUuid) return;
@@ -233,6 +236,71 @@ const AttributeList = ({
       setSaving(false);
     }
   }, [drafts, serviceName, entityName, onAttributeUpdated]);
+
+  // Drop stale uuids from the selection when attributes refresh — either
+  // because the user deleted them or because another client did.
+  useEffect(() => {
+    setSelection(prev => {
+      if (prev.size === 0) return prev;
+      const alive = new Set(attributes.map(a => a.uuid));
+      let changed = false;
+      const next = new Set<string | number>();
+      for (const k of prev) {
+        if (alive.has(String(k))) next.add(k);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [attributes]);
+
+  // ──────────────── Bulk mutations ────────────────
+  //
+  // Every batch action fetches the entity once, applies N attribute-level
+  // mutations in-memory, then writes back with a single updateEntity call.
+  // Keeping it to one round-trip avoids both the N+1 pattern and the
+  // half-applied state that would result from a partial failure.
+  const applyToSelection = useCallback(async (
+    mutate: (a: Attribute) => Attribute | null, // return null to delete
+  ) => {
+    if (selection.size === 0) return;
+    setBulkSaving(true);
+    try {
+      const response = await servicesApi.getEntitySchema(serviceName, entityName);
+      const entity: Entity = response.data;
+      const targets = new Set(Array.from(selection).map(String));
+      const nextAttrs: Attribute[] = [];
+      for (const a of entity.attributes) {
+        if (!targets.has(a.uuid)) {
+          nextAttrs.push(a);
+          continue;
+        }
+        const next = mutate(a);
+        if (next !== null) nextAttrs.push(next);
+      }
+      entity.attributes = nextAttrs;
+      await servicesApi.updateEntity(serviceName, entityName, entity);
+      onAttributeUpdated?.();
+    } catch (err) {
+      console.error('Bulk update failed:', err);
+    } finally {
+      setBulkSaving(false);
+    }
+  }, [selection, serviceName, entityName, onAttributeUpdated]);
+
+  const handleBulkSetRequired = useCallback((required: boolean) => {
+    return applyToSelection(a => ({ ...a, required }));
+  }, [applyToSelection]);
+
+  const handleBulkDelete = useCallback(async () => {
+    const n = selection.size;
+    if (n === 0) return;
+    const ok = window.confirm(
+      `Delete ${n} attribute${n === 1 ? '' : 's'}? This cannot be undone.`,
+    );
+    if (!ok) return;
+    await applyToSelection(() => null);
+    setSelection(new Set());
+  }, [applyToSelection, selection]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     const text = e.clipboardData.getData('text/plain');
@@ -428,6 +496,8 @@ const AttributeList = ({
         visibleColumns={allVisibleKeys}
         onVisibleColumnsChange={handleVisibleChange}
         onRowClick={(a) => setEditAttr(a)}
+        selection={selection}
+        onSelectionChange={setSelection}
         showFilterRow
         attached
         emptyMessage={
@@ -435,6 +505,33 @@ const AttributeList = ({
             ? 'No attributes yet. Click "Add row" to create one.'
             : 'No attributes match these filters.'
         }
+      />
+
+      <BatchActionBar
+        count={selection.size}
+        onClear={() => setSelection(new Set())}
+        label={selection.size === 1 ? 'attribute' : 'attributes'}
+        actions={[
+          {
+            label: 'Required: yes',
+            icon: 'check',
+            disabled: bulkSaving,
+            onClick: () => handleBulkSetRequired(true),
+          },
+          {
+            label: 'Required: no',
+            icon: 'minus',
+            disabled: bulkSaving,
+            onClick: () => handleBulkSetRequired(false),
+          },
+          {
+            label: 'Delete',
+            icon: 'close',
+            tone: 'danger',
+            disabled: bulkSaving,
+            onClick: handleBulkDelete,
+          },
+        ]}
       />
 
       {/* Draft rows (bulk add / paste from Excel) */}
