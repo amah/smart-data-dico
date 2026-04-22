@@ -726,7 +726,7 @@ const AttributeSidePanel = ({
           display: 'flex',
           flexDirection: 'column',
           zIndex: 50,
-          animation: 'sddSlide 220ms ease-out',
+          animation: 'sddSlide var(--dur-med) ease-out',
         }}
       >
         <style>{`
