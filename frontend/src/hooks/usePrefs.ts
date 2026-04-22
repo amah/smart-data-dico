@@ -88,9 +88,27 @@ export function usePrefs(): PrefsApi {
   const [variant, setVariantState] = useState<Variant>(readVariant);
   const [density, setDensityState] = useState<Density>(readDensity);
 
-  // Apply on mount + whenever values change
+  // Apply on mount + whenever values change. A MutationObserver also
+  // re-applies if something else (e.g. the @hamak shell plugin's
+  // 'system'-mode theme sync) clobbers our attributes after first
+  // render — the previous useTheme hook did the same thing.
   useEffect(() => {
     applyAttributes(theme, variant, density);
+    const el = document.documentElement;
+    const observer = new MutationObserver(() => {
+      if (
+        el.getAttribute('data-theme') !== theme ||
+        el.getAttribute('data-variant') !== variant ||
+        el.getAttribute('data-density') !== density
+      ) {
+        applyAttributes(theme, variant, density);
+      }
+    });
+    observer.observe(el, {
+      attributes: true,
+      attributeFilter: ['data-theme', 'data-variant', 'data-density'],
+    });
+    return () => observer.disconnect();
   }, [theme, variant, density]);
 
   // Cross-tab sync via the storage event
