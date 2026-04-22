@@ -1,6 +1,21 @@
-import { useState, useCallback, useEffect } from 'react';
+/**
+ * Physical sync diff — Phase 4.6 redesign.
+ *
+ * Chrome-level port onto tokens + Toolbar + StatusChip + Summary tiles;
+ * the DDL / live-introspection form and the single-vs-all-services
+ * dual-mode flow are preserved as-is (see the prior revision for the
+ * data contract).
+ */
+
+import { useState, useCallback, useEffect, type ReactNode } from 'react';
 import { servicesApi, diffApi } from '../services/api';
 import axios from 'axios';
+import {
+  Button,
+  Chip,
+  Icon,
+  Toolbar,
+} from '../components/ui';
 
 const api = axios.create({ baseURL: '/api', headers: { 'Content-Type': 'application/json' } });
 api.interceptors.request.use((config) => {
@@ -35,11 +50,6 @@ interface AttrDiff {
   source?: any;
 }
 
-/**
- * Per-service source config used in "All services" mode. Each service
- * independently chooses a source type and, for live introspection, has
- * its own credential pair (never persisted).
- */
 interface PerServiceSourceState {
   type: 'ddl' | 'live';
   sql?: string;
@@ -47,11 +57,6 @@ interface PerServiceSourceState {
   password?: string;
 }
 
-/**
- * Whole-model aggregated response shape from POST /api/diff/physical/all.
- * `byService` is one entry per requested service — either an `ok` diff or
- * a per-service `error` string.
- */
 interface AllPhysicalDiff {
   byService: Record<string, { status: 'ok'; diff: PhysicalDiff } | { status: 'error'; error: string }>;
   summary: {
@@ -66,12 +71,12 @@ interface AllPhysicalDiff {
   };
 }
 
-const statusStyles: Record<string, { color: string; label: string; icon: string }> = {
-  matched: { color: 'text-success', label: 'Matched', icon: '✓' },
-  modelOnly: { color: 'text-info', label: 'Model only', icon: '🚧' },
-  orphaned: { color: 'text-error', label: 'Orphaned', icon: '✗' },
-  dbOnly: { color: 'text-warning', label: 'DB only', icon: '🆕' },
-  drifted: { color: 'text-warning', label: 'Drifted', icon: '⚠' },
+const STATUS_META: Record<AttrStatus, { label: string; tone: 'success' | 'warning' | 'danger' | 'info' | 'accent'; glyph: string }> = {
+  matched:   { label: 'Matched',    tone: 'success', glyph: '✓' },
+  modelOnly: { label: 'Model only', tone: 'info',    glyph: '◎' },
+  orphaned:  { label: 'Orphaned',   tone: 'danger',  glyph: '✗' },
+  dbOnly:    { label: 'DB only',    tone: 'warning', glyph: '+' },
+  drifted:   { label: 'Drifted',    tone: 'warning', glyph: '⚠' },
 };
 
 const ALL = '__all__';
@@ -79,14 +84,11 @@ const ALL = '__all__';
 export default function PhysicalDiffPage() {
   const [services, setServices] = useState<string[]>([]);
   const [service, setService] = useState('');
-  // Single-service mode state
   const [sql, setSql] = useState('');
   const [diff, setDiff] = useState<PhysicalDiff | null>(null);
-  // All-services mode state
   const [perService, setPerService] = useState<Record<string, PerServiceSourceState>>({});
   const [physicalConfigs, setPhysicalConfigs] = useState<Record<string, any>>({});
   const [allDiff, setAllDiff] = useState<AllPhysicalDiff | null>(null);
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -95,10 +97,6 @@ export default function PhysicalDiffPage() {
     servicesApi.getAllServices().then((data: any) => setServices(data.data || [])).catch(() => {});
   }, []);
 
-  // Whenever the user flips into all-services mode, seed per-service state
-  // with `{ type: 'ddl' }` for every service and attempt to load each one's
-  // persisted physical config. Services without a config can still use DDL
-  // paste; services with one get 'live' as the default.
   useEffect(() => {
     if (service !== ALL || services.length === 0) return;
     const seed: Record<string, PerServiceSourceState> = {};
@@ -121,7 +119,6 @@ export default function PhysicalDiffPage() {
 
   const runDiff = useCallback(async () => {
     if (service === ALL) {
-      // All-services mode
       setLoading(true);
       setError(null);
       setAllDiff(null);
@@ -131,7 +128,7 @@ export default function PhysicalDiffPage() {
           const s = perService[svc];
           if (!s) continue;
           if (s.type === 'ddl') {
-            if (!s.sql?.trim()) continue; // skip services with no input
+            if (!s.sql?.trim()) continue;
             sources[svc] = { type: 'ddl', sql: s.sql };
           } else {
             if (!s.user || !s.password) continue;
@@ -145,7 +142,6 @@ export default function PhysicalDiffPage() {
         }
         const result = await diffApi.physicalAll(sources, Object.keys(sources));
         setAllDiff(result as AllPhysicalDiff);
-        // Auto-expand every entity that has a drift in any ok result
         const exp = new Set<string>();
         for (const [svc, r] of Object.entries(result.byService) as [string, any][]) {
           if (r.status === 'ok') {
@@ -163,7 +159,6 @@ export default function PhysicalDiffPage() {
       return;
     }
 
-    // Single-service mode (unchanged legacy path)
     if (!service || !sql.trim()) return;
     setLoading(true);
     setError(null);
@@ -202,27 +197,48 @@ export default function PhysicalDiffPage() {
   const isAllMode = service === ALL;
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="flex flex-col gap-3" style={{ padding: 12 }}>
       <div>
-        <h1 className="text-2xl font-bold">Physical Sync</h1>
-        <p className="text-base-content/70 mt-1">
-          Compare model physical metadata against a database schema — pick a single service or
-          <strong> All services</strong> to diff the whole model at once.
+        <h1
+          className="mono"
+          style={{ fontSize: 'var(--fs-2xl)', fontWeight: 600, margin: 0 }}
+        >
+          Physical sync
+        </h1>
+        <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 4 }}>
+          Compare model physical metadata against a database schema. Pick a single
+          service or <strong>All services</strong> to diff the whole model at once.
         </p>
       </div>
 
-      <div className="card bg-base-200 p-4 space-y-3">
-        <div className="flex items-end gap-4">
-          <div className="form-control">
-            <label className="label"><span className="label-text">Service</span></label>
-            <select className="select select-sm select-bordered" value={service} onChange={e => setService(e.target.value)}>
-              <option value="">Select...</option>
+      {/* Source config card */}
+      <div
+        style={{
+          background: 'var(--bg-raised)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-md)',
+          padding: 12,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
+          <Field label="Service">
+            <select
+              value={service}
+              onChange={(e) => setService(e.target.value)}
+              style={fieldStyle}
+            >
+              <option value="">Select…</option>
               <option value={ALL}>All services (whole model)</option>
               {services.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
-          </div>
-          <button
-            className="btn btn-sm btn-primary"
+          </Field>
+          <Button
+            size="md"
+            variant="primary"
+            icon="branch"
             onClick={runDiff}
             disabled={
               loading ||
@@ -230,105 +246,149 @@ export default function PhysicalDiffPage() {
               (isAllMode && services.length === 0)
             }
           >
-            {loading ? <span className="loading loading-spinner loading-xs" /> : 'Compare'}
-          </button>
+            {loading ? 'Comparing…' : 'Compare'}
+          </Button>
         </div>
 
         {!isAllMode && (
           <textarea
-            className="textarea textarea-bordered w-full font-mono text-xs"
             rows={6}
-            placeholder="Paste SQL DDL here (CREATE TABLE statements)..."
+            placeholder="Paste SQL DDL here (CREATE TABLE …)"
             value={sql}
-            onChange={e => setSql(e.target.value)}
+            onChange={(e) => setSql(e.target.value)}
+            style={{
+              ...fieldStyle,
+              height: 'auto',
+              padding: '8px 10px',
+              fontFamily: 'var(--font-mono)',
+              fontSize: 'var(--fs-xs)',
+              resize: 'vertical',
+            }}
           />
         )}
 
         {isAllMode && (
-          <div className="space-y-2">
-            <div className="text-sm text-base-content/70">
-              Configure each service's source. Live introspection uses the persisted physical
-              config (dialect + host/database/schema) with runtime credentials — credentials are
-              never saved on disk.
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
+              Configure each service's source. Live introspection uses the persisted
+              physical config; credentials are never saved on disk.
             </div>
-            <div className="space-y-2">
-              {services.map(svc => {
-                const s = perService[svc] || { type: 'ddl' };
-                const cfg = physicalConfigs[svc];
-                return (
-                  <div key={svc} className="border border-base-300 rounded p-3 bg-base-100 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="font-semibold">{svc}</div>
-                      <div className="flex gap-3">
-                        <label className="flex items-center gap-1 text-xs">
-                          <input
-                            type="radio"
-                            className="radio radio-xs"
-                            checked={s.type === 'ddl'}
-                            onChange={() => updatePerService(svc, { type: 'ddl' })}
-                          />
-                          DDL paste
-                        </label>
-                        <label className={`flex items-center gap-1 text-xs ${!cfg ? 'opacity-50' : ''}`}>
-                          <input
-                            type="radio"
-                            className="radio radio-xs"
-                            checked={s.type === 'live'}
-                            disabled={!cfg}
-                            onChange={() => updatePerService(svc, { type: 'live' })}
-                          />
-                          Live ({cfg ? `${cfg.dialect}` : 'no physical.yaml'})
-                        </label>
-                      </div>
-                    </div>
-                    {s.type === 'ddl' && (
-                      <textarea
-                        className="textarea textarea-bordered w-full font-mono text-xs"
-                        rows={3}
-                        placeholder={`CREATE TABLE… (DDL for ${svc}, or leave blank to skip)`}
-                        value={s.sql || ''}
-                        onChange={e => updatePerService(svc, { sql: e.target.value })}
+            {services.map(svc => {
+              const s = perService[svc] || { type: 'ddl' };
+              const cfg = physicalConfigs[svc];
+              return (
+                <div
+                  key={svc}
+                  style={{
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'var(--bg-subtle)',
+                    padding: 10,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span className="mono" style={{ fontWeight: 500 }}>{svc}</span>
+                    <div style={{ flex: 1 }} />
+                    <label
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        fontSize: 'var(--fs-xs)',
+                        color: 'var(--text-muted)',
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        checked={s.type === 'ddl'}
+                        onChange={() => updatePerService(svc, { type: 'ddl' })}
                       />
-                    )}
-                    {s.type === 'live' && cfg && (
-                      <div className="grid grid-cols-2 gap-2">
-                        <input
-                          className="input input-xs input-bordered"
-                          placeholder="User"
-                          value={s.user || ''}
-                          onChange={e => updatePerService(svc, { user: e.target.value })}
-                        />
-                        <input
-                          className="input input-xs input-bordered"
-                          placeholder="Password"
-                          type="password"
-                          value={s.password || ''}
-                          onChange={e => updatePerService(svc, { password: e.target.value })}
-                        />
-                      </div>
-                    )}
+                      DDL paste
+                    </label>
+                    <label
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        fontSize: 'var(--fs-xs)',
+                        color: cfg ? 'var(--text-muted)' : 'var(--text-subtle)',
+                        opacity: cfg ? 1 : 0.5,
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        checked={s.type === 'live'}
+                        disabled={!cfg}
+                        onChange={() => updatePerService(svc, { type: 'live' })}
+                      />
+                      Live ({cfg ? cfg.dialect : 'no physical.yaml'})
+                    </label>
                   </div>
-                );
-              })}
-            </div>
+                  {s.type === 'ddl' && (
+                    <textarea
+                      rows={3}
+                      placeholder={`CREATE TABLE… (DDL for ${svc}, or leave blank to skip)`}
+                      value={s.sql || ''}
+                      onChange={(e) => updatePerService(svc, { sql: e.target.value })}
+                      style={{
+                        ...fieldStyle,
+                        height: 'auto',
+                        padding: '6px 8px',
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: 'var(--fs-xs)',
+                      }}
+                    />
+                  )}
+                  {s.type === 'live' && cfg && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                      <input
+                        type="text"
+                        placeholder="User"
+                        value={s.user || ''}
+                        onChange={(e) => updatePerService(svc, { user: e.target.value })}
+                        style={fieldStyle}
+                      />
+                      <input
+                        type="password"
+                        placeholder="Password"
+                        value={s.password || ''}
+                        onChange={(e) => updatePerService(svc, { password: e.target.value })}
+                        style={fieldStyle}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
 
-      {error && <div className="alert alert-error"><span>{error}</span></div>}
+      {error && (
+        <div
+          style={{
+            padding: '10px 14px',
+            background: 'var(--danger-soft)',
+            color: 'var(--danger)',
+            border: '1px solid var(--danger)',
+            borderRadius: 'var(--radius-sm)',
+            fontSize: 'var(--fs-sm)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <Icon name="warning" size={14} /> {error}
+        </div>
+      )}
 
-      {/* ─── Single-service results ─── */}
+      {/* Single-service result */}
       {diff && !isAllMode && (
         <>
-          <div className="stats stats-horizontal shadow w-full">
-            {(['matched', 'modelOnly', 'orphaned', 'dbOnly', 'drifted'] as const).map(key => (
-              <div key={key} className="stat">
-                <div className="stat-title">{statusStyles[key].label}</div>
-                <div className={`stat-value text-lg ${statusStyles[key].color}`}>{diff.summary[key]}</div>
-              </div>
-            ))}
-          </div>
-
+          <SummaryTiles counts={diff.summary} />
           <DiffTable
             entities={diff.entities}
             expanded={expanded}
@@ -338,46 +398,61 @@ export default function PhysicalDiffPage() {
         </>
       )}
 
-      {/* ─── All-services results ─── */}
+      {/* All-services result */}
       {allDiff && isAllMode && (
         <>
-          <div className="stats stats-horizontal shadow w-full">
-            <div className="stat">
-              <div className="stat-title">Services</div>
-              <div className="stat-value text-lg">{allDiff.summary.services}</div>
-              <div className="stat-desc">
-                <span className="text-success">{allDiff.summary.ok} ok</span>
-                {allDiff.summary.failed > 0 && (
-                  <span className="text-error ml-2">{allDiff.summary.failed} failed</span>
-                )}
-              </div>
-            </div>
-            {(['matched', 'drifted', 'modelOnly', 'orphaned', 'dbOnly'] as const).map(key => (
-              <div key={key} className="stat">
-                <div className="stat-title">{statusStyles[key].label}</div>
-                <div className={`stat-value text-lg ${statusStyles[key].color}`}>
-                  {allDiff.summary[key]}
-                </div>
-              </div>
-            ))}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+              gap: 10,
+            }}
+          >
+            <Tile label="Services" value={allDiff.summary.services} />
+            <Tile label="OK" value={allDiff.summary.ok} tone="success" />
+            <Tile label="Failed" value={allDiff.summary.failed} tone={allDiff.summary.failed > 0 ? 'danger' : 'muted'} />
+            <Tile label="Matched" value={allDiff.summary.matched} tone="success" />
+            <Tile label="Drifted" value={allDiff.summary.drifted} tone={allDiff.summary.drifted > 0 ? 'warning' : 'muted'} />
+            <Tile label="Model only" value={allDiff.summary.modelOnly} tone="info" />
+            <Tile label="Orphaned" value={allDiff.summary.orphaned} tone={allDiff.summary.orphaned > 0 ? 'danger' : 'muted'} />
           </div>
 
-          <div className="space-y-4">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {Object.entries(allDiff.byService).map(([svc, result]) => (
-              <div key={svc} className="card bg-base-100 border border-base-300 p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-bold">{svc}</h3>
-                  {result.status === 'error' && (
-                    <span className="badge badge-error">error</span>
-                  )}
+              <div
+                key={svc}
+                style={{
+                  background: 'var(--bg-raised)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: 12,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <h3
+                    className="mono"
+                    style={{ fontSize: 'var(--fs-lg)', fontWeight: 600, margin: 0 }}
+                  >
+                    {svc}
+                  </h3>
+                  <div style={{ flex: 1 }} />
+                  {result.status === 'error' && <Chip tone="danger" soft>error</Chip>}
                   {result.status === 'ok' && (
-                    <span className="badge badge-success">
-                      {result.diff.summary.matched} matched · {result.diff.summary.drifted} drifted
-                    </span>
+                    <>
+                      <Chip tone="success" soft>{result.diff.summary.matched} matched</Chip>
+                      {result.diff.summary.drifted > 0 && (
+                        <Chip tone="warning" soft>{result.diff.summary.drifted} drifted</Chip>
+                      )}
+                    </>
                   )}
                 </div>
                 {result.status === 'error' && (
-                  <div className="text-sm text-error font-mono">{result.error}</div>
+                  <div
+                    className="mono"
+                    style={{ fontSize: 'var(--fs-xs)', color: 'var(--danger)' }}
+                  >
+                    {result.error}
+                  </div>
                 )}
                 {result.status === 'ok' && (
                   <DiffTable
@@ -392,105 +467,282 @@ export default function PhysicalDiffPage() {
           </div>
         </>
       )}
+
+      {!diff && !allDiff && !loading && !error && (
+        <Toolbar>
+          <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)' }}>
+            Select a service and a source to compare.
+          </span>
+        </Toolbar>
+      )}
     </div>
   );
 }
 
-function DiffTable({
-  entities,
-  expanded,
-  onToggle,
-  keyPrefix,
-}: {
+// ──────────────── Sub-components ────────────────
+
+const SummaryTiles = ({ counts }: { counts: PhysicalDiff['summary'] }) => (
+  <div
+    style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+      gap: 10,
+    }}
+  >
+    <Tile label="Matched"    value={counts.matched}   tone="success" />
+    <Tile label="Drifted"    value={counts.drifted}   tone={counts.drifted > 0 ? 'warning' : 'muted'} />
+    <Tile label="Model only" value={counts.modelOnly} tone="info" />
+    <Tile label="Orphaned"   value={counts.orphaned}  tone={counts.orphaned > 0 ? 'danger' : 'muted'} />
+    <Tile label="DB only"    value={counts.dbOnly}    tone={counts.dbOnly > 0 ? 'warning' : 'muted'} />
+  </div>
+);
+
+interface TileProps {
+  label: string;
+  value: number;
+  tone?: 'success' | 'warning' | 'danger' | 'info' | 'muted';
+}
+
+const Tile = ({ label, value, tone = 'muted' }: TileProps) => {
+  const color =
+    tone === 'success' ? 'var(--success)' :
+    tone === 'warning' ? 'var(--warning)' :
+    tone === 'danger'  ? 'var(--danger)' :
+    tone === 'info'    ? 'var(--text-muted)' :
+                         'var(--text)';
+  return (
+    <div
+      style={{
+        background: 'var(--bg-raised)',
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--radius-md)',
+        padding: '10px 12px',
+      }}
+    >
+      <div
+        className="uppercase"
+        style={{
+          fontSize: 'var(--fs-xs)',
+          color: 'var(--text-subtle)',
+          letterSpacing: '0.06em',
+          fontWeight: 600,
+        }}
+      >
+        {label}
+      </div>
+      <div
+        className="mono"
+        style={{
+          fontSize: 'var(--fs-2xl)',
+          fontWeight: 600,
+          color,
+          marginTop: 2,
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+};
+
+const Field = ({ label, children }: { label: string; children: ReactNode }) => (
+  <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>{label}</span>
+    {children}
+  </label>
+);
+
+// ──────────────── Diff table ────────────────
+
+interface DiffTableProps {
   entities: EntityDiff[];
   expanded: Set<string>;
   onToggle: (key: string) => void;
   keyPrefix: string;
-}) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="table table-sm">
-        <thead>
-          <tr>
-            <th>Element</th>
-            <th>Model Type</th>
-            <th>DB Type</th>
-            <th>Status</th>
-            <th>Details</th>
-          </tr>
-        </thead>
-        <tbody>
-          {entities.map(entity => {
-            const key = `${keyPrefix}${entity.physicalTableName}`;
-            const isExp = expanded.has(key);
-            const gapCount = entity.attributes.filter(a => a.status !== 'matched').length;
-            return (
-              <EntityRows
-                key={key}
-                entity={entity}
-                isExpanded={isExp}
-                gapCount={gapCount}
-                onToggle={() => onToggle(key)}
-              />
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
 }
 
-function EntityRows({ entity, isExpanded, gapCount, onToggle }: {
-  entity: EntityDiff; isExpanded: boolean; gapCount: number; onToggle: () => void;
-}) {
-  const hasChildren = entity.attributes.length > 0;
-  return (
-    <>
-      <tr className="hover font-semibold">
-        <td>
-          <div className="flex items-center gap-1">
-            {hasChildren ? (
-              <button className="btn btn-ghost btn-xs px-0 min-h-0 h-5 w-5" onClick={onToggle}>
-                <svg className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </button>
-            ) : <span className="w-5" />}
-            {entity.entityName}
-            {entity.physicalTableName && <span className="text-xs text-base-content/40 ml-1">({entity.physicalTableName})</span>}
-          </div>
-        </td>
-        <td></td>
-        <td></td>
-        <td>
-          {entity.status === 'modelOnly' && <span className="badge badge-info badge-xs">model only</span>}
-          {entity.status === 'dbOnly' && <span className="badge badge-warning badge-xs">DB only</span>}
-        </td>
-        <td className="text-xs text-base-content/50">{gapCount > 0 && `${gapCount} gaps`}</td>
-      </tr>
-      {isExpanded && entity.attributes.map((attr, i) => (
-        <tr key={`${entity.physicalTableName}-${i}`} className="hover">
-          <td>
-            <div className="flex items-center gap-1" style={{ paddingLeft: '1.5rem' }}>
-              <span className={statusStyles[attr.status]?.color || ''}>{statusStyles[attr.status]?.icon}</span>
-              {attr.attributeName}
-              {attr.physicalColumnName && attr.physicalColumnName !== attr.attributeName && (
-                <span className="text-xs text-base-content/40">({attr.physicalColumnName})</span>
-              )}
-            </div>
-          </td>
-          <td className="text-xs font-mono">{attr.model?.type || ''}</td>
-          <td className="text-xs font-mono">{attr.source?.type || ''}</td>
-          <td><span className={`badge badge-xs ${
-            attr.status === 'matched' ? 'badge-success' :
-            attr.status === 'drifted' ? 'badge-warning' :
-            attr.status === 'orphaned' ? 'badge-error' :
-            attr.status === 'dbOnly' ? 'badge-warning' :
-            'badge-info'
-          }`}>{statusStyles[attr.status]?.label}</span></td>
-          <td className="text-xs text-base-content/50">{attr.driftFields?.join(', ')}</td>
-        </tr>
-      ))}
-    </>
-  );
+const DiffTable = ({ entities, expanded, onToggle, keyPrefix }: DiffTableProps) => (
+  <div
+    style={{
+      background: 'var(--bg-raised)',
+      border: '1px solid var(--border)',
+      borderRadius: 'var(--radius-md)',
+      overflow: 'hidden',
+    }}
+  >
+    <div
+      role="table"
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'minmax(200px, 1.4fr) 100px 100px 120px minmax(140px, 1fr)',
+        fontSize: 'var(--fs-md)',
+      }}
+    >
+      <HeaderCell>Element</HeaderCell>
+      <HeaderCell>Model type</HeaderCell>
+      <HeaderCell>DB type</HeaderCell>
+      <HeaderCell>Status</HeaderCell>
+      <HeaderCell>Details</HeaderCell>
+
+      {entities.map((entity) => {
+        const key = `${keyPrefix}${entity.physicalTableName}`;
+        const isExp = expanded.has(key);
+        const gapCount = entity.attributes.filter(a => a.status !== 'matched').length;
+        const hasChildren = entity.attributes.length > 0;
+        return (
+          <EntityRows
+            key={key}
+            entity={entity}
+            isExpanded={isExp}
+            hasChildren={hasChildren}
+            gapCount={gapCount}
+            onToggle={() => onToggle(key)}
+          />
+        );
+      })}
+    </div>
+  </div>
+);
+
+const HeaderCell = ({ children }: { children: React.ReactNode }) => (
+  <div
+    role="columnheader"
+    style={{
+      padding: '7px 10px',
+      fontSize: 'var(--fs-sm)',
+      fontWeight: 600,
+      textTransform: 'uppercase',
+      letterSpacing: '0.03em',
+      color: 'var(--text-muted)',
+      background: 'var(--bg-subtle)',
+      borderBottom: '1px solid var(--border-strong)',
+    }}
+  >
+    {children}
+  </div>
+);
+
+interface EntityRowsProps {
+  entity: EntityDiff;
+  isExpanded: boolean;
+  hasChildren: boolean;
+  gapCount: number;
+  onToggle: () => void;
 }
+
+const EntityRows = ({ entity, isExpanded, hasChildren, gapCount, onToggle }: EntityRowsProps) => (
+  <>
+    <div role="row" style={{ display: 'contents' }}>
+      <div
+        role="cell"
+        onClick={hasChildren ? onToggle : undefined}
+        style={{
+          padding: '0 10px',
+          height: 'var(--row-height, 36px)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          borderBottom: '1px solid var(--border)',
+          cursor: hasChildren ? 'pointer' : 'default',
+          fontWeight: 500,
+        }}
+      >
+        {hasChildren ? (
+          <Icon
+            name="chevron"
+            size={10}
+            style={{
+              transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+              color: 'var(--text-subtle)',
+              transition: 'transform var(--dur-fast)',
+            }}
+          />
+        ) : <span style={{ width: 10 }} />}
+        <span className="mono">{entity.entityName}</span>
+        {entity.physicalTableName && entity.physicalTableName !== entity.entityName && (
+          <span
+            className="mono"
+            style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}
+          >
+            ({entity.physicalTableName})
+          </span>
+        )}
+      </div>
+      <div role="cell" style={cellStyle} />
+      <div role="cell" style={cellStyle} />
+      <div role="cell" style={cellStyle}>
+        {entity.status === 'modelOnly' && <Chip tone="info" soft>model only</Chip>}
+        {entity.status === 'dbOnly' && <Chip tone="warning" soft>DB only</Chip>}
+      </div>
+      <div role="cell" style={{ ...cellStyle, color: 'var(--text-subtle)', fontSize: 'var(--fs-xs)' }}>
+        {gapCount > 0 ? `${gapCount} gap${gapCount === 1 ? '' : 's'}` : ''}
+      </div>
+    </div>
+    {isExpanded && entity.attributes.map((attr, i) => {
+      const meta = STATUS_META[attr.status];
+      return (
+        <div key={`${entity.physicalTableName}-${i}`} role="row" style={{ display: 'contents' }}>
+          <div role="cell" style={{ ...cellStyle, paddingLeft: 30 }}>
+            <span
+              className="mono"
+              style={{
+                fontSize: 'var(--fs-md)',
+                color: `var(--${meta.tone === 'info' ? 'text-muted' : meta.tone})`,
+              }}
+            >
+              {meta.glyph}
+            </span>
+            <span className="mono" style={{ marginLeft: 6 }}>{attr.attributeName}</span>
+            {attr.physicalColumnName && attr.physicalColumnName !== attr.attributeName && (
+              <span
+                className="mono"
+                style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)', marginLeft: 6 }}
+              >
+                ({attr.physicalColumnName})
+              </span>
+            )}
+          </div>
+          <div role="cell" style={{ ...cellStyle, fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>
+            {attr.model?.type || ''}
+          </div>
+          <div role="cell" style={{ ...cellStyle, fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>
+            {attr.source?.type || ''}
+          </div>
+          <div role="cell" style={cellStyle}>
+            <Chip
+              tone={meta.tone === 'info' ? 'info' : meta.tone}
+              soft
+            >
+              {meta.label}
+            </Chip>
+          </div>
+          <div role="cell" style={{ ...cellStyle, fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>
+            {attr.driftFields?.join(', ')}
+          </div>
+        </div>
+      );
+    })}
+  </>
+);
+
+const cellStyle = {
+  padding: '0 10px',
+  height: 'var(--row-height, 36px)',
+  display: 'flex' as const,
+  alignItems: 'center' as const,
+  borderBottom: '1px solid var(--border)',
+  gap: 6,
+  color: 'var(--text)',
+} as const;
+
+const fieldStyle = {
+  height: 28,
+  padding: '0 8px',
+  fontSize: 'var(--fs-sm)',
+  fontFamily: 'inherit',
+  background: 'var(--bg-raised)',
+  color: 'var(--text)',
+  border: '1px solid var(--border-strong)',
+  borderRadius: 'var(--radius-sm)',
+  outline: 'none',
+} as const;
