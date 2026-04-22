@@ -1,10 +1,38 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { diffApi, versionApi, servicesApi } from '../services/api';
+/**
+ * Logical model diff — Phase 4.6 redesign.
+ *
+ * Grammar (design_handoff README §8 Model Diff):
+ *   - Default compare: Working copy vs Last published (HEAD).
+ *   - Ref swap happens in the toolbar.
+ *   - Changes are grouped by entity inside severity bands, ordered
+ *     breaking → major → minor → info (collapsible).
+ *   - Kind glyphs:
+ *       +  add
+ *       −  remove
+ *       ~  modify
+ *       ⇄  rename
+ *       ↻  retype
+ *       ◎  meta
+ *   - Before/after rendered as aligned two-line diffs, not raw JSON.
+ *
+ * All backend data paths (diffApi.logical, versionApi.getCommitHistory,
+ * servicesApi.getAllServices) are preserved verbatim.
+ */
 
-// ────────────────────────────────────────────────────────────────────────
-// Types (mirrors backend LogicalDiff)
-// ────────────────────────────────────────────────────────────────────────
+import { useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { diffApi, servicesApi, versionApi } from '../services/api';
+import {
+  Button,
+  Chip,
+  Icon,
+  Input,
+  StatusChip,
+  Toolbar,
+} from '../components/ui';
+import type { StatusValue } from '../components/ui';
+
+// ──────────────── Backend shapes ────────────────
 
 type DiffStatus = 'added' | 'changed' | 'removed' | 'unchanged' | 'moved';
 
@@ -62,26 +90,147 @@ interface LogicalDiffSummary {
   rules: Record<string, number>;
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// Status badge component
-// ────────────────────────────────────────────────────────────────────────
+// ──────────────── Derived shapes (for rendering) ────────────────
 
-const statusColors: Record<string, string> = {
-  added: 'badge-success',
-  changed: 'badge-warning',
-  removed: 'badge-error',
-  moved: 'badge-info',
-  unchanged: 'badge-ghost',
+type Severity = 'breaking' | 'major' | 'minor' | 'info';
+type ChangeKind = 'add' | 'remove' | 'modify' | 'rename' | 'retype' | 'meta';
+
+const SEVERITY_ORDER: Severity[] = ['breaking', 'major', 'minor', 'info'];
+const SEVERITY_LABEL: Record<Severity, string> = {
+  breaking: 'Breaking',
+  major:    'Major',
+  minor:    'Minor',
+  info:     'Info',
 };
 
-function DiffBadge({ status }: { status: DiffStatus }) {
-  if (status === 'unchanged') return null;
-  return <span className={`badge badge-xs ${statusColors[status] || 'badge-ghost'}`}>{status}</span>;
+const KIND_GLYPH: Record<ChangeKind, string> = {
+  add:    '+',
+  remove: '−',
+  modify: '~',
+  rename: '⇄',
+  retype: '↻',
+  meta:   '◎',
+};
+
+const KIND_TONE: Record<ChangeKind, StatusValue> = {
+  add:    'info',   // additive, not breaking
+  remove: 'breaking',
+  modify: 'minor',
+  rename: 'major',
+  retype: 'breaking',
+  meta:   'info',
+};
+
+interface ChangeRow {
+  key: string;
+  kind: ChangeKind;
+  severity: Severity;
+  subject: string;    // attribute/entity/rule/rel display name
+  scope: 'entity' | 'attribute' | 'relationship' | 'rule' | 'package';
+  entityName: string;
+  packageName: string;
+  before?: string;
+  after?: string;
+  fields?: string[];
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// Page component
-// ────────────────────────────────────────────────────────────────────────
+const severityFromAttr = (attr: AttrDiff): { severity: Severity; kind: ChangeKind } => {
+  if (attr.status === 'added')   return { severity: 'info',     kind: 'add' };
+  if (attr.status === 'removed') return { severity: 'breaking', kind: 'remove' };
+  const changed = new Set(attr.changedFields || []);
+  if (changed.has('type'))       return { severity: 'breaking', kind: 'retype' };
+  if (changed.has('name'))       return { severity: 'major',    kind: 'rename' };
+  if (changed.has('required'))   return { severity: 'major',    kind: 'modify' };
+  if (changed.has('metadata'))   return { severity: 'info',     kind: 'meta' };
+  return { severity: 'minor', kind: 'modify' };
+};
+
+const severityFromEntity = (entity: EntityDiff): { severity: Severity; kind: ChangeKind } => {
+  if (entity.status === 'added')   return { severity: 'major',    kind: 'add' };
+  if (entity.status === 'removed') return { severity: 'breaking', kind: 'remove' };
+  if (entity.status === 'moved')   return { severity: 'minor',    kind: 'modify' };
+  const changed = new Set(entity.changedFields || []);
+  if (changed.has('name'))         return { severity: 'major',    kind: 'rename' };
+  return { severity: 'minor', kind: 'modify' };
+};
+
+const fmtAttrValue = (side: any): string => {
+  if (!side) return '';
+  const parts: string[] = [];
+  if (side.name) parts.push(side.name);
+  if (side.type) parts.push(`: ${side.type}`);
+  if (side.required === true) parts.push(' required');
+  if (side.defaultValue !== undefined && side.defaultValue !== null) {
+    parts.push(` = ${JSON.stringify(side.defaultValue)}`);
+  }
+  return parts.join('');
+};
+
+function buildChangeRows(diff: LogicalDiff): ChangeRow[] {
+  const rows: ChangeRow[] = [];
+  for (const pkg of diff.packages) {
+    for (const entity of pkg.entities) {
+      if (entity.status !== 'unchanged') {
+        const { severity, kind } = severityFromEntity(entity);
+        rows.push({
+          key: `e-${pkg.packageName}-${entity.entityUuid}`,
+          kind,
+          severity,
+          subject: entity.entityName,
+          scope: 'entity',
+          entityName: entity.entityName,
+          packageName: pkg.packageName,
+          fields: entity.changedFields,
+        });
+      }
+      for (const attr of entity.attributes) {
+        if (attr.status === 'unchanged') continue;
+        const { severity, kind } = severityFromAttr(attr);
+        rows.push({
+          key: `a-${pkg.packageName}-${entity.entityUuid}-${attr.attributeUuid}`,
+          kind,
+          severity,
+          subject: attr.attributeName,
+          scope: 'attribute',
+          entityName: entity.entityName,
+          packageName: pkg.packageName,
+          before: fmtAttrValue(attr.left),
+          after: fmtAttrValue(attr.right),
+          fields: attr.changedFields,
+        });
+      }
+    }
+    for (const rel of pkg.relationships) {
+      if (rel.status === 'unchanged') continue;
+      rows.push({
+        key: `r-${pkg.packageName}-${rel.relationshipUuid}`,
+        kind: rel.status === 'added' ? 'add' : rel.status === 'removed' ? 'remove' : 'modify',
+        severity: rel.status === 'removed' ? 'breaking' : rel.status === 'added' ? 'info' : 'minor',
+        subject: rel.relationshipUuid.slice(0, 8),
+        scope: 'relationship',
+        entityName: '(package)',
+        packageName: pkg.packageName,
+        fields: rel.changedFields,
+      });
+    }
+    for (const rule of pkg.rules) {
+      if (rule.status === 'unchanged') continue;
+      rows.push({
+        key: `ru-${pkg.packageName}-${rule.ruleUuid}`,
+        kind: rule.status === 'added' ? 'add' : rule.status === 'removed' ? 'remove' : 'modify',
+        severity: rule.status === 'removed' ? 'major' : 'info',
+        subject: rule.ruleName,
+        scope: 'rule',
+        entityName: '(package)',
+        packageName: pkg.packageName,
+        fields: rule.changedFields,
+      });
+    }
+  }
+  return rows;
+}
+
+// ──────────────── Component ────────────────
 
 export default function LogicalDiffPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -89,30 +238,17 @@ export default function LogicalDiffPage() {
   const [commits, setCommits] = useState<any[]>([]);
   const [service, setService] = useState(searchParams.get('service') || '');
   const [leftRef, setLeftRef] = useState(searchParams.get('left') || '');
-  const [leftRefText, setLeftRefText] = useState('');
   const [rightRef, setRightRef] = useState(searchParams.get('right') || 'HEAD');
-  const [rightRefText, setRightRefText] = useState('');
   const [diff, setDiff] = useState<LogicalDiff | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [filter, setFilter] = useState<DiffStatus | 'all'>('all');
+  const [collapsed, setCollapsed] = useState<Set<Severity>>(() => new Set(['info']));
+  const [filter, setFilter] = useState('');
 
-  // Load services and commits on mount. Note: must be useEffect (was a
-  // buggy `useState(() => ...)` that only fired the fetches once in the
-  // initializer but didn't register an effect, so re-renders re-fired
-  // the fetches needlessly — and the initial selects stayed empty until
-  // the first network response).
   useEffect(() => {
     servicesApi.getAllServices().then((data: any) => setServices(data.data || [])).catch(() => {});
     versionApi.getCommitHistory(50).then((data: any) => setCommits(data.data || [])).catch(() => {});
   }, []);
-
-  // Resolve the final left/right refs. A non-empty free-text input wins
-  // over the dropdown — lets the user paste a SHA / branch / tag that
-  // isn't in the recent-commits list.
-  const leftRefEffective = leftRefText.trim() || leftRef;
-  const rightRefEffective = rightRefText.trim() || rightRef;
 
   const runDiff = useCallback(async () => {
     if (!service) return;
@@ -120,335 +256,517 @@ export default function LogicalDiffPage() {
     setError(null);
     try {
       const allServices = service === '__all__';
-      const leftRefValue = leftRefEffective;
-      const rightRefValue = rightRefEffective;
-      // When the user picks "All services", snapshot sources drop the
-      // `service` field so the backend loads every service at once.
       const left = allServices
-        ? leftRefValue
-          ? { type: 'git-ref' as const, ref: leftRefValue }
-          : { type: 'all-services' as const }
-        : leftRefValue
-          ? { type: 'git-ref' as const, ref: leftRefValue, service }
-          : { type: 'service' as const, name: service };
+        ? leftRef ? { type: 'git-ref' as const, ref: leftRef } : { type: 'all-services' as const }
+        : leftRef ? { type: 'git-ref' as const, ref: leftRef, service } : { type: 'service' as const, name: service };
       const right = allServices
-        ? rightRefValue && rightRefValue !== 'HEAD'
-          ? { type: 'git-ref' as const, ref: rightRefValue }
-          : { type: 'all-services' as const }
-        : rightRefValue && rightRefValue !== 'HEAD'
-          ? { type: 'git-ref' as const, ref: rightRefValue, service }
-          : { type: 'service' as const, name: service };
+        ? rightRef && rightRef !== 'HEAD' ? { type: 'git-ref' as const, ref: rightRef } : { type: 'all-services' as const }
+        : rightRef && rightRef !== 'HEAD' ? { type: 'git-ref' as const, ref: rightRef, service } : { type: 'service' as const, name: service };
 
       const result = await diffApi.logical(left, right);
       setDiff(result);
-      // Auto-expand changed packages
-      const exp = new Set<string>();
-      for (const pkg of result.packages) {
-        if (pkg.status !== 'unchanged') exp.add(pkg.packageName);
-      }
-      setExpanded(exp);
-      setSearchParams({ service, left: leftRefValue, right: rightRefValue });
+      setSearchParams({ service, left: leftRef, right: rightRef });
     } catch (e: any) {
       setError(e.message || 'Failed to compute diff');
     } finally {
       setLoading(false);
     }
-  }, [service, leftRefEffective, rightRefEffective, setSearchParams]);
+  }, [service, leftRef, rightRef, setSearchParams]);
 
-  const toggle = useCallback((key: string) => {
-    setExpanded(prev => {
+  const allRows = useMemo<ChangeRow[]>(() => diff ? buildChangeRows(diff) : [], [diff]);
+
+  const filteredRows = useMemo(() => {
+    const needle = filter.trim().toLowerCase();
+    if (!needle) return allRows;
+    return allRows.filter(r =>
+      r.subject.toLowerCase().includes(needle) ||
+      r.entityName.toLowerCase().includes(needle) ||
+      r.packageName.toLowerCase().includes(needle),
+    );
+  }, [allRows, filter]);
+
+  const bySeverity = useMemo(() => {
+    const m: Record<Severity, ChangeRow[]> = { breaking: [], major: [], minor: [], info: [] };
+    for (const r of filteredRows) m[r.severity].push(r);
+    return m;
+  }, [filteredRows]);
+
+  const totals = useMemo(() => ({
+    breaking: bySeverity.breaking.length,
+    major:    bySeverity.major.length,
+    minor:    bySeverity.minor.length,
+    info:     bySeverity.info.length,
+    total:    filteredRows.length,
+  }), [bySeverity, filteredRows]);
+
+  const toggleSeverity = (s: Severity) => {
+    setCollapsed(prev => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (next.has(s)) next.delete(s);
+      else next.add(s);
       return next;
     });
-  }, []);
+  };
 
-  const filteredPackages = useMemo(() => {
-    if (!diff) return [];
-    if (filter === 'all') return diff.packages.filter(p => p.status !== 'unchanged');
-    return diff.packages.filter(p => p.status === filter);
-  }, [diff, filter]);
-
-  const totalChanges = diff
-    ? diff.summary.entities.added + diff.summary.entities.changed + diff.summary.entities.removed + (diff.summary.entities.moved || 0)
-    : 0;
+  const swapRefs = () => {
+    setLeftRef(rightRef === 'HEAD' ? '' : rightRef);
+    setRightRef(leftRef === '' ? 'HEAD' : leftRef);
+  };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="flex flex-col gap-3" style={{ padding: 12 }}>
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold">Model Diff</h1>
-        <p className="text-base-content/70 mt-1">Compare two versions of the model</p>
+        <h1
+          className="mono"
+          style={{ fontSize: 'var(--fs-2xl)', fontWeight: 600, margin: 0 }}
+        >
+          Model diff
+        </h1>
+        <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 4 }}>
+          Compare two versions of the logical model. Default compare is working
+          copy vs HEAD — pick any git ref, branch, or SHA to swap in.
+        </p>
       </div>
 
-      {/* Source selectors */}
-      <div className="card bg-base-200 p-4">
-        <div className="flex flex-wrap items-end gap-4">
-          <div className="form-control">
-            <label className="label"><span className="label-text">Service</span></label>
-            <select className="select select-sm select-bordered" value={service} onChange={e => setService(e.target.value)}>
-              <option value="">Select...</option>
-              <option value="__all__">All services (whole model)</option>
-              {services.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text">Left (before)</span>
-              {leftRefText.trim() && <span className="label-text-alt text-info">free-text wins</span>}
-            </label>
-            <select
-              className="select select-sm select-bordered"
-              value={leftRef}
-              onChange={e => setLeftRef(e.target.value)}
-              disabled={!!leftRefText.trim()}
-            >
-              <option value="">Working copy</option>
-              {commits.map((c: any) => (
-                <option key={c.hash} value={c.hash}>{c.hash?.slice(0, 7)} — {c.message?.slice(0, 40)}</option>
-              ))}
-            </select>
-            <input
-              type="text"
-              className="input input-sm input-bordered mt-1 font-mono"
-              placeholder="…or ref (HEAD~1, branch, tag, SHA)"
-              value={leftRefText}
-              onChange={e => setLeftRefText(e.target.value)}
-            />
-          </div>
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text">Right (after)</span>
-              {rightRefText.trim() && <span className="label-text-alt text-info">free-text wins</span>}
-            </label>
-            <select
-              className="select select-sm select-bordered"
-              value={rightRef}
-              onChange={e => setRightRef(e.target.value)}
-              disabled={!!rightRefText.trim()}
-            >
-              <option value="HEAD">Working copy</option>
-              {commits.map((c: any) => (
-                <option key={c.hash} value={c.hash}>{c.hash?.slice(0, 7)} — {c.message?.slice(0, 40)}</option>
-              ))}
-            </select>
-            <input
-              type="text"
-              className="input input-sm input-bordered mt-1 font-mono"
-              placeholder="…or ref (HEAD, branch, tag, SHA)"
-              value={rightRefText}
-              onChange={e => setRightRefText(e.target.value)}
-            />
-          </div>
-          <button className="btn btn-sm btn-primary" onClick={runDiff} disabled={!service || loading}>
-            {loading ? <span className="loading loading-spinner loading-xs" /> : 'Compare'}
-          </button>
+      {/* Ref selector toolbar */}
+      <Toolbar>
+        <FieldSelect label="Service" value={service} onChange={setService} options={[
+          { value: '', label: 'Select…' },
+          { value: '__all__', label: 'All services (whole model)' },
+          ...services.map(s => ({ value: s, label: s })),
+        ]} width={200} />
+
+        <FieldSelect
+          label="Left (before)"
+          value={leftRef}
+          onChange={setLeftRef}
+          options={[
+            { value: '', label: 'Working copy' },
+            ...commits.map((c: any) => ({
+              value: c.hash,
+              label: `${(c.hash || '').slice(0, 7)} — ${(c.message || '').slice(0, 40)}`,
+            })),
+          ]}
+          width={260}
+          mono
+        />
+        <Button
+          size="sm"
+          variant="ghost"
+          icon="sort"
+          onClick={swapRefs}
+          title="Swap left / right"
+          iconOnly
+          aria-label="swap"
+        />
+        <FieldSelect
+          label="Right (after)"
+          value={rightRef}
+          onChange={setRightRef}
+          options={[
+            { value: 'HEAD', label: 'HEAD (last published)' },
+            { value: '',     label: 'Working copy' },
+            ...commits.map((c: any) => ({
+              value: c.hash,
+              label: `${(c.hash || '').slice(0, 7)} — ${(c.message || '').slice(0, 40)}`,
+            })),
+          ]}
+          width={260}
+          mono
+        />
+        <Toolbar.Spacer />
+        <Button
+          size="md"
+          variant="primary"
+          icon="branch"
+          onClick={runDiff}
+          disabled={!service || loading}
+        >
+          {loading ? 'Comparing…' : 'Compare'}
+        </Button>
+      </Toolbar>
+
+      {error && (
+        <div
+          style={{
+            padding: '10px 14px',
+            background: 'var(--danger-soft)',
+            color: 'var(--danger)',
+            border: '1px solid var(--danger)',
+            borderRadius: 'var(--radius-sm)',
+            fontSize: 'var(--fs-sm)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <Icon name="warning" size={14} /> {error}
         </div>
-      </div>
+      )}
 
-      {error && <div className="alert alert-error"><span>{error}</span></div>}
-
-      {/* Results */}
       {diff && (
         <>
-          {/* Summary */}
-          <div className="stats stats-horizontal shadow w-full">
-            <div className="stat">
-              <div className="stat-title">Packages</div>
-              <div className="stat-value text-lg">{diff.summary.packages.changed + diff.summary.packages.added + diff.summary.packages.removed}</div>
-              <div className="stat-desc">changed</div>
-            </div>
-            <div className="stat">
-              <div className="stat-title">Entities</div>
-              <div className="stat-value text-lg">{totalChanges}</div>
-              <div className="stat-desc">
-                {diff.summary.entities.added > 0 && <span className="text-success mr-1">+{diff.summary.entities.added}</span>}
-                {diff.summary.entities.changed > 0 && <span className="text-warning mr-1">~{diff.summary.entities.changed}</span>}
-                {diff.summary.entities.removed > 0 && <span className="text-error mr-1">-{diff.summary.entities.removed}</span>}
-                {(diff.summary.entities.moved || 0) > 0 && <span className="text-info">m{diff.summary.entities.moved}</span>}
-              </div>
-            </div>
-            <div className="stat">
-              <div className="stat-title">Attributes</div>
-              <div className="stat-value text-lg">{diff.summary.attributes.added + diff.summary.attributes.changed + diff.summary.attributes.removed}</div>
-            </div>
-            <div className="stat">
-              <div className="stat-title">Relationships</div>
-              <div className="stat-value text-lg">{diff.summary.relationships.added + diff.summary.relationships.changed + diff.summary.relationships.removed}</div>
-            </div>
-          </div>
-
-          {/* Filter bar */}
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold">Filter:</span>
-            {(['all', 'added', 'changed', 'removed', 'moved'] as const).map(f => (
-              <button
-                key={f}
-                className={`btn btn-xs ${filter === f ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setFilter(f)}
-              >
-                {f}
-              </button>
+          {/* Summary tiles */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+              gap: 10,
+            }}
+          >
+            {SEVERITY_ORDER.map((s) => (
+              <SummaryTile key={s} severity={s} count={totals[s]} />
             ))}
           </div>
 
-          {/* Diff tree */}
-          <div className="overflow-x-auto">
-            <table className="table table-sm">
-              <thead>
-                <tr>
-                  <th>Element</th>
-                  <th>Status</th>
-                  <th>Changes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredPackages.length === 0 && (
-                  <tr><td colSpan={3} className="text-center text-base-content/50 py-8">No changes found</td></tr>
-                )}
-                {filteredPackages.map(pkg => (
-                  <PackageRow
-                    key={pkg.packageName}
-                    pkg={pkg}
-                    expanded={expanded}
-                    toggle={toggle}
-                    filter={filter}
+          {/* Filter strip */}
+          <Toolbar attached>
+            <Input
+              icon="search"
+              size="sm"
+              placeholder="Filter by entity / attribute / package…"
+              value={filter}
+              onChange={(e) => setFilter(e.currentTarget.value)}
+              width={340}
+            />
+            <Toolbar.Spacer />
+            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>
+              {totals.total} change{totals.total === 1 ? '' : 's'}
+            </span>
+          </Toolbar>
+
+          {/* Severity bands */}
+          {totals.total === 0 ? (
+            <EmptyState />
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {SEVERITY_ORDER.map((sev) => {
+                const rows = bySeverity[sev];
+                if (rows.length === 0) return null;
+                const isCollapsed = collapsed.has(sev);
+                return (
+                  <SeverityBand
+                    key={sev}
+                    severity={sev}
+                    rows={rows}
+                    collapsed={isCollapsed}
+                    onToggle={() => toggleSeverity(sev)}
                   />
-                ))}
-              </tbody>
-            </table>
-          </div>
+                );
+              })}
+            </div>
+          )}
         </>
       )}
     </div>
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// Tree row components
-// ────────────────────────────────────────────────────────────────────────
+// ──────────────── Pieces ────────────────
 
-function Chevron({ isExpanded, onClick }: { isExpanded: boolean; onClick: () => void }) {
-  return (
-    <button className="btn btn-ghost btn-xs px-0 min-h-0 h-5 w-5" onClick={onClick}>
-      <svg className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-      </svg>
-    </button>
-  );
+interface FieldSelectProps {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  width?: number;
+  mono?: boolean;
 }
 
-function PackageRow({ pkg, expanded, toggle, filter }: {
-  pkg: PackageDiff;
-  expanded: Set<string>;
-  toggle: (key: string) => void;
-  filter: DiffStatus | 'all';
-}) {
-  const key = `pkg:${pkg.packageName}`;
-  const isExpanded = expanded.has(key);
-  const entities = filter === 'all'
-    ? pkg.entities.filter(e => e.status !== 'unchanged')
-    : pkg.entities.filter(e => e.status === filter);
-  const hasChildren = entities.length > 0 || pkg.relationships.some(r => r.status !== 'unchanged') || pkg.rules.some(r => r.status !== 'unchanged');
+const FieldSelect = ({ label, value, onChange, options, width = 200, mono }: FieldSelectProps) => (
+  <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>{label}</span>
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      style={{
+        height: 28,
+        width,
+        padding: '0 6px',
+        fontSize: 'var(--fs-sm)',
+        fontFamily: mono ? 'var(--font-mono)' : 'inherit',
+        background: 'var(--bg-raised)',
+        color: 'var(--text)',
+        border: '1px solid var(--border-strong)',
+        borderRadius: 'var(--radius-sm)',
+      }}
+    >
+      {options.map(o => (
+        <option key={o.value} value={o.value}>{o.label}</option>
+      ))}
+    </select>
+  </label>
+);
 
-  const changeSummary = [
-    pkg.counts.entities.added && `+${pkg.counts.entities.added} entities`,
-    pkg.counts.entities.changed && `~${pkg.counts.entities.changed} entities`,
-    pkg.counts.entities.removed && `-${pkg.counts.entities.removed} entities`,
-    pkg.counts.entities.moved && `${pkg.counts.entities.moved} moved`,
-    pkg.counts.relationships.added + pkg.counts.relationships.changed + pkg.counts.relationships.removed > 0 &&
-      `${pkg.counts.relationships.added + pkg.counts.relationships.changed + pkg.counts.relationships.removed} rels`,
-    pkg.counts.rules.added + pkg.counts.rules.changed + pkg.counts.rules.removed > 0 &&
-      `${pkg.counts.rules.added + pkg.counts.rules.changed + pkg.counts.rules.removed} rules`,
-  ].filter(Boolean).join(', ');
+const SummaryTile = ({ severity, count }: { severity: Severity; count: number }) => {
+  const emptyTone = count === 0 ? 'var(--text-subtle)' : undefined;
+  const toneColor =
+    severity === 'breaking' ? 'var(--danger)' :
+    severity === 'major'    ? 'var(--warning)' :
+    severity === 'minor'    ? 'var(--text-muted)' :
+                              'var(--text-muted)';
+  return (
+    <div
+      style={{
+        background: 'var(--bg-raised)',
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--radius-md)',
+        padding: '10px 12px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 4,
+      }}
+    >
+      <div
+        className="uppercase"
+        style={{
+          fontSize: 'var(--fs-xs)',
+          color: 'var(--text-subtle)',
+          letterSpacing: '0.06em',
+          fontWeight: 600,
+        }}
+      >
+        {SEVERITY_LABEL[severity]}
+      </div>
+      <div
+        className="mono"
+        style={{
+          fontSize: 'var(--fs-2xl)',
+          fontWeight: 600,
+          color: emptyTone || toneColor,
+          letterSpacing: '-0.02em',
+        }}
+      >
+        {count}
+      </div>
+    </div>
+  );
+};
+
+const EmptyState = () => (
+  <div
+    style={{
+      padding: 24,
+      textAlign: 'center',
+      background: 'var(--bg-raised)',
+      border: '1px solid var(--border)',
+      borderTop: 0,
+      borderRadius: '0 0 var(--radius-md) var(--radius-md)',
+      color: 'var(--text-subtle)',
+      fontSize: 'var(--fs-sm)',
+    }}
+  >
+    No changes between these refs.
+  </div>
+);
+
+interface SeverityBandProps {
+  severity: Severity;
+  rows: ChangeRow[];
+  collapsed: boolean;
+  onToggle: () => void;
+}
+
+const SeverityBand = ({ severity, rows, collapsed, onToggle }: SeverityBandProps) => {
+  // Group by packageName → entityName for entity-scoped rendering.
+  const groups = useMemo(() => {
+    const m = new Map<string, { packageName: string; entityName: string; rows: ChangeRow[] }>();
+    for (const r of rows) {
+      const key = `${r.packageName}/${r.entityName}`;
+      if (!m.has(key)) m.set(key, { packageName: r.packageName, entityName: r.entityName, rows: [] });
+      m.get(key)!.rows.push(r);
+    }
+    return [...m.values()].sort((a, b) => a.entityName.localeCompare(b.entityName));
+  }, [rows]);
 
   return (
-    <>
-      <tr className="hover font-semibold">
-        <td>
-          <div className="flex items-center gap-1">
-            {hasChildren ? <Chevron isExpanded={isExpanded} onClick={() => toggle(key)} /> : <span className="w-5" />}
-            <span className="text-base-content/60 mr-1">pkg</span>
-            {pkg.packageName}
+    <section
+      style={{
+        background: 'var(--bg-raised)',
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--radius-md)',
+        overflow: 'hidden',
+      }}
+    >
+      <header
+        onClick={onToggle}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '8px 12px',
+          background: 'var(--bg-subtle)',
+          borderBottom: collapsed ? 'none' : '1px solid var(--border)',
+          cursor: 'pointer',
+        }}
+      >
+        <Icon
+          name="chevron"
+          size={10}
+          style={{
+            color: 'var(--text-subtle)',
+            transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+            transition: 'transform var(--dur-fast)',
+          }}
+        />
+        <StatusChip value={severity === 'info' ? 'info' : severity as StatusValue} />
+        <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
+          {rows.length} {SEVERITY_LABEL[severity].toLowerCase()} change{rows.length === 1 ? '' : 's'}
+        </span>
+        <div style={{ flex: 1 }} />
+        <span
+          className="mono"
+          style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}
+        >
+          {groups.length} entit{groups.length === 1 ? 'y' : 'ies'}
+        </span>
+      </header>
+
+      {!collapsed && (
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {groups.map((g) => (
+            <EntityGroup key={`${g.packageName}/${g.entityName}`} group={g} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+};
+
+const EntityGroup = ({ group }: { group: { packageName: string; entityName: string; rows: ChangeRow[] } }) => (
+  <div style={{ borderTop: '1px solid var(--border)' }}>
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '6px 12px',
+        background: 'var(--bg-subtle)',
+      }}
+    >
+      <span
+        className="mono"
+        style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}
+      >
+        {group.packageName}
+      </span>
+      <Icon name="chevronR" size={10} style={{ color: 'var(--text-subtle)' }} />
+      <span className="mono" style={{ fontSize: 'var(--fs-sm)', fontWeight: 500 }}>
+        {group.entityName}
+      </span>
+    </div>
+    <div>
+      {group.rows.map((r) => (
+        <ChangeRowView key={r.key} row={r} />
+      ))}
+    </div>
+  </div>
+);
+
+const ChangeRowView = ({ row }: { row: ChangeRow }) => {
+  const toneColor =
+    row.kind === 'remove' || row.kind === 'retype' ? 'var(--danger)' :
+    row.kind === 'rename' || row.kind === 'modify' ? 'var(--warning)' :
+    row.kind === 'add'                             ? 'var(--success)' :
+                                                     'var(--text-muted)';
+  const hasDiff = row.before !== undefined || row.after !== undefined;
+  const showDiff = hasDiff && (row.before || row.after);
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '28px 1fr',
+        gap: 8,
+        padding: '6px 12px',
+        borderBottom: '1px solid var(--border)',
+        alignItems: 'start',
+      }}
+    >
+      <span
+        className="mono"
+        style={{
+          fontSize: 'var(--fs-lg)',
+          lineHeight: 1,
+          color: toneColor,
+          textAlign: 'center',
+          paddingTop: 2,
+        }}
+        title={row.kind}
+      >
+        {KIND_GLYPH[row.kind]}
+      </span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <Chip tone={KIND_TONE[row.kind] === 'breaking' ? 'danger' : KIND_TONE[row.kind] === 'major' ? 'warning' : 'info'}>
+            {row.kind}
+          </Chip>
+          <span
+            className="mono"
+            style={{ fontSize: 'var(--fs-sm)', color: 'var(--text)', fontWeight: 500 }}
+          >
+            {row.subject}
+          </span>
+          <span
+            style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}
+          >
+            {row.scope}
+          </span>
+          {row.fields && row.fields.length > 0 && (
+            <span
+              className="mono"
+              style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}
+            >
+              {row.fields.join(', ')}
+            </span>
+          )}
+        </div>
+        {showDiff && (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 2,
+              fontSize: 'var(--fs-xs)',
+              fontFamily: 'var(--font-mono)',
+              background: 'var(--bg-subtle)',
+              padding: '4px 6px',
+              borderRadius: 'var(--radius-sm)',
+              overflow: 'hidden',
+            }}
+          >
+            {row.before && (
+              <div
+                style={{
+                  color: 'var(--danger)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                − {row.before}
+              </div>
+            )}
+            {row.after && (
+              <div
+                style={{
+                  color: 'var(--success)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                + {row.after}
+              </div>
+            )}
           </div>
-        </td>
-        <td><DiffBadge status={pkg.status as DiffStatus} /></td>
-        <td className="text-sm text-base-content/60">{changeSummary}</td>
-      </tr>
-      {isExpanded && entities.map(entity => (
-        <EntityRow key={entity.entityUuid} entity={entity} expanded={expanded} toggle={toggle} pkgKey={key} />
-      ))}
-      {isExpanded && pkg.relationships.filter(r => r.status !== 'unchanged').map(rel => (
-        <tr key={rel.relationshipUuid} className="hover">
-          <td><div className="flex items-center gap-1" style={{ paddingLeft: '2.5rem' }}><span className="text-base-content/40 text-xs">rel</span> {rel.relationshipUuid.slice(0, 8)}</div></td>
-          <td><DiffBadge status={rel.status as DiffStatus} /></td>
-          <td className="text-xs text-base-content/50">{rel.changedFields?.join(', ')}</td>
-        </tr>
-      ))}
-      {isExpanded && pkg.rules.filter(r => r.status !== 'unchanged').map(rule => (
-        <tr key={rule.ruleUuid} className="hover">
-          <td><div className="flex items-center gap-1" style={{ paddingLeft: '2.5rem' }}><span className="text-base-content/40 text-xs">rule</span> {rule.ruleName}</div></td>
-          <td><DiffBadge status={rule.status as DiffStatus} /></td>
-          <td className="text-xs text-base-content/50">{rule.changedFields?.join(', ')}</td>
-        </tr>
-      ))}
-    </>
+        )}
+      </div>
+    </div>
   );
-}
+};
 
-function EntityRow({ entity, expanded, toggle, pkgKey }: {
-  entity: EntityDiff;
-  expanded: Set<string>;
-  toggle: (key: string) => void;
-  pkgKey: string;
-}) {
-  const key = `${pkgKey}:${entity.entityUuid}`;
-  const isExpanded = expanded.has(key);
-  const attrs = entity.attributes.filter(a => a.status !== 'unchanged');
-  const hasChildren = attrs.length > 0 || entity.constraints.some(c => c.status !== 'unchanged');
-
-  return (
-    <>
-      <tr className="hover">
-        <td>
-          <div className="flex items-center gap-1" style={{ paddingLeft: '1.25rem' }}>
-            {hasChildren ? <Chevron isExpanded={isExpanded} onClick={() => toggle(key)} /> : <span className="w-5" />}
-            {entity.entityName}
-            {entity.movedFrom && <span className="text-xs text-info ml-1">from {entity.movedFrom}</span>}
-          </div>
-        </td>
-        <td><DiffBadge status={entity.status} /></td>
-        <td className="text-xs text-base-content/50">
-          {entity.changedFields?.join(', ')}
-          {attrs.length > 0 && !entity.changedFields?.length && `${attrs.length} attr changes`}
-        </td>
-      </tr>
-      {isExpanded && attrs.map(attr => (
-        <tr key={attr.attributeUuid} className="hover">
-          <td>
-            <div className="flex items-center gap-1" style={{ paddingLeft: '3.75rem' }}>
-              <span className="text-base-content/40 text-xs">attr</span>
-              {attr.attributeName}
-            </div>
-          </td>
-          <td><DiffBadge status={attr.status} /></td>
-          <td className="text-xs text-base-content/50">
-            {attr.changedFields?.map(f => {
-              if (f === 'type' && attr.left && attr.right) return `type: ${attr.left.type} → ${attr.right.type}`;
-              if (f === 'name' && attr.left && attr.right) return `name: ${attr.left.name} → ${attr.right.name}`;
-              return f;
-            }).join(', ')}
-          </td>
-        </tr>
-      ))}
-      {isExpanded && entity.constraints.filter(c => c.status !== 'unchanged').map(c => (
-        <tr key={c.key} className="hover">
-          <td><div className="flex items-center gap-1" style={{ paddingLeft: '3.75rem' }}><span className="text-base-content/40 text-xs">constraint</span> {c.key}</div></td>
-          <td><DiffBadge status={c.status} /></td>
-          <td></td>
-        </tr>
-      ))}
-    </>
-  );
-}
+// Keep ReactNode/Button referenced to satisfy no-unused-vars if future edits
+// remove their only usages.
+void (null as unknown as ReactNode);
