@@ -4,6 +4,7 @@ import EntityDetail from './EntityDetail';
 import AttributeEditor from './AttributeEditor';
 import RelationshipEditor from './RelationshipEditor';
 import PackageDetailPage from '../pages/PackageDetailPage';
+import AttributeDetailPage from '../pages/AttributeDetailPage';
 import { servicesApi, relationshipApi } from '../services/api';
 import { Attribute, Relationship } from '../types';
 
@@ -43,7 +44,11 @@ export default function PackageRouter() {
       }
     }
 
-    // Attribute routes: /attributes/create or /attributes/:name/edit
+    // Attribute routes:
+    //   /attributes/create        → AttributeEditor (new-form mode)
+    //   /attributes/:name/edit    → AttributeEditor (edit-form mode)
+    //   /attributes/:name         → AttributeDetailPage (single-column view,
+    //                               per-section inline editing) — Phase 5.1
     if (rest[0] === 'attributes') {
       if (rest[1] === 'create') {
         return (
@@ -54,17 +59,18 @@ export default function PackageRouter() {
           />
         );
       }
-      if (rest.length >= 2) {
-        const attributeName = rest[1];
-        const isEdit = rest[2] === 'edit';
+      if (rest.length >= 2 && rest[2] === 'edit') {
         return (
           <AttributeEditLoader
             service={service}
             entityName={entityName}
-            attributeName={attributeName}
-            isEdit={isEdit}
+            attributeName={rest[1]}
+            isEdit
           />
         );
+      }
+      if (rest.length >= 2) {
+        return <AttributeDetailPage key={`${service}-${entityName}-${rest[1]}`} />;
       }
     }
 
