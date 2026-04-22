@@ -199,6 +199,84 @@
   --inc: 0 0% 100%;
 }
 
+/* ───────── Bold (Phase 6.2) ─────────
+   Dark dev-tool theme. Bold is inherently dark — data-theme is a
+   no-op under Bold per the handoff ("Bold is the night theme"), so
+   we don't branch on [data-theme]. Users who want light surfaces
+   pick Calm. */
+[data-variant="bold"] {
+  /* Design tokens */
+  --bg:            #0f1115;
+  --bg-raised:     #16181d;
+  --bg-subtle:     #1c1f26;
+  --bg-hover:      #22252d;
+  --bg-active:     #2a2e38;
+
+  --border:        #272a32;
+  --border-strong: #363a44;
+  --border-focus:  #5ce1a8;
+
+  --text:          #e8e9ec;
+  --text-muted:    #8b8f98;
+  --text-subtle:   #5d6069;
+
+  --accent:        #5ce1a8;
+  --accent-fg:     #05140d;
+  --accent-soft:   #143025;
+
+  --meta-bg:       #161b1e;
+  --meta-border:   #1e2a2a;
+  --meta-label:    #8b9a93;
+
+  --success:       #5ce1a8;
+  --warning:       #e1b85c;
+  --danger:        #e17e5c;
+
+  --success-soft:  rgba(92, 225, 168, 0.14);
+  --warning-soft:  rgba(225, 184, 92, 0.14);
+  --danger-soft:   rgba(225, 126, 92, 0.16);
+
+  --pii-direct:    #e17e5c;
+  --pii-indirect:  #e1b85c;
+  --pii-possible:  #8b9a93;
+
+  --shadow-sm: 0 1px 0 rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
+
+  /* DaisyUI aliases */
+  --p:  156 68% 63%;
+  --pc: 145 61% 5%;
+  --pf: 156 65% 55%;
+
+  --s:  36 69% 63%;
+  --sc: 145 61% 5%;
+
+  --a:  155 42% 13%;
+  --ac: 156 68% 63%;
+
+  --n:  220 6% 58%;
+  --nc: 220 8% 92%;
+
+  --b1: 222 21% 7%;
+  --b2: 222 15% 10%;
+  --b3: 224 16% 13%;
+  --bc: 220 8% 92%;
+
+  --su:  156 68% 63%;
+  --suc: 145 61% 5%;
+  --wa:  36 69% 63%;
+  --wac: 0 0% 0%;
+  --er:  16 68% 63%;
+  --erc: 0 0% 100%;
+  --in:  220 10% 70%;
+  --inc: 220 8% 10%;
+
+  --rounded-box:   var(--radius-lg);
+  --rounded-btn:   var(--radius-sm);
+  --rounded-badge: var(--radius-sm);
+}
+
 /* ───────── Utilities ─────────
    Opt-in. We do NOT override body font-size here so existing Tailwind
    spacing (built on 16px rem) keeps working. Phase 4 migrates pages

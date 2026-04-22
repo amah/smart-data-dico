@@ -17,9 +17,13 @@
   <body>
     <div id="root"></div>
     <script>
-      // Apply saved theme + density before React mounts to prevent FOUC.
+      // Apply saved theme + density + variant before React mounts to prevent FOUC.
       (function() {
         var root = document.documentElement;
+        var variant = localStorage.getItem('sdd-variant');
+        if (variant === 'calm' || variant === 'bold') {
+          root.setAttribute('data-variant', variant);
+        }
         var theme = localStorage.getItem('theme');
         if (theme === 'light' || theme === 'dark') {
           root.setAttribute('data-theme', theme);

@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 export type Theme = 'light' | 'dark';
-export type Variant = 'calm';
+export type Variant = 'calm' | 'bold';
 export type Density = 'comfortable' | 'compact' | 'dense';
 
 const KEY_THEME   = 'theme';
@@ -43,7 +43,7 @@ function readTheme(): Theme {
 function readVariant(): Variant {
   if (typeof window === 'undefined') return DEFAULTS.variant;
   const saved = window.localStorage.getItem(KEY_VARIANT);
-  if (saved === 'calm') return saved;
+  if (saved === 'calm' || saved === 'bold') return saved;
   return DEFAULTS.variant;
 }
 
