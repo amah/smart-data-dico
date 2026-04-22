@@ -17,7 +17,7 @@ const RECENT_KEY = 'smart-data-dico-recent-projects';
 const Navbar = ({ toggleSidebar, toggleChat, chatOpen }: NavbarProps) => {
   const [isAuthenticated, setIsAuthenticated] = useState(authApi.isAuthenticated());
   const navigate = useNavigate();
-  const { theme, toggleTheme, density, setDensity } = usePrefs();
+  const { theme, toggleTheme, density, setDensity, variant, setVariant } = usePrefs();
   const { mode } = useAppMode();
 
   // Project state (#95)
@@ -335,15 +335,45 @@ const Navbar = ({ toggleSidebar, toggleChat, chatOpen }: NavbarProps) => {
 
         <DensitySwitcher value={density} onChange={setDensity} />
 
+        {/* Variant switcher — cycles calm ↔ bold. Bold is the handoff's
+            dev-tool dark palette; Calm is the default warm neutral. */}
+        <button
+          onClick={() => setVariant(variant === 'bold' ? 'calm' : 'bold')}
+          title={`Switch to ${variant === 'bold' ? 'Calm' : 'Bold'} variant`}
+          aria-label="Toggle variant"
+          style={{
+            background: variant === 'bold' ? 'var(--accent-soft)' : 'transparent',
+            color: variant === 'bold' ? 'var(--accent)' : 'var(--text-muted)',
+            border: 'none',
+            padding: 6,
+            borderRadius: 'var(--radius-sm)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            cursor: 'pointer',
+            fontSize: 'var(--fs-xs)',
+            fontFamily: 'var(--font-mono)',
+            fontWeight: 500,
+            letterSpacing: '0.04em',
+            textTransform: 'uppercase',
+          }}
+        >
+          <Icon name="sparkle" size={11} />
+          {variant === 'bold' ? 'bold' : 'calm'}
+        </button>
+
         <button
           onClick={toggleTheme}
           title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
           aria-label="Toggle theme"
+          disabled={variant === 'bold'}
           style={{
             background: 'transparent', border: 'none',
             color: 'var(--text-muted)', padding: 6,
             borderRadius: 'var(--radius-sm)',
-            display: 'grid', placeItems: 'center', cursor: 'pointer',
+            display: 'grid', placeItems: 'center',
+            cursor: variant === 'bold' ? 'not-allowed' : 'pointer',
+            opacity: variant === 'bold' ? 0.35 : 1,
           }}
         >
           <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={14} />
