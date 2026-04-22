@@ -51,3 +51,6 @@ export type { ColumnDef, ColumnGroup, SortDir } from './DataTable.types';
 
 export { default as ColumnChooser } from './ColumnChooser';
 export type { ColumnChooserProps } from './ColumnChooser';
+
+export { default as BatchActionBar } from './BatchActionBar';
+export type { BatchActionBarProps, BatchAction } from './BatchActionBar';
