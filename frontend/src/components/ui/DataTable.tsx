@@ -23,10 +23,12 @@
  * state in Redux.
  */
 
-import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import Icon from './Icon';
 import Button from './Button';
 import type { ColumnDef, ColumnGroup, SortDir } from './DataTable.types';
+
+type RowKey = string | number;
 
 const GROUP_LABEL: Record<ColumnGroup, string> = {
   standard: 'Standard',
@@ -63,8 +65,20 @@ export interface DataTableProps<Row> {
   filters?: Record<string, string>;
   onFiltersChange?: (next: Record<string, string>) => void;
 
-  selectedRow?: string | number | null;
-  onSelectRow?: (key: string | number) => void;
+  selectedRow?: RowKey | null;
+  onSelectRow?: (key: RowKey) => void;
+
+  /**
+   * Controlled multi-select. When `selection` is provided the table
+   * renders a leading checkbox column + tri-state header checkbox.
+   * The set of keys is the caller's source of truth; the table only
+   * produces change events.
+   *
+   * Shift-click on a row checkbox extends from the last-toggled row
+   * (inclusive) using the currently-visible processed order.
+   */
+  selection?: Set<RowKey>;
+  onSelectionChange?: (next: Set<RowKey>) => void;
 
   showFilterRow?: boolean;
   onRowClick?: (row: Row) => void;
@@ -87,6 +101,8 @@ function DataTable<Row>({
   onFiltersChange,
   selectedRow,
   onSelectRow,
+  selection,
+  onSelectionChange,
   showFilterRow,
   onRowClick,
   emptyMessage = 'No rows.',
@@ -160,10 +176,64 @@ function DataTable<Row>({
     typeof c.width === 'number' ? `${c.width}px` :
     c.width;
 
+  const selectable = selection !== undefined && onSelectionChange !== undefined;
+  const selectionColWidth = '36px';
+  const standardSpanStart = selectable ? 2 : 1;
+
   const gridTemplate = [
+    ...(selectable ? [selectionColWidth] : []),
     ...standardCols.map(colWidth),
     ...metadataCols.map(colWidth),
   ].join(' ');
+
+  // Selection state derivations
+  const visibleKeys = processedRows.map(getRowKey);
+  const selectedVisibleCount = selectable
+    ? visibleKeys.reduce<number>((n, k) => n + (selection!.has(k) ? 1 : 0), 0)
+    : 0;
+  const allVisibleSelected = selectable && visibleKeys.length > 0 && selectedVisibleCount === visibleKeys.length;
+  const someVisibleSelected = selectable && selectedVisibleCount > 0 && !allVisibleSelected;
+
+  const lastToggledKey = useRef<RowKey | null>(null);
+
+  const toggleOne = (key: RowKey, shiftKey: boolean) => {
+    if (!selectable) return;
+    const next = new Set(selection!);
+    // Shift-click: extend range from the last-toggled key through `key`
+    // using the current visible order. Otherwise toggle just this row.
+    if (shiftKey && lastToggledKey.current !== null && lastToggledKey.current !== key) {
+      const i = visibleKeys.indexOf(lastToggledKey.current);
+      const j = visibleKeys.indexOf(key);
+      if (i >= 0 && j >= 0) {
+        const [lo, hi] = i < j ? [i, j] : [j, i];
+        // Anchor's state decides add vs remove so the range follows the
+        // intent of the first click in the pair.
+        const add = selection!.has(lastToggledKey.current);
+        for (let k = lo; k <= hi; k++) {
+          if (add) next.add(visibleKeys[k]);
+          else next.delete(visibleKeys[k]);
+        }
+        onSelectionChange!(next);
+        lastToggledKey.current = key;
+        return;
+      }
+    }
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    onSelectionChange!(next);
+    lastToggledKey.current = key;
+  };
+
+  const toggleAllVisible = () => {
+    if (!selectable) return;
+    const next = new Set(selection!);
+    if (allVisibleSelected) {
+      for (const k of visibleKeys) next.delete(k);
+    } else {
+      for (const k of visibleKeys) next.add(k);
+    }
+    onSelectionChange!(next);
+  };
 
   return (
     <div
@@ -187,10 +257,19 @@ function DataTable<Row>({
       >
         {hasMeta && (
           <div role="row" style={{ display: 'contents' }}>
+            {selectable && (
+              <div
+                role="columnheader"
+                style={{
+                  background: 'var(--bg-subtle)',
+                  borderBottom: '1px solid var(--border)',
+                }}
+              />
+            )}
             <div
               role="columnheader"
               style={{
-                gridColumn: `1 / span ${standardCols.length}`,
+                gridColumn: `${standardSpanStart} / span ${standardCols.length}`,
                 padding: '6px 10px',
                 fontSize: 'var(--fs-xs)',
                 color: 'var(--text-subtle)',
@@ -206,7 +285,7 @@ function DataTable<Row>({
             <div
               role="columnheader"
               style={{
-                gridColumn: `${standardCols.length + 1} / span ${metadataCols.length}`,
+                gridColumn: `${standardSpanStart + standardCols.length} / span ${metadataCols.length}`,
                 padding: '6px 10px',
                 fontSize: 'var(--fs-xs)',
                 color: 'var(--meta-label)',
@@ -224,6 +303,14 @@ function DataTable<Row>({
         )}
 
         <div role="row" style={{ display: 'contents' }}>
+          {selectable && (
+            <SelectionHeaderCell
+              checked={allVisibleSelected}
+              indeterminate={someVisibleSelected}
+              onToggle={toggleAllVisible}
+              disabled={visibleKeys.length === 0}
+            />
+          )}
           {standardCols.map(col => (
             <ColumnHeaderCell
               key={col.key}
@@ -246,6 +333,15 @@ function DataTable<Row>({
 
         {showFilterRow && (
           <div role="row" style={{ display: 'contents' }}>
+            {selectable && (
+              <div
+                role="cell"
+                style={{
+                  borderBottom: '1px solid var(--border)',
+                  background: 'var(--bg-raised)',
+                }}
+              />
+            )}
             {standardCols.map(col => (
               <FilterCell key={col.key} col={col} value={filters[col.key] ?? ''} onChange={v => setFilter(col.key, v)} />
             ))}
@@ -266,7 +362,7 @@ function DataTable<Row>({
           <div
             role="row"
             style={{
-              gridColumn: `1 / span ${activeColumns.length}`,
+              gridColumn: `1 / span ${activeColumns.length + (selectable ? 1 : 0)}`,
               padding: '24px 10px',
               textAlign: 'center',
               color: 'var(--text-subtle)',
@@ -278,7 +374,12 @@ function DataTable<Row>({
         ) : (
           processedRows.map(row => {
             const rowKey = getRowKey(row);
-            const isSelected = selectedRow === rowKey;
+            const inMultiSelect = selectable && selection!.has(rowKey);
+            // Highlight the row when it's either the focused single-select
+            // target or part of the bulk-selection set. Both share the
+            // same visual (bg-active + accent stripe) — they can't appear
+            // together in a way that produces ambiguity.
+            const isSelected = selectedRow === rowKey || inMultiSelect;
             const clickable = Boolean(onSelectRow || onRowClick);
             const handleClick = () => {
               if (onSelectRow) onSelectRow(rowKey);
@@ -293,6 +394,12 @@ function DataTable<Row>({
                 onClick={clickable ? handleClick : undefined}
                 style={{ display: 'contents', cursor: clickable ? 'pointer' : undefined }}
               >
+                {selectable && (
+                  <SelectionCell
+                    checked={inMultiSelect!}
+                    onToggle={(shift) => toggleOne(rowKey, shift)}
+                  />
+                )}
                 {standardCols.map(col => (
                   <Cell key={col.key} col={col} row={row} />
                 ))}
@@ -465,6 +572,79 @@ function Cell<Row>({ col, row, meta, metaFirst }: CellProps<Row>) {
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
         {content as ReactNode}
       </span>
+    </div>
+  );
+}
+
+// ────────── Selection cells ──────────
+//
+// A native <input type="checkbox"> is wrapped in a role="cell" so it
+// participates in the grid's row + hover semantics. `stopPropagation`
+// on the click keeps the row's own onClick (side-panel select, etc.)
+// from firing when the user is checking the box.
+
+interface SelectionHeaderCellProps {
+  checked: boolean;
+  indeterminate: boolean;
+  onToggle: () => void;
+  disabled: boolean;
+}
+
+function SelectionHeaderCell({ checked, indeterminate, onToggle, disabled }: SelectionHeaderCellProps) {
+  return (
+    <div
+      role="columnheader"
+      style={{
+        padding: '7px 10px',
+        background: 'var(--bg-subtle)',
+        borderBottom: '1px solid var(--border-strong)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <input
+        type="checkbox"
+        aria-label="Select all visible rows"
+        checked={checked}
+        ref={el => { if (el) el.indeterminate = indeterminate; }}
+        disabled={disabled}
+        onChange={onToggle}
+        onClick={e => e.stopPropagation()}
+        style={{ cursor: disabled ? 'not-allowed' : 'pointer', accentColor: 'var(--accent)' }}
+      />
+    </div>
+  );
+}
+
+interface SelectionCellProps {
+  checked: boolean;
+  onToggle: (shiftKey: boolean) => void;
+}
+
+function SelectionCell({ checked, onToggle }: SelectionCellProps) {
+  return (
+    <div
+      role="cell"
+      className="sdd-cell"
+      style={{
+        padding: '0 10px',
+        height: 'var(--row-height, 36px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderBottom: '1px solid var(--border)',
+      }}
+      onClick={e => e.stopPropagation()}
+    >
+      <input
+        type="checkbox"
+        aria-label="Select row"
+        checked={checked}
+        onChange={() => { /* handled in onClick so we can read shiftKey */ }}
+        onClick={e => { e.stopPropagation(); onToggle(e.shiftKey); }}
+        style={{ cursor: 'pointer', accentColor: 'var(--accent)' }}
+      />
     </div>
   );
 }
