@@ -56,8 +56,16 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
     perspectiveApi.getAll().then(setPerspectives).catch(() => {});
   }, []);
 
+  // Standard "inside this section" match — used for View/Tools rows where the
+  // section's subroutes should keep the header highlighted (e.g. `/quality/x`
+  // still highlights the Quality row).
   const isActive = (path: string) =>
     location.pathname === path || location.pathname.startsWith(path + '/');
+
+  // Exact match — used for the package tree so a parent package doesn't stay
+  // highlighted when you're on one of its entities. Only one row in the tree
+  // should read as "selected" at a time (handoff §Shell).
+  const isActiveExact = (path: string) => location.pathname === path;
 
   const togglePackage = (pkgId: string) =>
     setExpandedPackages(prev => ({ ...prev, [pkgId]: !prev[pkgId] }));
@@ -89,6 +97,7 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
   // ────────── Expanded mode ──────────
   return (
     <aside
+      className="sdd-sidebar"
       style={{
         height: '100%',
         display: 'flex',
@@ -99,6 +108,14 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
         fontSize: 'var(--fs-sm)',
       }}
     >
+      {/* Scope the :focus-visible ring inside sidebar rows so the outline
+          doesn't wrap the whole row on top of the active accent-soft bg. */}
+      <style>{`
+        .sdd-sidebar a:focus-visible,
+        .sdd-sidebar button:focus-visible {
+          outline-offset: -2px;
+        }
+      `}</style>
       {/* Browse */}
       <NavItem to="/" icon="home" active={location.pathname === '/'}>
         Home
@@ -119,7 +136,7 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
           No packages
         </div>
       ) : (
-        renderPackageTree(packages, [], expandedPackages, togglePackage, isActive)
+        renderPackageTree(packages, [], expandedPackages, togglePackage, isActiveExact)
       )}
 
       {/* Views */}
