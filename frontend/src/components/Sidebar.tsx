@@ -326,15 +326,31 @@ function renderPackageTree(
       (pkg.entities && pkg.entities.length > 0);
     const isOpen = !!expanded[pkg.id];
 
+    const pkgActive = isActive(packageUrl);
+
     return (
       <div key={pkg.id}>
+        {/* Package row — active styling (bg + stripe) lives on the outer
+            flex container so every row in the tree spans the same width,
+            regardless of indent level or whether there's a chevron. */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
-            paddingLeft: 10 + parentPath.length * 10,
+            background: pkgActive ? 'var(--accent-soft)' : 'transparent',
+            borderLeft: pkgActive
+              ? '2px solid var(--accent)'
+              : '2px solid transparent',
           }}
+          onMouseEnter={e => { if (!pkgActive) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+          onMouseLeave={e => { if (!pkgActive) e.currentTarget.style.background = 'transparent'; }}
         >
+          <span
+            style={{
+              width: 8 + parentPath.length * 10,
+              flexShrink: 0,
+            }}
+          />
           {hasChildren ? (
             <button
               type="button"
@@ -366,15 +382,11 @@ function renderPackageTree(
               gap: 6,
               padding: '4px 8px 4px 4px',
               fontSize: 'var(--fs-sm)',
-              color: isActive(packageUrl) ? 'var(--accent)' : 'var(--text)',
-              background: isActive(packageUrl) ? 'var(--accent-soft)' : 'transparent',
-              borderLeft: isActive(packageUrl) ? '2px solid var(--accent)' : '2px solid transparent',
+              color: pkgActive ? 'var(--accent)' : 'var(--text)',
               textDecoration: 'none',
-              fontWeight: isActive(packageUrl) ? 600 : 500,
+              fontWeight: pkgActive ? 600 : 500,
               overflow: 'hidden',
             }}
-            onMouseEnter={e => { if (!isActive(packageUrl)) e.currentTarget.style.background = 'var(--bg-hover)'; }}
-            onMouseLeave={e => { if (!isActive(packageUrl)) e.currentTarget.style.background = 'transparent'; }}
           >
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {pkg.name}
@@ -387,30 +399,42 @@ function renderPackageTree(
               const entityUrl = `${packageUrl}/entities/${entity.name}`;
               const active = isActive(entityUrl);
               return (
-                <Link
+                <div
                   key={entity.uuid}
-                  to={entityUrl}
                   style={{
-                    display: 'block',
-                    paddingLeft: 10 + (parentPath.length + 1) * 10 + 16,
-                    paddingRight: 8,
-                    paddingTop: 3,
-                    paddingBottom: 3,
-                    fontSize: 'var(--fs-xs)',
-                    color: active ? 'var(--accent)' : 'var(--text-muted)',
+                    display: 'flex',
+                    alignItems: 'center',
                     background: active ? 'var(--accent-soft)' : 'transparent',
-                    borderLeft: active ? '2px solid var(--accent)' : '2px solid transparent',
-                    textDecoration: 'none',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    fontWeight: active ? 600 : 400,
+                    borderLeft: active
+                      ? '2px solid var(--accent)'
+                      : '2px solid transparent',
                   }}
                   onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--bg-hover)'; }}
                   onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}
                 >
-                  {entity.name}
-                </Link>
+                  <span
+                    style={{
+                      width: 8 + (parentPath.length + 1) * 10 + 16,
+                      flexShrink: 0,
+                    }}
+                  />
+                  <Link
+                    to={entityUrl}
+                    style={{
+                      flex: 1,
+                      padding: '3px 8px 3px 0',
+                      fontSize: 'var(--fs-xs)',
+                      color: active ? 'var(--accent)' : 'var(--text-muted)',
+                      textDecoration: 'none',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      fontWeight: active ? 600 : 400,
+                    }}
+                  >
+                    {entity.name}
+                  </Link>
+                </div>
               );
             })}
             {pkg.subPackages && pkg.subPackages.length > 0 &&
