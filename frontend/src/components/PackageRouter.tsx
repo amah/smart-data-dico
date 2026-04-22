@@ -5,6 +5,7 @@ import AttributeEditor from './AttributeEditor';
 import RelationshipEditor from './RelationshipEditor';
 import PackageDetailPage from '../pages/PackageDetailPage';
 import AttributeDetailPage from '../pages/AttributeDetailPage';
+import RelationshipDetailPage from '../pages/RelationshipDetailPage';
 import { servicesApi, relationshipApi } from '../services/api';
 import { Attribute, Relationship } from '../types';
 
@@ -41,6 +42,10 @@ export default function PackageRouter() {
             relationshipUuid={rest[1]}
           />
         );
+      }
+      // /relationships/:uuid (no /edit) → Phase 5.2 detail page.
+      if (rest.length >= 2) {
+        return <RelationshipDetailPage key={`${service}-${entityName}-${rest[1]}`} />;
       }
     }
 
