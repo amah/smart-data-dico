@@ -1,5 +1,5 @@
 /**
- * Tests for the Integrity page (#85 R5).
+ * Tests for the Integrity page (#85 R5 / rollout 4.3).
  *
  * Mocks the integrityApi so the page renders against fixed three-list
  * payloads. Verifies:
@@ -7,7 +7,7 @@
  *   - The "All" tab renders all three categories with a Category column
  *   - The Validation/Constraints/Rules tabs render only their own rows
  *   - The search box filters across the union
- *   - The "Group by entity" toggle switches layouts and groups rows
+ *   - The "Needs attention" preset filters passing rows out
  */
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -97,16 +97,15 @@ describe('IntegrityPage — initial render', () => {
   it('shows tab counts derived from the loaded payload', async () => {
     mockedApi.getReport.mockResolvedValue(sampleReport);
     renderPage();
-    // Wait for the data to land
     await screen.findByText('username');
     // Tab counts: All=5, Validation=2, Constraints=2, Rules=1
-    const allTab = screen.getByRole('button', { name: /All\b/i });
+    const allTab = screen.getByRole('tab', { name: /All\b/i });
     expect(within(allTab).getByText('5')).toBeInTheDocument();
-    const validationTab = screen.getByRole('button', { name: /Validation/i });
+    const validationTab = screen.getByRole('tab', { name: /Validation/i });
     expect(within(validationTab).getByText('2')).toBeInTheDocument();
-    const constraintsTab = screen.getByRole('button', { name: /Constraints/i });
+    const constraintsTab = screen.getByRole('tab', { name: /Constraints/i });
     expect(within(constraintsTab).getByText('2')).toBeInTheDocument();
-    const rulesTab = screen.getByRole('button', { name: /Rules/i });
+    const rulesTab = screen.getByRole('tab', { name: /Rules/i });
     expect(within(rulesTab).getByText('1')).toBeInTheDocument();
   });
 
@@ -127,12 +126,10 @@ describe('IntegrityPage — tab switching', () => {
     renderPage();
     await screen.findByText('username');
 
-    fireEvent.click(screen.getByRole('button', { name: /Validation/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /Validation/i }));
 
-    // Validation rows still visible
     expect(screen.getByText('username')).toBeInTheDocument();
     expect(screen.getByText('website')).toBeInTheDocument();
-    // Constraint and rule rows gone
     expect(screen.queryByText('uq_users_email')).not.toBeInTheDocument();
     expect(screen.queryByText('order-total-positive')).not.toBeInTheDocument();
   });
@@ -142,7 +139,7 @@ describe('IntegrityPage — tab switching', () => {
     renderPage();
     await screen.findByText('username');
 
-    fireEvent.click(screen.getByRole('button', { name: /Constraints/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /Constraints/i }));
 
     expect(screen.getByText('uq_users_email')).toBeInTheDocument();
     expect(screen.getByText('chk_total')).toBeInTheDocument();
@@ -155,7 +152,7 @@ describe('IntegrityPage — tab switching', () => {
     renderPage();
     await screen.findByText('username');
 
-    fireEvent.click(screen.getByRole('button', { name: /Rules/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /Rules/i }));
 
     expect(screen.getByText('order-total-positive')).toBeInTheDocument();
     expect(screen.queryByText('username')).not.toBeInTheDocument();
@@ -172,10 +169,8 @@ describe('IntegrityPage — search', () => {
     const searchBox = screen.getByPlaceholderText(/Search by entity/i);
     fireEvent.change(searchBox, { target: { value: 'order' } });
 
-    // Order-related rows survive: chk_total + order-total-positive
     expect(screen.getByText('chk_total')).toBeInTheDocument();
     expect(screen.getByText('order-total-positive')).toBeInTheDocument();
-    // User-related rows gone
     expect(screen.queryByText('username')).not.toBeInTheDocument();
     expect(screen.queryByText('uq_users_email')).not.toBeInTheDocument();
   });
@@ -190,27 +185,31 @@ describe('IntegrityPage — search', () => {
     });
 
     // After filtering: 0 validation + 1 constraint + 1 rule = 2 in All
-    const allTab = screen.getByRole('button', { name: /All\b/i });
+    const allTab = screen.getByRole('tab', { name: /All\b/i });
     expect(within(allTab).getByText('2')).toBeInTheDocument();
-    const validationTab = screen.getByRole('button', { name: /Validation/i });
+    const validationTab = screen.getByRole('tab', { name: /Validation/i });
     expect(within(validationTab).getByText('0')).toBeInTheDocument();
   });
 });
 
-describe('IntegrityPage — group-by entity', () => {
-  it('switches to entity-grouped layout and shows mixed-category cards', async () => {
+describe('IntegrityPage — Needs attention preset', () => {
+  it('toggling the preset keeps error-severity rows and hides passing ones', async () => {
     mockedApi.getReport.mockResolvedValue(sampleReport);
     renderPage();
     await screen.findByText('username');
 
-    const groupBySelect = screen.getByRole('combobox');
-    fireEvent.change(groupBySelect, { target: { value: 'entity' } });
+    // All 5 rows visible by default
+    expect(screen.getByText('username')).toBeInTheDocument();
+    expect(screen.getByText('order-total-positive')).toBeInTheDocument();
 
-    // The User card should now show both validation rows and the unique constraint
-    const userHeading = screen.getByText('User');
-    expect(userHeading).toBeInTheDocument();
-    // Order entity + check constraint + functional rule
-    expect(screen.getByText('Order')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Needs attention/i }));
+
+    // Only the error-severity rule survives; validation + constraint rows
+    // (all default to `pass` until the backend publishes run status) drop out.
+    expect(screen.getByText('order-total-positive')).toBeInTheDocument();
+    expect(screen.queryByText('username')).not.toBeInTheDocument();
+    expect(screen.queryByText('uq_users_email')).not.toBeInTheDocument();
+    expect(screen.getByText(/passing item/i)).toBeInTheDocument();
   });
 });
 
