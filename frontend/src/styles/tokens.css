@@ -37,12 +37,20 @@
   --dur-fast: 120ms;
   --dur-med:  220ms;
 
-  /* Row densities (Phase 3 will let users swap the active one) */
+  /* Row densities — the active one is aliased to --row-height by the
+     data-density attribute rules further down. */
   --row-comfortable: 44px;
   --row-compact:     32px;
   --row-dense:       26px;
   --row-height: var(--row-comfortable);
 }
+
+/* ───────── Density (Phase 3) ─────────
+   Set on <html> by usePrefs. Rebinds --row-height so every DataTable
+   on the page reflects the active density automatically. */
+[data-density="comfortable"] { --row-height: var(--row-comfortable); }
+[data-density="compact"]     { --row-height: var(--row-compact); }
+[data-density="dense"]       { --row-height: var(--row-dense); }
 
 /* ───────── Calm — light (default) ───────── */
 [data-variant="calm"],

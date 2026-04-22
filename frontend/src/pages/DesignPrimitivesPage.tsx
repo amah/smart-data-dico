@@ -22,8 +22,8 @@ import {
   DataTable,
   ColumnChooser,
   type ColumnDef,
-  type Density,
 } from '../components/ui';
+import { usePrefs } from '../hooks/usePrefs';
 
 // ──────────── Demo data for the DataTable sample ────────────
 
@@ -98,20 +98,13 @@ const Row = ({ label, children }: { label: string; children: React.ReactNode }) 
 );
 
 const DesignPrimitivesPage = () => {
-  const [density, setDensity] = useState<Density>('comfortable');
+  const { density, setDensity } = usePrefs();
   const [search, setSearch] = useState('');
 
   // DataTable demo state
   const [visibleCols, setVisibleCols] = useState(new Set(ATTR_COLUMNS.map(c => c.key)));
   const [selectedKey, setSelectedKey] = useState<string | number | null>('email');
   const [showFilterRow, setShowFilterRow] = useState(false);
-
-  // Map the density choice to a CSS var override on the DataTable wrapper,
-  // since Phase 3 will be the one to wire density into the shell prefs.
-  const rowHeight =
-    density === 'comfortable' ? 'var(--row-comfortable)' :
-    density === 'compact'     ? 'var(--row-compact)' :
-                                'var(--row-dense)';
 
   return (
     <div
@@ -303,7 +296,7 @@ const DesignPrimitivesPage = () => {
       </Section>
 
       <Section title="DataTable — Standard vs Governance metadata split">
-        <div style={{ ['--row-height' as string]: rowHeight } as React.CSSProperties}>
+        <div>
           <Toolbar attached>
             <Button variant="primary" size="md" icon="plus">Add attribute</Button>
             <ColumnChooser
