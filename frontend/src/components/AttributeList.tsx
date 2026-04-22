@@ -1,18 +1,38 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Attribute, AttributeType, Entity, Rule, RuleSeverityValue } from '../types';
-import { useStereotypeMetadata, getMetadataValue, setMetadataValue } from '../hooks/useStereotypeMetadata';
+import {
+  useStereotypeMetadata,
+  getMetadataValue,
+  setMetadataValue,
+} from '../hooks/useStereotypeMetadata';
 import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
-import InlineMetadataCell from './InlineMetadataCell';
-import EditableCell, { SelectOption } from './EditableCell';
 import RulesSidePanel from './RulesSidePanel';
-import { useResizableColumns, ResizeHandle, type ColumnDef } from '../hooks/useResizableColumns';
 import { servicesApi, ruleApi } from '../services/api';
+import {
+  Button,
+  Chip,
+  ColumnChooser,
+  DataTable,
+  Icon,
+  Input,
+  PiiChip,
+  Toolbar,
+  TypeChip,
+} from './ui';
+import type { ColumnDef } from './ui';
 
-const ATTRIBUTE_TYPE_OPTIONS: SelectOption[] = Object.values(AttributeType).map((t) => ({
-  value: t,
-  label: t,
-}));
+/**
+ * AttributeList — Phase 4.1 redesign.
+ *
+ * Visual grammar follows design_handoff README §Core (standard-vs-metadata
+ * split) plus Toolbar → DataTable → ColumnChooser wiring.
+ *
+ * Edit pattern for Calm: side-panel slide-over from the right (480px).
+ * Inline-editing has been retired; all writes go through the panel,
+ * which delegates to the same `servicesApi.updateEntity` call that
+ * the old inline cells used, so every backend path is preserved.
+ */
 
 interface AttributeListProps {
   attributes: Attribute[];
@@ -23,17 +43,37 @@ interface AttributeListProps {
   onAttributeUpdated?: () => void;
 }
 
-/** Severity ordering: error > warning > info */
 const severityRank: Record<RuleSeverityValue, number> = { error: 3, warning: 2, info: 1 };
 
-const ruleBadgeClass = (maxSeverity: RuleSeverityValue | null): string => {
-  switch (maxSeverity) {
-    case 'error': return 'badge-error';
-    case 'warning': return 'badge-warning';
-    case 'info': return 'badge-info';
-    default: return 'badge-ghost';
-  }
+/** Map a PII metadata value to the Chip primitive's typed shape. */
+const PII_SHAPES: Record<string, 'direct' | 'indirect' | 'possible'> = {
+  direct:   'direct',
+  indirect: 'indirect',
+  possible: 'possible',
+  true:     'direct',
 };
+function piiOf(attr: Attribute): 'direct' | 'indirect' | 'possible' | null {
+  const raw = getMetadataValue(attr, 'pii');
+  if (raw === undefined || raw === null || raw === false || raw === '') return null;
+  const key = String(raw).toLowerCase();
+  return PII_SHAPES[key] ?? 'possible';
+}
+
+function maxSeverity(rules: Rule[]): RuleSeverityValue | null {
+  if (rules.length === 0) return null;
+  return rules.reduce<RuleSeverityValue>(
+    (max, r) => (severityRank[r.severity] > severityRank[max] ? r.severity : max),
+    'info',
+  );
+}
+
+const SEVERITY_TONE: Record<RuleSeverityValue, 'danger' | 'warning' | 'info'> = {
+  error:   'danger',
+  warning: 'warning',
+  info:    'info',
+};
+
+const ATTR_COL_KEY = 'attribute-list-columns-v2';
 
 interface DraftAttribute {
   id: string;
@@ -51,68 +91,50 @@ const emptyDraft = (): DraftAttribute => ({
   required: false,
 });
 
-const AttributeList = ({ attributes, entityName, entityUuid, serviceName, onAttributeUpdated }: AttributeListProps) => {
+const AttributeList = ({
+  attributes,
+  entityName,
+  entityUuid,
+  serviceName,
+  onAttributeUpdated,
+}: AttributeListProps) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<AttributeType | 'all'>('all');
-  const { allColumns, columnsByStereotype } = useStereotypeMetadata('attribute');
+  const { allColumns } = useStereotypeMetadata('attribute');
 
-  // Column picker state (#91) — replaces auto-detect-only `getActiveColumns`
-  const ATTR_COL_KEY = 'attribute-list-columns';
-  const [visibleColumns, setVisibleColumns] = useState<Set<string>>(() => {
+  // Metadata column visibility — persisted locally.
+  const [metaVisible, setMetaVisible] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem(ATTR_COL_KEY);
       if (saved) return new Set(JSON.parse(saved));
     } catch { /* ignore */ }
     return new Set<string>();
   });
-  const [showColumnPicker, setShowColumnPicker] = useState(false);
 
-  // Auto-detect on first load when no localStorage exists
   useEffect(() => {
-    if (attributes.length > 0 && allColumns.length > 0 && visibleColumns.size === 0) {
+    if (attributes.length > 0 && allColumns.length > 0 && metaVisible.size === 0) {
       const used = new Set<string>();
       for (const attr of attributes) {
         for (const entry of attr.metadata || []) {
           if (allColumns.some(c => c.name === entry.name)) used.add(entry.name);
         }
       }
-      if (used.size > 0) setVisibleColumns(used);
+      if (used.size > 0) setMetaVisible(used);
     }
   }, [attributes, allColumns]);
 
   useEffect(() => {
-    localStorage.setItem(ATTR_COL_KEY, JSON.stringify([...visibleColumns]));
-  }, [visibleColumns]);
+    localStorage.setItem(ATTR_COL_KEY, JSON.stringify([...metaVisible]));
+  }, [metaVisible]);
 
-  const toggleColumn = (name: string) => {
-    setVisibleColumns(prev => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
-  };
-
-  const toggleGroup = (stereotypeId: string) => {
-    const groupCols = columnsByStereotype[stereotypeId] || [];
-    const allVisible = groupCols.every(c => visibleColumns.has(c.name));
-    setVisibleColumns(prev => {
-      const next = new Set(prev);
-      for (const col of groupCols) {
-        if (allVisible) next.delete(col.name);
-        else next.add(col.name);
-      }
-      return next;
-    });
-  };
-
-  // Inline editing state
-  const [drafts, setDrafts] = useState<DraftAttribute[]>([]);
-  const [saving, setSaving] = useState(false);
-
-  // Rules for this entity (#76)
+  // Rules for this entity (#76).
   const [entityRules, setEntityRules] = useState<Rule[]>([]);
   const [sidePanelAttr, setSidePanelAttr] = useState<Attribute | null>(null);
+  const [editAttr, setEditAttr] = useState<Attribute | null>(null);
+
+  // Drafts are added via the side-panel "Add attribute" button.
+  const [drafts, setDrafts] = useState<DraftAttribute[]>([]);
+  const [saving, setSaving] = useState(false);
 
   const fetchEntityRules = useCallback(async () => {
     if (!entityUuid) return;
@@ -129,7 +151,6 @@ const AttributeList = ({ attributes, entityName, entityUuid, serviceName, onAttr
     fetchEntityRules();
   }, [fetchEntityRules]);
 
-  /** Group rules by attribute UUID for O(1) per-row lookup. */
   const rulesByAttrUuid = useMemo(() => {
     const map = new Map<string, Rule[]>();
     for (const rule of entityRules) {
@@ -144,63 +165,21 @@ const AttributeList = ({ attributes, entityName, entityUuid, serviceName, onAttr
     return map;
   }, [entityRules]);
 
-  const maxSeverityFor = (rules: Rule[]): RuleSeverityValue | null => {
-    if (rules.length === 0) return null;
-    return rules.reduce<RuleSeverityValue>(
-      (max, r) => (severityRank[r.severity] > severityRank[max] ? r.severity : max),
-      'info',
-    );
-  };
+  const activeMetaColumns = allColumns.filter(c => metaVisible.has(c.name));
 
-  const metadataColumns = allColumns.filter(c => visibleColumns.has(c.name));
+  const filteredAttributes = useMemo(() => {
+    const needle = searchTerm.trim().toLowerCase();
+    return attributes.filter(attr => {
+      const matchesSearch = !needle
+        || attr.name.toLowerCase().includes(needle)
+        || (attr.description || '').toLowerCase().includes(needle);
+      const matchesType = filterType === 'all' || attr.type === filterType;
+      return matchesSearch && matchesType;
+    });
+  }, [attributes, searchTerm, filterType]);
 
-  const attrColDefs: ColumnDef[] = useMemo(() => [
-    { key: 'name', defaultWidth: 160 },
-    { key: 'type', defaultWidth: 90 },
-    { key: 'description', defaultWidth: 350 },
-    { key: 'required', defaultWidth: 70 },
-    { key: 'rules', defaultWidth: 70 },
-    ...metadataColumns.map(col => ({ key: col.name, defaultWidth: 120 })),
-    { key: 'actions', defaultWidth: 80 },
-  ], [metadataColumns]);
-  const { widths: attrWidths, startResize: attrStartResize, resetWidths: attrResetWidths, tableStyle: attrTableStyle } = useResizableColumns('attribute-list', attrColDefs);
+  // ──────────────── Save paths (unchanged semantics) ────────────────
 
-  const filteredAttributes = attributes.filter(attr => {
-    const matchesSearch = searchTerm === '' ||
-      attr.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      attr.description.toLowerCase().includes(searchTerm.toLowerCase());
-
-    const matchesType = filterType === 'all' || attr.type === filterType;
-
-    return matchesSearch && matchesType;
-  });
-
-  const handleMetadataChange = useCallback(async (
-    attr: Attribute,
-    column: MetadataColumn,
-    value: string | number | boolean,
-  ) => {
-    try {
-      // Fetch fresh entity, update the attribute's metadata, save
-      const response = await servicesApi.getEntitySchema(serviceName, entityName);
-      const entity = response.data;
-      const attrIndex = entity.attributes.findIndex((a: Attribute) => a.uuid === attr.uuid);
-      if (attrIndex < 0) return;
-
-      entity.attributes[attrIndex].metadata = setMetadataValue(
-        entity.attributes[attrIndex].metadata,
-        column.name,
-        value,
-      );
-
-      await servicesApi.updateEntity(serviceName, entityName, entity);
-      onAttributeUpdated?.();
-    } catch (err) {
-      console.error('Failed to update metadata:', err);
-    }
-  }, [serviceName, entityName, onAttributeUpdated]);
-
-  /** Inline-edit save: fetch fresh entity, mutate one attribute field, PUT back. */
   const saveAttributeField = useCallback(async (
     attr: Attribute,
     updater: (a: Attribute) => Attribute,
@@ -214,26 +193,29 @@ const AttributeList = ({ attributes, entityName, entityUuid, serviceName, onAttr
     onAttributeUpdated?.();
   }, [serviceName, entityName, onAttributeUpdated]);
 
-  const addDraftRow = useCallback(() => {
-    setDrafts(prev => [...prev, emptyDraft()]);
-  }, []);
-
-  const updateDraft = useCallback((id: string, field: keyof DraftAttribute, value: any) => {
-    setDrafts(prev => prev.map(d => d.id === id ? { ...d, [field]: value } : d));
-  }, []);
-
-  const removeDraft = useCallback((id: string) => {
-    setDrafts(prev => prev.filter(d => d.id !== id));
-  }, []);
+  const handleMetadataChange = useCallback(async (
+    attr: Attribute,
+    column: MetadataColumn,
+    value: string | number | boolean,
+  ) => {
+    try {
+      await saveAttributeField(attr, (a) => ({
+        ...a,
+        metadata: setMetadataValue(a.metadata, column.name, value),
+      }));
+    } catch (err) {
+      console.error('Failed to update metadata:', err);
+    }
+  }, [saveAttributeField]);
 
   const saveDrafts = useCallback(async () => {
-    const validDrafts = drafts.filter(d => d.name.trim());
-    if (validDrafts.length === 0) return;
+    const valid = drafts.filter(d => d.name.trim());
+    if (valid.length === 0) return;
     setSaving(true);
     try {
       const response = await servicesApi.getEntitySchema(serviceName, entityName);
       const entity = response.data;
-      for (const draft of validDrafts) {
+      for (const draft of valid) {
         entity.attributes.push({
           uuid: crypto.randomUUID(),
           name: draft.name.trim(),
@@ -254,7 +236,7 @@ const AttributeList = ({ attributes, entityName, entityUuid, serviceName, onAttr
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     const text = e.clipboardData.getData('text/plain');
-    if (!text.includes('\t') && !text.includes(',')) return; // Not tabular data
+    if (!text.includes('\t') && !text.includes(',')) return;
     e.preventDefault();
     const sep = text.includes('\t') ? '\t' : ',';
     const lines = text.split('\n').filter(l => l.trim());
@@ -270,401 +252,259 @@ const AttributeList = ({ attributes, entityName, entityUuid, serviceName, onAttr
         required: ['yes', 'true', '1'].includes((cols[3] || '').toLowerCase()),
       };
     }).filter(d => d.name);
-    if (newDrafts.length > 0) {
-      setDrafts(prev => [...prev, ...newDrafts]);
-    }
+    if (newDrafts.length > 0) setDrafts(prev => [...prev, ...newDrafts]);
   }, []);
 
-  const getTypeColor = (type: AttributeType) => {
-    switch (type) {
-      case AttributeType.STRING:
-        return 'badge-primary';
-      case AttributeType.NUMBER:
-      case AttributeType.INTEGER:
-        return 'badge-secondary';
-      case AttributeType.BOOLEAN:
-        return 'badge-accent';
-      case AttributeType.DATETIME:
-      case AttributeType.DATE:
-      case AttributeType.TIME:
-      case AttributeType.DATE_TIME:
-      case AttributeType.TIMESTAMP:
-      case AttributeType.DURATION:
-        return 'badge-info';
-      case AttributeType.ENUM:
-        return 'badge-warning';
-      case AttributeType.OBJECT:
-      case AttributeType.ARRAY:
-        return 'badge-success';
-      default:
-        return 'badge-ghost';
+  // ──────────────── Columns ────────────────
+
+  const columns: ColumnDef<Attribute>[] = useMemo(() => {
+    const std: ColumnDef<Attribute>[] = [
+      {
+        key: 'name',
+        header: 'Name',
+        group: 'standard',
+        mono: true,
+        sortable: true,
+        filterable: true,
+        width: 'minmax(160px, 1.4fr)',
+        accessor: (a) => a.name,
+        render: (a) => (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, overflow: 'hidden', minWidth: 0 }}>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{a.name}</span>
+            {a.primaryKey && <Icon name="key" size={11} style={{ color: 'var(--warning)' }} />}
+          </span>
+        ),
+      },
+      {
+        key: 'type',
+        header: 'Type',
+        group: 'standard',
+        sortable: true,
+        filterable: true,
+        width: 130,
+        accessor: (a) => a.type,
+        render: (a) => <TypeChip type={a.type} />,
+      },
+      {
+        key: 'required',
+        header: 'Required',
+        group: 'standard',
+        sortable: true,
+        width: 90,
+        align: 'center',
+        accessor: (a) => a.required,
+        render: (a) => a.required
+          ? <Chip tone="accent" soft>yes</Chip>
+          : <span style={{ color: 'var(--text-subtle)' }}>—</span>,
+      },
+      {
+        key: 'default',
+        header: 'Default',
+        group: 'standard',
+        width: 120,
+        mono: true,
+        accessor: (a) => (a.defaultValue === undefined || a.defaultValue === null)
+          ? ''
+          : String(a.defaultValue),
+        render: (a) => a.defaultValue === undefined || a.defaultValue === null
+          ? <span style={{ color: 'var(--text-subtle)' }}>—</span>
+          : <span className="mono" style={{ fontSize: 'var(--fs-sm)' }}>{String(a.defaultValue)}</span>,
+      },
+      {
+        key: 'description',
+        header: 'Description',
+        group: 'standard',
+        filterable: true,
+        width: 'minmax(240px, 2fr)',
+        accessor: (a) => a.description || '',
+        render: (a) => a.description
+          ? <span style={{ color: 'var(--text-muted)' }}>{a.description}</span>
+          : <span style={{ color: 'var(--text-subtle)', fontStyle: 'italic' }}>no description</span>,
+      },
+      {
+        key: 'rules',
+        header: 'Rules',
+        group: 'standard',
+        width: 80,
+        align: 'center',
+        accessor: (a) => (rulesByAttrUuid.get(a.uuid)?.length ?? 0),
+        render: (a) => {
+          const attrRules = rulesByAttrUuid.get(a.uuid) || [];
+          if (attrRules.length === 0) {
+            return <span style={{ color: 'var(--text-subtle)' }}>—</span>;
+          }
+          const sev = maxSeverity(attrRules)!;
+          return (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setSidePanelAttr(a); }}
+              style={{ background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}
+              title={`${attrRules.length} rule${attrRules.length === 1 ? '' : 's'}`}
+            >
+              <Chip tone={SEVERITY_TONE[sev]} soft>{attrRules.length}</Chip>
+            </button>
+          );
+        },
+      },
+    ];
+
+    const meta: ColumnDef<Attribute>[] = activeMetaColumns.map((col) => ({
+      key: `meta:${col.name}`,
+      header: col.label,
+      group: 'metadata',
+      width: col.name === 'pii' ? 110 : 120,
+      accessor: (a) => {
+        const v = getMetadataValue(a, col.name);
+        return v === undefined ? '' : (typeof v === 'boolean' ? (v ? 'yes' : 'no') : String(v));
+      },
+      render: (a) => renderMetadataCell(a, col),
+    }));
+
+    return [...std, ...meta];
+  }, [activeMetaColumns, rulesByAttrUuid]);
+
+  // ──────────────── Render ────────────────
+
+  const chooserCols = useMemo(() => columns as unknown as ColumnDef<unknown>[], [columns]);
+  const allVisibleKeys = useMemo(() => {
+    // Standard columns are always on; metadata toggles flow through metaVisible.
+    const set = new Set<string>();
+    for (const c of columns) {
+      if ((c.group ?? 'standard') === 'standard') set.add(c.key);
     }
-  };
+    for (const name of metaVisible) set.add(`meta:${name}`);
+    return set;
+  }, [columns, metaVisible]);
+
+  const handleVisibleChange = useCallback((next: Set<string>) => {
+    const nextMeta = new Set<string>();
+    next.forEach((key) => {
+      if (key.startsWith('meta:')) nextMeta.add(key.slice(5));
+    });
+    setMetaVisible(nextMeta);
+  }, []);
 
   return (
-    <div>
-      <div className="flex flex-col md:flex-row gap-4 mb-4">
-        <div className="form-control flex-1">
-          <div className="input-group">
-            <input
-              type="text"
-              placeholder="Search attributes..."
-              className="input input-bordered w-full"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-            {searchTerm && (
-              <button
-                className="btn btn-square"
-                onClick={() => setSearchTerm('')}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            )}
-          </div>
-        </div>
-
-        <select
-          className="select select-bordered"
-          value={filterType}
-          onChange={(e) => setFilterType(e.target.value as AttributeType | 'all')}
+    <div className="flex flex-col gap-2" onPaste={handlePaste}>
+      <Toolbar attached>
+        <Input
+          icon="search"
+          size="sm"
+          placeholder="Search attributes…"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.currentTarget.value)}
+          width={260}
+        />
+        <TypeFilter value={filterType} onChange={setFilterType} />
+        <ColumnChooser
+          columns={chooserCols}
+          visible={allVisibleKeys}
+          onChange={handleVisibleChange}
+        />
+        <Toolbar.Spacer />
+        <Button
+          size="md"
+          variant="secondary"
+          icon="plus"
+          onClick={() => setDrafts(prev => [...prev, emptyDraft()])}
         >
-          <option value="all">All Types</option>
-          {Object.values(AttributeType).map(type => (
-            <option key={type} value={type}>{type}</option>
-          ))}
-        </select>
+          Add row
+        </Button>
+        <Button
+          size="md"
+          variant="primary"
+          icon="edit"
+          disabled={attributes.length === 0}
+          onClick={() => setEditAttr(attributes[0] ?? null)}
+        >
+          Quick edit
+        </Button>
+      </Toolbar>
 
-        {/* Metadata column picker */}
-        {allColumns.length > 0 && (
-          <div className="relative">
-            <button
-              className="btn btn-sm btn-outline gap-1"
-              onClick={() => setShowColumnPicker(!showColumnPicker)}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" />
-              </svg>
-              Columns
-              {metadataColumns.length > 0 && (
-                <span className="badge badge-xs badge-primary">{metadataColumns.length}</span>
-              )}
-            </button>
+      <DataTable<Attribute>
+        columns={columns}
+        rows={filteredAttributes}
+        getRowKey={(a) => a.uuid}
+        visibleColumns={allVisibleKeys}
+        onVisibleColumnsChange={handleVisibleChange}
+        onRowClick={(a) => setEditAttr(a)}
+        showFilterRow
+        attached
+        emptyMessage={
+          attributes.length === 0
+            ? 'No attributes yet. Click "Add row" to create one.'
+            : 'No attributes match these filters.'
+        }
+      />
 
-            {showColumnPicker && (
-              <div className="absolute right-0 top-full mt-1 z-50 bg-base-100 border border-base-300 rounded-lg shadow-lg p-3 min-w-[220px] max-h-[400px] overflow-y-auto">
-                {Object.entries(columnsByStereotype).map(([stId, cols]) => {
-                  const allOn = cols.every(c => visibleColumns.has(c.name));
-                  return (
-                    <div key={stId} className="mb-2">
-                      <label className="flex items-center gap-2 font-semibold text-sm cursor-pointer mb-1">
-                        <input
-                          type="checkbox"
-                          className="checkbox checkbox-xs checkbox-primary"
-                          checked={allOn}
-                          onChange={() => toggleGroup(stId)}
-                        />
-                        {cols[0]?.stereotypeName || stId}
-                      </label>
-                      {cols.map(col => (
-                        <label key={col.name} className="flex items-center gap-2 ml-4 text-sm cursor-pointer">
-                          <input
-                            type="checkbox"
-                            className="checkbox checkbox-xs"
-                            checked={visibleColumns.has(col.name)}
-                            onChange={() => toggleColumn(col.name)}
-                          />
-                          {col.label}
-                        </label>
-                      ))}
-                    </div>
-                  );
-                })}
-                <div className="border-t border-base-300 mt-2 pt-2 flex gap-2">
-                  <button className="btn btn-xs" onClick={() => setVisibleColumns(new Set(allColumns.map(c => c.name)))}>
-                    All
-                  </button>
-                  <button className="btn btn-xs" onClick={() => setVisibleColumns(new Set())}>
-                    None
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-        <button className="btn btn-sm btn-ghost" onClick={attrResetWidths} title="Reset column widths">
-          Reset cols
-        </button>
-      </div>
-
-      {filteredAttributes.length === 0 ? (
-        <div className="alert alert-info">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" className="stroke-current shrink-0 w-6 h-6">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-          </svg>
-          <span>No attributes found matching your criteria.</span>
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="table table-zebra" style={attrTableStyle}>
-            <thead>
-              <tr>
-                <th className="relative" style={{ width: attrWidths.name }}>
-                  Name
-                  <ResizeHandle onMouseDown={(e) => attrStartResize('name', e)} />
-                </th>
-                <th className="relative" style={{ width: attrWidths.type }}>
-                  Type
-                  <ResizeHandle onMouseDown={(e) => attrStartResize('type', e)} />
-                </th>
-                <th className="relative" style={{ width: attrWidths.description }}>
-                  Description
-                  <ResizeHandle onMouseDown={(e) => attrStartResize('description', e)} />
-                </th>
-                <th className="relative" style={{ width: attrWidths.required }}>
-                  Required
-                  <ResizeHandle onMouseDown={(e) => attrStartResize('required', e)} />
-                </th>
-                <th className="relative" style={{ width: attrWidths.rules }}>
-                  Rules
-                  <ResizeHandle onMouseDown={(e) => attrStartResize('rules', e)} />
-                </th>
-                {metadataColumns.map(col => (
-                  <th key={col.name} title={col.description} className="relative" style={{ width: attrWidths[col.name] }}>
-                    <span className="flex items-center gap-1">
-                      {col.label}
-                      <span className="badge badge-xs badge-ghost font-normal">{col.stereotypeName}</span>
-                    </span>
-                    <ResizeHandle onMouseDown={(e) => attrStartResize(col.name, e)} />
-                  </th>
-                ))}
-                <th className="relative" style={{ width: attrWidths.actions }}>
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredAttributes.map((attr) => (
-                <tr key={attr.uuid} className="hover">
-                  <EditableCell
-                    className="font-medium"
-                    value={attr.name}
-                    onSave={async (v) => {
-                      await saveAttributeField(attr, (a) => ({ ...a, name: v as string }));
-                    }}
-                    renderDisplay={(v) => (
-                      <span>
-                        {v?.toString() || '-'}
-                        {attr.primaryKey && (
-                          <span className="badge badge-xs badge-warning ml-1" title="Primary Key">PK</span>
-                        )}
-                      </span>
-                    )}
-                  />
-                  <EditableCell
-                    value={attr.type}
-                    inputType="select"
-                    options={ATTRIBUTE_TYPE_OPTIONS}
-                    onSave={async (v) => {
-                      await saveAttributeField(attr, (a) => ({ ...a, type: v as AttributeType }));
-                    }}
-                    renderDisplay={(v) => (
-                      <span className={`badge ${getTypeColor(v as AttributeType)}`}>
-                        {v?.toString()}
-                      </span>
-                    )}
-                  />
-                  <EditableCell
-                    value={attr.description || ''}
-                    inputType="textarea"
-                    className="w-[40ch] max-w-[40ch] align-top"
-                    renderDisplay={(v) => (
-                      <span className="line-clamp-2 leading-snug" title={String(v)}>
-                        {String(v) || <span className="text-base-content/30">—</span>}
-                      </span>
-                    )}
-                    onSave={async (v) => {
-                      await saveAttributeField(attr, (a) => ({ ...a, description: v as string }));
-                    }}
-                  />
-                  <EditableCell
-                    value={attr.required}
-                    inputType="toggle"
-                    ariaLabel={`${attr.name} required`}
-                    onSave={async (v) => {
-                      await saveAttributeField(attr, (a) => ({ ...a, required: v as boolean }));
-                    }}
-                  />
-                  {/* Rules column (#76): count badge for rules touching this attribute */}
-                  <td>
-                    {(() => {
-                      const attrRules = rulesByAttrUuid.get(attr.uuid) || [];
-                      const count = attrRules.length;
-                      const maxSev = maxSeverityFor(attrRules);
-                      const hasSaveGate = attrRules.some(r => r.enforcement === 'save');
-                      const hasProcessGate = attrRules.some(r => r.enforcement === 'process');
-                      if (count === 0) {
-                        return <span className="text-base-content/30">-</span>;
-                      }
-                      return (
-                        <button
-                          className={`badge ${ruleBadgeClass(maxSev)} gap-1 cursor-pointer`}
-                          onClick={() => setSidePanelAttr(attr)}
-                          title={`${count} rule${count === 1 ? '' : 's'}`}
-                        >
-                          {hasSaveGate && (
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor" aria-label="blocking save">
-                              <path fillRule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001z" clipRule="evenodd" />
-                            </svg>
-                          )}
-                          {hasProcessGate && (
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor" aria-label="process gate">
-                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-                            </svg>
-                          )}
-                          {count}
-                        </button>
-                      );
-                    })()}
-                  </td>
-                  {metadataColumns.map(col => (
-                    <td key={col.name}>
-                      <InlineMetadataCell
-                        value={getMetadataValue(attr, col.name)}
-                        column={col}
-                        onChange={(val) => handleMetadataChange(attr, col, val)}
-                      />
-                    </td>
-                  ))}
-                  <td>
-                    <div className="flex items-center gap-1">
-                      <Link
-                        to={`/packages/${serviceName}/entities/${entityName}/attributes/${attr.name}/edit`}
-                        className="btn btn-sm btn-ghost btn-square"
-                        title="Open full editor (constraints, examples, etc.)"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                          <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                        </svg>
-                      </Link>
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-ghost btn-square"
-                        title="Manage rules / constraints"
-                        onClick={() => setSidePanelAttr(attr)}
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                        </svg>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Inline draft rows */}
+      {/* Draft rows (bulk add / paste from Excel) */}
       {drafts.length > 0 && (
-        <div className="overflow-x-auto mt-2 border-2 border-primary/30 rounded-lg" onPaste={handlePaste}>
-          <table className="table table-sm w-full">
-            <thead>
-              <tr className="bg-primary/10">
-                <th>Name</th>
-                <th>Type</th>
-                <th>Description</th>
-                <th>Required</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {drafts.map((draft, idx) => (
-                <tr key={draft.id}>
-                  <td>
-                    <input
-                      type="text"
-                      className="input input-xs input-bordered w-full"
-                      placeholder="attributeName"
-                      value={draft.name}
-                      onChange={(e) => updateDraft(draft.id, 'name', e.target.value)}
-                      autoFocus={idx === drafts.length - 1}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') addDraftRow();
-                      }}
-                    />
-                  </td>
-                  <td>
-                    <select
-                      className="select select-xs select-bordered"
-                      value={draft.type}
-                      onChange={(e) => updateDraft(draft.id, 'type', e.target.value)}
-                    >
-                      {Object.values(AttributeType).map(t => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>
-                    <input
-                      type="text"
-                      className="input input-xs input-bordered w-full"
-                      placeholder="Description"
-                      value={draft.description}
-                      onChange={(e) => updateDraft(draft.id, 'description', e.target.value)}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="checkbox"
-                      className="checkbox checkbox-xs checkbox-primary"
-                      checked={draft.required}
-                      onChange={(e) => updateDraft(draft.id, 'required', e.target.checked)}
-                    />
-                  </td>
-                  <td>
-                    <button className="btn btn-xs btn-ghost text-error" onClick={() => removeDraft(draft.id)}>
-                      &times;
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div
+          style={{
+            background: 'var(--bg-raised)',
+            border: '2px dashed var(--accent)',
+            borderRadius: 'var(--radius-md)',
+            padding: 8,
+          }}
+        >
+          <div
+            className="uppercase"
+            style={{
+              fontSize: 'var(--fs-xs)',
+              color: 'var(--accent)',
+              letterSpacing: '0.04em',
+              fontWeight: 600,
+              marginBottom: 6,
+            }}
+          >
+            New attributes ({drafts.length})
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {drafts.map((d, idx) => (
+              <DraftRow
+                key={d.id}
+                draft={d}
+                autoFocus={idx === drafts.length - 1}
+                onChange={(patch) => setDrafts(prev => prev.map(x => x.id === d.id ? { ...x, ...patch } : x))}
+                onRemove={() => setDrafts(prev => prev.filter(x => x.id !== d.id))}
+                onAddAnother={() => setDrafts(prev => [...prev, emptyDraft()])}
+              />
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+            <Button
+              size="sm"
+              variant="primary"
+              icon="check"
+              disabled={saving || drafts.every(d => !d.name.trim())}
+              onClick={saveDrafts}
+            >
+              {saving ? 'Saving…' : `Save ${drafts.filter(d => d.name.trim()).length}`}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setDrafts([])}>Discard</Button>
+            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)', alignSelf: 'center' }}>
+              Tip: paste from Excel (name, type, description, required)
+            </span>
+          </div>
         </div>
       )}
 
-      {/* Action buttons */}
-      <div className="mt-4 flex gap-2 flex-wrap">
-        <button className="btn btn-sm btn-outline" onClick={addDraftRow} onPaste={handlePaste}>
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-          </svg>
-          Add Row
-        </button>
-        {drafts.length > 0 && (
-          <>
-            <button className="btn btn-sm btn-primary" onClick={saveDrafts} disabled={saving}>
-              {saving ? (
-                <><span className="loading loading-spinner loading-xs"></span> Saving...</>
-              ) : (
-                `Save ${drafts.filter(d => d.name.trim()).length} Attributes`
-              )}
-            </button>
-            <button className="btn btn-sm btn-ghost" onClick={() => setDrafts([])}>
-              Discard
-            </button>
-          </>
-        )}
-        <div className="text-xs text-base-content/50 flex items-center ml-2">
-          Tip: Paste from Excel (name, type, description, required)
-        </div>
-      </div>
+      {/* Side panel — the Calm edit pattern. */}
+      {editAttr && (
+        <AttributeSidePanel
+          attr={editAttr}
+          metaColumns={allColumns}
+          entityName={entityName}
+          serviceName={serviceName}
+          onClose={() => setEditAttr(null)}
+          onSave={async (patch) => {
+            await saveAttributeField(editAttr, (a) => ({ ...a, ...patch }));
+          }}
+          onMetadataChange={(col, value) => handleMetadataChange(editAttr, col, value)}
+          onOpenRules={() => { setSidePanelAttr(editAttr); }}
+        />
+      )}
 
-      {/* Rules side panel (#76) */}
       <RulesSidePanel
         title={sidePanelAttr ? `Rules for ${entityName}.${sidePanelAttr.name}` : 'Rules'}
         rules={sidePanelAttr ? rulesByAttrUuid.get(sidePanelAttr.uuid) || [] : []}
@@ -678,5 +518,446 @@ const AttributeList = ({ attributes, entityName, entityUuid, serviceName, onAttr
     </div>
   );
 };
+
+// ──────────────── Pieces ────────────────
+
+function renderMetadataCell(attr: Attribute, col: MetadataColumn): ReactNode {
+  if (col.name === 'pii') {
+    return <PiiChip value={piiOf(attr)} />;
+  }
+  const v = getMetadataValue(attr, col.name);
+  if (v === undefined || v === null || v === '') {
+    return <span style={{ color: 'var(--text-subtle)' }}>—</span>;
+  }
+  if (col.type === 'flag' || col.type === 'boolean') {
+    return v
+      ? <Chip tone="success" soft>yes</Chip>
+      : <Chip tone="neutral">no</Chip>;
+  }
+  return <span style={{ color: 'var(--text-muted)' }}>{String(v)}</span>;
+}
+
+interface TypeFilterProps {
+  value: AttributeType | 'all';
+  onChange: (v: AttributeType | 'all') => void;
+}
+
+const TypeFilter = ({ value, onChange }: TypeFilterProps) => (
+  <label
+    style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 6,
+      fontSize: 'var(--fs-sm)',
+      color: 'var(--text-muted)',
+    }}
+  >
+    <Icon name="filter" size={12} />
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value as AttributeType | 'all')}
+      style={{
+        height: 28,
+        padding: '0 6px',
+        fontSize: 'var(--fs-sm)',
+        fontFamily: 'inherit',
+        background: 'var(--bg-raised)',
+        color: 'var(--text)',
+        border: '1px solid var(--border-strong)',
+        borderRadius: 'var(--radius-sm)',
+      }}
+    >
+      <option value="all">all types</option>
+      {Object.values(AttributeType).map(t => (
+        <option key={t} value={t}>{t}</option>
+      ))}
+    </select>
+  </label>
+);
+
+interface DraftRowProps {
+  draft: DraftAttribute;
+  autoFocus?: boolean;
+  onChange: (patch: Partial<DraftAttribute>) => void;
+  onRemove: () => void;
+  onAddAnother: () => void;
+}
+
+const DraftRow = ({ draft, autoFocus, onChange, onRemove, onAddAnother }: DraftRowProps) => (
+  <div
+    style={{
+      display: 'grid',
+      gridTemplateColumns: '160px 130px 1fr 80px auto',
+      gap: 6,
+      alignItems: 'center',
+    }}
+  >
+    <input
+      type="text"
+      placeholder="attributeName"
+      value={draft.name}
+      autoFocus={autoFocus}
+      onChange={(e) => onChange({ name: e.target.value })}
+      onKeyDown={(e) => { if (e.key === 'Enter') onAddAnother(); }}
+      style={fieldStyle}
+    />
+    <select
+      value={draft.type}
+      onChange={(e) => onChange({ type: e.target.value as AttributeType })}
+      style={fieldStyle}
+    >
+      {Object.values(AttributeType).map(t => (
+        <option key={t} value={t}>{t}</option>
+      ))}
+    </select>
+    <input
+      type="text"
+      placeholder="Description"
+      value={draft.description}
+      onChange={(e) => onChange({ description: e.target.value })}
+      style={fieldStyle}
+    />
+    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+      <input
+        type="checkbox"
+        checked={draft.required}
+        onChange={(e) => onChange({ required: e.target.checked })}
+      />
+      required
+    </label>
+    <Button size="sm" variant="ghost" icon="close" onClick={onRemove} aria-label="remove draft" iconOnly />
+  </div>
+);
+
+// ──────────────── Side panel ────────────────
+
+interface SidePanelProps {
+  attr: Attribute;
+  metaColumns: MetadataColumn[];
+  entityName: string;
+  serviceName: string;
+  onClose: () => void;
+  onSave: (patch: Partial<Attribute>) => Promise<void>;
+  onMetadataChange: (col: MetadataColumn, value: string | number | boolean) => void;
+  onOpenRules: () => void;
+}
+
+const AttributeSidePanel = ({
+  attr,
+  metaColumns,
+  entityName,
+  serviceName,
+  onClose,
+  onSave,
+  onMetadataChange,
+  onOpenRules,
+}: SidePanelProps) => {
+  const [name, setName] = useState(attr.name);
+  const [type, setType] = useState<AttributeType>(attr.type);
+  const [description, setDescription] = useState(attr.description || '');
+  const [required, setRequired] = useState(!!attr.required);
+  const [defaultValue, setDefaultValue] = useState<string>(
+    attr.defaultValue === undefined || attr.defaultValue === null ? '' : String(attr.defaultValue),
+  );
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  // Re-hydrate when switching rows.
+  useEffect(() => {
+    setName(attr.name);
+    setType(attr.type);
+    setDescription(attr.description || '');
+    setRequired(!!attr.required);
+    setDefaultValue(
+      attr.defaultValue === undefined || attr.defaultValue === null ? '' : String(attr.defaultValue),
+    );
+    setSavedAt(null);
+  }, [attr.uuid]);
+
+  const dirty =
+    name !== attr.name ||
+    type !== attr.type ||
+    description !== (attr.description || '') ||
+    required !== !!attr.required ||
+    defaultValue !== (attr.defaultValue === undefined || attr.defaultValue === null ? '' : String(attr.defaultValue));
+
+  const handleSave = async () => {
+    if (!dirty) return;
+    setSaving(true);
+    try {
+      await onSave({
+        name,
+        type,
+        description,
+        required,
+        defaultValue: defaultValue === '' ? undefined : defaultValue,
+      });
+      setSavedAt(Date.now());
+    } catch (err) {
+      console.error('Failed to save attribute:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <div
+        onClick={onClose}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.25)',
+          zIndex: 40,
+        }}
+      />
+      <aside
+        role="dialog"
+        aria-label="Edit attribute"
+        style={{
+          position: 'fixed',
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: 480,
+          background: 'var(--bg-raised)',
+          borderLeft: '1px solid var(--border)',
+          boxShadow: 'var(--shadow-lg)',
+          display: 'flex',
+          flexDirection: 'column',
+          zIndex: 50,
+          animation: 'sddSlide 220ms ease-out',
+        }}
+      >
+        <style>{`
+          @keyframes sddSlide {
+            from { transform: translateX(100%); opacity: 0.7; }
+            to   { transform: translateX(0);     opacity: 1;   }
+          }
+        `}</style>
+
+        {/* Panel header */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '12px 14px',
+            borderBottom: '1px solid var(--border)',
+          }}
+        >
+          <span
+            className="uppercase mono"
+            style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)', letterSpacing: '0.04em' }}
+          >
+            edit attribute
+          </span>
+          <span
+            className="mono"
+            style={{ fontSize: 'var(--fs-md)', fontWeight: 600, color: 'var(--text)' }}
+          >
+            {attr.name}
+          </span>
+          <div style={{ flex: 1 }} />
+          <Link to={`/packages/${serviceName}/entities/${entityName}/attributes/${attr.name}/edit`}>
+            <Button size="sm" variant="ghost" icon="edit">Full editor</Button>
+          </Link>
+          <Button size="sm" variant="ghost" icon="close" onClick={onClose} iconOnly aria-label="close" />
+        </div>
+
+        {/* Form */}
+        <div
+          style={{
+            flex: 1,
+            overflow: 'auto',
+            padding: 14,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+          }}
+        >
+          <Field label="Name">
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              style={fieldStyleMono}
+            />
+          </Field>
+          <Field label="Type">
+            <select
+              value={type}
+              onChange={(e) => setType(e.target.value as AttributeType)}
+              style={fieldStyleMono}
+            >
+              {Object.values(AttributeType).map(t => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Description">
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              style={{ ...fieldStyle, minHeight: 60, padding: '6px 8px', fontFamily: 'inherit' }}
+            />
+          </Field>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <Field label="Required" inline>
+              <input
+                type="checkbox"
+                checked={required}
+                onChange={(e) => setRequired(e.target.checked)}
+              />
+            </Field>
+            <Field label="Default value" grow>
+              <input
+                type="text"
+                value={defaultValue}
+                onChange={(e) => setDefaultValue(e.target.value)}
+                style={fieldStyleMono}
+              />
+            </Field>
+          </div>
+
+          {metaColumns.length > 0 && (
+            <div>
+              <div
+                className="uppercase"
+                style={{
+                  fontSize: 'var(--fs-xs)',
+                  color: 'var(--meta-label)',
+                  letterSpacing: '0.06em',
+                  fontWeight: 600,
+                  marginTop: 8,
+                  marginBottom: 6,
+                  paddingBottom: 4,
+                  borderBottom: '1px dashed var(--meta-border)',
+                }}
+              >
+                Governance metadata
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {metaColumns.map((col) => (
+                  <MetadataField
+                    key={col.name}
+                    column={col}
+                    value={getMetadataValue(attr, col.name)}
+                    onChange={(v) => onMetadataChange(col, v)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div style={{ paddingTop: 4 }}>
+            <Button size="sm" variant="ghost" icon="shield" onClick={onOpenRules}>
+              Manage rules / constraints
+            </Button>
+          </div>
+        </div>
+
+        {/* Panel footer */}
+        <div
+          style={{
+            padding: '10px 14px',
+            borderTop: '1px solid var(--border)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <Button
+            size="md"
+            variant="primary"
+            icon="check"
+            onClick={handleSave}
+            disabled={!dirty || saving}
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
+          <Button size="md" variant="ghost" onClick={onClose}>Cancel</Button>
+          {savedAt && !dirty && (
+            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--success)' }}>Saved</span>
+          )}
+        </div>
+      </aside>
+    </>
+  );
+};
+
+interface FieldProps {
+  label: string;
+  inline?: boolean;
+  grow?: boolean;
+  children: ReactNode;
+}
+
+const Field = ({ label, inline, grow, children }: FieldProps) => (
+  <label
+    style={{
+      display: inline ? 'inline-flex' : 'flex',
+      flexDirection: inline ? 'row' : 'column',
+      alignItems: inline ? 'center' : 'stretch',
+      gap: inline ? 6 : 4,
+      flex: grow ? 1 : undefined,
+    }}
+  >
+    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', letterSpacing: '0.02em' }}>
+      {label}
+    </span>
+    {children}
+  </label>
+);
+
+interface MetadataFieldProps {
+  column: MetadataColumn;
+  value: string | number | boolean | undefined;
+  onChange: (value: string | number | boolean) => void;
+}
+
+const MetadataField = ({ column, value, onChange }: MetadataFieldProps) => {
+  if (column.type === 'flag' || column.type === 'boolean') {
+    return (
+      <Field label={`${column.label} · ${column.stereotypeName}`} inline>
+        <input
+          type="checkbox"
+          checked={!!value}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+      </Field>
+    );
+  }
+  return (
+    <Field label={`${column.label} · ${column.stereotypeName}`}>
+      <input
+        type="text"
+        value={value === undefined ? '' : String(value)}
+        onChange={(e) => onChange(e.target.value)}
+        style={fieldStyle}
+      />
+    </Field>
+  );
+};
+
+// ──────────────── Styles ────────────────
+
+const fieldStyle = {
+  height: 28,
+  padding: '0 8px',
+  fontSize: 'var(--fs-sm)',
+  fontFamily: 'inherit',
+  background: 'var(--bg-raised)',
+  color: 'var(--text)',
+  border: '1px solid var(--border-strong)',
+  borderRadius: 'var(--radius-sm)',
+  outline: 'none',
+} as const;
+
+const fieldStyleMono = {
+  ...fieldStyle,
+  fontFamily: 'var(--font-mono)',
+} as const;
 
 export default AttributeList;
