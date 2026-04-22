@@ -203,8 +203,16 @@
    Dark dev-tool theme. Bold is inherently dark — data-theme is a
    no-op under Bold per the handoff ("Bold is the night theme"), so
    we don't branch on [data-theme]. Users who want light surfaces
-   pick Calm. */
-[data-variant="bold"] {
+   pick Calm.
+
+   The selector list below pairs [data-variant="bold"] with both
+   [data-theme] values so the two-attribute form out-specifies
+   DaisyUI's own [data-theme="light"] / [data-theme="dark"] rules —
+   otherwise DaisyUI's palette aliases (--p, --b1, --bc, …) win on
+   source order and the Bold surfaces revert to DaisyUI's defaults. */
+[data-variant="bold"],
+[data-variant="bold"][data-theme="light"],
+[data-variant="bold"][data-theme="dark"] {
   /* Design tokens */
   --bg:            #0f1115;
   --bg-raised:     #16181d;
