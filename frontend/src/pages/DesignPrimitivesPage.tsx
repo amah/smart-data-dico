@@ -19,8 +19,50 @@ import {
   Input,
   DensitySwitcher,
   Toolbar,
+  DataTable,
+  ColumnChooser,
+  type ColumnDef,
   type Density,
 } from '../components/ui';
+
+// ──────────── Demo data for the DataTable sample ────────────
+
+type AttrRow = {
+  key: string;
+  name: string;
+  type: string;
+  required: boolean;
+  description: string;
+  owner: string;
+  pii: 'direct' | 'indirect' | 'possible' | null;
+  retention: string;
+  encrypted: boolean;
+  status: 'pass' | 'fail' | 'drift';
+};
+
+const ATTR_ROWS: AttrRow[] = [
+  { key: 'id',         name: 'id',           type: 'uuid',     required: true,  description: 'Primary key',                                owner: 'platform',  pii: 'direct',   retention: '7y', encrypted: true,  status: 'pass' },
+  { key: 'customerId', name: 'customerId',   type: 'uuid',     required: true,  description: 'FK → Customer.id',                           owner: 'billing',   pii: 'direct',   retention: '7y', encrypted: true,  status: 'pass' },
+  { key: 'email',      name: 'email',        type: 'email',    required: true,  description: 'Contact email, RFC 5322 validated.',         owner: 'growth',    pii: 'indirect', retention: '2y', encrypted: true,  status: 'drift' },
+  { key: 'nickname',   name: 'nickname',     type: 'string',   required: false, description: 'Optional display name.',                     owner: 'growth',    pii: null,       retention: '1y', encrypted: false, status: 'pass' },
+  { key: 'region',     name: 'region',       type: 'enum',     required: true,  description: 'Billing region bucket.',                     owner: 'billing',   pii: null,       retention: '7y', encrypted: false, status: 'fail' },
+  { key: 'total',      name: 'total',        type: 'decimal',  required: true,  description: 'Order total in minor units.',                owner: 'billing',   pii: null,       retention: '7y', encrypted: false, status: 'pass' },
+  { key: 'createdAt',  name: 'createdAt',    type: 'datetime', required: true,  description: 'Row insert timestamp.',                      owner: 'platform',  pii: null,       retention: '7y', encrypted: false, status: 'pass' },
+  { key: 'metadata',   name: 'metadata',     type: 'object',   required: false, description: 'Service-specific key/value bag.',            owner: 'platform',  pii: 'possible', retention: '1y', encrypted: false, status: 'info' as 'pass' },
+];
+
+const ATTR_COLUMNS: ColumnDef<AttrRow>[] = [
+  { key: 'name',        header: 'Name',        group: 'standard', mono: true, sortable: true, filterable: true, width: 'minmax(160px, 1.4fr)' },
+  { key: 'type',        header: 'Type',        group: 'standard', sortable: true, filterable: true, width: 130, render: r => <TypeChip type={r.type} /> },
+  { key: 'required',    header: 'Required',    group: 'standard', sortable: true, width: 90, render: r => (r.required ? <Chip tone="accent" soft>yes</Chip> : <span style={{ color: 'var(--text-subtle)' }}>—</span>) },
+  { key: 'description', header: 'Description', group: 'standard', filterable: true },
+
+  { key: 'owner',     header: 'Owner',    group: 'metadata', sortable: true, filterable: true, width: 110 },
+  { key: 'pii',       header: 'PII',      group: 'metadata', sortable: true, width: 110, render: r => <PiiChip value={r.pii} /> },
+  { key: 'retention', header: 'Retention', group: 'metadata', width: 90, align: 'right', mono: true },
+  { key: 'encrypted', header: 'Encrypted', group: 'metadata', width: 100, render: r => (r.encrypted ? <Chip tone="success" soft>yes</Chip> : <Chip tone="neutral">no</Chip>) },
+  { key: 'status',    header: 'Status',   group: 'metadata', sortable: true, width: 100, render: r => <StatusChip value={r.status} /> },
+];
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
   <section className="mb-8">
@@ -58,6 +100,19 @@ const Row = ({ label, children }: { label: string; children: React.ReactNode }) 
 const DesignPrimitivesPage = () => {
   const [density, setDensity] = useState<Density>('comfortable');
   const [search, setSearch] = useState('');
+
+  // DataTable demo state
+  const [visibleCols, setVisibleCols] = useState(new Set(ATTR_COLUMNS.map(c => c.key)));
+  const [selectedKey, setSelectedKey] = useState<string | number | null>('email');
+  const [showFilterRow, setShowFilterRow] = useState(false);
+
+  // Map the density choice to a CSS var override on the DataTable wrapper,
+  // since Phase 3 will be the one to wire density into the shell prefs.
+  const rowHeight =
+    density === 'comfortable' ? 'var(--row-comfortable)' :
+    density === 'compact'     ? 'var(--row-compact)' :
+                                'var(--row-dense)';
+
   return (
     <div
       className="p-6 min-h-screen"
@@ -247,77 +302,43 @@ const DesignPrimitivesPage = () => {
         </Toolbar>
       </Section>
 
-      <Section title="In-context sample row (Standard vs Governance metadata)">
-        <div
-          className="rounded-token-md overflow-hidden"
-          style={{ background: 'var(--bg-raised)', border: '1px solid var(--border)' }}
-        >
-          <div
-            className="grid"
-            style={{ gridTemplateColumns: 'minmax(200px, 1.4fr) 120px 80px minmax(0, 1fr) 140px 110px' }}
-          >
-            {/* Header */}
-            <div
-              className="px-3 py-2 uppercase col-span-4"
-              style={{
-                fontSize: 'var(--fs-xs)',
-                color: 'var(--text-subtle)',
-                letterSpacing: '0.04em',
-                background: 'var(--bg-subtle)',
-                borderBottom: '1px solid var(--border-strong)',
-                gridColumn: 'span 4 / span 4',
-              }}
+      <Section title="DataTable — Standard vs Governance metadata split">
+        <div style={{ ['--row-height' as string]: rowHeight } as React.CSSProperties}>
+          <Toolbar attached>
+            <Button variant="primary" size="md" icon="plus">Add attribute</Button>
+            <ColumnChooser
+              columns={ATTR_COLUMNS as ColumnDef<unknown>[]}
+              visible={visibleCols}
+              onChange={setVisibleCols}
+            />
+            <Button
+              variant="ghost"
+              size="md"
+              icon="filter"
+              pressed={showFilterRow}
+              onClick={() => setShowFilterRow(v => !v)}
             >
-              Standard
-            </div>
-            <div
-              className="px-3 py-2 uppercase col-span-2"
-              style={{
-                fontSize: 'var(--fs-xs)',
-                color: 'var(--meta-label)',
-                letterSpacing: '0.04em',
-                background: 'var(--meta-bg)',
-                borderBottom: '1px solid var(--border-strong)',
-                borderLeft: '1px dashed var(--meta-border)',
-                gridColumn: 'span 2 / span 2',
-              }}
-            >
-              Governance metadata
-            </div>
-
-            {[
-              ['customerId',   'uuid',     true,  'Primary key reference to Customer.',           'direct',   'pass'],
-              ['email',        'email',    true,  'Contact email, validated against RFC 5322.',   'indirect', 'drift'],
-              ['nickname',     'string',   false, 'Optional display name.',                        null,      'pass'],
-              ['region',       'enum',     true,  'Billing region bucket.',                        null,      'fail'],
-              ['metadata',     'object',   false, 'Service-specific key/value bag.',               'possible','info'],
-            ].map(([name, type, req, desc, pii, status], i) => (
-              <div key={i} className="contents">
-                <div className="px-3 py-3 mono" style={{ fontSize: 'var(--fs-sm)' }}>{name}</div>
-                <div className="px-3 py-3"><TypeChip type={type as string} /></div>
-                <div className="px-3 py-3" style={{ color: 'var(--text-muted)', fontSize: 'var(--fs-xs)' }}>
-                  {req ? 'required' : 'optional'}
-                </div>
-                <div className="px-3 py-3" style={{ color: 'var(--text-muted)', fontSize: 'var(--fs-sm)' }}>
-                  {desc as string}
-                </div>
-                <div
-                  className="px-3 py-3"
-                  style={{ background: 'var(--meta-bg)', borderLeft: '1px dashed var(--meta-border)' }}
-                >
-                  <PiiChip value={pii as 'direct' | 'indirect' | 'possible' | null} />
-                </div>
-                <div
-                  className="px-3 py-3"
-                  style={{ background: 'var(--meta-bg)' }}
-                >
-                  <StatusChip value={status as 'pass' | 'fail' | 'drift' | 'info'} />
-                </div>
-              </div>
-            ))}
-          </div>
+              Filter
+            </Button>
+            <Toolbar.Spacer />
+            <Input size="sm" icon="search" placeholder="Search…" width={200} />
+            <Toolbar.Divider />
+            <DensitySwitcher value={density} onChange={setDensity} />
+            <Button variant="ghost" size="md" icon="moreV" iconOnly aria-label="View options" />
+          </Toolbar>
+          <DataTable<AttrRow>
+            attached
+            columns={ATTR_COLUMNS}
+            rows={ATTR_ROWS}
+            getRowKey={r => r.key}
+            visibleColumns={visibleCols}
+            selectedRow={selectedKey}
+            onSelectRow={setSelectedKey}
+            showFilterRow={showFilterRow}
+          />
         </div>
       </Section>
+
     </div>
   );
 };

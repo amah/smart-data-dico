@@ -207,3 +207,26 @@
   outline: 2px solid var(--border-focus);
   outline-offset: 1px;
 }
+
+/* ───────── DataTable row / cell hover + selected ─────────
+   Rows use display:contents so they don't create a layout box of their
+   own. Hover/selected styling therefore lives on the cells, but is
+   *triggered* via the row selector so the whole row lights up together. */
+.sdd-cell {
+  background: transparent;
+  transition: background var(--dur-fast);
+}
+.sdd-cell[data-meta="1"] {
+  background: var(--meta-bg);
+}
+
+.sdd-row:hover > .sdd-cell {
+  background: var(--bg-hover);
+}
+
+.sdd-row[data-selected="1"] > .sdd-cell {
+  background: var(--bg-active);
+}
+.sdd-row[data-selected="1"] > .sdd-cell:first-child {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
