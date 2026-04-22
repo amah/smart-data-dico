@@ -41,3 +41,13 @@ export type { Density, DensitySwitcherProps } from './DensitySwitcher';
 
 export { default as Toolbar } from './Toolbar';
 export type { ToolbarProps } from './Toolbar';
+
+export { default as Menu } from './Menu';
+export type { MenuProps } from './Menu';
+
+export { default as DataTable } from './DataTable';
+export type { DataTableProps } from './DataTable';
+export type { ColumnDef, ColumnGroup, SortDir } from './DataTable.types';
+
+export { default as ColumnChooser } from './ColumnChooser';
+export type { ColumnChooserProps } from './ColumnChooser';
