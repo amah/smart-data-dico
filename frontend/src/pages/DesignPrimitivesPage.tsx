@@ -7,6 +7,7 @@
  * Visit `/design/primitives`.
  */
 
+import { useState } from 'react';
 import {
   Chip,
   TypeChip,
@@ -14,6 +15,11 @@ import {
   StatusChip,
   CategoryKindChip,
   RelationshipKindChip,
+  Button,
+  Input,
+  DensitySwitcher,
+  Toolbar,
+  type Density,
 } from '../components/ui';
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
@@ -50,6 +56,8 @@ const Row = ({ label, children }: { label: string; children: React.ReactNode }) 
 );
 
 const DesignPrimitivesPage = () => {
+  const [density, setDensity] = useState<Density>('comfortable');
+  const [search, setSearch] = useState('');
   return (
     <div
       className="p-6 min-h-screen"
@@ -168,6 +176,75 @@ const DesignPrimitivesPage = () => {
           <RelationshipKindChip kind="embedded" />
           <RelationshipKindChip kind="reference" />
         </Row>
+      </Section>
+
+      <Section title="Button — variants × sizes">
+        <Row label="primary">
+          <Button variant="primary" size="sm">Save</Button>
+          <Button variant="primary" size="md">Save</Button>
+          <Button variant="primary" size="lg" icon="plus">Add attribute</Button>
+        </Row>
+        <Row label="secondary">
+          <Button size="sm">Cancel</Button>
+          <Button size="md" icon="edit">Edit</Button>
+          <Button size="lg" icon="copy">Duplicate</Button>
+        </Row>
+        <Row label="ghost">
+          <Button variant="ghost" size="md" icon="columns">Columns…</Button>
+          <Button variant="ghost" size="md" icon="filter">Filter</Button>
+          <Button variant="ghost" size="md" icon="sort">Sort</Button>
+        </Row>
+        <Row label="soft / danger">
+          <Button variant="soft" size="md">Soft</Button>
+          <Button variant="danger" size="md">Delete</Button>
+        </Row>
+        <Row label="icon-only">
+          <Button variant="ghost" size="md" icon="moreV" iconOnly aria-label="More actions" />
+          <Button variant="ghost" size="md" icon="close" iconOnly aria-label="Close" />
+          <Button variant="secondary" size="md" icon="sun" iconOnly aria-label="Toggle theme" />
+        </Row>
+        <Row label="disabled / pressed">
+          <Button size="md" disabled>Disabled</Button>
+          <Button size="md" pressed icon="eye">Pressed</Button>
+        </Row>
+      </Section>
+
+      <Section title="Input">
+        <Row label="sizes">
+          <Input size="sm" placeholder="small input" />
+          <Input size="md" placeholder="medium input" />
+        </Row>
+        <Row label="with icon">
+          <Input size="md" icon="search" placeholder="Search entities…" width={240} />
+          <Input size="sm" icon="filter" placeholder="filter…" width={180} />
+        </Row>
+      </Section>
+
+      <Section title="DensitySwitcher">
+        <Row label={`active: ${density}`}>
+          <DensitySwitcher value={density} onChange={setDensity} />
+        </Row>
+      </Section>
+
+      <Section title="Toolbar — composed">
+        <Toolbar>
+          <Button variant="primary" size="md" icon="plus">Add attribute</Button>
+          <Button variant="ghost" size="md" icon="columns">Columns…</Button>
+          <Button variant="ghost" size="md" icon="filter">Filter</Button>
+          <Button variant="ghost" size="md" icon="sort">Sort</Button>
+          <Toolbar.Spacer />
+          <Input
+            size="sm"
+            icon="search"
+            placeholder="Search…"
+            width={220}
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+          <Toolbar.Divider />
+          <DensitySwitcher value={density} onChange={setDensity} />
+          <Button variant="ghost" size="md" icon="moreV" iconOnly aria-label="View options" />
+        </Toolbar>
       </Section>
 
       <Section title="In-context sample row (Standard vs Governance metadata)">

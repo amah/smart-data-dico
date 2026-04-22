@@ -26,3 +26,18 @@ export type {
   RelationshipKind,
   RelationshipKindChipProps,
 } from './KindChip';
+
+export { default as Icon } from './Icon';
+export type { IconName, IconProps } from './Icon';
+
+export { default as Button } from './Button';
+export type { ButtonProps, ButtonVariant, ButtonSize } from './Button';
+
+export { default as Input } from './Input';
+export type { InputProps, InputSize } from './Input';
+
+export { default as DensitySwitcher } from './DensitySwitcher';
+export type { Density, DensitySwitcherProps } from './DensitySwitcher';
+
+export { default as Toolbar } from './Toolbar';
+export type { ToolbarProps } from './Toolbar';
