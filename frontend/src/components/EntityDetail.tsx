@@ -1,19 +1,41 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { servicesApi, relationshipApi, stereotypeApi, ruleApi } from '../services/api';
-import { Entity, Attribute, Relationship, Stereotype, ImpactAnalysis, EntityStatus, Rule } from '../types';
+import { Entity, Relationship, Stereotype, ImpactAnalysis, Rule } from '../types';
 import ReviewComments from './ReviewComments';
 import LineageView from './LineageView';
 import MetadataEditor from './MetadataEditor';
 import AttributeList from './AttributeList';
 import RelationshipList from './RelationshipList';
 import EntityRulesList from './EntityRulesList';
+import { Button, Chip, Icon } from './ui';
+
+/**
+ * Entity detail page — Phase 4.1 redesign.
+ *
+ * Grammar (design_handoff README §Shell + §Entity):
+ *   - breadcrumb strip (home > packages > service > entity)
+ *   - entity header: name in mono fs-2xl, bounded-context chip, counts
+ *   - action cluster on the right (Clone / Visualize / Edit / status actions)
+ *   - tabs: 8px 12px padding, 2px accent bottom border when active
+ *
+ * This is chrome only — every backend call, rule-fetch, and child-tab
+ * component is preserved from the pre-redesign version.
+ */
 
 interface EntityDetailProps {
   serviceProp?: string;
   entityProp?: string;
   packagePath?: string[];
   editMode?: boolean;
+}
+
+type TabId = 'attributes' | 'relationships' | 'metadata' | 'lineage' | 'impact' | 'comments' | 'rules';
+
+interface TabDef {
+  id: TabId;
+  label: string;
+  count?: number;
 }
 
 const EntityDetail = (props: EntityDetailProps) => {
@@ -24,33 +46,28 @@ const EntityDetail = (props: EntityDetailProps) => {
   const [relationships, setRelationships] = useState<Relationship[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'attributes' | 'relationships' | 'metadata' | 'lineage' | 'comments' | 'impact' | 'rules'>('attributes');
+  const [activeTab, setActiveTab] = useState<TabId>('attributes');
   const [impact, setImpact] = useState<ImpactAnalysis | null>(null);
   const [impactLoading, setImpactLoading] = useState(false);
-  const [showInfo, setShowInfo] = useState(false);
   const [isCreateMode, setIsCreateMode] = useState(false);
   const [newEntityName, setNewEntityName] = useState('');
   const [newEntityDescription, setNewEntityDescription] = useState('');
   const [stereotypes, setStereotypes] = useState<Stereotype[]>([]);
   const [currentStereotype, setCurrentStereotype] = useState<Stereotype | null>(null);
-  // Rules touching this entity (#74 C4)
   const [entityRules, setEntityRules] = useState<Rule[]>([]);
   const navigate = useNavigate();
 
-  // Fetch entity stereotypes
   useEffect(() => {
     stereotypeApi.getAll('entity').then(setStereotypes).catch(() => {});
   }, []);
 
   const fetchEntityData = useCallback(async (showLoader = true) => {
     if (!service || !entity) return;
-
     try {
       if (showLoader) setLoading(true);
       const response = await servicesApi.getEntitySchema(service, entity);
       setEntityData(response.data);
 
-      // Resolve stereotype
       if (response.data?.stereotype) {
         try {
           const st = await stereotypeApi.getById(response.data.stereotype);
@@ -58,7 +75,6 @@ const EntityDetail = (props: EntityDetailProps) => {
         } catch { /* ok */ }
       }
 
-      // Fetch relationships from package level
       try {
         const rels = await relationshipApi.getPackageRelationships(service);
         const entityUuid = response.data?.uuid;
@@ -82,17 +98,14 @@ const EntityDetail = (props: EntityDetailProps) => {
 
   useEffect(() => {
     const isCreatePath = window.location.pathname.endsWith('/create');
-
     if (entity === 'create' || (isCreatePath && !entity)) {
       setIsCreateMode(true);
       setLoading(false);
       return;
     }
-
     fetchEntityData();
   }, [service, entity]);
 
-  /** Fetch all rules touching this entity. */
   const fetchEntityRules = useCallback(async () => {
     if (!entityData?.uuid) return;
     try {
@@ -104,19 +117,16 @@ const EntityDetail = (props: EntityDetailProps) => {
     }
   }, [entityData?.uuid]);
 
-  // Re-fetch rules whenever the entity data changes (so synthesized rules stay in sync)
   useEffect(() => {
     fetchEntityRules();
   }, [fetchEntityRules]);
 
   const handleCreateEntity = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!service || !newEntityName) {
       setError('Service and entity name are required');
       return;
     }
-
     try {
       setLoading(true);
       const currentDate = new Date().toISOString();
@@ -127,21 +137,20 @@ const EntityDetail = (props: EntityDetailProps) => {
         attributes: [],
         metadata: [],
         createdAt: currentDate,
-        updatedAt: currentDate
+        updatedAt: currentDate,
       };
-
       try {
-        const response = await servicesApi.createEntity(service, newEntity);
+        await servicesApi.createEntity(service, newEntity);
         navigate(`/services/${service}/entities/${newEntityName}`);
-      } catch (error: any) {
-        if (error.response) {
-          setError(`API error: ${error.response.data?.message || error.message || 'Unknown error'}`);
+      } catch (err: any) {
+        if (err.response) {
+          setError(`API error: ${err.response.data?.message || err.message || 'Unknown error'}`);
         } else {
-          setError(`Error: ${error.message || 'Unknown error'}`);
+          setError(`Error: ${err.message || 'Unknown error'}`);
         }
         setLoading(false);
       }
-    } catch (err) {
+    } catch {
       setError('Failed to create entity. Please try again.');
       setLoading(false);
     }
@@ -171,17 +180,19 @@ const EntityDetail = (props: EntityDetailProps) => {
     }
   };
 
-  if (!service && !isCreateMode) {
-    return (
-      <div className="alert alert-error">
-        <svg xmlns="http://www.w3.org/2000/svg" className="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-        <span>Service name is required</span>
-      </div>
-    );
-  }
+  const refreshEntity = async () => {
+    if (!service || !entity) return;
+    try {
+      const r = await servicesApi.getEntitySchema(service, entity);
+      setEntityData(r.data);
+    } catch { /* ignore */ }
+  };
 
+  // ──────────────── Early returns ────────────────
+
+  if (!service && !isCreateMode) {
+    return <ErrorBanner message="Service name is required" />;
+  }
   if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
@@ -189,408 +200,531 @@ const EntityDetail = (props: EntityDetailProps) => {
       </div>
     );
   }
-
-  if (error) {
-    return (
-      <div className="alert alert-error">
-        <svg xmlns="http://www.w3.org/2000/svg" className="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-        <span>{error}</span>
-      </div>
-    );
+  if (error && !isCreateMode) {
+    return <ErrorBanner message={error} />;
   }
-
   if (!entityData && !isCreateMode) {
-    return (
-      <div className="alert alert-warning">
-        <svg xmlns="http://www.w3.org/2000/svg" className="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-        </svg>
-        <span>Entity not found</span>
-      </div>
-    );
+    return <WarnBanner message="Entity not found" />;
   }
 
   if (isCreateMode) {
     return (
-      <div className="container mx-auto px-4">
-        <h1 className="text-2xl font-bold mb-6">Create New Entity</h1>
-
-        {error && (
-          <div className="alert alert-error mb-4">
-            <svg xmlns="http://www.w3.org/2000/svg" className="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span>{error}</span>
+      <div
+        style={{
+          padding: 16,
+          background: 'var(--bg-raised)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-md)',
+          maxWidth: 640,
+        }}
+      >
+        <h1
+          className="mono"
+          style={{ fontSize: 'var(--fs-2xl)', fontWeight: 600, marginBottom: 16 }}
+        >
+          Create new entity
+        </h1>
+        {error && <ErrorBanner message={error} />}
+        <form onSubmit={handleCreateEntity} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <FieldLabel label="Entity name">
+            <input
+              type="text"
+              className="w-full"
+              style={fieldStyle}
+              value={newEntityName}
+              onChange={(e) => setNewEntityName(e.target.value)}
+              placeholder="Enter entity name"
+              required
+            />
+          </FieldLabel>
+          <FieldLabel label="Description">
+            <textarea
+              className="w-full"
+              style={{ ...fieldStyle, minHeight: 72, fontFamily: 'inherit', padding: '6px 8px' }}
+              value={newEntityDescription}
+              onChange={(e) => setNewEntityDescription(e.target.value)}
+              placeholder="Enter entity description"
+              rows={3}
+            />
+          </FieldLabel>
+          <div>
+            <button
+              type="submit"
+              style={{
+                height: 34,
+                padding: '0 14px',
+                fontSize: 'var(--fs-md)',
+                background: 'var(--accent)',
+                color: 'var(--accent-fg)',
+                border: '1px solid var(--accent)',
+                borderRadius: 'var(--radius-sm)',
+                fontWeight: 500,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.5 : 1,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+              disabled={loading}
+            >
+              <Icon name="plus" size={14} />
+              {loading ? 'Creating…' : 'Create entity'}
+            </button>
           </div>
-        )}
-
-        <div className="card bg-base-100 shadow-xl">
-          <div className="card-body">
-            <form onSubmit={handleCreateEntity}>
-              <div className="form-control mb-4">
-                <label className="label">
-                  <span className="label-text">Entity Name</span>
-                </label>
-                <input
-                  type="text"
-                  className="input input-bordered w-full"
-                  value={newEntityName}
-                  onChange={(e) => setNewEntityName(e.target.value)}
-                  placeholder="Enter entity name"
-                  required
-                />
-              </div>
-
-              <div className="form-control mb-6">
-                <label className="label">
-                  <span className="label-text">Description</span>
-                </label>
-                <textarea
-                  className="textarea textarea-bordered w-full"
-                  value={newEntityDescription}
-                  onChange={(e) => setNewEntityDescription(e.target.value)}
-                  placeholder="Enter entity description"
-                  rows={3}
-                />
-              </div>
-
-              <div className="form-control">
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <>
-                      <span className="loading loading-spinner loading-sm"></span>
-                      Creating...
-                    </>
-                  ) : (
-                    'Create Entity'
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        </form>
       </div>
     );
   }
 
+  // ──────────────── Normal view ────────────────
+
+  const attrCount = entityData?.attributes?.length || 0;
+  const relCount = relationships.length;
+  const ruleCount = entityRules.length;
+
+  const tabs: TabDef[] = [
+    { id: 'attributes',    label: 'Attributes',    count: attrCount },
+    { id: 'relationships', label: 'Relationships', count: relCount },
+    { id: 'metadata',      label: 'Metadata' },
+    { id: 'lineage',       label: 'Lineage' },
+    { id: 'impact',        label: 'Impact' },
+    { id: 'comments',      label: 'Comments' },
+    { id: 'rules',         label: 'Rules',         count: ruleCount },
+  ];
+
+  const statusValue = entityData?.status || 'draft';
+  const statusTone =
+    statusValue === 'approved' ? 'success' :
+    statusValue === 'submitted' ? 'warning' :
+    statusValue === 'returned' ? 'danger' :
+    'neutral';
+
   return (
-    <div className="flex-1 flex flex-col min-h-0">
-      {/* Compact header row */}
-      <div className="flex flex-wrap items-center gap-2 mb-2">
-        <h1 className="text-lg font-semibold">{entityData?.name}</h1>
-        <span className="badge badge-sm badge-outline">{service}</span>
-        <span className="text-xs text-base-content/50">{entityData?.attributes?.length || 0} attrs / {relationships.length} rels</span>
+    <div
+      className="flex-1 flex flex-col min-h-0"
+      style={{ background: 'var(--bg)', color: 'var(--text)' }}
+    >
+      {/* ───── Breadcrumb strip ───── */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '6px 12px',
+          fontSize: 'var(--fs-sm)',
+          color: 'var(--text-muted)',
+          background: 'var(--bg-raised)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
+          borderBottom: 'none',
+        }}
+      >
+        <Link to="/" style={{ display: 'inline-flex', alignItems: 'center', color: 'inherit' }}>
+          <Icon name="home" size={12} />
+        </Link>
+        <span style={{ color: 'var(--text-subtle)' }}>/</span>
+        <Link to="/packages" style={{ color: 'inherit' }}>packages</Link>
+        <span style={{ color: 'var(--text-subtle)' }}>/</span>
+        <Link to={`/packages/${service}`} style={{ color: 'inherit' }}>{service}</Link>
+        <span style={{ color: 'var(--text-subtle)' }}>/</span>
+        <span className="mono" style={{ color: 'var(--text)', fontWeight: 500 }}>{entityData?.name}</span>
+      </div>
 
-        {/* Info toggle */}
-        <button
-          className="btn btn-ghost btn-xs"
-          onClick={() => setShowInfo(!showInfo)}
-          title={showInfo ? 'Hide entity metadata' : 'Show entity metadata (description, status, stereotype)'}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className={`h-3.5 w-3.5 transition-transform ${showInfo ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-          </svg>
-        </button>
+      {/* ───── Entity header ───── */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          padding: '10px 12px 8px',
+          background: 'var(--bg-raised)',
+          borderLeft: '1px solid var(--border)',
+          borderRight: '1px solid var(--border)',
+          flexWrap: 'wrap',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, minWidth: 0 }}>
+          <h1
+            className="mono"
+            style={{
+              margin: 0,
+              fontSize: 'var(--fs-2xl)',
+              fontWeight: 600,
+              letterSpacing: '-0.02em',
+              color: 'var(--text)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {entityData?.name}
+          </h1>
+          <Chip tone="meta" className="mono">{service}</Chip>
+          <span
+            className="mono"
+            style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)' }}
+          >
+            {attrCount} attr{attrCount === 1 ? '' : 's'} · {relCount} rel{relCount === 1 ? '' : 's'}
+          </span>
+        </div>
 
-        <div className="ml-auto flex gap-1">
-          <Link
-            to={`/packages/${service}/entities/${entity}/edit`}
-            className="btn btn-primary btn-sm"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-            </svg>
-            Edit
-          </Link>
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={handleCloneEntity}
-            title="Duplicate this entity"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M7 9a2 2 0 012-2h6a2 2 0 012 2v6a2 2 0 01-2 2H9a2 2 0 01-2-2V9z" />
-              <path d="M5 3a2 2 0 00-2 2v6a2 2 0 002 2V5h8a2 2 0 00-2-2H5z" />
-            </svg>
-            Clone
-          </button>
-          <Link
-            to={`/visualization/${service}/${entity}`}
-            className="btn btn-outline btn-sm"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
-            </svg>
-            Visualize
-          </Link>
+        <div style={{ flex: 1 }} />
 
-          {/* Status badge + review actions */}
-          {entityData && !isCreateMode && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Chip tone={statusTone as any} soft={statusTone !== 'neutral'}>{statusValue}</Chip>
+          {(statusValue === 'draft' || statusValue === 'returned') && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={async () => {
+                if (!service || !entity) return;
+                try { await servicesApi.submitEntity(service, entity); await refreshEntity(); } catch { /* ignore */ }
+              }}
+            >
+              Submit
+            </Button>
+          )}
+          {statusValue === 'submitted' && (
             <>
-              <span className={`badge ml-2 ${
-                entityData.status === 'approved' ? 'badge-success' :
-                entityData.status === 'submitted' ? 'badge-warning' :
-                entityData.status === 'returned' ? 'badge-error' :
-                'badge-ghost'
-              }`}>
-                {entityData.status || 'draft'}
-              </span>
-              {(entityData.status === 'draft' || entityData.status === 'returned') && (
-                <button className="btn btn-sm btn-warning" onClick={async () => {
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={async () => {
                   if (!service || !entity) return;
-                  try { await servicesApi.submitEntity(service, entity); const r = await servicesApi.getEntitySchema(service, entity); setEntityData(r.data); } catch {}
-                }}>Submit</button>
-              )}
-              {entityData.status === 'submitted' && (
-                <>
-                  <button className="btn btn-sm btn-success" onClick={async () => {
-                    if (!service || !entity) return;
-                    try { await servicesApi.approveEntity(service, entity); const r = await servicesApi.getEntitySchema(service, entity); setEntityData(r.data); } catch {}
-                  }}>Approve</button>
-                  <button className="btn btn-sm btn-error" onClick={async () => {
-                    const comment = prompt('Return comment (optional):');
-                    if (!service || !entity) return;
-                    try { await servicesApi.returnEntity(service, entity, comment || undefined); const r = await servicesApi.getEntitySchema(service, entity); setEntityData(r.data); } catch {}
-                  }}>Return</button>
-                </>
-              )}
+                  try { await servicesApi.approveEntity(service, entity); await refreshEntity(); } catch { /* ignore */ }
+                }}
+              >
+                Approve
+              </Button>
+              <Button
+                size="sm"
+                variant="danger"
+                onClick={async () => {
+                  const comment = prompt('Return comment (optional):');
+                  if (!service || !entity) return;
+                  try { await servicesApi.returnEntity(service, entity, comment || undefined); await refreshEntity(); } catch { /* ignore */ }
+                }}
+              >
+                Return
+              </Button>
             </>
           )}
+
+          <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 4px' }} />
+
+          <Button size="sm" variant="ghost" icon="copy" onClick={handleCloneEntity}>Clone</Button>
+          <Link
+            to={`/visualization/${service}/${entity}`}
+            style={{ display: 'inline-flex' }}
+          >
+            <Button size="sm" variant="ghost" icon="chart">Visualize</Button>
+          </Link>
+          <Link
+            to={`/packages/${service}/entities/${entity}/edit`}
+            style={{ display: 'inline-flex' }}
+          >
+            <Button size="sm" variant="primary" icon="edit">Edit entity</Button>
+          </Link>
         </div>
       </div>
 
-      {/* Collapsible info section */}
-      {showInfo && (
-        <div className="bg-base-100 rounded-lg border border-base-300 p-3 mb-2">
-          {entityData?.description && (
-            <p className="text-sm text-base-content/70 mb-2">{entityData.description}</p>
-          )}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-            <div>
-              <span className="text-base-content/50">Package</span>
-              <p className="font-medium">{service}</p>
-            </div>
-            <div>
-              <span className="text-base-content/50">Attributes</span>
-              <p className="font-medium">{entityData?.attributes?.length || 0}</p>
-            </div>
-            <div>
-              <span className="text-base-content/50">Relationships</span>
-              <p className="font-medium">{relationships.length}</p>
-            </div>
-          </div>
+      {entityData?.description && (
+        <div
+          style={{
+            padding: '4px 12px 10px',
+            fontSize: 'var(--fs-sm)',
+            color: 'var(--text-muted)',
+            background: 'var(--bg-raised)',
+            borderLeft: '1px solid var(--border)',
+            borderRight: '1px solid var(--border)',
+          }}
+        >
+          {entityData.description}
         </div>
       )}
 
-      {/* Tabs + content */}
-      <div className="card bg-base-100 shadow-sm flex-1 min-h-0 flex flex-col">
-        <div className="card-body p-3 flex flex-col min-h-0">
-          {(() => {
-            // Dim tabs whose content is empty so populated vs empty is
-            // pre-attentive. Metadata/Lineage/Impact/Comments don't expose
-            // a cheap count, so they stay at full opacity.
-            const attrCount = entityData?.attributes?.length || 0;
-            const relCount = relationships.length;
-            const ruleCount = entityRules.length;
-            const dim = (empty: boolean, active: boolean) =>
-              empty && !active ? 'opacity-50' : '';
-            return (
-              <div className="tabs tabs-bordered tabs-sm">
-                <button
-                  className={`tab ${activeTab === 'attributes' ? 'tab-active' : ''} ${dim(attrCount === 0, activeTab === 'attributes')}`}
-                  onClick={() => setActiveTab('attributes')}
-                >
-                  Attributes ({attrCount})
-                </button>
-                <button
-                  className={`tab ${activeTab === 'relationships' ? 'tab-active' : ''} ${dim(relCount === 0, activeTab === 'relationships')}`}
-                  onClick={() => setActiveTab('relationships')}
-                >
-                  Relationships ({relCount})
-                </button>
-                <button
-                  className={`tab ${activeTab === 'metadata' ? 'tab-active' : ''}`}
-                  onClick={() => setActiveTab('metadata')}
-                >
-                  Metadata
-                </button>
-                <button
-                  className={`tab ${activeTab === 'lineage' ? 'tab-active' : ''}`}
-                  onClick={() => setActiveTab('lineage')}
-                >
-                  Lineage
-                </button>
-                <button
-                  className={`tab ${activeTab === 'impact' ? 'tab-active' : ''}`}
-                  onClick={() => {
-                    setActiveTab('impact');
-                    if (!impact && entityData?.uuid) {
-                      setImpactLoading(true);
-                      servicesApi.getImpactAnalysis(entityData.uuid)
-                        .then(setImpact)
-                        .catch(() => {})
-                        .finally(() => setImpactLoading(false));
-                    }
+      {/* ───── Tabs ───── */}
+      <div
+        role="tablist"
+        style={{
+          display: 'flex',
+          gap: 0,
+          padding: '0 8px',
+          background: 'var(--bg-raised)',
+          border: '1px solid var(--border)',
+          borderTop: 0,
+          borderBottom: '1px solid var(--border)',
+        }}
+      >
+        {tabs.map((t) => {
+          const isActive = activeTab === t.id;
+          const isEmpty = typeof t.count === 'number' && t.count === 0;
+          return (
+            <button
+              key={t.id}
+              role="tab"
+              aria-selected={isActive}
+              onClick={() => {
+                setActiveTab(t.id);
+                if (t.id === 'impact' && !impact && entityData?.uuid) {
+                  setImpactLoading(true);
+                  servicesApi.getImpactAnalysis(entityData.uuid)
+                    .then(setImpact)
+                    .catch(() => {})
+                    .finally(() => setImpactLoading(false));
+                }
+              }}
+              style={{
+                padding: '8px 12px',
+                background: 'transparent',
+                border: 'none',
+                borderBottom: `2px solid ${isActive ? 'var(--accent)' : 'transparent'}`,
+                color: isActive ? 'var(--text)' : 'var(--text-muted)',
+                fontSize: 'var(--fs-sm)',
+                fontWeight: isActive ? 600 : 400,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                marginBottom: -1,
+                cursor: 'pointer',
+                opacity: !isActive && isEmpty ? 0.55 : 1,
+              }}
+            >
+              {t.label}
+              {typeof t.count === 'number' && (
+                <span
+                  className="mono"
+                  style={{
+                    fontSize: 'var(--fs-xs)',
+                    color: t.count === 0 ? 'var(--text-subtle)' : 'var(--text-muted)',
                   }}
                 >
-                  Impact
-                </button>
-                <button
-                  className={`tab ${activeTab === 'comments' ? 'tab-active' : ''}`}
-                  onClick={() => setActiveTab('comments')}
-                >
-                  Comments
-                </button>
-                <button
-                  className={`tab ${activeTab === 'rules' ? 'tab-active' : ''} ${dim(ruleCount === 0, activeTab === 'rules')}`}
-                  onClick={() => setActiveTab('rules')}
-                >
-                  Rules ({ruleCount})
-                </button>
-              </div>
-            );
-          })()}
+                  {t.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
-          <div className="mt-2 flex-1 overflow-auto min-h-0">
-            {activeTab === 'attributes' && entityData && (
-              <AttributeList
-                attributes={entityData.attributes}
-                entityName={entityData.name}
-                entityUuid={entityData.uuid}
-                serviceName={service || ''}
-                onAttributeUpdated={() => fetchEntityData(false)}
-              />
-            )}
+      {/* ───── Tab content ───── */}
+      <div
+        className="flex-1 overflow-auto min-h-0"
+        style={{
+          padding: 12,
+          background: 'var(--bg)',
+          border: '1px solid var(--border)',
+          borderTop: 0,
+          borderRadius: '0 0 var(--radius-md) var(--radius-md)',
+        }}
+      >
+        {activeTab === 'attributes' && entityData && (
+          <AttributeList
+            attributes={entityData.attributes}
+            entityName={entityData.name}
+            entityUuid={entityData.uuid}
+            serviceName={service || ''}
+            onAttributeUpdated={() => fetchEntityData(false)}
+          />
+        )}
 
-            {activeTab === 'relationships' && entityData && (
-              <RelationshipList
-                relationships={relationships}
-                entityName={entityData.name}
-                serviceName={service || ''}
-                onRelationshipUpdated={() => fetchEntityData(false)}
-              />
-            )}
+        {activeTab === 'relationships' && entityData && (
+          <RelationshipList
+            relationships={relationships}
+            entityName={entityData.name}
+            serviceName={service || ''}
+            onRelationshipUpdated={() => fetchEntityData(false)}
+          />
+        )}
 
-            {activeTab === 'metadata' && entityData && (
-              <div className="space-y-4">
-                {/* Stereotype selector */}
-                <div className="flex items-center gap-3">
-                  <label className="text-sm font-semibold">Stereotype:</label>
-                  <select
-                    className="select select-bordered select-sm w-60"
-                    value={entityData.stereotype || ''}
-                    onChange={(e) => {
-                      const st = stereotypes.find((s) => s.id === e.target.value) || null;
-                      setCurrentStereotype(st);
-                      setEntityData({ ...entityData, stereotype: e.target.value || undefined });
-                    }}
-                  >
-                    <option value="">None</option>
-                    {stereotypes.map((s) => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
-                    ))}
-                  </select>
-                  {currentStereotype && (
-                    <span className="text-xs text-base-content/60">{currentStereotype.description}</span>
-                  )}
-                </div>
-
-                {/* Metadata editor */}
-                <MetadataEditor
-                  entries={entityData.metadata || []}
-                  stereotype={currentStereotype}
-                  onChange={(entries) => setEntityData({ ...entityData, metadata: entries })}
-                />
-              </div>
-            )}
-
-            {activeTab === 'lineage' && entityData && service && (
-              <LineageView entityUuid={entityData.uuid} service={service} />
-            )}
-
-            {activeTab === 'impact' && (
-              <div>
-                {impactLoading ? (
-                  <div className="flex justify-center py-8"><span className="loading loading-spinner" /></div>
-                ) : impact ? (
-                  <div className="space-y-4">
-                    <div>
-                      <h4 className="font-semibold mb-2">Relationships ({impact.relationships.length})</h4>
-                      {impact.relationships.length === 0 ? (
-                        <p className="text-sm text-base-content/50">No relationships reference this entity.</p>
-                      ) : (
-                        <ul className="space-y-1">
-                          {impact.relationships.map((r) => (
-                            <li key={r.uuid} className="text-sm flex gap-2">
-                              <span className="badge badge-info badge-xs mt-1">rel</span>
-                              <span>{r.sourceEntity} &rarr; {r.targetEntity}</span>
-                              {r.description && <span className="text-base-content/60">({r.description})</span>}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                    <div>
-                      <h4 className="font-semibold mb-2">Perspectives ({impact.perspectives.length})</h4>
-                      {impact.perspectives.length === 0 ? (
-                        <p className="text-sm text-base-content/50">Not included in any perspective.</p>
-                      ) : (
-                        <ul className="space-y-1">
-                          {impact.perspectives.map((p) => (
-                            <li key={p.uuid} className="text-sm">
-                              <Link to={`/perspectives/${p.uuid}`} className="link link-primary">{p.name}</Link>
-                              <span className="text-base-content/60 ml-2 font-mono text-xs">{p.path}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                    <div>
-                      <h4 className="font-semibold mb-2">Diagrams ({impact.diagrams.length})</h4>
-                      {impact.diagrams.length === 0 ? (
-                        <p className="text-sm text-base-content/50">Not used in any diagram.</p>
-                      ) : (
-                        <ul className="space-y-1">
-                          {impact.diagrams.map((d) => (
-                            <li key={d.id} className="text-sm">
-                              <Link to={`/diagram?layout=${d.id}`} className="link link-primary">{d.name}</Link>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-sm text-base-content/50">Click the Impact tab to load dependency analysis.</p>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'comments' && service && entity && (
-              <ReviewComments service={service} entityName={entity} />
-            )}
-
-            {activeTab === 'rules' && entityData && (
-              <EntityRulesList
-                entityName={entityData.name}
-                attributes={entityData.attributes || []}
-                rules={entityRules}
-                onRulesChanged={() => {
-                  fetchEntityRules();
-                  fetchEntityData(false);
+        {activeTab === 'metadata' && entityData && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <label style={{ fontSize: 'var(--fs-sm)', fontWeight: 600 }}>Stereotype:</label>
+              <select
+                style={{ ...fieldStyle, width: 240 }}
+                value={entityData.stereotype || ''}
+                onChange={(e) => {
+                  const st = stereotypes.find((s) => s.id === e.target.value) || null;
+                  setCurrentStereotype(st);
+                  setEntityData({ ...entityData, stereotype: e.target.value || undefined });
                 }}
-              />
+              >
+                <option value="">None</option>
+                {stereotypes.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+              {currentStereotype && (
+                <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>
+                  {currentStereotype.description}
+                </span>
+              )}
+            </div>
+            <MetadataEditor
+              entries={entityData.metadata || []}
+              stereotype={currentStereotype}
+              onChange={(entries) => setEntityData({ ...entityData, metadata: entries })}
+            />
+          </div>
+        )}
+
+        {activeTab === 'lineage' && entityData && service && (
+          <LineageView entityUuid={entityData.uuid} service={service} />
+        )}
+
+        {activeTab === 'impact' && (
+          <div>
+            {impactLoading ? (
+              <div className="flex justify-center py-8"><span className="loading loading-spinner" /></div>
+            ) : impact ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <ImpactSection title={`Relationships (${impact.relationships.length})`}>
+                  {impact.relationships.length === 0 ? (
+                    <MutedText>No relationships reference this entity.</MutedText>
+                  ) : (
+                    <ul style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {impact.relationships.map((r) => (
+                        <li key={r.uuid} style={{ fontSize: 'var(--fs-sm)', display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <Chip tone="info">rel</Chip>
+                          <span>{r.sourceEntity} → {r.targetEntity}</span>
+                          {r.description && <span style={{ color: 'var(--text-subtle)' }}>({r.description})</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </ImpactSection>
+                <ImpactSection title={`Perspectives (${impact.perspectives.length})`}>
+                  {impact.perspectives.length === 0 ? (
+                    <MutedText>Not included in any perspective.</MutedText>
+                  ) : (
+                    <ul style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {impact.perspectives.map((p) => (
+                        <li key={p.uuid} style={{ fontSize: 'var(--fs-sm)' }}>
+                          <Link to={`/perspectives/${p.uuid}`} style={{ color: 'var(--accent)' }}>{p.name}</Link>
+                          <span className="mono" style={{ color: 'var(--text-subtle)', fontSize: 'var(--fs-xs)', marginLeft: 8 }}>{p.path}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </ImpactSection>
+                <ImpactSection title={`Diagrams (${impact.diagrams.length})`}>
+                  {impact.diagrams.length === 0 ? (
+                    <MutedText>Not used in any diagram.</MutedText>
+                  ) : (
+                    <ul style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {impact.diagrams.map((d) => (
+                        <li key={d.id} style={{ fontSize: 'var(--fs-sm)' }}>
+                          <Link to={`/diagram?layout=${d.id}`} style={{ color: 'var(--accent)' }}>{d.name}</Link>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </ImpactSection>
+              </div>
+            ) : (
+              <MutedText>Click the Impact tab to load dependency analysis.</MutedText>
             )}
           </div>
-        </div>
+        )}
+
+        {activeTab === 'comments' && service && entity && (
+          <ReviewComments service={service} entityName={entity} />
+        )}
+
+        {activeTab === 'rules' && entityData && (
+          <EntityRulesList
+            entityName={entityData.name}
+            attributes={entityData.attributes || []}
+            rules={entityRules}
+            onRulesChanged={() => {
+              fetchEntityRules();
+              fetchEntityData(false);
+            }}
+          />
+        )}
       </div>
     </div>
   );
 };
+
+// ──────────────── Local helpers ────────────────
+
+const fieldStyle = {
+  height: 28,
+  padding: '0 8px',
+  fontSize: 'var(--fs-sm)',
+  background: 'var(--bg-raised)',
+  color: 'var(--text)',
+  border: '1px solid var(--border-strong)',
+  borderRadius: 'var(--radius-sm)',
+  outline: 'none',
+  fontFamily: 'inherit',
+} as const;
+
+const FieldLabel = ({ label, children }: { label: string; children: ReactNode }) => (
+  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{label}</span>
+    {children}
+  </label>
+);
+
+const ErrorBanner = ({ message }: { message: string }) => (
+  <div
+    style={{
+      padding: '10px 14px',
+      background: 'var(--danger-soft)',
+      color: 'var(--danger)',
+      border: '1px solid var(--danger)',
+      borderRadius: 'var(--radius-sm)',
+      fontSize: 'var(--fs-sm)',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+    }}
+  >
+    <Icon name="warning" size={14} /> {message}
+  </div>
+);
+
+const WarnBanner = ({ message }: { message: string }) => (
+  <div
+    style={{
+      padding: '10px 14px',
+      background: 'var(--warning-soft)',
+      color: 'var(--warning)',
+      border: '1px solid var(--warning)',
+      borderRadius: 'var(--radius-sm)',
+      fontSize: 'var(--fs-sm)',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+    }}
+  >
+    <Icon name="warning" size={14} /> {message}
+  </div>
+);
+
+const MutedText = ({ children }: { children: ReactNode }) => (
+  <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)' }}>{children}</p>
+);
+
+const ImpactSection = ({ title, children }: { title: string; children: ReactNode }) => (
+  <div>
+    <h4
+      className="uppercase"
+      style={{
+        fontSize: 'var(--fs-xs)',
+        color: 'var(--text-subtle)',
+        letterSpacing: '0.04em',
+        fontWeight: 600,
+        marginBottom: 6,
+      }}
+    >
+      {title}
+    </h4>
+    {children}
+  </div>
+);
 
 export default EntityDetail;
