@@ -211,9 +211,45 @@
 
 /* Focus — spec: 2px accent outline, 1px offset, :focus-visible only.
    Scoped to the variant root so it doesn't disturb surfaces not yet migrated. */
-[data-variant="calm"] :focus-visible {
+[data-variant] :focus-visible {
   outline: 2px solid var(--border-focus);
   outline-offset: 1px;
+  border-radius: var(--radius-sm);
+}
+
+/* ───────── Scrollbars (Phase 6.1) ─────────
+   Thin track-less scrollbars tinted with the token palette. Works in
+   both light and dark because --border-strong / --text-subtle are
+   palette-driven.
+
+   Firefox: scrollbar-width/color (CSS-wide spec).
+   WebKit/Blink: ::-webkit-scrollbar — the `background-clip: padding-box`
+   trick lets the thumb keep an apparent gap from the track edges
+   without needing two nested elements. */
+[data-variant] {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+[data-variant] ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+[data-variant] ::-webkit-scrollbar-track {
+  background: transparent;
+}
+[data-variant] ::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--radius-sm);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background var(--dur-fast);
+}
+[data-variant] ::-webkit-scrollbar-thumb:hover {
+  background: var(--text-subtle);
+  background-clip: padding-box;
+}
+[data-variant] ::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* ───────── DataTable row / cell hover + selected ─────────
