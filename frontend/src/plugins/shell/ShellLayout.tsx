@@ -40,9 +40,9 @@ const ShellLayout: React.FC = () => {
           />
         )}
         <div
-          className={`fixed md:relative z-30 md:z-0 h-full transform transition-all duration-300 ease-in-out bg-base-100 border-r border-base-300 ${
+          className={`fixed md:relative z-30 md:z-0 h-full transform transition-all duration-300 ease-in-out bg-surface-subtle border-r border-line ${
             sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-          } md:translate-x-0 ${sidebarCollapsed ? 'w-14' : 'w-56'}`}
+          } md:translate-x-0 ${sidebarCollapsed ? 'w-12' : 'w-60'}`}
         >
           {/* Collapse toggle (desktop only) */}
           <button

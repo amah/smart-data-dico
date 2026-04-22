@@ -1,7 +1,29 @@
-import { useState, useEffect } from 'react';
+/**
+ * Sidebar — 240px nav rail with Browse / Views / Tools grammar
+ * (design_handoff README §Shell).
+ *
+ *   Browse — Home + packages tree.
+ *   Views  — Quality · Integrity · Model Diff · Physical Sync · Diagram
+ *            · Perspectives (each perspective as a row).
+ *   Tools  — Flat views · Data Types · Settings.
+ *
+ * Collapsed mode: icon rail at ~48px for desktop-density screens.
+ *
+ * Every nav row:
+ *   32px tall · 12px horizontal padding · hover --bg-hover
+ *   Active  → --accent-soft bg, --accent color, 2px accent left stripe.
+ *
+ * The section headers are deliberately static labels (not accordion
+ * toggles). Accordion-per-section was useful in the old dense layout
+ * but muddies the grammar; per-package expand/collapse stays because
+ * the tree can get genuinely deep.
+ */
+
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { entityApi, perspectiveApi } from '../services/api';
-import { Package, Perspective } from '../types';
+import type { Package, Perspective } from '../types';
+import { Icon, Chip, type IconName } from './ui';
 
 interface SidebarProps {
   collapsed?: boolean;
@@ -13,21 +35,9 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
   const [expandedPackages, setExpandedPackages] = useState<Record<string, boolean>>({});
   const [packagesLoading, setPackagesLoading] = useState(true);
   const [packagesError, setPackagesError] = useState<string | null>(null);
+  const [flatViewsOpen, setFlatViewsOpen] = useState(false);
   const location = useLocation();
 
-  // Accordion state: which sections are expanded
-  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
-    packages: true,
-    perspectives: true,
-    views: false,
-    versionControl: false,
-  });
-
-  const toggleSection = (section: string) => {
-    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
-  };
-
-  // Fetch packages for navigation
   useEffect(() => {
     const fetchPackages = async () => {
       try {
@@ -46,315 +56,353 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
     perspectiveApi.getAll().then(setPerspectives).catch(() => {});
   }, []);
 
-  const isActive = (path: string) => {
-    // Exact match OR the pathname continues with '/' (sub-route).
-    // Prevents '/entities/Order' from matching '/entities/OrderItem'.
-    return location.pathname === path || location.pathname.startsWith(path + '/');
-  };
+  const isActive = (path: string) =>
+    location.pathname === path || location.pathname.startsWith(path + '/');
 
-  // Toggle expand/collapse for package tree
-  const togglePackage = (pkgId: string) => {
-    setExpandedPackages((prev) => ({
-      ...prev,
-      [pkgId]: !prev[pkgId],
-    }));
-  };
+  const togglePackage = (pkgId: string) =>
+    setExpandedPackages(prev => ({ ...prev, [pkgId]: !prev[pkgId] }));
 
-  // Recursive render for package tree with accumulated path
-  const renderPackageTree = (pkgs: Package[], parentPath: string[] = []) => {
-    if (!Array.isArray(pkgs)) return <ul />;
-    return (
-      <ul>
-        {pkgs.map((pkg) => {
-          const currentPath = [...parentPath, pkg.name];
-          const packageUrl = `/packages/${currentPath.join('/')}`;
-          return (
-            <li key={pkg.id}>
-              <div className="flex items-center gap-0.5 px-0">
-                {(pkg.subPackages && pkg.subPackages.length > 0) || (pkg.entities && pkg.entities.length > 0) ? (
-                  <button
-                    className="btn btn-ghost btn-xs !min-h-0 !h-4 !w-4 !p-0 text-[10px] leading-none"
-                    onClick={() => togglePackage(pkg.id)}
-                    aria-label={expandedPackages[pkg.id] ? 'Collapse' : 'Expand'}
-                    type="button"
-                  >
-                    {expandedPackages[pkg.id] ? '▼' : '▶'}
-                  </button>
-                ) : <span className="w-4" />}
-                <Link to={packageUrl} className={`font-semibold px-1 ${isActive(packageUrl) ? 'active' : ''}`}>
-                  {pkg.name}
-                </Link>
-              </div>
-              {expandedPackages[pkg.id] && (
-                <div className="pl-3">
-                  {pkg.entities && pkg.entities.length > 0 && (
-                    <ul>
-                      {pkg.entities.map((entity) => {
-                        const entityUrl = `${packageUrl}/entities/${entity.name}`;
-                        return (
-                          <li key={entity.uuid}>
-                            <Link
-                              to={entityUrl}
-                              className={isActive(entityUrl) ? 'active' : ''}
-                            >
-                              {entity.name}
-                            </Link>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                  {pkg.subPackages && pkg.subPackages.length > 0 && renderPackageTree(pkg.subPackages, currentPath)}
-                </div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    );
-  };
-
-  // Collapsed sidebar: show only icons
+  // ────────── Collapsed mode (mobile / icon rail) ──────────
   if (collapsed) {
     return (
-      <div className="h-full flex flex-col items-center py-4 gap-2">
-        <Link to="/" className="btn btn-ghost btn-sm btn-square" title="Home">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" />
-          </svg>
-        </Link>
-        <Link to="/services" className="btn btn-ghost btn-sm btn-square" title="Services">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
-          </svg>
-        </Link>
-        <Link to="/visualization" className="btn btn-ghost btn-sm btn-square" title="Visualization">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
-          </svg>
-        </Link>
-        <Link to="/version/history" className="btn btn-ghost btn-sm btn-square" title="History">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-          </svg>
-        </Link>
+      <div
+        style={{
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          padding: '8px 0',
+          gap: 4,
+        }}
+      >
+        <CollapsedLink to="/"            icon="home"    label="Home"        active={location.pathname === '/'} />
+        <CollapsedLink to="/quality"     icon="shield"  label="Quality"     active={isActive('/quality')} />
+        <CollapsedLink to="/integrity"   icon="check"   label="Integrity"   active={isActive('/integrity')} />
+        <CollapsedLink to="/diff/logical" icon="link"    label="Model Diff" active={isActive('/diff/logical') || isActive('/diff/physical')} />
+        <CollapsedLink to="/diagram"     icon="chart"   label="Diagram"     active={isActive('/diagram')} />
+        <CollapsedLink to="/types"       icon="rows"    label="Data Types"  active={isActive('/types')} />
+        <CollapsedLink to="/settings"    icon="gear"    label="Settings"    active={isActive('/settings')} />
       </div>
     );
   }
 
-  // Section header component with accordion toggle
-  const SectionHeader = ({ id, title }: { id: string; title: string }) => (
-    <button
-      className="menu-title flex items-center justify-between w-full cursor-pointer hover:bg-base-300/30 rounded px-1 transition-colors"
-      onClick={() => toggleSection(id)}
-      type="button"
-    >
-      <span>{title}</span>
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        className={`h-3 w-3 transition-transform ${expandedSections[id] ? 'rotate-180' : ''}`}
-        viewBox="0 0 20 20"
-        fill="currentColor"
-      >
-        <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-      </svg>
-    </button>
-  );
-
+  // ────────── Expanded mode ──────────
   return (
-    <div className="h-full flex flex-col">
-      <nav className="flex-1 overflow-y-auto p-2 pt-3">
-        <ul className="menu menu-sm p-0 [--tw-bg-opacity:0.05] [&_ul]:pl-1 [&_ul]:ml-0 [&_ul]:before:hidden">
-          <li>
-            <Link
-              to="/"
-              className={location.pathname === '/' ? 'active' : ''}
+    <aside
+      style={{
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        padding: '6px 6px 12px',
+        overflowY: 'auto',
+        color: 'var(--text)',
+        fontSize: 'var(--fs-sm)',
+      }}
+    >
+      {/* Browse */}
+      <NavItem to="/" icon="home" active={location.pathname === '/'}>
+        Home
+      </NavItem>
+
+      <SectionLabel>Browse</SectionLabel>
+
+      {packagesLoading ? (
+        <div style={{ padding: '6px 10px', color: 'var(--text-subtle)', fontSize: 'var(--fs-xs)' }}>
+          Loading…
+        </div>
+      ) : packagesError ? (
+        <div style={{ padding: '6px 10px', color: 'var(--danger)', fontSize: 'var(--fs-xs)' }}>
+          {packagesError}
+        </div>
+      ) : packages.length === 0 ? (
+        <div style={{ padding: '6px 10px', color: 'var(--text-subtle)', fontSize: 'var(--fs-xs)' }}>
+          No packages
+        </div>
+      ) : (
+        renderPackageTree(packages, [], expandedPackages, togglePackage, isActive)
+      )}
+
+      {/* Views */}
+      <SectionLabel>Views</SectionLabel>
+
+      <NavItem to="/quality"      icon="shield"  active={isActive('/quality')}>Quality</NavItem>
+      <NavItem to="/integrity"    icon="check"   active={isActive('/integrity')}>Integrity</NavItem>
+      <NavItem to="/diff/logical" icon="link"    active={isActive('/diff/logical')}>Model Diff</NavItem>
+      <NavItem to="/diff/physical" icon="layers" active={isActive('/diff/physical')}>Physical Sync</NavItem>
+      <NavItem to="/diagram"      icon="chart"   active={isActive('/diagram')}>Org Diagram</NavItem>
+
+      {perspectives.length > 0 && (
+        <div style={{ marginTop: 2 }}>
+          {perspectives.map(p => (
+            <NavItem
+              key={p.uuid}
+              to={`/perspectives/${p.uuid}`}
+              icon="layers"
+              active={isActive(`/perspectives/${p.uuid}`)}
+              trailing={<Chip tone="meta">perspective</Chip>}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" />
-              </svg>
-              Home
-            </Link>
-          </li>
+              {p.name}
+            </NavItem>
+          ))}
+        </div>
+      )}
+      <NavItem to="/perspectives/create" icon="plus" subtle>
+        Create perspective
+      </NavItem>
 
-          {/* Packages section */}
-          <li className="mt-2">
-            <SectionHeader id="packages" title="Packages" />
-            {expandedSections.packages && (
-              <>
-                {packagesLoading ? (
-                  <div className="flex justify-center p-2">
-                    <span className="loading loading-spinner loading-sm"></span>
-                  </div>
-                ) : packagesError ? (
-                  <div className="text-error p-2 text-xs">{packagesError}</div>
-                ) : packages.length > 0 ? (
-                  <div>
-                    {renderPackageTree(packages)}
-                  </div>
-                ) : (
-                  <div className="text-base-content/50 px-3 py-1 text-xs">No packages</div>
-                )}
-              </>
-            )}
-          </li>
+      {/* Tools */}
+      <SectionLabel>Tools</SectionLabel>
 
-          {/* Perspectives section */}
-          <li className="mt-1">
-            <SectionHeader id="perspectives" title="Perspectives" />
-            {expandedSections.perspectives && (
-              <ul>
-                {perspectives.map((p) => (
-                  <li key={p.uuid}>
-                    <Link
-                      to={`/perspectives/${p.uuid}`}
-                      className={isActive(`/perspectives/${p.uuid}`) ? 'active' : ''}
-                    >
-                      {p.name}
-                    </Link>
-                  </li>
-                ))}
-                {perspectives.length === 0 && (
-                  <li className="text-base-content/50 px-3 py-1 text-xs">No perspectives</li>
-                )}
-                <li>
-                  <Link to="/perspectives/create" className="text-primary text-xs">
-                    + Create
-                  </Link>
-                </li>
-              </ul>
-            )}
-          </li>
+      <NavItem
+        icon="rows"
+        onClick={() => setFlatViewsOpen(v => !v)}
+        trailing={
+          <Icon
+            name="chevron"
+            size={11}
+            style={{ transform: flatViewsOpen ? undefined : 'rotate(-90deg)', opacity: 0.6 }}
+          />
+        }
+      >
+        Flat views
+      </NavItem>
+      {flatViewsOpen && (
+        <>
+          <NavItem to="/flat/packages"   indent={1} active={isActive('/flat/packages')}>Packages</NavItem>
+          <NavItem to="/flat/entities"   indent={1} active={isActive('/flat/entities')}>Entities</NavItem>
+          <NavItem to="/flat/attributes" indent={1} active={isActive('/flat/attributes')}>Attributes</NavItem>
+        </>
+      )}
 
-          {/* Diagram */}
-          <li className="mt-1">
-            <Link
-              to="/diagram"
-              className={isActive('/diagram') ? 'active' : ''}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
-              </svg>
-              Diagram
-            </Link>
-          </li>
-
-          {/* Flat Views */}
-          <li className="mt-1">
-            <SectionHeader id="views" title="Flat Views" />
-            {expandedSections.views && (
-              <ul>
-                <li>
-                  <Link
-                    to="/flat/packages"
-                    className={isActive('/flat/packages') ? 'active' : ''}
-                  >
-                    Package List
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="/flat/entities"
-                    className={isActive('/flat/entities') ? 'active' : ''}
-                  >
-                    Entity List
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="/flat/attributes"
-                    className={isActive('/flat/attributes') ? 'active' : ''}
-                  >
-                    Attribute List
-                  </Link>
-                </li>
-              </ul>
-            )}
-          </li>
-
-          {/* Quality */}
-          <li className="mt-1">
-            <Link
-              to="/quality"
-              className={isActive('/quality') ? 'active' : ''}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-              </svg>
-              Quality
-            </Link>
-          </li>
-
-          {/* Integrity (#85 R5) — unified validation + constraints + rules.
-              The old Rules page is still reachable at /rules for editing
-              individual rules, but the sidebar now points at the wider view. */}
-          <li className="mt-1">
-            <Link
-              to="/integrity"
-              className={isActive('/integrity') ? 'active' : ''}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-              </svg>
-              Integrity
-            </Link>
-          </li>
-
-          {/* Model Diff (#86) */}
-          <li className="mt-1">
-            <Link
-              to="/diff/logical"
-              className={isActive('/diff/logical') ? 'active' : ''}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M8 5a1 1 0 100 2h5.586l-1.293 1.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L13.586 5H8zM12 15a1 1 0 100-2H6.414l1.293-1.293a1 1 0 10-1.414-1.414l-3 3a1 1 0 000 1.414l3 3a1 1 0 001.414-1.414L6.414 15H12z" />
-              </svg>
-              Model Diff
-            </Link>
-          </li>
-          <li>
-            <Link
-              to="/diff/physical"
-              className={isActive('/diff/physical') ? 'active' : ''}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M3 12v3c0 1.657 3.134 3 7 3s7-1.343 7-3v-3c0 1.657-3.134 3-7 3s-7-1.343-7-3z" />
-                <path d="M3 7v3c0 1.657 3.134 3 7 3s7-1.343 7-3V7c0 1.657-3.134 3-7 3S3 8.657 3 7z" />
-                <path d="M17 5c0 1.657-3.134 3-7 3S3 6.657 3 5s3.134-3 7-3 7 1.343 7 3z" />
-              </svg>
-              Physical Sync
-            </Link>
-          </li>
-
-          {/* Derived Types (#107) */}
-          <li>
-            <Link
-              to="/types"
-              className={isActive('/types') ? 'active' : ''}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm3 1h6a1 1 0 010 2H7a1 1 0 010-2zm0 4h6a1 1 0 010 2H7a1 1 0 010-2zm0 4h4a1 1 0 010 2H7a1 1 0 010-2z" clipRule="evenodd" />
-              </svg>
-              Data Types
-            </Link>
-          </li>
-
-          {/* Settings */}
-          <li className="mt-1">
-            <Link
-              to="/settings"
-              className={isActive('/settings') ? 'active' : ''}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
-              </svg>
-              Settings
-            </Link>
-          </li>
-        </ul>
-      </nav>
-    </div>
+      <NavItem to="/types"    icon="rows" active={isActive('/types')}>Data Types</NavItem>
+      <NavItem to="/settings" icon="gear" active={isActive('/settings')}>Settings</NavItem>
+    </aside>
   );
 };
+
+// ────────── Sub-components ──────────
+
+function SectionLabel({ children, action }: { children: ReactNode; action?: ReactNode }) {
+  return (
+    <div
+      className="uppercase"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '12px 10px 4px',
+        fontSize: 10,
+        fontWeight: 600,
+        color: 'var(--text-subtle)',
+        letterSpacing: '0.06em',
+      }}
+    >
+      <span>{children}</span>
+      {action}
+    </div>
+  );
+}
+
+interface NavItemProps {
+  to?: string;
+  onClick?: () => void;
+  icon?: IconName;
+  active?: boolean;
+  indent?: number;
+  subtle?: boolean;
+  trailing?: ReactNode;
+  children: ReactNode;
+}
+
+function NavItem({ to, onClick, icon, active, indent = 0, subtle, trailing, children }: NavItemProps) {
+  const style: CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 7,
+    padding: '6px 10px',
+    paddingLeft: 10 + indent * 12,
+    height: 32,
+    width: '100%',
+    textAlign: 'left',
+    background: active ? 'var(--accent-soft)' : 'transparent',
+    color: active ? 'var(--accent)' : subtle ? 'var(--text-subtle)' : 'var(--text-muted)',
+    fontWeight: active ? 600 : 400,
+    border: 'none',
+    borderLeft: active ? '2px solid var(--accent)' : '2px solid transparent',
+    borderRadius: 0,
+    cursor: onClick || to ? 'pointer' : 'default',
+    fontSize: 'var(--fs-sm)',
+    textDecoration: 'none',
+    lineHeight: 1.3,
+    overflow: 'hidden',
+  };
+
+  const content = (
+    <>
+      {icon && <Icon name={icon} size={13} />}
+      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {children}
+      </span>
+      {trailing}
+    </>
+  );
+
+  const hoverIn = (e: React.MouseEvent<HTMLElement>) => {
+    if (!active) (e.currentTarget as HTMLElement).style.background = 'var(--bg-hover)';
+  };
+  const hoverOut = (e: React.MouseEvent<HTMLElement>) => {
+    if (!active) (e.currentTarget as HTMLElement).style.background = 'transparent';
+  };
+
+  if (to) {
+    return (
+      <Link to={to} style={style} onMouseEnter={hoverIn} onMouseLeave={hoverOut}>
+        {content}
+      </Link>
+    );
+  }
+  return (
+    <button type="button" onClick={onClick} style={style} onMouseEnter={hoverIn} onMouseLeave={hoverOut}>
+      {content}
+    </button>
+  );
+}
+
+function CollapsedLink({ to, icon, label, active }: { to: string; icon: IconName; label: string; active: boolean }) {
+  return (
+    <Link
+      to={to}
+      title={label}
+      aria-label={label}
+      style={{
+        width: 32,
+        height: 32,
+        display: 'grid',
+        placeItems: 'center',
+        background: active ? 'var(--accent-soft)' : 'transparent',
+        color: active ? 'var(--accent)' : 'var(--text-muted)',
+        borderRadius: 'var(--radius-sm)',
+        textDecoration: 'none',
+      }}
+      onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+      onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+    >
+      <Icon name={icon} size={15} />
+    </Link>
+  );
+}
+
+/** Package tree — recursive, expand/collapse per package. */
+function renderPackageTree(
+  pkgs: Package[],
+  parentPath: string[],
+  expanded: Record<string, boolean>,
+  toggle: (id: string) => void,
+  isActive: (path: string) => boolean,
+): ReactNode {
+  if (!Array.isArray(pkgs)) return null;
+  return pkgs.map(pkg => {
+    const currentPath = [...parentPath, pkg.name];
+    const packageUrl = `/packages/${currentPath.join('/')}`;
+    const hasChildren =
+      (pkg.subPackages && pkg.subPackages.length > 0) ||
+      (pkg.entities && pkg.entities.length > 0);
+    const isOpen = !!expanded[pkg.id];
+
+    return (
+      <div key={pkg.id}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            paddingLeft: 10 + parentPath.length * 10,
+          }}
+        >
+          {hasChildren ? (
+            <button
+              type="button"
+              aria-label={isOpen ? 'Collapse' : 'Expand'}
+              onClick={() => toggle(pkg.id)}
+              style={{
+                width: 16,
+                height: 16,
+                display: 'grid',
+                placeItems: 'center',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'var(--text-subtle)',
+                flexShrink: 0,
+              }}
+            >
+              <Icon name={isOpen ? 'chevron' : 'chevronR'} size={11} />
+            </button>
+          ) : (
+            <span style={{ width: 16, flexShrink: 0 }} />
+          )}
+          <Link
+            to={packageUrl}
+            style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '4px 8px 4px 4px',
+              fontSize: 'var(--fs-sm)',
+              color: isActive(packageUrl) ? 'var(--accent)' : 'var(--text)',
+              background: isActive(packageUrl) ? 'var(--accent-soft)' : 'transparent',
+              borderLeft: isActive(packageUrl) ? '2px solid var(--accent)' : '2px solid transparent',
+              textDecoration: 'none',
+              fontWeight: isActive(packageUrl) ? 600 : 500,
+              overflow: 'hidden',
+            }}
+            onMouseEnter={e => { if (!isActive(packageUrl)) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+            onMouseLeave={e => { if (!isActive(packageUrl)) e.currentTarget.style.background = 'transparent'; }}
+          >
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {pkg.name}
+            </span>
+          </Link>
+        </div>
+        {isOpen && (
+          <>
+            {pkg.entities?.map(entity => {
+              const entityUrl = `${packageUrl}/entities/${entity.name}`;
+              const active = isActive(entityUrl);
+              return (
+                <Link
+                  key={entity.uuid}
+                  to={entityUrl}
+                  style={{
+                    display: 'block',
+                    paddingLeft: 10 + (parentPath.length + 1) * 10 + 16,
+                    paddingRight: 8,
+                    paddingTop: 3,
+                    paddingBottom: 3,
+                    fontSize: 'var(--fs-xs)',
+                    color: active ? 'var(--accent)' : 'var(--text-muted)',
+                    background: active ? 'var(--accent-soft)' : 'transparent',
+                    borderLeft: active ? '2px solid var(--accent)' : '2px solid transparent',
+                    textDecoration: 'none',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    fontWeight: active ? 600 : 400,
+                  }}
+                  onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                  onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+                >
+                  {entity.name}
+                </Link>
+              );
+            })}
+            {pkg.subPackages && pkg.subPackages.length > 0 &&
+              renderPackageTree(pkg.subPackages, currentPath, expanded, toggle, isActive)}
+          </>
+        )}
+      </div>
+    );
+  });
+}
 
 export default Sidebar;
