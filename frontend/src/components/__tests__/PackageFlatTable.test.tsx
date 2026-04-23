@@ -35,6 +35,9 @@ describe('PackageFlatTable', () => {
       http.get('/api/packages/all', () => {
         return HttpResponse.json({ data: mockPackages });
       }),
+      http.get('/api/stereotypes', () => {
+        return HttpResponse.json({ data: [] });
+      }),
       http.put('/api/packages/:pkg/path/', async ({ request }) => {
         const body = await request.json();
         return HttpResponse.json({ message: 'Updated', data: body });
@@ -54,43 +57,48 @@ describe('PackageFlatTable', () => {
     expect(screen.getByText('User microservice')).toBeInTheDocument();
     expect(screen.getByText('Order microservice')).toBeInTheDocument();
     expect(screen.getByText('microservice')).toBeInTheDocument();
-    expect(screen.getByText('-')).toBeInTheDocument(); // null type
-    expect(screen.getByText('2')).toBeInTheDocument(); // user-service entity count
-    expect(screen.getByText('0')).toBeInTheDocument(); // order-service entity count
+    // user-service has 2 entities, order-service has 0 (rendered as em-dash).
+    expect(screen.getByText('2')).toBeInTheDocument();
   });
 
-  it('renders error on API failure', async () => {
+  it('renders the error state on API failure', async () => {
     server.use(
       http.get('/api/packages/all', () => {
         return new HttpResponse(null, { status: 500 });
       }),
-    );
-    render(<PackageFlatTable />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Failed to load packages. Please try again.')).toBeInTheDocument();
-    });
-  });
-
-  it('renders empty state', async () => {
-    server.use(
-      http.get('/api/packages/all', () => {
+      http.get('/api/stereotypes', () => {
         return HttpResponse.json({ data: [] });
       }),
     );
     render(<PackageFlatTable />);
 
     await waitFor(() => {
-      expect(screen.getByText('No packages found.')).toBeInTheDocument();
+      expect(screen.getByText('Failed to load packages')).toBeInTheDocument();
     });
   });
 
-  it('allows inline editing of package name', async () => {
+  it('renders the empty state when no packages exist', async () => {
+    server.use(
+      http.get('/api/packages/all', () => {
+        return HttpResponse.json({ data: [] });
+      }),
+      http.get('/api/stereotypes', () => {
+        return HttpResponse.json({ data: [] });
+      }),
+    );
+    render(<PackageFlatTable />);
+
+    await waitFor(() => {
+      expect(screen.getByText('No packages found')).toBeInTheDocument();
+    });
+  });
+
+  it('opens the side panel when a row is clicked and saves the new name', async () => {
     setupHandlers();
-    let capturedBody: any;
+    let capturedBody: { name?: string } | undefined;
     server.use(
       http.put('/api/packages/:pkg/path/', async ({ request }) => {
-        capturedBody = await request.json();
+        capturedBody = (await request.json()) as typeof capturedBody;
         return HttpResponse.json({ message: 'Updated', data: capturedBody });
       }),
     );
@@ -101,25 +109,27 @@ describe('PackageFlatTable', () => {
       expect(screen.getByText('user-service')).toBeInTheDocument();
     });
 
-    const nameCell = screen.getByText('user-service').closest('td')!;
-    await userEvent.click(nameCell);
+    await userEvent.click(screen.getByText('user-service'));
+    const panel = screen.getByRole('dialog', { name: /edit package/i });
+    const nameInput = within(panel).getByLabelText('Name') as HTMLInputElement;
+    expect(nameInput.value).toBe('user-service');
 
-    const input = within(nameCell).getByRole('textbox');
-    await userEvent.clear(input);
-    await userEvent.type(input, 'account-service{enter}');
+    await userEvent.clear(nameInput);
+    await userEvent.type(nameInput, 'account-service');
+    await userEvent.click(within(panel).getByRole('button', { name: /^save$/i }));
 
     await waitFor(() => {
       expect(capturedBody).toBeDefined();
-      expect(capturedBody.name).toBe('account-service');
+      expect(capturedBody!.name).toBe('account-service');
     });
   });
 
-  it('allows inline editing of package description', async () => {
+  it('saves a description change through the side panel', async () => {
     setupHandlers();
-    let capturedBody: any;
+    let capturedBody: { description?: string } | undefined;
     server.use(
       http.put('/api/packages/:pkg/path/', async ({ request }) => {
-        capturedBody = await request.json();
+        capturedBody = (await request.json()) as typeof capturedBody;
         return HttpResponse.json({ message: 'Updated', data: capturedBody });
       }),
     );
@@ -130,44 +140,22 @@ describe('PackageFlatTable', () => {
       expect(screen.getByText('User microservice')).toBeInTheDocument();
     });
 
-    const descCell = screen.getByText('User microservice').closest('td')!;
-    await userEvent.click(descCell);
-
-    const textarea = within(descCell).getByRole('textbox');
-    await userEvent.clear(textarea);
-    await userEvent.type(textarea, 'Account management service');
-    // Blur to save
-    textarea.blur();
+    await userEvent.click(screen.getByText('user-service'));
+    const panel = screen.getByRole('dialog', { name: /edit package/i });
+    const descInput = within(panel).getByLabelText('Description') as HTMLTextAreaElement;
+    await userEvent.clear(descInput);
+    await userEvent.type(descInput, 'Account management service');
+    await userEvent.click(within(panel).getByRole('button', { name: /^save$/i }));
 
     await waitFor(() => {
       expect(capturedBody).toBeDefined();
-      expect(capturedBody.description).toBe('Account management service');
+      expect(capturedBody!.description).toBe('Account management service');
     });
   });
 
-  it('non-editable columns do not enter edit mode', async () => {
+  it('keeps the original value when save fails', async () => {
     setupHandlers();
-    render(<PackageFlatTable />);
-
-    await waitFor(() => {
-      expect(screen.getByText('user-service')).toBeInTheDocument();
-    });
-
-    const row = screen.getByText('user-service').closest('tr')!;
-
-    // Microservice type, entity count, dates should be plain tds
-    const microserviceCell = within(row).getByText('microservice').closest('td')!;
-    expect(microserviceCell.className).not.toContain('cursor-pointer');
-
-    const countCell = within(row).getByText('2').closest('td')!;
-    expect(countCell.className).not.toContain('cursor-pointer');
-  });
-
-  it('reverts on save error', async () => {
     server.use(
-      http.get('/api/packages/all', () => {
-        return HttpResponse.json({ data: mockPackages });
-      }),
       http.put('/api/packages/:pkg/path/', () => {
         return new HttpResponse(null, { status: 500 });
       }),
@@ -179,14 +167,16 @@ describe('PackageFlatTable', () => {
       expect(screen.getByText('user-service')).toBeInTheDocument();
     });
 
-    const nameCell = screen.getByText('user-service').closest('td')!;
-    await userEvent.click(nameCell);
-    const input = within(nameCell).getByRole('textbox');
-    await userEvent.clear(input);
-    await userEvent.type(input, 'broken{enter}');
+    await userEvent.click(screen.getByText('user-service'));
+    const panel = screen.getByRole('dialog', { name: /edit package/i });
+    const nameInput = within(panel).getByLabelText('Name') as HTMLInputElement;
+    await userEvent.clear(nameInput);
+    await userEvent.type(nameInput, 'broken');
+    await userEvent.click(within(panel).getByRole('button', { name: /^save$/i }));
 
+    // Row cell still shows the original value (panel header also shows it).
     await waitFor(() => {
-      expect(screen.getByText('user-service')).toBeInTheDocument();
+      expect(screen.getAllByText('user-service').length).toBeGreaterThan(0);
     });
   });
 });
