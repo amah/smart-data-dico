@@ -9,6 +9,7 @@ import {
 } from '../hooks/useStereotypeMetadata';
 import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
 import {
+  BatchActionBar,
   Button,
   Chip,
   ColumnChooser,
@@ -96,6 +97,8 @@ const RelationshipList = ({
   }, []);
 
   const [editRel, setEditRel] = useState<Relationship | null>(null);
+  const [selection, setSelection] = useState<Set<string | number>>(() => new Set());
+  const [bulkSaving, setBulkSaving] = useState(false);
 
   const saveRelationship = useCallback(async (
     rel: Relationship,
@@ -105,6 +108,50 @@ const RelationshipList = ({
     await relationshipApi.updateRelationship(serviceName, rel.uuid, updated);
     onRelationshipUpdated?.();
   }, [serviceName, onRelationshipUpdated]);
+
+  // Prune stale uuids so the header checkbox tri-state stays accurate
+  // when relationships are removed (by this action or another client).
+  useEffect(() => {
+    setSelection(prev => {
+      if (prev.size === 0) return prev;
+      const alive = new Set(relationships.map(r => r.uuid));
+      let changed = false;
+      const next = new Set<string | number>();
+      for (const k of prev) {
+        if (alive.has(String(k))) next.add(k);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [relationships]);
+
+  // Unlike AttributeList (one updateEntity call covers N attrs), each
+  // relationship has its own DELETE endpoint — so we fan out with
+  // Promise.allSettled and let a partial failure leave the survivors
+  // intact rather than crashing the whole batch.
+  const handleBulkDelete = useCallback(async () => {
+    const n = selection.size;
+    if (n === 0) return;
+    const ok = window.confirm(
+      `Delete ${n} relationship${n === 1 ? '' : 's'}? This cannot be undone.`,
+    );
+    if (!ok) return;
+    setBulkSaving(true);
+    try {
+      const ids = Array.from(selection).map(String);
+      const results = await Promise.allSettled(
+        ids.map(uuid => relationshipApi.deleteRelationship(serviceName, uuid)),
+      );
+      const failed = results.filter(r => r.status === 'rejected').length;
+      if (failed > 0) {
+        console.error(`Bulk delete: ${failed}/${n} relationships failed`);
+      }
+      setSelection(new Set());
+      onRelationshipUpdated?.();
+    } finally {
+      setBulkSaving(false);
+    }
+  }, [selection, serviceName, onRelationshipUpdated]);
 
   const filtered = useMemo(() => {
     const needle = searchTerm.trim().toLowerCase();
@@ -246,6 +293,8 @@ const RelationshipList = ({
         visibleColumns={allVisibleKeys}
         onVisibleColumnsChange={handleVisibleChange}
         onRowClick={(r) => setEditRel(r)}
+        selection={selection}
+        onSelectionChange={setSelection}
         showFilterRow
         attached
         emptyMessage={
@@ -253,6 +302,21 @@ const RelationshipList = ({
             ? 'No relationships defined for this entity.'
             : 'No relationships match these filters.'
         }
+      />
+
+      <BatchActionBar
+        count={selection.size}
+        onClear={() => setSelection(new Set())}
+        label={selection.size === 1 ? 'relationship' : 'relationships'}
+        actions={[
+          {
+            label: 'Delete',
+            icon: 'close',
+            tone: 'danger',
+            disabled: bulkSaving,
+            onClick: handleBulkDelete,
+          },
+        ]}
       />
 
       {editRel && (
