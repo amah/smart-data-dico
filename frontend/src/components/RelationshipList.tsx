@@ -14,8 +14,12 @@ import {
   Chip,
   ColumnChooser,
   DataTable,
+  Field,
+  fieldStyle,
+  fieldStyleMono,
   Icon,
   Input,
+  MetadataField,
   RelationshipKindChip,
   Toolbar,
 } from './ui';
@@ -669,83 +673,5 @@ const RelationshipSidePanel = ({
     </>
   );
 };
-
-// ──────────────── Field primitives ────────────────
-
-interface FieldProps {
-  label: string;
-  grow?: boolean;
-  children: ReactNode;
-}
-
-const Field = ({ label, grow, children }: FieldProps) => (
-  <label
-    style={{
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 4,
-      flex: grow ? 1 : undefined,
-    }}
-  >
-    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{label}</span>
-    {children}
-  </label>
-);
-
-interface MetadataFieldProps {
-  column: MetadataColumn;
-  value: string | number | boolean | undefined;
-  onChange: (value: string | number | boolean) => void;
-}
-
-const MetadataField = ({ column, value, onChange }: MetadataFieldProps) => {
-  if (column.type === 'flag' || column.type === 'boolean') {
-    return (
-      <label
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 6,
-          fontSize: 'var(--fs-xs)',
-          color: 'var(--text-muted)',
-        }}
-      >
-        <input
-          type="checkbox"
-          checked={!!value}
-          onChange={(e) => onChange(e.target.checked)}
-        />
-        {column.label} · {column.stereotypeName}
-      </label>
-    );
-  }
-  return (
-    <Field label={`${column.label} · ${column.stereotypeName}`}>
-      <input
-        type="text"
-        value={value === undefined ? '' : String(value)}
-        onChange={(e) => onChange(e.target.value)}
-        style={fieldStyle}
-      />
-    </Field>
-  );
-};
-
-const fieldStyle = {
-  height: 28,
-  padding: '0 8px',
-  fontSize: 'var(--fs-sm)',
-  fontFamily: 'inherit',
-  background: 'var(--bg-raised)',
-  color: 'var(--text)',
-  border: '1px solid var(--border-strong)',
-  borderRadius: 'var(--radius-sm)',
-  outline: 'none',
-} as const;
-
-const fieldStyleMono = {
-  ...fieldStyle,
-  fontFamily: 'var(--font-mono)',
-} as const;
 
 export default RelationshipList;

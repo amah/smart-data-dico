@@ -57,3 +57,9 @@ export type { BatchActionBarProps, BatchAction } from './BatchActionBar';
 
 export { default as EmptyState } from './EmptyState';
 export type { EmptyStateProps, EmptyStateKind, EmptyStateAction } from './EmptyState';
+
+export { Field, MetadataField, fieldStyle, fieldStyleMono } from './Field';
+export type { FieldProps, MetadataFieldProps } from './Field';
+
+export { default as Modal } from './Modal';
+export type { ModalProps } from './Modal';
