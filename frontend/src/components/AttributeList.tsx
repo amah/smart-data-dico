@@ -291,6 +291,16 @@ const AttributeList = ({
     return applyToSelection(a => ({ ...a, required }));
   }, [applyToSelection]);
 
+  // PII is stored as an attribute metadata entry keyed "pii". Writing
+  // through setMetadataValue preserves the rest of the metadata array
+  // and matches the single-attribute path used by the side panel.
+  const handleBulkSetPii = useCallback((value: 'direct' | '') => {
+    return applyToSelection(a => ({
+      ...a,
+      metadata: setMetadataValue(a.metadata, 'pii', value),
+    }));
+  }, [applyToSelection]);
+
   const handleBulkDelete = useCallback(async () => {
     const n = selection.size;
     if (n === 0) return;
@@ -523,6 +533,18 @@ const AttributeList = ({
             icon: 'minus',
             disabled: bulkSaving,
             onClick: () => handleBulkSetRequired(false),
+          },
+          {
+            label: 'Mark PII',
+            icon: 'shield',
+            disabled: bulkSaving,
+            onClick: () => handleBulkSetPii('direct'),
+          },
+          {
+            label: 'Clear PII',
+            icon: 'shield',
+            disabled: bulkSaving,
+            onClick: () => handleBulkSetPii(''),
           },
           {
             label: 'Delete',
