@@ -84,6 +84,16 @@ export interface DataTableProps<Row> {
   onRowClick?: (row: Row) => void;
   emptyMessage?: ReactNode;
 
+  /**
+   * Optional per-row action column appended at the right edge (after
+   * metadata). The returned node is rendered inside a cell that
+   * stops click propagation so button clicks don't fire the row's
+   * onRowClick. Not sortable / filterable / resizable.
+   */
+  rowActions?: (row: Row) => ReactNode;
+  /** Width of the trailing actions column. Defaults to 80px. */
+  rowActionsWidth?: number;
+
   /** No top border / top radius — for wrapping under a Toolbar. */
   attached?: boolean;
   className?: string;
@@ -106,6 +116,8 @@ function DataTable<Row>({
   showFilterRow,
   onRowClick,
   emptyMessage = 'No rows.',
+  rowActions,
+  rowActionsWidth = 80,
   attached,
   className = '',
 }: DataTableProps<Row>) {
@@ -177,13 +189,16 @@ function DataTable<Row>({
     c.width;
 
   const selectable = selection !== undefined && onSelectionChange !== undefined;
+  const hasActions = !!rowActions;
   const selectionColWidth = '36px';
   const standardSpanStart = selectable ? 2 : 1;
+  const totalCols = activeColumns.length + (selectable ? 1 : 0) + (hasActions ? 1 : 0);
 
   const gridTemplate = [
     ...(selectable ? [selectionColWidth] : []),
     ...standardCols.map(colWidth),
     ...metadataCols.map(colWidth),
+    ...(hasActions ? [`${rowActionsWidth}px`] : []),
   ].join(' ');
 
   // Selection state derivations
@@ -299,6 +314,15 @@ function DataTable<Row>({
             >
               {GROUP_LABEL.metadata}
             </div>
+            {hasActions && (
+              <div
+                role="columnheader"
+                style={{
+                  background: 'var(--bg-subtle)',
+                  borderBottom: '1px solid var(--border)',
+                }}
+              />
+            )}
           </div>
         )}
 
@@ -329,6 +353,16 @@ function DataTable<Row>({
               metaFirst={i === 0}
             />
           ))}
+          {hasActions && (
+            <div
+              role="columnheader"
+              style={{
+                padding: '7px 10px',
+                background: 'var(--bg-subtle)',
+                borderBottom: '1px solid var(--border-strong)',
+              }}
+            />
+          )}
         </div>
 
         {showFilterRow && (
@@ -355,6 +389,15 @@ function DataTable<Row>({
                 metaFirst={i === 0}
               />
             ))}
+            {hasActions && (
+              <div
+                role="cell"
+                style={{
+                  borderBottom: '1px solid var(--border)',
+                  background: 'var(--bg-raised)',
+                }}
+              />
+            )}
           </div>
         )}
 
@@ -362,7 +405,7 @@ function DataTable<Row>({
           <div
             role="row"
             style={{
-              gridColumn: `1 / span ${activeColumns.length + (selectable ? 1 : 0)}`,
+              gridColumn: `1 / span ${totalCols}`,
               padding: '24px 10px',
               textAlign: 'center',
               color: 'var(--text-subtle)',
@@ -406,6 +449,26 @@ function DataTable<Row>({
                 {metadataCols.map((col, i) => (
                   <Cell key={col.key} col={col} row={row} meta metaFirst={i === 0} />
                 ))}
+                {hasActions && (
+                  <div
+                    role="cell"
+                    className="sdd-cell"
+                    // Stop propagation so the trailing buttons don't also
+                    // trigger onRowClick (e.g. opening the side panel).
+                    onClick={e => e.stopPropagation()}
+                    style={{
+                      padding: '0 6px',
+                      height: 'var(--row-height, 36px)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'flex-end',
+                      gap: 4,
+                      borderBottom: '1px solid var(--border)',
+                    }}
+                  >
+                    {rowActions!(row)}
+                  </div>
+                )}
               </div>
             );
           })
