@@ -1,15 +1,15 @@
 import { useEffect, useState, useCallback, useMemo, type ReactNode } from 'react';
 import { entityApi, servicesApi } from '../services/api';
-import { Attribute, AttributeType, Package, Entity } from '../types';
+import { Attribute, Package, Entity } from '../types';
 import {
   useStereotypeMetadata,
   getMetadataValue,
   setMetadataValue,
 } from '../hooks/useStereotypeMetadata';
 import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
+import AttributeSidePanel from './AttributeSidePanel';
 import {
   BatchActionBar,
-  Button,
   Chip,
   ColumnChooser,
   DataTable,
@@ -451,8 +451,12 @@ const AttributeFlatTable = () => {
       />
 
       {editing && (
-        <FlatAttributeSidePanel
-          flat={editing}
+        <AttributeSidePanel
+          attr={editing.attribute}
+          serviceName={editing.packageName}
+          entityName={editing.entityName}
+          metaColumns={allColumns}
+          contextLabel={`${editing.packageName} · ${editing.entityName}`}
           onClose={() => setEditing(null)}
           onSave={async (patch) => {
             await saveAttribute(
@@ -463,6 +467,15 @@ const AttributeFlatTable = () => {
               (a) => ({ ...a, ...patch }),
             );
           }}
+          onMetadataChange={(col, value) =>
+            saveAttribute(
+              editing.packageName,
+              editing.entityName,
+              editing.entityUuid,
+              editing.attribute.uuid,
+              (a) => ({ ...a, metadata: setMetadataValue(a.metadata, col.name, value) }),
+            )
+          }
         />
       )}
     </div>
@@ -494,262 +507,5 @@ function renderMetadataCell(attr: Attribute, col: MetadataColumn): ReactNode {
   }
   return <span style={{ color: 'var(--text-muted)' }}>{String(v)}</span>;
 }
-
-// ──────────────── Side panel ────────────────
-
-interface FlatSidePanelProps {
-  flat: FlatAttribute;
-  onClose: () => void;
-  onSave: (patch: Partial<Attribute>) => Promise<void>;
-}
-
-const FlatAttributeSidePanel = ({ flat, onClose, onSave }: FlatSidePanelProps) => {
-  const { attribute } = flat;
-  const [name, setName] = useState(attribute.name);
-  const [type, setType] = useState<AttributeType>(attribute.type);
-  const [description, setDescription] = useState(attribute.description ?? '');
-  const [required, setRequired] = useState(!!attribute.required);
-  const [defaultValue, setDefaultValue] = useState<string>(
-    attribute.defaultValue === undefined || attribute.defaultValue === null
-      ? ''
-      : String(attribute.defaultValue),
-  );
-  const [saving, setSaving] = useState(false);
-  const [savedAt, setSavedAt] = useState<number | null>(null);
-
-  useEffect(() => {
-    setName(attribute.name);
-    setType(attribute.type);
-    setDescription(attribute.description ?? '');
-    setRequired(!!attribute.required);
-    setDefaultValue(
-      attribute.defaultValue === undefined || attribute.defaultValue === null
-        ? ''
-        : String(attribute.defaultValue),
-    );
-    setSavedAt(null);
-  }, [attribute.uuid]);
-
-  const dirty =
-    name !== attribute.name ||
-    type !== attribute.type ||
-    description !== (attribute.description ?? '') ||
-    required !== !!attribute.required ||
-    defaultValue !== (attribute.defaultValue === undefined || attribute.defaultValue === null
-      ? ''
-      : String(attribute.defaultValue));
-
-  const handleSave = async () => {
-    if (!dirty) return;
-    setSaving(true);
-    try {
-      await onSave({
-        name,
-        type,
-        description,
-        required,
-        defaultValue: defaultValue === '' ? undefined : defaultValue,
-      });
-      setSavedAt(Date.now());
-    } catch (err) {
-      console.error('Failed to save attribute:', err);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <>
-      <div
-        onClick={onClose}
-        style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(0,0,0,0.25)',
-          zIndex: 40,
-        }}
-      />
-      <aside
-        role="dialog"
-        aria-label="Edit attribute"
-        style={{
-          position: 'fixed',
-          top: 0,
-          right: 0,
-          bottom: 0,
-          width: 480,
-          background: 'var(--bg-raised)',
-          borderLeft: '1px solid var(--border)',
-          boxShadow: 'var(--shadow-lg)',
-          display: 'flex',
-          flexDirection: 'column',
-          zIndex: 50,
-          animation: 'sddSlide var(--dur-med) ease-out',
-        }}
-      >
-        <style>{`
-          @keyframes sddSlide {
-            from { transform: translateX(100%); opacity: 0.7; }
-            to   { transform: translateX(0);     opacity: 1;   }
-          }
-        `}</style>
-
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '12px 14px',
-            borderBottom: '1px solid var(--border)',
-          }}
-        >
-          <span
-            className="uppercase mono"
-            style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)', letterSpacing: '0.04em' }}
-          >
-            edit attribute
-          </span>
-          <span
-            className="mono"
-            style={{ fontSize: 'var(--fs-md)', fontWeight: 600, color: 'var(--text)' }}
-          >
-            {attribute.name}
-          </span>
-          <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>
-            {flat.packageName} · {flat.entityName}
-          </span>
-          <div style={{ flex: 1 }} />
-          <Button size="sm" variant="ghost" icon="close" onClick={onClose} iconOnly aria-label="close" />
-        </div>
-
-        <div
-          style={{
-            flex: 1,
-            overflow: 'auto',
-            padding: 14,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 12,
-          }}
-        >
-          <Field label="Name">
-            <input
-              type="text"
-              value={name}
-              aria-label="Name"
-              onChange={(e) => setName(e.target.value)}
-              style={fieldStyleMono}
-            />
-          </Field>
-          <Field label="Type">
-            <select
-              value={type}
-              aria-label="Type"
-              onChange={(e) => setType(e.target.value as AttributeType)}
-              style={fieldStyleMono}
-            >
-              {Object.values(AttributeType).map(t => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Description">
-            <textarea
-              value={description}
-              aria-label="Description"
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-              style={{ ...fieldStyle, minHeight: 60, padding: '6px 8px', fontFamily: 'inherit' }}
-            />
-          </Field>
-          <div style={{ display: 'flex', gap: 12 }}>
-            <Field label="Required" inline>
-              <input
-                type="checkbox"
-                aria-label="Required"
-                checked={required}
-                onChange={(e) => setRequired(e.target.checked)}
-              />
-            </Field>
-            <Field label="Default value" grow>
-              <input
-                type="text"
-                value={defaultValue}
-                aria-label="Default value"
-                onChange={(e) => setDefaultValue(e.target.value)}
-                style={fieldStyleMono}
-              />
-            </Field>
-          </div>
-        </div>
-
-        <div
-          style={{
-            padding: '10px 14px',
-            borderTop: '1px solid var(--border)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-          }}
-        >
-          <Button
-            size="md"
-            variant="primary"
-            icon="check"
-            onClick={handleSave}
-            disabled={!dirty || saving}
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </Button>
-          <Button size="md" variant="ghost" onClick={onClose}>Cancel</Button>
-          {savedAt && !dirty && (
-            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--success)' }}>Saved</span>
-          )}
-        </div>
-      </aside>
-    </>
-  );
-};
-
-interface FieldProps {
-  label: string;
-  inline?: boolean;
-  grow?: boolean;
-  children: ReactNode;
-}
-
-const Field = ({ label, inline, grow, children }: FieldProps) => (
-  <label
-    style={{
-      display: inline ? 'inline-flex' : 'flex',
-      flexDirection: inline ? 'row' : 'column',
-      alignItems: inline ? 'center' : 'stretch',
-      gap: inline ? 6 : 4,
-      flex: grow ? 1 : undefined,
-    }}
-  >
-    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', letterSpacing: '0.02em' }}>
-      {label}
-    </span>
-    {children}
-  </label>
-);
-
-const fieldStyle = {
-  height: 28,
-  padding: '0 8px',
-  fontSize: 'var(--fs-sm)',
-  fontFamily: 'inherit',
-  background: 'var(--bg-raised)',
-  color: 'var(--text)',
-  border: '1px solid var(--border-strong)',
-  borderRadius: 'var(--radius-sm)',
-  outline: 'none',
-} as const;
-
-const fieldStyleMono = {
-  ...fieldStyle,
-  fontFamily: 'var(--font-mono)',
-} as const;
 
 export default AttributeFlatTable;
