@@ -23,12 +23,69 @@
  * state in Redux.
  */
 
-import { useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import Icon from './Icon';
 import Button from './Button';
 import type { ColumnDef, ColumnGroup, SortDir } from './DataTable.types';
 
 type RowKey = string | number;
+
+const WIDTH_STORAGE_PREFIX = 'sdd.dataTable.widths.';
+
+/**
+ * Tracks per-column drag-resized widths, persisted in localStorage per
+ * resizeKey. Returns the width override (pixels) for a column, or
+ * undefined — callers fall back to the column's declared width when no
+ * override exists.
+ */
+function useColumnWidths(resizeKey: string | undefined) {
+  const storageKey = resizeKey ? WIDTH_STORAGE_PREFIX + resizeKey : null;
+  const [widths, setWidths] = useState<Record<string, number>>(() => {
+    if (!storageKey) return {};
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) return JSON.parse(raw) as Record<string, number>;
+    } catch { /* ignore */ }
+    return {};
+  });
+
+  useEffect(() => {
+    if (!storageKey) return;
+    try { localStorage.setItem(storageKey, JSON.stringify(widths)); } catch { /* ignore */ }
+  }, [storageKey, widths]);
+
+  const active = useRef<{ key: string; startX: number; startW: number } | null>(null);
+
+  const onMouseMove = useCallback((e: MouseEvent) => {
+    if (!active.current) return;
+    const delta = e.clientX - active.current.startX;
+    const next = Math.max(40, active.current.startW + delta);
+    setWidths(prev => ({ ...prev, [active.current!.key]: next }));
+  }, []);
+
+  const onMouseUp = useCallback(() => {
+    active.current = null;
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  }, [onMouseMove]);
+
+  const startResize = useCallback(
+    (key: string, currentWidthPx: number, e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      active.current = { key, startX: e.clientX, startW: currentWidthPx };
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    },
+    [onMouseMove, onMouseUp],
+  );
+
+  return { widths, startResize };
+}
 
 const GROUP_LABEL: Record<ColumnGroup, string> = {
   standard: 'Standard',
@@ -94,6 +151,14 @@ export interface DataTableProps<Row> {
   /** Width of the trailing actions column. Defaults to 80px. */
   rowActionsWidth?: number;
 
+  /**
+   * Enables drag-to-resize on standard + metadata column headers.
+   * Widths are persisted in localStorage under this key so they survive
+   * reload. Selection, filter, and row-action columns are excluded from
+   * resize.
+   */
+  resizeKey?: string;
+
   /** No top border / top radius — for wrapping under a Toolbar. */
   attached?: boolean;
   className?: string;
@@ -118,9 +183,23 @@ function DataTable<Row>({
   emptyMessage = 'No rows.',
   rowActions,
   rowActionsWidth = 80,
+  resizeKey,
   attached,
   className = '',
 }: DataTableProps<Row>) {
+  const { widths: columnWidths, startResize } = useColumnWidths(resizeKey);
+  const resizable = !!resizeKey;
+
+  // Start-width for a drag-resize: the override if we have one, else a
+  // sensible default derived from the column's declared width. On the
+  // first drag after mount minmax() columns snap to a fixed pixel size
+  // — that's the trade-off for avoiding a measure/re-render cycle.
+  const initialDragWidth = useCallback((col: ColumnDef<Row>): number => {
+    const override = columnWidths[col.key];
+    if (override !== undefined) return override;
+    if (typeof col.width === 'number') return col.width;
+    return 160; // reasonable default for minmax(120, 1fr) etc.
+  }, [columnWidths]);
   const [visibleState, setVisibleState] = useState<Set<string>>(
     () => new Set(columns.map(c => c.key)),
   );
@@ -183,10 +262,13 @@ function DataTable<Row>({
   const clearAllFilters = () => setFilters({});
   const anyFilter = Object.values(filters).some(v => v && v.length > 0);
 
-  const colWidth = (c: ColumnDef<Row>) =>
-    c.width === undefined ? 'minmax(120px, 1fr)' :
-    typeof c.width === 'number' ? `${c.width}px` :
-    c.width;
+  const colWidth = (c: ColumnDef<Row>) => {
+    const override = columnWidths[c.key];
+    if (override !== undefined) return `${override}px`;
+    return c.width === undefined ? 'minmax(120px, 1fr)' :
+      typeof c.width === 'number' ? `${c.width}px` :
+      c.width;
+  };
 
   const selectable = selection !== undefined && onSelectionChange !== undefined;
   const hasActions = !!rowActions;
@@ -341,6 +423,7 @@ function DataTable<Row>({
               col={col}
               sort={sort}
               onClick={() => handleHeaderClick(col)}
+              onStartResize={resizable ? (e) => startResize(col.key, initialDragWidth(col), e) : undefined}
             />
           ))}
           {metadataCols.map((col, i) => (
@@ -351,6 +434,7 @@ function DataTable<Row>({
               onClick={() => handleHeaderClick(col)}
               meta
               metaFirst={i === 0}
+              onStartResize={resizable ? (e) => startResize(col.key, initialDragWidth(col), e) : undefined}
             />
           ))}
           {hasActions && (
@@ -502,9 +586,11 @@ interface ColumnHeaderCellProps<Row> {
   onClick: () => void;
   meta?: boolean;
   metaFirst?: boolean;
+  /** Starts a drag-resize from the trailing handle. */
+  onStartResize?: (e: React.MouseEvent) => void;
 }
 
-function ColumnHeaderCell<Row>({ col, sort, onClick, meta, metaFirst }: ColumnHeaderCellProps<Row>) {
+function ColumnHeaderCell<Row>({ col, sort, onClick, meta, metaFirst, onStartResize }: ColumnHeaderCellProps<Row>) {
   const active = sort && sort.key === col.key;
   const align = col.align ?? 'left';
 
@@ -514,6 +600,7 @@ function ColumnHeaderCell<Row>({ col, sort, onClick, meta, metaFirst }: ColumnHe
       onClick={col.sortable ? onClick : undefined}
       aria-sort={active ? (sort!.dir === 'asc' ? 'ascending' : 'descending') : undefined}
       style={{
+        position: 'relative',
         padding: '7px 10px',
         fontSize: 'var(--fs-sm)',
         color: meta ? 'var(--meta-label)' : 'var(--text-muted)',
@@ -546,6 +633,23 @@ function ColumnHeaderCell<Row>({ col, sort, onClick, meta, metaFirst }: ColumnHe
         >
           <Icon name="chevron" size={10} stroke={2} />
         </span>
+      )}
+      {onStartResize && (
+        <span
+          role="separator"
+          aria-label={`Resize ${col.header} column`}
+          onMouseDown={onStartResize}
+          onClick={e => e.stopPropagation()}
+          style={{
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            bottom: 0,
+            width: 4,
+            cursor: 'col-resize',
+            background: 'transparent',
+          }}
+        />
       )}
     </div>
   );
