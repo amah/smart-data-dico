@@ -32,6 +32,12 @@ type RowKey = string | number;
 
 const WIDTH_STORAGE_PREFIX = 'sdd.dataTable.widths.';
 
+// Approximate rendered heights of header rows, used to compute sticky
+// `top` offsets so the rows stack (group → column-header → filter)
+// instead of overlapping. If render padding changes, re-measure.
+const GROUP_ROW_HEIGHT = 28;
+const COLUMN_HEADER_HEIGHT = 34;
+
 /**
  * Tracks per-column drag-resized widths, persisted in localStorage per
  * resizeKey. Returns the width override (pixels) for a column, or
@@ -159,6 +165,24 @@ export interface DataTableProps<Row> {
    */
   resizeKey?: string;
 
+  /**
+   * Sticky top header — every header row stays pinned while the body
+   * scrolls. Implies the container becomes a scroll viewport.
+   */
+  stickyHeader?: boolean;
+  /**
+   * Sticky leftmost column — the leftmost visible data column (and its
+   * selection checkbox if selectable) stays pinned during horizontal
+   * scroll.
+   */
+  stickyFirstColumn?: boolean;
+  /**
+   * Caps the vertical size of the DataTable when a sticky header or
+   * explicit scroll is desired. Accepts a CSS length; defaults to
+   * '70vh' when stickyHeader is on and no value is provided.
+   */
+  maxHeight?: number | string;
+
   /** No top border / top radius — for wrapping under a Toolbar. */
   attached?: boolean;
   className?: string;
@@ -184,6 +208,9 @@ function DataTable<Row>({
   rowActions,
   rowActionsWidth = 80,
   resizeKey,
+  stickyHeader,
+  stickyFirstColumn,
+  maxHeight,
   attached,
   className = '',
 }: DataTableProps<Row>) {
@@ -332,6 +359,14 @@ function DataTable<Row>({
     onSelectionChange!(next);
   };
 
+  // When sticky features are on the outer container becomes a scroll
+  // viewport; `overflow: hidden` would clip sticky cells and defeat the
+  // feature, so we switch to `overflow: auto` and cap the height.
+  const needsScroll = !!stickyHeader || !!stickyFirstColumn;
+  const resolvedMaxHeight = maxHeight ?? (stickyHeader ? '70vh' : undefined);
+  const firstDataCol = standardCols[0];
+  const firstDataColKey = firstDataCol?.key;
+
   return (
     <div
       className={className}
@@ -340,7 +375,8 @@ function DataTable<Row>({
         border: '1px solid var(--border)',
         borderTopWidth: attached ? 0 : 1,
         borderRadius: attached ? '0 0 var(--radius-md) var(--radius-md)' : 'var(--radius-md)',
-        overflow: 'hidden',
+        overflow: needsScroll ? 'auto' : 'hidden',
+        maxHeight: resolvedMaxHeight,
       }}
     >
       <div
@@ -360,6 +396,7 @@ function DataTable<Row>({
                 style={{
                   background: 'var(--bg-subtle)',
                   borderBottom: '1px solid var(--border)',
+                  ...(stickyHeader ? { position: 'sticky', top: 0, zIndex: 12 } : null),
                 }}
               />
             )}
@@ -375,6 +412,7 @@ function DataTable<Row>({
                 background: 'var(--bg-subtle)',
                 borderBottom: '1px solid var(--border)',
                 fontWeight: 600,
+                ...(stickyHeader ? { position: 'sticky', top: 0, zIndex: 11 } : null),
               }}
             >
               {GROUP_LABEL.standard}
@@ -392,6 +430,7 @@ function DataTable<Row>({
                 borderBottom: '1px solid var(--border)',
                 borderLeft: '1px dashed var(--meta-border)',
                 fontWeight: 600,
+                ...(stickyHeader ? { position: 'sticky', top: 0, zIndex: 11 } : null),
               }}
             >
               {GROUP_LABEL.metadata}
@@ -402,6 +441,7 @@ function DataTable<Row>({
                 style={{
                   background: 'var(--bg-subtle)',
                   borderBottom: '1px solid var(--border)',
+                  ...(stickyHeader ? { position: 'sticky', top: 0, zIndex: 11 } : null),
                 }}
               />
             )}
@@ -415,6 +455,8 @@ function DataTable<Row>({
               indeterminate={someVisibleSelected}
               onToggle={toggleAllVisible}
               disabled={visibleKeys.length === 0}
+              stickyTop={stickyHeader ? (hasMeta ? GROUP_ROW_HEIGHT : 0) : undefined}
+              stickyLeft={stickyFirstColumn}
             />
           )}
           {standardCols.map(col => (
@@ -424,6 +466,8 @@ function DataTable<Row>({
               sort={sort}
               onClick={() => handleHeaderClick(col)}
               onStartResize={resizable ? (e) => startResize(col.key, initialDragWidth(col), e) : undefined}
+              stickyTop={stickyHeader ? (hasMeta ? GROUP_ROW_HEIGHT : 0) : undefined}
+              stickyLeft={stickyFirstColumn && !selectable && col.key === firstDataColKey}
             />
           ))}
           {metadataCols.map((col, i) => (
@@ -435,6 +479,7 @@ function DataTable<Row>({
               meta
               metaFirst={i === 0}
               onStartResize={resizable ? (e) => startResize(col.key, initialDragWidth(col), e) : undefined}
+              stickyTop={stickyHeader ? (hasMeta ? GROUP_ROW_HEIGHT : 0) : undefined}
             />
           ))}
           {hasActions && (
@@ -457,11 +502,28 @@ function DataTable<Row>({
                 style={{
                   borderBottom: '1px solid var(--border)',
                   background: 'var(--bg-raised)',
+                  ...(stickyHeader
+                    ? {
+                        position: 'sticky',
+                        top: hasMeta ? GROUP_ROW_HEIGHT + COLUMN_HEADER_HEIGHT : COLUMN_HEADER_HEIGHT,
+                        left: stickyFirstColumn ? 0 : undefined,
+                        zIndex: stickyFirstColumn ? 13 : 9,
+                      }
+                    : stickyFirstColumn
+                      ? { position: 'sticky', left: 0, zIndex: 4 }
+                      : null),
                 }}
               />
             )}
             {standardCols.map(col => (
-              <FilterCell key={col.key} col={col} value={filters[col.key] ?? ''} onChange={v => setFilter(col.key, v)} />
+              <FilterCell
+                key={col.key}
+                col={col}
+                value={filters[col.key] ?? ''}
+                onChange={v => setFilter(col.key, v)}
+                stickyTop={stickyHeader ? (hasMeta ? GROUP_ROW_HEIGHT + COLUMN_HEADER_HEIGHT : COLUMN_HEADER_HEIGHT) : undefined}
+                stickyLeft={stickyFirstColumn && !selectable && col.key === firstDataColKey}
+              />
             ))}
             {metadataCols.map((col, i) => (
               <FilterCell
@@ -471,6 +533,7 @@ function DataTable<Row>({
                 onChange={v => setFilter(col.key, v)}
                 meta
                 metaFirst={i === 0}
+                stickyTop={stickyHeader ? (hasMeta ? GROUP_ROW_HEIGHT + COLUMN_HEADER_HEIGHT : COLUMN_HEADER_HEIGHT) : undefined}
               />
             ))}
             {hasActions && (
@@ -525,10 +588,16 @@ function DataTable<Row>({
                   <SelectionCell
                     checked={inMultiSelect!}
                     onToggle={(shift) => toggleOne(rowKey, shift)}
+                    stickyLeft={stickyFirstColumn}
                   />
                 )}
                 {standardCols.map(col => (
-                  <Cell key={col.key} col={col} row={row} />
+                  <Cell
+                    key={col.key}
+                    col={col}
+                    row={row}
+                    stickyLeft={stickyFirstColumn && !selectable && col.key === firstDataColKey}
+                  />
                 ))}
                 {metadataCols.map((col, i) => (
                   <Cell key={col.key} col={col} row={row} meta metaFirst={i === 0} />
@@ -588,9 +657,13 @@ interface ColumnHeaderCellProps<Row> {
   metaFirst?: boolean;
   /** Starts a drag-resize from the trailing handle. */
   onStartResize?: (e: React.MouseEvent) => void;
+  /** `top` offset when this row is sticky. Undefined ⇒ not sticky. */
+  stickyTop?: number;
+  /** `left: 0` sticky for the leftmost data column. */
+  stickyLeft?: boolean;
 }
 
-function ColumnHeaderCell<Row>({ col, sort, onClick, meta, metaFirst, onStartResize }: ColumnHeaderCellProps<Row>) {
+function ColumnHeaderCell<Row>({ col, sort, onClick, meta, metaFirst, onStartResize, stickyTop, stickyLeft }: ColumnHeaderCellProps<Row>) {
   const active = sort && sort.key === col.key;
   const align = col.align ?? 'left';
 
@@ -600,7 +673,11 @@ function ColumnHeaderCell<Row>({ col, sort, onClick, meta, metaFirst, onStartRes
       onClick={col.sortable ? onClick : undefined}
       aria-sort={active ? (sort!.dir === 'asc' ? 'ascending' : 'descending') : undefined}
       style={{
-        position: 'relative',
+        position: (stickyTop !== undefined || stickyLeft) ? 'sticky' : 'relative',
+        top: stickyTop,
+        left: stickyLeft ? 0 : undefined,
+        // Header that also sticks horizontally needs the higher z.
+        zIndex: stickyTop !== undefined && stickyLeft ? 13 : stickyTop !== undefined ? 10 : stickyLeft ? 5 : undefined,
         padding: '7px 10px',
         fontSize: 'var(--fs-sm)',
         color: meta ? 'var(--meta-label)' : 'var(--text-muted)',
@@ -661,14 +738,25 @@ interface FilterCellProps<Row> {
   onChange: (v: string) => void;
   meta?: boolean;
   metaFirst?: boolean;
+  stickyTop?: number;
+  stickyLeft?: boolean;
 }
 
-function FilterCell<Row>({ col, value, onChange, meta, metaFirst }: FilterCellProps<Row>) {
+function FilterCell<Row>({ col, value, onChange, meta, metaFirst, stickyTop, stickyLeft }: FilterCellProps<Row>) {
+  const sticky = stickyTop !== undefined || stickyLeft;
   const baseStyle: CSSProperties = {
     padding: '4px 6px',
     borderBottom: '1px solid var(--border)',
     background: meta ? 'var(--meta-bg)' : 'var(--bg-raised)',
     ...(metaFirst ? { borderLeft: '1px dashed var(--meta-border)' } : null),
+    ...(sticky
+      ? {
+          position: 'sticky',
+          top: stickyTop,
+          left: stickyLeft ? 0 : undefined,
+          zIndex: stickyTop !== undefined && stickyLeft ? 13 : stickyTop !== undefined ? 9 : 4,
+        }
+      : null),
   };
   if (!col.filterable) return <div role="cell" style={baseStyle} />;
   return (
@@ -708,9 +796,10 @@ interface CellProps<Row> {
   row: Row;
   meta?: boolean;
   metaFirst?: boolean;
+  stickyLeft?: boolean;
 }
 
-function Cell<Row>({ col, row, meta, metaFirst }: CellProps<Row>) {
+function Cell<Row>({ col, row, meta, metaFirst, stickyLeft }: CellProps<Row>) {
   const align = col.align ?? 'left';
   const value = accessorValue(col, row);
   const content = col.render ? col.render(row) : (value as ReactNode);
@@ -721,6 +810,9 @@ function Cell<Row>({ col, row, meta, metaFirst }: CellProps<Row>) {
       className={`sdd-cell ${col.mono ? 'mono' : ''}`}
       data-meta={meta ? '1' : undefined}
       style={{
+        ...(stickyLeft
+          ? { position: 'sticky', left: 0, zIndex: 3, background: 'var(--bg-raised)' }
+          : null),
         padding: '0 10px',
         height: 'var(--row-height, 36px)',
         display: 'flex',
@@ -755,13 +847,24 @@ interface SelectionHeaderCellProps {
   indeterminate: boolean;
   onToggle: () => void;
   disabled: boolean;
+  stickyTop?: number;
+  stickyLeft?: boolean;
 }
 
-function SelectionHeaderCell({ checked, indeterminate, onToggle, disabled }: SelectionHeaderCellProps) {
+function SelectionHeaderCell({ checked, indeterminate, onToggle, disabled, stickyTop, stickyLeft }: SelectionHeaderCellProps) {
+  const sticky = stickyTop !== undefined || stickyLeft;
   return (
     <div
       role="columnheader"
       style={{
+        ...(sticky
+          ? {
+              position: 'sticky',
+              top: stickyTop,
+              left: stickyLeft ? 0 : undefined,
+              zIndex: stickyTop !== undefined && stickyLeft ? 14 : stickyTop !== undefined ? 10 : 5,
+            }
+          : null),
         padding: '7px 10px',
         background: 'var(--bg-subtle)',
         borderBottom: '1px solid var(--border-strong)',
@@ -787,14 +890,18 @@ function SelectionHeaderCell({ checked, indeterminate, onToggle, disabled }: Sel
 interface SelectionCellProps {
   checked: boolean;
   onToggle: (shiftKey: boolean) => void;
+  stickyLeft?: boolean;
 }
 
-function SelectionCell({ checked, onToggle }: SelectionCellProps) {
+function SelectionCell({ checked, onToggle, stickyLeft }: SelectionCellProps) {
   return (
     <div
       role="cell"
       className="sdd-cell"
       style={{
+        ...(stickyLeft
+          ? { position: 'sticky', left: 0, zIndex: 3, background: 'var(--bg-raised)' }
+          : null),
         padding: '0 10px',
         height: 'var(--row-height, 36px)',
         display: 'flex',
