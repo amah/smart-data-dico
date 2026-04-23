@@ -6,6 +6,7 @@ import { useStickyTablePref } from '../hooks/useStickyTablePref';
 import { useResizableColumns, ResizeHandle, type ColumnDef } from '../hooks/useResizableColumns';
 import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
 import EditableCell from './EditableCell';
+import { BatchActionBar } from './ui';
 
 const LOCALSTORAGE_KEY = 'entity-flat-table-columns';
 
@@ -38,6 +39,10 @@ const EntityFlatTable = () => {
     return new Set<string>();
   });
   const [showColumnPicker, setShowColumnPicker] = useState(false);
+
+  // Bulk selection: keyed by entity uuid.
+  const [selection, setSelection] = useState<Set<string>>(() => new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   // Persist column visibility
   useEffect(() => {
@@ -249,6 +254,63 @@ const EntityFlatTable = () => {
     setNewEntity({ ...newEntity, [name]: value });
   };
 
+  // Drop stale uuids from the selection when the entity list refreshes.
+  useEffect(() => {
+    setSelection(prev => {
+      if (prev.size === 0) return prev;
+      const alive = new Set(entities.map(e => e.entity.uuid));
+      let changed = false;
+      const next = new Set<string>();
+      for (const k of prev) {
+        if (alive.has(k)) next.add(k);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [entities]);
+
+  const toggleRowSelection = (uuid: string) => {
+    setSelection(prev => {
+      const next = new Set(prev);
+      if (next.has(uuid)) next.delete(uuid);
+      else next.add(uuid);
+      return next;
+    });
+  };
+
+  const toggleAllSelection = () => {
+    setSelection(prev => {
+      if (prev.size === entities.length) return new Set();
+      return new Set(entities.map(e => e.entity.uuid));
+    });
+  };
+
+  // Bulk delete: fan-out DELETE calls. Promise.allSettled lets partial
+  // failures surface without aborting the rest of the batch.
+  const handleBulkDelete = useCallback(async () => {
+    const n = selection.size;
+    if (n === 0) return;
+    const ok = window.confirm(
+      `Delete ${n} entit${n === 1 ? 'y' : 'ies'}? This cannot be undone.`,
+    );
+    if (!ok) return;
+    setBulkDeleting(true);
+    try {
+      const targets = entities.filter(e => selection.has(e.entity.uuid));
+      const results = await Promise.allSettled(
+        targets.map(t => servicesApi.deleteEntity(t.packageName, t.entity.name)),
+      );
+      const failed = results.filter(r => r.status === 'rejected').length;
+      if (failed > 0) {
+        console.error(`Bulk delete: ${failed}/${n} entities failed`);
+      }
+      setSelection(new Set());
+      fetchEntities();
+    } finally {
+      setBulkDeleting(false);
+    }
+  }, [selection, entities, fetchEntities]);
+
   return (
     <div className="container mx-auto px-4 sm:px-6 lg:px-8 flex-1 flex flex-col min-h-0">
       <div className="flex justify-between items-center mb-2">
@@ -362,6 +424,18 @@ const EntityFlatTable = () => {
           <table className={`table table-xs table-zebra ${pinned ? 'sdd-sticky-table' : ''}`} style={tableStyle}>
             <thead>
               <tr>
+                <th className={stickyHead} style={{ width: 36 }}>
+                  <input
+                    type="checkbox"
+                    className="checkbox checkbox-xs"
+                    aria-label="Select all rows"
+                    checked={entities.length > 0 && selection.size === entities.length}
+                    ref={(el) => {
+                      if (el) el.indeterminate = selection.size > 0 && selection.size < entities.length;
+                    }}
+                    onChange={toggleAllSelection}
+                  />
+                </th>
                 <th className={`${stickyCorner} relative`} style={{ width: widths.name }}>
                   Name
                   <ResizeHandle onMouseDown={(e) => startResize('name', e)} />
@@ -391,11 +465,21 @@ const EntityFlatTable = () => {
             <tbody>
               {entities.length === 0 ? (
                 <tr>
-                  <td colSpan={4 + activeMetaCols.length} className="text-center text-gray-500">No entities found.</td>
+                  <td colSpan={5 + activeMetaCols.length} className="text-center text-gray-500">No entities found.</td>
                 </tr>
               ) : (
                 entities.map(({ entity, packageName }) => (
-                  <tr key={entity.uuid}>
+                  <tr key={entity.uuid} className={selection.has(entity.uuid) ? 'bg-base-200' : ''}>
+                    <td style={{ width: 36 }}>
+                      <input
+                        type="checkbox"
+                        className="checkbox checkbox-xs"
+                        aria-label={`Select ${entity.name}`}
+                        checked={selection.has(entity.uuid)}
+                        onChange={() => toggleRowSelection(entity.uuid)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </td>
                     <EditableCell
                       value={entity.name}
                       className={stickyFirstCol}
@@ -539,6 +623,21 @@ const EntityFlatTable = () => {
           </div>
         </div>
       )}
+
+      <BatchActionBar
+        count={selection.size}
+        onClear={() => setSelection(new Set())}
+        label={selection.size === 1 ? 'entity' : 'entities'}
+        actions={[
+          {
+            label: 'Delete',
+            icon: 'close',
+            tone: 'danger',
+            disabled: bulkDeleting,
+            onClick: handleBulkDelete,
+          },
+        ]}
+      />
 
       {/* Delete Confirmation Modal */}
       {isDeleteModalOpen && currentEntity && (
