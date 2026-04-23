@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, type CSSProperties } from 'react';
+import { useEffect, useState, useCallback, useMemo, type ReactNode } from 'react';
 import { entityApi, servicesApi } from '../services/api';
 import { Attribute, AttributeType, Package, Entity } from '../types';
 import {
@@ -7,26 +7,32 @@ import {
   setMetadataValue,
 } from '../hooks/useStereotypeMetadata';
 import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
-import EditableCell from './EditableCell';
-import type { SelectOption } from './EditableCell';
 import {
+  BatchActionBar,
+  Button,
   Chip,
   ColumnChooser,
+  DataTable,
   Icon,
+  Input,
+  PiiChip,
   Toolbar,
   TypeChip,
 } from './ui';
 import type { ColumnDef } from './ui';
 
 /**
- * AttributeFlatTable — Phase 4.1 redesign (chrome only).
+ * AttributeFlatTable — global flat view across every package/entity.
  *
- * Inline editing via EditableCell (→ `<td>` DOM) is preserved so the
- * existing test suite keeps working; only the surrounding Toolbar /
- * header / chip rendering is updated to the new token grammar.
+ * Phase-6 redesign: swaps the raw `<table>` for `DataTable`, retires the
+ * EditableCell inline-edit pattern in favour of a side-panel, and adds
+ * controlled multi-select so bulk actions (Required, Mark PII) reach
+ * attributes regardless of which entity owns them.
  *
- * The ColumnChooser primitive drives metadata-column visibility; the
- * base Attribute / Entity / Package columns are always visible.
+ * Writes still land through `servicesApi.updateEntity` — the flat view
+ * groups selected rows by entity and fires one PUT per affected entity
+ * instead of one per attribute (N+1 → at most N, where N is the entity
+ * count, not the attribute count).
  */
 
 interface FlatAttribute {
@@ -36,18 +42,31 @@ interface FlatAttribute {
   packageName: string;
 }
 
-const ATTRIBUTE_TYPE_OPTIONS: SelectOption[] = Object.values(AttributeType).map((t) => ({
-  value: t,
-  label: t,
-}));
+const rowKeyOf = (f: FlatAttribute) => `${f.attribute.uuid}@${f.entityUuid}`;
+
+const ATTR_COL_KEY = 'attribute-flat-columns-v2';
 
 const AttributeFlatTable = () => {
-  const [attributes, setAttributes] = useState<FlatAttribute[]>([]);
+  const [flatAttrs, setFlatAttrs] = useState<FlatAttribute[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { allColumns, columnsByStereotype } = useStereotypeMetadata('attribute');
-  const [visibleColumns, setVisibleColumns] = useState<Set<string>>(new Set());
+  const [searchTerm, setSearchTerm] = useState('');
+  const { allColumns } = useStereotypeMetadata('attribute');
+  const [metaVisible, setMetaVisible] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem(ATTR_COL_KEY);
+      if (saved) return new Set(JSON.parse(saved));
+    } catch { /* ignore */ }
+    return new Set<string>();
+  });
+  const [editing, setEditing] = useState<FlatAttribute | null>(null);
+  const [selection, setSelection] = useState<Set<string | number>>(() => new Set());
+  const [bulkSaving, setBulkSaving] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem(ATTR_COL_KEY, JSON.stringify([...metaVisible]));
+  }, [metaVisible]);
 
   const fetchAttributes = useCallback(async () => {
     setLoading(true);
@@ -55,24 +74,20 @@ const AttributeFlatTable = () => {
     try {
       const pkgs: Package[] = await entityApi.getAllPackages();
       setPackages(pkgs);
-      const flatAttrs: FlatAttribute[] = [];
+      const next: FlatAttribute[] = [];
       for (const pkg of pkgs) {
-        if (pkg.entities) {
-          for (const entity of pkg.entities) {
-            if (entity.attributes) {
-              for (const attr of entity.attributes) {
-                flatAttrs.push({
-                  attribute: attr,
-                  entityName: entity.name,
-                  entityUuid: entity.uuid,
-                  packageName: pkg.name,
-                });
-              }
-            }
+        for (const entity of pkg.entities ?? []) {
+          for (const attr of entity.attributes ?? []) {
+            next.push({
+              attribute: attr,
+              entityName: entity.name,
+              entityUuid: entity.uuid,
+              packageName: pkg.name,
+            });
           }
         }
       }
-      setAttributes(flatAttrs);
+      setFlatAttrs(next);
     } catch {
       setError('Failed to load attributes. Please try again.');
     } finally {
@@ -84,31 +99,51 @@ const AttributeFlatTable = () => {
     fetchAttributes();
   }, [fetchAttributes]);
 
+  // Auto-populate visible metadata columns from the data on first load.
   useEffect(() => {
-    if (attributes.length > 0 && allColumns.length > 0) {
-      const usedKeys = new Set<string>();
-      for (const { attribute } of attributes) {
-        for (const entry of attribute.metadata || []) {
-          usedKeys.add(entry.name);
+    if (flatAttrs.length > 0 && allColumns.length > 0 && metaVisible.size === 0) {
+      const used = new Set<string>();
+      for (const { attribute } of flatAttrs) {
+        for (const entry of attribute.metadata ?? []) {
+          if (allColumns.some(c => c.name === entry.name)) used.add(entry.name);
         }
       }
-      setVisibleColumns(usedKeys);
+      if (used.size > 0) setMetaVisible(used);
     }
-  }, [attributes, allColumns]);
+  }, [flatAttrs, allColumns]);
 
-  const activeMetaCols = allColumns.filter(c => visibleColumns.has(c.name));
+  // Drop selected keys whose rows no longer exist after a refresh.
+  useEffect(() => {
+    setSelection(prev => {
+      if (prev.size === 0) return prev;
+      const alive = new Set(flatAttrs.map(rowKeyOf));
+      let changed = false;
+      const next = new Set<string | number>();
+      for (const k of prev) {
+        if (alive.has(String(k))) next.add(k);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [flatAttrs]);
 
-  /** ColumnChooser needs a ColumnDef<unknown>[] — shape the metadata list to match. */
-  const chooserColumns = useMemo<ColumnDef<unknown>[]>(() => {
-    return allColumns.map((col) => ({
-      key: col.name,
-      header: col.label,
-      group: 'metadata',
-      width: 120,
-    }));
-  }, [allColumns]);
-  void columnsByStereotype;
+  const activeMetaCols = allColumns.filter(c => metaVisible.has(c.name));
 
+  const filtered = useMemo(() => {
+    const needle = searchTerm.trim().toLowerCase();
+    if (!needle) return flatAttrs;
+    return flatAttrs.filter(f =>
+      f.attribute.name.toLowerCase().includes(needle) ||
+      (f.attribute.description ?? '').toLowerCase().includes(needle) ||
+      f.entityName.toLowerCase().includes(needle) ||
+      f.packageName.toLowerCase().includes(needle),
+    );
+  }, [flatAttrs, searchTerm]);
+
+  // ──────────────── Save paths ────────────────
+  //
+  // Single-attribute save (used by the side panel). Reads from local
+  // `packages` state so we don't need a round-trip GET for every save.
   const saveAttribute = useCallback(async (
     packageName: string,
     entityName: string,
@@ -120,18 +155,17 @@ const AttributeFlatTable = () => {
     const entity = pkg?.entities?.find(e => e.uuid === entityUuid);
     if (!entity) throw new Error('Entity not found');
 
-    const updatedAttributes = entity.attributes.map(a =>
+    const updatedAttrs = entity.attributes.map(a =>
       a.uuid === attrUuid ? updater(a) : a,
     );
-    const updatedEntity: Entity = { ...entity, attributes: updatedAttributes };
-
+    const updatedEntity: Entity = { ...entity, attributes: updatedAttrs };
     await servicesApi.updateEntity(packageName, entityName, updatedEntity);
 
-    setAttributes(prev => prev.map(fa => {
-      if (fa.attribute.uuid === attrUuid && fa.entityUuid === entityUuid) {
-        return { ...fa, attribute: updater(fa.attribute) };
+    setFlatAttrs(prev => prev.map(f => {
+      if (f.attribute.uuid === attrUuid && f.entityUuid === entityUuid) {
+        return { ...f, attribute: updater(f.attribute) };
       }
-      return fa;
+      return f;
     }));
     setPackages(prev => prev.map(p => {
       if (p.name !== packageName) return p;
@@ -144,21 +178,160 @@ const AttributeFlatTable = () => {
     }));
   }, [packages]);
 
-  const renderMetaDisplay = (attr: Attribute, col: MetadataColumn) => {
-    const val = getMetadataValue(attr, col.name);
-    if (val === undefined || val === '') return <span style={{ color: 'var(--text-subtle)' }}>—</span>;
-    if (col.type === 'flag' || col.type === 'boolean') {
-      return val
-        ? <Chip tone="success" soft>yes</Chip>
-        : <Chip tone="neutral">no</Chip>;
-    }
-    return <span style={{ fontSize: 'var(--fs-sm)' }}>{val.toString()}</span>;
-  };
+  // Bulk save: group selected flat rows by entity, apply the mutator to
+  // every targeted attribute, and fire one PUT per affected entity.
+  const applyToSelection = useCallback(async (
+    mutate: (a: Attribute) => Attribute,
+  ) => {
+    if (selection.size === 0) return;
+    setBulkSaving(true);
+    try {
+      type Group = {
+        packageName: string;
+        entityName: string;
+        entity: Entity;
+        attrIds: Set<string>;
+      };
+      const byEntity = new Map<string, Group>();
+      for (const f of flatAttrs) {
+        if (!selection.has(rowKeyOf(f))) continue;
+        let g = byEntity.get(f.entityUuid);
+        if (!g) {
+          const pkg = packages.find(p => p.name === f.packageName);
+          const entity = pkg?.entities?.find(e => e.uuid === f.entityUuid);
+          if (!entity) continue;
+          g = { packageName: f.packageName, entityName: f.entityName, entity, attrIds: new Set() };
+          byEntity.set(f.entityUuid, g);
+        }
+        g.attrIds.add(f.attribute.uuid);
+      }
 
-  const getMetaInputType = (col: MetadataColumn): 'text' | 'toggle' | 'select' => {
-    if (col.type === 'flag' || col.type === 'boolean') return 'toggle';
-    return 'text';
-  };
+      for (const g of byEntity.values()) {
+        const updatedAttrs = g.entity.attributes.map(a =>
+          g.attrIds.has(a.uuid) ? mutate(a) : a,
+        );
+        const updatedEntity: Entity = { ...g.entity, attributes: updatedAttrs };
+        await servicesApi.updateEntity(g.packageName, g.entityName, updatedEntity);
+      }
+      await fetchAttributes();
+    } catch (err) {
+      console.error('Bulk update failed:', err);
+    } finally {
+      setBulkSaving(false);
+    }
+  }, [selection, flatAttrs, packages, fetchAttributes]);
+
+  const handleBulkSetRequired = useCallback((required: boolean) => {
+    return applyToSelection(a => ({ ...a, required }));
+  }, [applyToSelection]);
+
+  const handleBulkSetPii = useCallback((value: 'direct' | '') => {
+    return applyToSelection(a => ({
+      ...a,
+      metadata: setMetadataValue(a.metadata, 'pii', value),
+    }));
+  }, [applyToSelection]);
+
+  // ──────────────── Columns ────────────────
+
+  const columns: ColumnDef<FlatAttribute>[] = useMemo(() => {
+    const std: ColumnDef<FlatAttribute>[] = [
+      {
+        key: 'name',
+        header: 'Name',
+        group: 'standard',
+        mono: true,
+        sortable: true,
+        filterable: true,
+        width: 'minmax(140px, 1.2fr)',
+        accessor: (f) => f.attribute.name,
+      },
+      {
+        key: 'type',
+        header: 'Type',
+        group: 'standard',
+        sortable: true,
+        width: 120,
+        accessor: (f) => f.attribute.type,
+        render: (f) => <TypeChip type={f.attribute.type} />,
+      },
+      {
+        key: 'required',
+        header: 'Required',
+        group: 'standard',
+        sortable: true,
+        width: 90,
+        align: 'center',
+        accessor: (f) => f.attribute.required,
+        render: (f) => f.attribute.required
+          ? <Chip tone="accent" soft>yes</Chip>
+          : <span style={{ color: 'var(--text-subtle)' }}>—</span>,
+      },
+      {
+        key: 'description',
+        header: 'Description',
+        group: 'standard',
+        filterable: true,
+        width: 'minmax(200px, 2fr)',
+        accessor: (f) => f.attribute.description ?? '',
+        render: (f) => f.attribute.description
+          ? <span style={{ color: 'var(--text-muted)' }}>{f.attribute.description}</span>
+          : <span style={{ color: 'var(--text-subtle)', fontStyle: 'italic' }}>no description</span>,
+      },
+      {
+        key: 'entity',
+        header: 'Entity',
+        group: 'standard',
+        sortable: true,
+        filterable: true,
+        width: 140,
+        accessor: (f) => f.entityName,
+        render: (f) => <span style={{ color: 'var(--text-muted)' }}>{f.entityName}</span>,
+      },
+      {
+        key: 'package',
+        header: 'Package',
+        group: 'standard',
+        sortable: true,
+        filterable: true,
+        width: 140,
+        accessor: (f) => f.packageName,
+        render: (f) => <span style={{ color: 'var(--text-muted)' }}>{f.packageName}</span>,
+      },
+    ];
+
+    const meta: ColumnDef<FlatAttribute>[] = activeMetaCols.map((col) => ({
+      key: `meta:${col.name}`,
+      header: col.label,
+      group: 'metadata',
+      width: col.name === 'pii' ? 110 : 120,
+      accessor: (f) => {
+        const v = getMetadataValue(f.attribute, col.name);
+        return v === undefined ? '' : (typeof v === 'boolean' ? (v ? 'yes' : 'no') : String(v));
+      },
+      render: (f) => renderMetadataCell(f.attribute, col),
+    }));
+
+    return [...std, ...meta];
+  }, [activeMetaCols]);
+
+  const chooserCols = useMemo(() => columns as unknown as ColumnDef<unknown>[], [columns]);
+  const allVisibleKeys = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of columns) {
+      if ((c.group ?? 'standard') === 'standard') set.add(c.key);
+    }
+    for (const name of metaVisible) set.add(`meta:${name}`);
+    return set;
+  }, [columns, metaVisible]);
+
+  const handleVisibleChange = useCallback((next: Set<string>) => {
+    const nextMeta = new Set<string>();
+    next.forEach((key) => {
+      if (key.startsWith('meta:')) nextMeta.add(key.slice(5));
+    });
+    setMetaVisible(nextMeta);
+  }, []);
 
   // ──────────────── Render ────────────────
 
@@ -179,14 +352,22 @@ const AttributeFlatTable = () => {
           className="mono"
           style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)' }}
         >
-          {attributes.length} rows · flat view
+          {filtered.length} of {flatAttrs.length} · flat view
         </span>
         <Toolbar.Spacer />
+        <Input
+          icon="search"
+          size="sm"
+          placeholder="Search attributes…"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.currentTarget.value)}
+          width={240}
+        />
         {allColumns.length > 0 && (
           <ColumnChooser
-            columns={chooserColumns}
-            visible={visibleColumns}
-            onChange={setVisibleColumns}
+            columns={chooserCols}
+            visible={allVisibleKeys}
+            onChange={handleVisibleChange}
             label={`Metadata (${activeMetaCols.length})`}
           />
         )}
@@ -223,213 +404,352 @@ const AttributeFlatTable = () => {
           <Icon name="warning" size={14} /> {error}
         </div>
       ) : (
-        <div
-          style={{
-            flex: 1,
-            minHeight: 0,
-            overflow: 'auto',
-            background: 'var(--bg-raised)',
-            border: '1px solid var(--border)',
-            borderTop: 0,
-            borderRadius: '0 0 var(--radius-md) var(--radius-md)',
-          }}
-        >
-          <table className="table table-sm w-full" style={{ fontSize: 'var(--fs-md)' }}>
-            <thead>
-              <tr>
-                <GroupHeader colSpan={6} label="Standard" />
-                {activeMetaCols.length > 0 && (
-                  <GroupHeader colSpan={activeMetaCols.length} label="Governance metadata" meta />
-                )}
-              </tr>
-              <tr>
-                <Th>Name</Th>
-                <Th>Type</Th>
-                <Th>Description</Th>
-                <Th align="center">Required</Th>
-                <Th>Entity</Th>
-                <Th>Package</Th>
-                {activeMetaCols.map((col, i) => (
-                  <Th key={col.name} meta first={i === 0} title={col.description}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                      {col.label}
-                      <span
-                        className="mono"
-                        style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)', fontWeight: 400 }}
-                      >
-                        {col.stereotypeName}
-                      </span>
-                    </span>
-                  </Th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {attributes.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={6 + activeMetaCols.length}
-                    style={{ textAlign: 'center', padding: '28px 10px', color: 'var(--text-subtle)' }}
-                  >
-                    No attributes found.
-                  </td>
-                </tr>
-              ) : (
-                attributes.map(({ attribute, entityName, entityUuid, packageName }) => (
-                  <tr key={attribute.uuid + entityName + packageName}>
-                    <EditableCell
-                      className="mono"
-                      value={attribute.name}
-                      onSave={async (v) => {
-                        await saveAttribute(packageName, entityName, entityUuid, attribute.uuid, (a) => ({
-                          ...a,
-                          name: v as string,
-                        }));
-                      }}
-                    />
-                    <EditableCell
-                      value={attribute.type}
-                      inputType="select"
-                      options={ATTRIBUTE_TYPE_OPTIONS}
-                      onSave={async (v) => {
-                        await saveAttribute(packageName, entityName, entityUuid, attribute.uuid, (a) => ({
-                          ...a,
-                          type: v as AttributeType,
-                        }));
-                      }}
-                      renderDisplay={(v) => <TypeChip type={v as string} />}
-                    />
-                    <EditableCell
-                      value={attribute.description || ''}
-                      inputType="textarea"
-                      renderDisplay={(v) => (
-                        <span
-                          style={{
-                            color: v ? 'var(--text-muted)' : 'var(--text-subtle)',
-                            fontStyle: v ? 'normal' : 'italic',
-                          }}
-                        >
-                          {(v as string) || 'no description'}
-                        </span>
-                      )}
-                      onSave={async (v) => {
-                        await saveAttribute(packageName, entityName, entityUuid, attribute.uuid, (a) => ({
-                          ...a,
-                          description: v as string,
-                        }));
-                      }}
-                    />
-                    <EditableCell
-                      value={attribute.required}
-                      inputType="toggle"
-                      ariaLabel={`${attribute.name} required`}
-                      onSave={async (v) => {
-                        await saveAttribute(packageName, entityName, entityUuid, attribute.uuid, (a) => ({
-                          ...a,
-                          required: v as boolean,
-                        }));
-                      }}
-                    />
-                    <td style={{ color: 'var(--text-muted)' }}>{entityName}</td>
-                    <td style={{ color: 'var(--text-muted)' }}>{packageName}</td>
-                    {activeMetaCols.map((col, i) => {
-                      const metaInputType = getMetaInputType(col);
-                      const metaVal = getMetadataValue(attribute, col.name);
-                      return (
-                        <EditableCell
-                          key={col.name}
-                          className={metaCellClass(i === 0)}
-                          value={metaVal ?? (metaInputType === 'toggle' ? false : '')}
-                          inputType={metaInputType}
-                          renderDisplay={() => renderMetaDisplay(attribute, col)}
-                          onSave={async (v) => {
-                            await saveAttribute(packageName, entityName, entityUuid, attribute.uuid, (a) => ({
-                              ...a,
-                              metadata: setMetadataValue(a.metadata, col.name, v),
-                            }));
-                          }}
-                        />
-                      );
-                    })}
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+        <DataTable<FlatAttribute>
+          columns={columns}
+          rows={filtered}
+          getRowKey={rowKeyOf}
+          visibleColumns={allVisibleKeys}
+          onVisibleColumnsChange={handleVisibleChange}
+          onRowClick={(f) => setEditing(f)}
+          selection={selection}
+          onSelectionChange={setSelection}
+          attached
+          emptyMessage="No attributes found."
+        />
+      )}
 
-          <style>{`
-            /* Meta-tinted cells + dashed boundary between Standard and Governance */
-            td.sdd-meta, th.sdd-meta { background: var(--meta-bg); }
-            td.sdd-meta-first, th.sdd-meta-first { border-left: 1px dashed var(--meta-border) !important; }
-          `}</style>
-        </div>
+      <BatchActionBar
+        count={selection.size}
+        onClear={() => setSelection(new Set())}
+        label={selection.size === 1 ? 'attribute' : 'attributes'}
+        actions={[
+          {
+            label: 'Required: yes',
+            icon: 'check',
+            disabled: bulkSaving,
+            onClick: () => handleBulkSetRequired(true),
+          },
+          {
+            label: 'Required: no',
+            icon: 'minus',
+            disabled: bulkSaving,
+            onClick: () => handleBulkSetRequired(false),
+          },
+          {
+            label: 'Mark PII',
+            icon: 'shield',
+            disabled: bulkSaving,
+            onClick: () => handleBulkSetPii('direct'),
+          },
+          {
+            label: 'Clear PII',
+            icon: 'shield',
+            disabled: bulkSaving,
+            onClick: () => handleBulkSetPii(''),
+          },
+        ]}
+      />
+
+      {editing && (
+        <FlatAttributeSidePanel
+          flat={editing}
+          onClose={() => setEditing(null)}
+          onSave={async (patch) => {
+            await saveAttribute(
+              editing.packageName,
+              editing.entityName,
+              editing.entityUuid,
+              editing.attribute.uuid,
+              (a) => ({ ...a, ...patch }),
+            );
+          }}
+        />
       )}
     </div>
   );
 };
 
-// ──────────────── Header helpers ────────────────
+// ──────────────── Cell helpers ────────────────
 
-interface ThProps {
-  children?: React.ReactNode;
-  align?: 'left' | 'right' | 'center';
-  meta?: boolean;
-  first?: boolean;
-  title?: string;
+function renderMetadataCell(attr: Attribute, col: MetadataColumn): ReactNode {
+  if (col.name === 'pii') {
+    const raw = getMetadataValue(attr, 'pii');
+    if (raw === undefined || raw === null || raw === false || raw === '') {
+      return <PiiChip value={null} />;
+    }
+    const key = String(raw).toLowerCase();
+    const shape = (key === 'indirect' ? 'indirect'
+      : key === 'possible' ? 'possible'
+      : 'direct') as 'direct' | 'indirect' | 'possible';
+    return <PiiChip value={shape} />;
+  }
+  const v = getMetadataValue(attr, col.name);
+  if (v === undefined || v === null || v === '') {
+    return <span style={{ color: 'var(--text-subtle)' }}>—</span>;
+  }
+  if (col.type === 'flag' || col.type === 'boolean') {
+    return v
+      ? <Chip tone="success" soft>yes</Chip>
+      : <Chip tone="neutral">no</Chip>;
+  }
+  return <span style={{ color: 'var(--text-muted)' }}>{String(v)}</span>;
 }
 
-const Th = ({ children, align = 'left', meta, first, title }: ThProps) => (
-  <th
-    title={title}
-    className={meta ? (first ? 'sdd-meta sdd-meta-first' : 'sdd-meta') : undefined}
-    style={{
-      padding: '6px 10px',
-      fontSize: 'var(--fs-sm)',
-      textTransform: 'uppercase',
-      letterSpacing: '0.03em',
-      fontWeight: 600,
-      color: meta ? 'var(--meta-label)' : 'var(--text-muted)',
-      background: meta ? 'var(--meta-bg)' : 'var(--bg-subtle)',
-      borderBottom: '1px solid var(--border-strong)',
-      textAlign: align,
-    }}
-  >
-    {children}
-  </th>
-);
+// ──────────────── Side panel ────────────────
 
-interface GroupHeaderProps {
-  colSpan: number;
+interface FlatSidePanelProps {
+  flat: FlatAttribute;
+  onClose: () => void;
+  onSave: (patch: Partial<Attribute>) => Promise<void>;
+}
+
+const FlatAttributeSidePanel = ({ flat, onClose, onSave }: FlatSidePanelProps) => {
+  const { attribute } = flat;
+  const [name, setName] = useState(attribute.name);
+  const [type, setType] = useState<AttributeType>(attribute.type);
+  const [description, setDescription] = useState(attribute.description ?? '');
+  const [required, setRequired] = useState(!!attribute.required);
+  const [defaultValue, setDefaultValue] = useState<string>(
+    attribute.defaultValue === undefined || attribute.defaultValue === null
+      ? ''
+      : String(attribute.defaultValue),
+  );
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  useEffect(() => {
+    setName(attribute.name);
+    setType(attribute.type);
+    setDescription(attribute.description ?? '');
+    setRequired(!!attribute.required);
+    setDefaultValue(
+      attribute.defaultValue === undefined || attribute.defaultValue === null
+        ? ''
+        : String(attribute.defaultValue),
+    );
+    setSavedAt(null);
+  }, [attribute.uuid]);
+
+  const dirty =
+    name !== attribute.name ||
+    type !== attribute.type ||
+    description !== (attribute.description ?? '') ||
+    required !== !!attribute.required ||
+    defaultValue !== (attribute.defaultValue === undefined || attribute.defaultValue === null
+      ? ''
+      : String(attribute.defaultValue));
+
+  const handleSave = async () => {
+    if (!dirty) return;
+    setSaving(true);
+    try {
+      await onSave({
+        name,
+        type,
+        description,
+        required,
+        defaultValue: defaultValue === '' ? undefined : defaultValue,
+      });
+      setSavedAt(Date.now());
+    } catch (err) {
+      console.error('Failed to save attribute:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <div
+        onClick={onClose}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.25)',
+          zIndex: 40,
+        }}
+      />
+      <aside
+        role="dialog"
+        aria-label="Edit attribute"
+        style={{
+          position: 'fixed',
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: 480,
+          background: 'var(--bg-raised)',
+          borderLeft: '1px solid var(--border)',
+          boxShadow: 'var(--shadow-lg)',
+          display: 'flex',
+          flexDirection: 'column',
+          zIndex: 50,
+          animation: 'sddSlide var(--dur-med) ease-out',
+        }}
+      >
+        <style>{`
+          @keyframes sddSlide {
+            from { transform: translateX(100%); opacity: 0.7; }
+            to   { transform: translateX(0);     opacity: 1;   }
+          }
+        `}</style>
+
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '12px 14px',
+            borderBottom: '1px solid var(--border)',
+          }}
+        >
+          <span
+            className="uppercase mono"
+            style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)', letterSpacing: '0.04em' }}
+          >
+            edit attribute
+          </span>
+          <span
+            className="mono"
+            style={{ fontSize: 'var(--fs-md)', fontWeight: 600, color: 'var(--text)' }}
+          >
+            {attribute.name}
+          </span>
+          <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>
+            {flat.packageName} · {flat.entityName}
+          </span>
+          <div style={{ flex: 1 }} />
+          <Button size="sm" variant="ghost" icon="close" onClick={onClose} iconOnly aria-label="close" />
+        </div>
+
+        <div
+          style={{
+            flex: 1,
+            overflow: 'auto',
+            padding: 14,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+          }}
+        >
+          <Field label="Name">
+            <input
+              type="text"
+              value={name}
+              aria-label="Name"
+              onChange={(e) => setName(e.target.value)}
+              style={fieldStyleMono}
+            />
+          </Field>
+          <Field label="Type">
+            <select
+              value={type}
+              aria-label="Type"
+              onChange={(e) => setType(e.target.value as AttributeType)}
+              style={fieldStyleMono}
+            >
+              {Object.values(AttributeType).map(t => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Description">
+            <textarea
+              value={description}
+              aria-label="Description"
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              style={{ ...fieldStyle, minHeight: 60, padding: '6px 8px', fontFamily: 'inherit' }}
+            />
+          </Field>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <Field label="Required" inline>
+              <input
+                type="checkbox"
+                aria-label="Required"
+                checked={required}
+                onChange={(e) => setRequired(e.target.checked)}
+              />
+            </Field>
+            <Field label="Default value" grow>
+              <input
+                type="text"
+                value={defaultValue}
+                aria-label="Default value"
+                onChange={(e) => setDefaultValue(e.target.value)}
+                style={fieldStyleMono}
+              />
+            </Field>
+          </div>
+        </div>
+
+        <div
+          style={{
+            padding: '10px 14px',
+            borderTop: '1px solid var(--border)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <Button
+            size="md"
+            variant="primary"
+            icon="check"
+            onClick={handleSave}
+            disabled={!dirty || saving}
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
+          <Button size="md" variant="ghost" onClick={onClose}>Cancel</Button>
+          {savedAt && !dirty && (
+            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--success)' }}>Saved</span>
+          )}
+        </div>
+      </aside>
+    </>
+  );
+};
+
+interface FieldProps {
   label: string;
-  meta?: boolean;
+  inline?: boolean;
+  grow?: boolean;
+  children: ReactNode;
 }
 
-const GroupHeader = ({ colSpan, label, meta }: GroupHeaderProps) => (
-  <th
-    colSpan={colSpan}
-    className={meta ? 'sdd-meta' : undefined}
+const Field = ({ label, inline, grow, children }: FieldProps) => (
+  <label
     style={{
-      padding: '4px 10px',
-      fontSize: 'var(--fs-xs)',
-      textTransform: 'uppercase',
-      letterSpacing: '0.06em',
-      fontWeight: 600,
-      color: meta ? 'var(--meta-label)' : 'var(--text-subtle)',
-      background: meta ? 'var(--meta-bg)' : 'var(--bg-subtle)',
-      borderBottom: '1px solid var(--border)',
-      borderLeft: meta ? '1px dashed var(--meta-border)' : undefined,
-      textAlign: 'left',
+      display: inline ? 'inline-flex' : 'flex',
+      flexDirection: inline ? 'row' : 'column',
+      alignItems: inline ? 'center' : 'stretch',
+      gap: inline ? 6 : 4,
+      flex: grow ? 1 : undefined,
     }}
   >
-    {label}
-  </th>
+    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', letterSpacing: '0.02em' }}>
+      {label}
+    </span>
+    {children}
+  </label>
 );
 
-function metaCellClass(first: boolean): string {
-  return first ? 'sdd-meta sdd-meta-first' : 'sdd-meta';
-}
+const fieldStyle = {
+  height: 28,
+  padding: '0 8px',
+  fontSize: 'var(--fs-sm)',
+  fontFamily: 'inherit',
+  background: 'var(--bg-raised)',
+  color: 'var(--text)',
+  border: '1px solid var(--border-strong)',
+  borderRadius: 'var(--radius-sm)',
+  outline: 'none',
+} as const;
 
-// Unused but kept in case future variants need per-cell inline overrides.
-void (null as unknown as CSSProperties);
+const fieldStyleMono = {
+  ...fieldStyle,
+  fontFamily: 'var(--font-mono)',
+} as const;
 
 export default AttributeFlatTable;
