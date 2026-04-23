@@ -1,37 +1,61 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { entityApi, packageApi } from '../services/api';
 import { Package } from '../types';
-import { useStereotypeMetadata, getMetadataValue, setMetadataValue } from '../hooks/useStereotypeMetadata';
-import { useStickyTablePref } from '../hooks/useStickyTablePref';
-import { useResizableColumns, ResizeHandle, type ColumnDef } from '../hooks/useResizableColumns';
+import {
+  useStereotypeMetadata,
+  getMetadataValue,
+  setMetadataValue,
+} from '../hooks/useStereotypeMetadata';
 import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
-import EditableCell from './EditableCell';
+import {
+  Button,
+  Chip,
+  ColumnChooser,
+  DataTable,
+  EmptyState,
+  Field,
+  fieldStyle,
+  fieldStyleMono,
+  Input,
+  MetadataField,
+  Toolbar,
+} from './ui';
+import type { ColumnDef } from './ui';
 
-const LOCALSTORAGE_KEY = 'package-flat-table-columns';
+/**
+ * PackageFlatTable — global flat view of every package in the project.
+ *
+ * Phase-6 rewrite: swaps the raw <table> + EditableCell pattern for
+ * DataTable + side-panel edit, consistent with the other three flat
+ * surfaces (AttributeList / AttributeFlatTable / EntityFlatTable).
+ *
+ * No bulk-delete action: removing a package cascades the entire folder
+ * of entities, which is scary enough to deserve a dedicated flow on
+ * the package detail page — not a one-click bar. Selection is
+ * therefore not wired on this surface.
+ */
+
+const PACKAGE_COL_KEY = 'package-flat-columns-v2';
 
 const PackageFlatTable = () => {
   const [packages, setPackages] = useState<Package[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
 
-  // Metadata-as-columns (#92)
-  const { allColumns, columnsByStereotype } = useStereotypeMetadata('package');
-  const [pinned, togglePinned] = useStickyTablePref('package-flat');
-  const stickyHead = pinned ? 'sticky top-0 z-20 bg-base-100' : '';
-  const stickyFirstCol = pinned ? 'sticky left-0 z-10 sdd-sticky-col' : '';
-  const stickyCorner = pinned ? 'sticky top-0 left-0 z-30 bg-base-100' : '';
-  const [visibleColumns, setVisibleColumns] = useState<Set<string>>(() => {
+  const { allColumns } = useStereotypeMetadata('package');
+  const [metaVisible, setMetaVisible] = useState<Set<string>>(() => {
     try {
-      const saved = localStorage.getItem(LOCALSTORAGE_KEY);
+      const saved = localStorage.getItem(PACKAGE_COL_KEY);
       if (saved) return new Set(JSON.parse(saved));
     } catch { /* ignore */ }
     return new Set<string>();
   });
-  const [showColumnPicker, setShowColumnPicker] = useState(false);
-
   useEffect(() => {
-    localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify([...visibleColumns]));
-  }, [visibleColumns]);
+    localStorage.setItem(PACKAGE_COL_KEY, JSON.stringify([...metaVisible]));
+  }, [metaVisible]);
+
+  const [editing, setEditing] = useState<Package | null>(null);
 
   const fetchPackages = useCallback(async () => {
     setLoading(true);
@@ -46,280 +70,464 @@ const PackageFlatTable = () => {
     }
   }, []);
 
-  useEffect(() => {
-    fetchPackages();
-  }, [fetchPackages]);
+  useEffect(() => { fetchPackages(); }, [fetchPackages]);
 
-  // Auto-detect visible metadata columns from data
+  // Auto-populate visible metadata columns from the data on first load.
   useEffect(() => {
-    if (packages.length > 0 && allColumns.length > 0 && visibleColumns.size === 0) {
-      const usedKeys = new Set<string>();
+    if (packages.length > 0 && allColumns.length > 0 && metaVisible.size === 0) {
+      const used = new Set<string>();
       for (const pkg of packages) {
-        for (const entry of (pkg as any).metadata || []) {
-          if (allColumns.some(c => c.name === entry.name)) usedKeys.add(entry.name);
+        for (const entry of pkg.metadata ?? []) {
+          if (allColumns.some(c => c.name === entry.name)) used.add(entry.name);
         }
       }
-      if (usedKeys.size > 0) setVisibleColumns(usedKeys);
+      if (used.size > 0) setMetaVisible(used);
     }
   }, [packages, allColumns]);
 
-  const toggleColumn = (name: string) => {
-    setVisibleColumns(prev => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
-  };
+  const activeMetaCols = allColumns.filter(c => metaVisible.has(c.name));
 
-  const toggleGroup = (stereotypeId: string) => {
-    const groupCols = columnsByStereotype[stereotypeId] || [];
-    const allVisible = groupCols.every(c => visibleColumns.has(c.name));
-    setVisibleColumns(prev => {
-      const next = new Set(prev);
-      for (const col of groupCols) {
-        if (allVisible) next.delete(col.name);
-        else next.add(col.name);
-      }
-      return next;
-    });
-  };
+  const filtered = useMemo(() => {
+    const needle = searchTerm.trim().toLowerCase();
+    if (!needle) return packages;
+    return packages.filter(p =>
+      p.name.toLowerCase().includes(needle) ||
+      (p.description ?? '').toLowerCase().includes(needle) ||
+      (p.type ?? '').toLowerCase().includes(needle),
+    );
+  }, [packages, searchTerm]);
 
-  const activeMetaCols = allColumns.filter(c => visibleColumns.has(c.name));
+  // ──────────────── Save paths ────────────────
 
-  const colDefs: ColumnDef[] = useMemo(() => [
-    { key: 'name', defaultWidth: 180 },
-    { key: 'description', defaultWidth: 300 },
-    { key: 'type', defaultWidth: 100 },
-    { key: 'entityCount', defaultWidth: 90 },
-    ...activeMetaCols.map(col => ({ key: col.name, defaultWidth: 120 })),
-    { key: 'createdAt', defaultWidth: 110 },
-    { key: 'updatedAt', defaultWidth: 110 },
-  ], [activeMetaCols]);
-  const { widths, startResize, resetWidths, tableStyle } = useResizableColumns('package-flat', colDefs);
-
-  const renderMetaValue = (pkg: Package, col: MetadataColumn) => {
-    const val = getMetadataValue(pkg as any, col.name);
-    if (val === undefined || val === '') return <span className="text-base-content/30">-</span>;
-    if (col.type === 'flag' || col.type === 'boolean') {
-      return val ? (
-        <span className="badge badge-xs badge-success">Yes</span>
-      ) : (
-        <span className="badge badge-xs badge-ghost">No</span>
-      );
-    }
-    return <span className="text-sm">{val.toString()}</span>;
-  };
-
-  const getMetaInputType = (col: MetadataColumn): 'text' | 'toggle' | 'select' => {
-    if (col.type === 'flag' || col.type === 'boolean') return 'toggle';
-    return 'text';
-  };
-
-  /** Inline save for package field */
   const savePackageField = useCallback(async (
     pkg: Package,
-    field: 'name' | 'description',
-    value: string,
+    patch: Partial<Package>,
   ) => {
-    await packageApi.updatePackage(pkg.name, [], { [field]: value });
-    setPackages(prev => prev.map(p => {
-      if (p.id === pkg.id) return { ...p, [field]: value };
-      return p;
-    }));
+    await packageApi.updatePackage(pkg.name, [], patch);
+    setPackages(prev => prev.map(p => (p.id === pkg.id ? { ...p, ...patch } : p)));
   }, []);
 
-  /** Save a metadata value on a package */
   const savePackageMetadata = useCallback(async (
     pkg: Package,
     metaName: string,
     value: string | number | boolean,
   ) => {
-    const currentMeta = (pkg as any).metadata || [];
-    const updatedMetadata = setMetadataValue(currentMeta, metaName, value);
-    await packageApi.updatePackage(pkg.name, [], { metadata: updatedMetadata });
-    setPackages(prev => prev.map(p => {
-      if (p.id === pkg.id) return { ...p, metadata: updatedMetadata } as any;
-      return p;
-    }));
+    const nextMetadata = setMetadataValue(pkg.metadata, metaName, value);
+    await packageApi.updatePackage(pkg.name, [], { metadata: nextMetadata });
+    setPackages(prev => prev.map(p => (p.id === pkg.id ? { ...p, metadata: nextMetadata } : p)));
   }, []);
 
+  // ──────────────── Columns ────────────────
+
+  const columns: ColumnDef<Package>[] = useMemo(() => {
+    const std: ColumnDef<Package>[] = [
+      {
+        key: 'name',
+        header: 'Name',
+        group: 'standard',
+        mono: true,
+        sortable: true,
+        filterable: true,
+        width: 'minmax(180px, 1.4fr)',
+        accessor: (p) => p.name,
+      },
+      {
+        key: 'description',
+        header: 'Description',
+        group: 'standard',
+        filterable: true,
+        width: 'minmax(260px, 2.2fr)',
+        accessor: (p) => p.description ?? '',
+        render: (p) => p.description
+          ? <span style={{ color: 'var(--text-muted)' }}>{p.description}</span>
+          : <span style={{ color: 'var(--text-subtle)', fontStyle: 'italic' }}>no description</span>,
+      },
+      {
+        key: 'type',
+        header: 'Type',
+        group: 'standard',
+        sortable: true,
+        filterable: true,
+        width: 120,
+        accessor: (p) => p.type ?? '',
+        render: (p) => p.type
+          ? <Chip tone="neutral">{p.type}</Chip>
+          : <span style={{ color: 'var(--text-subtle)' }}>—</span>,
+      },
+      {
+        key: 'entityCount',
+        header: 'Entities',
+        group: 'standard',
+        sortable: true,
+        width: 90,
+        align: 'center',
+        accessor: (p) => p.entities?.length ?? 0,
+        render: (p) => {
+          const n = p.entities?.length ?? 0;
+          return n > 0
+            ? <Chip tone="neutral" soft>{n}</Chip>
+            : <span style={{ color: 'var(--text-subtle)' }}>—</span>;
+        },
+      },
+      {
+        key: 'createdAt',
+        header: 'Created',
+        group: 'standard',
+        sortable: true,
+        width: 120,
+        accessor: (p) => p.createdAt ?? '',
+        render: (p) => p.createdAt
+          ? <span className="mono" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+              {new Date(p.createdAt).toLocaleDateString()}
+            </span>
+          : <span style={{ color: 'var(--text-subtle)' }}>—</span>,
+      },
+      {
+        key: 'updatedAt',
+        header: 'Updated',
+        group: 'standard',
+        sortable: true,
+        width: 120,
+        accessor: (p) => p.updatedAt ?? '',
+        render: (p) => p.updatedAt
+          ? <span className="mono" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+              {new Date(p.updatedAt).toLocaleDateString()}
+            </span>
+          : <span style={{ color: 'var(--text-subtle)' }}>—</span>,
+      },
+    ];
+
+    const meta: ColumnDef<Package>[] = activeMetaCols.map((col) => ({
+      key: `meta:${col.name}`,
+      header: col.label,
+      group: 'metadata',
+      width: 120,
+      accessor: (p) => {
+        const v = getMetadataValue(p, col.name);
+        return v === undefined ? '' : (typeof v === 'boolean' ? (v ? 'yes' : 'no') : String(v));
+      },
+      render: (p) => renderMetadataCell(p, col),
+    }));
+
+    return [...std, ...meta];
+  }, [activeMetaCols]);
+
+  const chooserCols = useMemo(() => columns as unknown as ColumnDef<unknown>[], [columns]);
+  const allVisibleKeys = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of columns) {
+      if ((c.group ?? 'standard') === 'standard') set.add(c.key);
+    }
+    for (const name of metaVisible) set.add(`meta:${name}`);
+    return set;
+  }, [columns, metaVisible]);
+
+  const handleVisibleChange = useCallback((next: Set<string>) => {
+    const nextMeta = new Set<string>();
+    next.forEach((key) => {
+      if (key.startsWith('meta:')) nextMeta.add(key.slice(5));
+    });
+    setMetaVisible(nextMeta);
+  }, []);
+
+  // ──────────────── Render ────────────────
+
   return (
-    <div className="container mx-auto px-4 sm:px-6 lg:px-8 flex-1 flex flex-col min-h-0">
-      <div className="flex justify-between items-center mb-2">
-        <h1 className="text-lg font-semibold">Packages (Flat View)</h1>
-        <div className="flex items-center gap-2">
-          <button
-            className={`btn btn-sm ${pinned ? 'btn-primary' : 'btn-outline'}`}
-            onClick={togglePinned}
-            title={pinned ? 'Unfreeze header & first column' : 'Freeze header & first column'}
-          >
-            {pinned ? 'Frozen' : 'Freeze'}
-          </button>
-          <button className="btn btn-sm btn-ghost" onClick={resetWidths} title="Reset column widths">
-            Reset cols
-          </button>
-
-        {/* Metadata column picker (#92) */}
+    <div className="flex flex-col min-h-0" style={{ flex: 1 }}>
+      <Toolbar attached>
+        <h1
+          style={{
+            margin: 0,
+            fontSize: 'var(--fs-lg)',
+            fontWeight: 600,
+            color: 'var(--text)',
+          }}
+        >
+          Packages
+        </h1>
+        <span
+          className="mono"
+          style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)' }}
+        >
+          {filtered.length} of {packages.length} · flat view
+        </span>
+        <Toolbar.Spacer />
+        <Input
+          icon="search"
+          size="sm"
+          placeholder="Search packages…"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.currentTarget.value)}
+          width={240}
+        />
         {allColumns.length > 0 && (
-          <div className="relative">
-            <button
-              className="btn btn-sm btn-outline gap-1"
-              onClick={() => setShowColumnPicker(!showColumnPicker)}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" />
-              </svg>
-              Columns
-              {activeMetaCols.length > 0 && (
-                <span className="badge badge-xs badge-primary">{activeMetaCols.length}</span>
-              )}
-            </button>
-
-            {showColumnPicker && (
-              <div className="absolute right-0 top-full mt-1 z-50 bg-base-100 border border-base-300 rounded-lg shadow-lg p-3 min-w-[220px] max-h-[400px] overflow-y-auto">
-                {Object.entries(columnsByStereotype).map(([stId, cols]) => {
-                  const allOn = cols.every(c => visibleColumns.has(c.name));
-                  return (
-                    <div key={stId} className="mb-2">
-                      <label className="flex items-center gap-2 font-semibold text-sm cursor-pointer mb-1">
-                        <input
-                          type="checkbox"
-                          className="checkbox checkbox-xs checkbox-primary"
-                          checked={allOn}
-                          onChange={() => toggleGroup(stId)}
-                        />
-                        {cols[0]?.stereotypeName || stId}
-                      </label>
-                      {cols.map(col => (
-                        <label key={col.name} className="flex items-center gap-2 ml-4 text-sm cursor-pointer">
-                          <input
-                            type="checkbox"
-                            className="checkbox checkbox-xs"
-                            checked={visibleColumns.has(col.name)}
-                            onChange={() => toggleColumn(col.name)}
-                          />
-                          {col.label}
-                        </label>
-                      ))}
-                    </div>
-                  );
-                })}
-                <div className="border-t border-base-300 mt-2 pt-2 flex gap-2">
-                  <button className="btn btn-xs" onClick={() => setVisibleColumns(new Set(allColumns.map(c => c.name)))}>
-                    All
-                  </button>
-                  <button className="btn btn-xs" onClick={() => setVisibleColumns(new Set())}>
-                    None
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+          <ColumnChooser
+            columns={chooserCols}
+            visible={allVisibleKeys}
+            onChange={handleVisibleChange}
+            label={`Metadata (${activeMetaCols.length})`}
+          />
         )}
-        </div>
-      </div>
+      </Toolbar>
 
       {loading ? (
-        <div className="flex justify-center items-center h-32">
-          <span className="loading loading-spinner loading-lg"></span>
-        </div>
+        <EmptyState kind="loading" attached message="Loading packages…" />
       ) : error ? (
-        <div className="alert alert-error">{error}</div>
+        <EmptyState
+          kind="error"
+          attached
+          title="Failed to load packages"
+          message={error}
+          action={{ label: 'Retry', icon: 'sparkle', onClick: fetchPackages }}
+        />
       ) : (
-        <div className={`${pinned ? 'overflow-auto max-h-[70vh]' : 'overflow-x-auto p-1'} bg-base-100 rounded-lg shadow flex-1 min-h-0`}>
-          <table className={`table table-xs table-zebra ${pinned ? 'sdd-sticky-table' : ''}`} style={tableStyle}>
-            <thead>
-              <tr>
-                <th className={`${stickyCorner} relative`} style={{ width: widths.name }}>
-                  Package Name
-                  <ResizeHandle onMouseDown={(e) => startResize('name', e)} />
-                </th>
-                <th className={`${stickyHead} relative`} style={{ width: widths.description }}>
-                  Description
-                  <ResizeHandle onMouseDown={(e) => startResize('description', e)} />
-                </th>
-                <th className={`${stickyHead} relative`} style={{ width: widths.type }}>
-                  Microservice
-                  <ResizeHandle onMouseDown={(e) => startResize('type', e)} />
-                </th>
-                <th className={`${stickyHead} relative`} style={{ width: widths.entityCount }}>
-                  Entity Count
-                  <ResizeHandle onMouseDown={(e) => startResize('entityCount', e)} />
-                </th>
-                {activeMetaCols.map(col => (
-                  <th key={col.name} title={col.description} className={`${stickyHead} relative`} style={{ width: widths[col.name] }}>
-                    <span className="flex items-center gap-1">
-                      {col.label}
-                      <span className="badge badge-xs badge-ghost font-normal">{col.stereotypeName}</span>
-                    </span>
-                    <ResizeHandle onMouseDown={(e) => startResize(col.name, e)} />
-                  </th>
-                ))}
-                <th className={`${stickyHead} relative`} style={{ width: widths.createdAt }}>
-                  Created At
-                  <ResizeHandle onMouseDown={(e) => startResize('createdAt', e)} />
-                </th>
-                <th className={`${stickyHead} relative`} style={{ width: widths.updatedAt }}>
-                  Updated At
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {packages.length === 0 ? (
-                <tr>
-                  <td colSpan={6 + activeMetaCols.length} className="text-center text-gray-500">No packages found.</td>
-                </tr>
-              ) : (
-                packages.map((pkg) => (
-                  <tr key={pkg.id}>
-                    <EditableCell
-                      value={pkg.name}
-                      className={stickyFirstCol}
-                      onSave={async (v) => {
-                        await savePackageField(pkg, 'name', v as string);
-                      }}
-                    />
-                    <EditableCell
-                      value={pkg.description || ''}
-                      inputType="textarea"
-                      className="w-[48ch] max-w-[48ch] align-top"
-                      renderDisplay={(v) => (
-                        <span className="line-clamp-2 leading-snug" title={String(v)}>
-                          {String(v) || <span className="text-base-content/30">—</span>}
-                        </span>
-                      )}
-                      onSave={async (v) => {
-                        await savePackageField(pkg, 'description', v as string);
-                      }}
-                    />
-                    <td>{pkg.type || '-'}</td>
-                    <td>{pkg.entities?.length ?? 0}</td>
-                    {activeMetaCols.map(col => {
-                      const metaInputType = getMetaInputType(col);
-                      const metaVal = getMetadataValue(pkg as any, col.name);
-                      return (
-                        <EditableCell
-                          key={col.name}
-                          value={metaVal ?? (metaInputType === 'toggle' ? false : '')}
-                          inputType={metaInputType}
-                          renderDisplay={() => renderMetaValue(pkg, col)}
-                          onSave={async (v) => {
-                            await savePackageMetadata(pkg, col.name, v as string | number | boolean);
-                          }}
-                        />
-                      );
-                    })}
-                    <td>{pkg.createdAt ? new Date(pkg.createdAt).toLocaleString() : '-'}</td>
-                    <td>{pkg.updatedAt ? new Date(pkg.updatedAt).toLocaleString() : '-'}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<Package>
+          columns={columns}
+          rows={filtered}
+          getRowKey={(p) => p.id ?? p.name}
+          visibleColumns={allVisibleKeys}
+          onVisibleColumnsChange={handleVisibleChange}
+          onRowClick={(p) => setEditing(p)}
+          attached
+          emptyMessage={
+            <EmptyState
+              inline
+              kind="empty"
+              title="No packages found"
+              message={
+                searchTerm
+                  ? `No packages match "${searchTerm}".`
+                  : 'No packages defined yet.'
+              }
+            />
+          }
+        />
+      )}
+
+      {editing && (
+        <PackageSidePanel
+          pkg={editing}
+          metaColumns={allColumns}
+          onClose={() => setEditing(null)}
+          onSave={async (patch) => {
+            await savePackageField(editing, patch);
+          }}
+          onMetadataChange={(col, value) => savePackageMetadata(editing, col.name, value)}
+        />
       )}
     </div>
+  );
+};
+
+// ──────────────── Helpers ────────────────
+
+function renderMetadataCell(pkg: Package, col: MetadataColumn) {
+  const v = getMetadataValue(pkg, col.name);
+  if (v === undefined || v === null || v === '') {
+    return <span style={{ color: 'var(--text-subtle)' }}>—</span>;
+  }
+  if (col.type === 'flag' || col.type === 'boolean') {
+    return v
+      ? <Chip tone="success" soft>yes</Chip>
+      : <Chip tone="neutral">no</Chip>;
+  }
+  return <span style={{ color: 'var(--text-muted)' }}>{String(v)}</span>;
+}
+
+// ──────────────── Side panel ────────────────
+
+interface PackageSidePanelProps {
+  pkg: Package;
+  metaColumns: MetadataColumn[];
+  onClose: () => void;
+  onSave: (patch: Partial<Package>) => Promise<void>;
+  onMetadataChange: (col: MetadataColumn, value: string | number | boolean) => Promise<void>;
+}
+
+const PackageSidePanel = ({
+  pkg,
+  metaColumns,
+  onClose,
+  onSave,
+  onMetadataChange,
+}: PackageSidePanelProps) => {
+  const [name, setName] = useState(pkg.name);
+  const [description, setDescription] = useState(pkg.description ?? '');
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  useEffect(() => {
+    setName(pkg.name);
+    setDescription(pkg.description ?? '');
+    setSavedAt(null);
+  }, [pkg.id]);
+
+  const dirty = name !== pkg.name || description !== (pkg.description ?? '');
+
+  const handleSave = async () => {
+    if (!dirty) return;
+    setSaving(true);
+    try {
+      await onSave({ name, description });
+      setSavedAt(Date.now());
+    } catch (err) {
+      console.error('Failed to save package:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <div
+        onClick={onClose}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.25)',
+          zIndex: 40,
+        }}
+      />
+      <aside
+        role="dialog"
+        aria-label="Edit package"
+        style={{
+          position: 'fixed',
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: 480,
+          background: 'var(--bg-raised)',
+          borderLeft: '1px solid var(--border)',
+          boxShadow: 'var(--shadow-lg)',
+          display: 'flex',
+          flexDirection: 'column',
+          zIndex: 50,
+          animation: 'sddSlide var(--dur-med) ease-out',
+        }}
+      >
+        <style>{`
+          @keyframes sddSlide {
+            from { transform: translateX(100%); opacity: 0.7; }
+            to   { transform: translateX(0);     opacity: 1;   }
+          }
+        `}</style>
+
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '12px 14px',
+            borderBottom: '1px solid var(--border)',
+          }}
+        >
+          <span
+            className="uppercase mono"
+            style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)', letterSpacing: '0.04em' }}
+          >
+            edit package
+          </span>
+          <span
+            className="mono"
+            style={{ fontSize: 'var(--fs-md)', fontWeight: 600, color: 'var(--text)' }}
+          >
+            {pkg.name}
+          </span>
+          <div style={{ flex: 1 }} />
+          <Button size="sm" variant="ghost" icon="close" onClick={onClose} iconOnly aria-label="close" />
+        </div>
+
+        <div
+          style={{
+            flex: 1,
+            overflow: 'auto',
+            padding: 14,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+          }}
+        >
+          <Field label="Name">
+            <input
+              type="text"
+              value={name}
+              aria-label="Name"
+              onChange={(e) => setName(e.target.value)}
+              style={fieldStyleMono}
+            />
+          </Field>
+          <Field label="Description">
+            <textarea
+              value={description}
+              aria-label="Description"
+              onChange={(e) => setDescription(e.target.value)}
+              rows={4}
+              style={{ ...fieldStyle, minHeight: 72, padding: '6px 8px', fontFamily: 'inherit' }}
+            />
+          </Field>
+          <Field label="Entities" inline>
+            <span className="mono" style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
+              {pkg.entities?.length ?? 0}
+            </span>
+          </Field>
+
+          {metaColumns.length > 0 && (
+            <div>
+              <div
+                className="uppercase"
+                style={{
+                  fontSize: 'var(--fs-xs)',
+                  color: 'var(--meta-label)',
+                  letterSpacing: '0.06em',
+                  fontWeight: 600,
+                  marginTop: 8,
+                  marginBottom: 6,
+                  paddingBottom: 4,
+                  borderBottom: '1px dashed var(--meta-border)',
+                }}
+              >
+                Governance metadata
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {metaColumns.map((col) => (
+                  <MetadataField
+                    key={col.name}
+                    column={col}
+                    value={getMetadataValue(pkg, col.name)}
+                    onChange={(v) => onMetadataChange(col, v)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div
+          style={{
+            padding: '10px 14px',
+            borderTop: '1px solid var(--border)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <Button
+            size="md"
+            variant="primary"
+            icon="check"
+            onClick={handleSave}
+            disabled={!dirty || saving}
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
+          <Button size="md" variant="ghost" onClick={onClose}>Cancel</Button>
+          {savedAt && !dirty && (
+            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--success)' }}>Saved</span>
+          )}
+        </div>
+      </aside>
+    </>
   );
 };
 
