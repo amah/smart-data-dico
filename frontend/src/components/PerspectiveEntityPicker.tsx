@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { entityApi } from '../services/api';
-import type { Package, Entity } from '../types';
+import type { Package } from '../types';
 
 interface PerspectiveEntityPickerProps {
   selected: string[];

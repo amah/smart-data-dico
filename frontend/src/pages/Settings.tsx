@@ -28,7 +28,7 @@ const KNOWN_ENDPOINTS = [
 
 const Settings = () => {
   const { enabled: shortcutsEnabled, toggle: toggleShortcuts } = useKeyboardShortcutsEnabled();
-  const [user, setUser] = useState<User | null>(null);
+  const [, setUser] = useState<User | null>(null);
 
   // Model-level metadata state (#94)
   const [modelMetadata, setModelMetadata] = useState<MetadataEntry[]>([]);
@@ -113,7 +113,7 @@ const Settings = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   
-  const { register, handleSubmit, formState: { errors }, reset } = useForm<SettingsFormData>({
+  const { register, handleSubmit, reset } = useForm<SettingsFormData>({
     defaultValues: {
       theme: 'system',
       notifications: true,

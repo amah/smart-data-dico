@@ -12,7 +12,7 @@ export function createPerspectivePlugin(): PluginModule {
       });
     },
 
-    async activate(ctx) {
+    async activate() {
       console.log('[perspective] Plugin activated');
     },
   };

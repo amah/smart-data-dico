@@ -26,7 +26,7 @@ const Register = () => {
 
   const password = watch('password');
 
-  const onSubmit = async (data: RegisterFormData) => {
+  const onSubmit = async (_data: RegisterFormData) => {
     try {
       setLoading(true);
       setError(null);

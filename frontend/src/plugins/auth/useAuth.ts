@@ -10,8 +10,14 @@ import { useCallback } from 'react';
 import type { RootState, AppDispatch } from '../../kernel/bootstrap';
 import { login, logout, fetchCurrentUser } from '../../store/slices/authSlice';
 
+// The microkernel store's typed dispatch doesn't surface the thunk
+// middleware overload, so RTK's AsyncThunkAction isn't assignable. The
+// thunk middleware is registered at the store — this is a type gap,
+// not a runtime one. Dispatching directly is safe.
+type ThunkDispatch = (action: unknown) => unknown;
+
 export function useAuth() {
-  const dispatch = useDispatch<AppDispatch>();
+  const dispatch = useDispatch<AppDispatch>() as unknown as ThunkDispatch;
   const auth = useSelector((state: RootState) => state.auth);
 
   const doLogin = useCallback(

@@ -17,10 +17,12 @@ const renderCell = (props: React.ComponentProps<typeof EditableCell>) => {
 };
 
 describe('EditableCell', () => {
-  let onSave: ReturnType<typeof vi.fn>;
+  // Typed so it's assignable to EditableCell's onSave prop
+  // ((v) => Promise<void>) while still exposing vitest's Mock helpers.
+  let onSave: ReturnType<typeof vi.fn<[string | number | boolean], Promise<void>>>;
 
   beforeEach(() => {
-    onSave = vi.fn().mockResolvedValue(undefined);
+    onSave = vi.fn<[string | number | boolean], Promise<void>>().mockResolvedValue(undefined);
   });
 
   // ──────────────────────────────────────────────

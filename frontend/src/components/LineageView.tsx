@@ -25,7 +25,7 @@ function LineageNodeCard({ node }: { node: LineageNode }) {
   );
 }
 
-export default function LineageView({ entityUuid, service }: LineageViewProps) {
+export default function LineageView({ entityUuid }: LineageViewProps) {
   const [lineage, setLineage] = useState<LineageResult | null>(null);
   const [loading, setLoading] = useState(true);
 

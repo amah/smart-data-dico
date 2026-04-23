@@ -43,7 +43,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const [autoApprove, setAutoApprove] = useState<boolean>(() => {
     return localStorage.getItem('ai-auto-approve') !== 'false';
   });
-  const [pendingReview, setPendingReview] = useState(false);
+  const [, setPendingReview] = useState(false);
 
   useEffect(() => {
     fetch('/api/ai/status', { cache: 'no-store' })
