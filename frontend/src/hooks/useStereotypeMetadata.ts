@@ -87,13 +87,14 @@ export function getActiveColumns(
 }
 
 /**
- * Helper: get a metadata value from an attribute's metadata array.
+ * Helper: get a metadata value from any element that carries a metadata
+ * array (attribute, entity, relationship).
  */
 export function getMetadataValue(
-  attr: Attribute,
+  target: { metadata?: MetadataEntry[] },
   metadataName: string,
 ): string | number | boolean | undefined {
-  const entry = (attr.metadata || []).find(m => m.name === metadataName);
+  const entry = (target.metadata || []).find(m => m.name === metadataName);
   return entry?.value;
 }
 

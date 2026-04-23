@@ -46,6 +46,9 @@ describe('EntityFlatTable', () => {
       http.get('/api/packages/all', () => {
         return HttpResponse.json({ data: mockPackages });
       }),
+      http.get('/api/stereotypes', () => {
+        return HttpResponse.json({ data: [] });
+      }),
       http.put('/api/services/:service/entities/:entity', async ({ request }) => {
         const body = await request.json();
         return HttpResponse.json({ message: 'Updated', data: body });
@@ -70,7 +73,7 @@ describe('EntityFlatTable', () => {
 
     expect(screen.getByText('Profile')).toBeInTheDocument();
     expect(screen.getByText('Order')).toBeInTheDocument();
-    // user-service appears in both table rows and filter dropdown
+    // package names show in table cells *and* in the package filter dropdown.
     expect(screen.getAllByText('user-service').length).toBeGreaterThan(0);
     expect(screen.getAllByText('order-service').length).toBeGreaterThan(0);
   });
@@ -80,20 +83,39 @@ describe('EntityFlatTable', () => {
       http.get('/api/packages/all', () => {
         return new HttpResponse(null, { status: 500 });
       }),
+      http.get('/api/stereotypes', () => {
+        return HttpResponse.json({ data: [] });
+      }),
     );
     render(<EntityFlatTable />);
 
     await waitFor(() => {
-      expect(screen.getByText('Failed to load entities. Please try again.')).toBeInTheDocument();
+      expect(screen.getByText('Failed to load entities')).toBeInTheDocument();
     });
   });
 
-  it('allows inline editing of entity name', async () => {
+  it('renders the empty state when no entities exist', async () => {
+    server.use(
+      http.get('/api/packages/all', () => {
+        return HttpResponse.json({ data: [{ id: 'pkg-1', name: 'empty-pkg', entities: [] }] });
+      }),
+      http.get('/api/stereotypes', () => {
+        return HttpResponse.json({ data: [] });
+      }),
+    );
+    render(<EntityFlatTable />);
+
+    await waitFor(() => {
+      expect(screen.getByText('No entities found')).toBeInTheDocument();
+    });
+  });
+
+  it('opens the side panel when a row is clicked and saves the new name', async () => {
     setupHandlers();
-    let capturedBody: any;
+    let capturedBody: { name: string } | undefined;
     server.use(
       http.put('/api/services/:service/entities/:entity', async ({ request }) => {
-        capturedBody = await request.json();
+        capturedBody = (await request.json()) as typeof capturedBody;
         return HttpResponse.json({ message: 'Updated', data: capturedBody });
       }),
     );
@@ -104,26 +126,27 @@ describe('EntityFlatTable', () => {
       expect(screen.getByText('User')).toBeInTheDocument();
     });
 
-    // Click on "User" to edit
-    const userCell = screen.getByText('User').closest('td')!;
-    await userEvent.click(userCell);
+    await userEvent.click(screen.getByText('User'));
+    const panel = screen.getByRole('dialog', { name: /edit entity/i });
+    const nameInput = within(panel).getByLabelText('Name') as HTMLInputElement;
+    expect(nameInput.value).toBe('User');
 
-    const input = within(userCell).getByRole('textbox');
-    await userEvent.clear(input);
-    await userEvent.type(input, 'Customer{enter}');
+    await userEvent.clear(nameInput);
+    await userEvent.type(nameInput, 'Customer');
+    await userEvent.click(within(panel).getByRole('button', { name: /^save$/i }));
 
     await waitFor(() => {
       expect(capturedBody).toBeDefined();
-      expect(capturedBody.name).toBe('Customer');
+      expect(capturedBody!.name).toBe('Customer');
     });
   });
 
-  it('allows inline editing of entity description', async () => {
+  it('saves a description change via the side panel', async () => {
     setupHandlers();
-    let capturedBody: any;
+    let capturedBody: { description: string } | undefined;
     server.use(
       http.put('/api/services/:service/entities/:entity', async ({ request }) => {
-        capturedBody = await request.json();
+        capturedBody = (await request.json()) as typeof capturedBody;
         return HttpResponse.json({ message: 'Updated', data: capturedBody });
       }),
     );
@@ -134,23 +157,21 @@ describe('EntityFlatTable', () => {
       expect(screen.getByText('User entity')).toBeInTheDocument();
     });
 
-    // Click on description to edit
-    const descCell = screen.getByText('User entity').closest('td')!;
-    await userEvent.click(descCell);
+    await userEvent.click(screen.getByText('User'));
+    const panel = screen.getByRole('dialog', { name: /edit entity/i });
+    const descInput = within(panel).getByLabelText('Description') as HTMLTextAreaElement;
 
-    const textarea = within(descCell).getByRole('textbox');
-    await userEvent.clear(textarea);
-    await userEvent.type(textarea, 'Updated description');
-    // Enter saves in textarea (without shift)
-    fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+    await userEvent.clear(descInput);
+    await userEvent.type(descInput, 'Updated description');
+    await userEvent.click(within(panel).getByRole('button', { name: /^save$/i }));
 
     await waitFor(() => {
       expect(capturedBody).toBeDefined();
-      expect(capturedBody.description).toBe('Updated description');
+      expect(capturedBody!.description).toBe('Updated description');
     });
   });
 
-  it('package column is not editable (plain td)', async () => {
+  it('supports entity creation via the Add Entity modal', async () => {
     setupHandlers();
     render(<EntityFlatTable />);
 
@@ -158,14 +179,20 @@ describe('EntityFlatTable', () => {
       expect(screen.getByText('User')).toBeInTheDocument();
     });
 
-    const row = screen.getByText('User').closest('tr')!;
-    const pkgCell = within(row).getByText('user-service').closest('td')!;
+    await userEvent.click(screen.getByRole('button', { name: /add entity/i }));
+    const modal = screen.getByRole('dialog', { name: /create new entity/i });
+    expect(modal).toBeInTheDocument();
 
-    // Should not have cursor-pointer (not wrapped in EditableCell)
-    expect(pkgCell.className).not.toContain('cursor-pointer');
+    await userEvent.type(within(modal).getByLabelText('Name'), 'NewEntity');
+    await userEvent.selectOptions(within(modal).getByLabelText('Package'), 'user-service');
+
+    // Cancel to close (checks the dialog mounts & closes correctly without
+    // actually firing POST).
+    await userEvent.click(within(modal).getByRole('button', { name: /cancel/i }));
+    expect(screen.queryByRole('dialog', { name: /create new entity/i })).not.toBeInTheDocument();
   });
 
-  it('does not have edit modal (replaced by inline editing)', async () => {
+  it('supports entity deletion via the side panel + confirm dialog', async () => {
     setupHandlers();
     render(<EntityFlatTable />);
 
@@ -173,61 +200,63 @@ describe('EntityFlatTable', () => {
       expect(screen.getByText('User')).toBeInTheDocument();
     });
 
-    // There should be no edit button (pencil icon), only delete
-    const row = screen.getByText('User').closest('tr')!;
-    const deleteBtn = within(row).getByTitle('Delete');
-    expect(deleteBtn).toBeInTheDocument();
-    expect(within(row).queryByTitle('Edit')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByText('User'));
+    const panel = screen.getByRole('dialog', { name: /edit entity/i });
+    await userEvent.click(within(panel).getByRole('button', { name: /^delete$/i }));
+
+    // The confirm dialog mounts over the panel.
+    const confirm = screen.getByRole('dialog', { name: /delete entity/i });
+    expect(within(confirm).getByText(/Are you sure you want to delete the entity/)).toBeInTheDocument();
+
+    await userEvent.click(within(confirm).getByRole('button', { name: /cancel/i }));
+    expect(screen.queryByRole('dialog', { name: /delete entity/i })).not.toBeInTheDocument();
   });
 
-  it('still supports entity creation via modal', async () => {
+  it('bulk-deletes selected entities via BatchActionBar', async () => {
     setupHandlers();
-    render(<EntityFlatTable />);
-
-    await waitFor(() => {
-      expect(screen.getByText('User')).toBeInTheDocument();
-    });
-
-    // Click "Add Entity"
-    await userEvent.click(screen.getByText('Add Entity'));
-    expect(screen.getByText('Create New Entity')).toBeInTheDocument();
-
-    // Fill in the form — DaisyUI labels don't use htmlFor, so query by DOM attributes
-    const modal = screen.getByText('Create New Entity').closest('div')!;
-    const nameInput = modal.querySelector('input[name="name"]') as HTMLInputElement;
-    await userEvent.type(nameInput, 'NewEntity');
-    const pkgSelect = modal.querySelector('select[name="packageName"]') as HTMLSelectElement;
-    await userEvent.selectOptions(pkgSelect, 'user-service');
-
-    // Cancel to close
-    await userEvent.click(screen.getByText('Cancel'));
-    expect(screen.queryByText('Create New Entity')).not.toBeInTheDocument();
-  });
-
-  it('still supports entity deletion via modal', async () => {
-    setupHandlers();
-    render(<EntityFlatTable />);
-
-    await waitFor(() => {
-      expect(screen.getByText('User')).toBeInTheDocument();
-    });
-
-    const row = screen.getByText('User').closest('tr')!;
-    await userEvent.click(within(row).getByTitle('Delete'));
-
-    expect(screen.getByText('Delete Entity')).toBeInTheDocument();
-    expect(screen.getByText(/Are you sure you want to delete the entity/)).toBeInTheDocument();
-
-    // Cancel
-    await userEvent.click(screen.getByText('Cancel'));
-    expect(screen.queryByText('Delete Entity')).not.toBeInTheDocument();
-  });
-
-  it('reverts on save error', async () => {
+    let deleteCount = 0;
     server.use(
-      http.get('/api/packages/all', () => {
-        return HttpResponse.json({ data: mockPackages });
+      http.delete('/api/services/:service/entities/:entity', () => {
+        deleteCount++;
+        return HttpResponse.json({ message: 'Deleted' });
       }),
+    );
+
+    // Auto-confirm the window.confirm dialog.
+    const originalConfirm = window.confirm;
+    window.confirm = () => true;
+
+    try {
+      render(<EntityFlatTable />);
+
+      await waitFor(() => {
+        expect(screen.getByText('User')).toBeInTheDocument();
+      });
+
+      // The first selection checkbox after the header tri-state is the row
+      // for the first processed entity. Grab the row checkboxes by
+      // aria-label (DataTable uses "Select row" for each row checkbox).
+      const rowCheckboxes = screen
+        .getAllByRole('checkbox')
+        .filter(c => c.getAttribute('aria-label') === 'Select row');
+      expect(rowCheckboxes.length).toBeGreaterThanOrEqual(2);
+      await userEvent.click(rowCheckboxes[0]);
+      await userEvent.click(rowCheckboxes[1]);
+
+      // Bulk delete action in the BatchActionBar.
+      await userEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+
+      await waitFor(() => {
+        expect(deleteCount).toBeGreaterThanOrEqual(1);
+      });
+    } finally {
+      window.confirm = originalConfirm;
+    }
+  });
+
+  it('keeps the original value when save fails', async () => {
+    setupHandlers();
+    server.use(
       http.put('/api/services/:service/entities/:entity', () => {
         return new HttpResponse(null, { status: 500 });
       }),
@@ -239,18 +268,18 @@ describe('EntityFlatTable', () => {
       expect(screen.getByText('User')).toBeInTheDocument();
     });
 
-    const userCell = screen.getByText('User').closest('td')!;
-    await userEvent.click(userCell);
-    const input = within(userCell).getByRole('textbox');
-    await userEvent.clear(input);
-    await userEvent.type(input, 'BadName{enter}');
+    await userEvent.click(screen.getByText('User'));
+    const panel = screen.getByRole('dialog', { name: /edit entity/i });
+    const nameInput = within(panel).getByLabelText('Name') as HTMLInputElement;
+    await userEvent.clear(nameInput);
+    await userEvent.type(nameInput, 'BadName');
+    await userEvent.click(within(panel).getByRole('button', { name: /^save$/i }));
 
-    // Should revert
+    // Local state updates only on a successful PUT, so the original
+    // value remains visible in the row (even while the panel shows the
+    // attempted value in the input).
     await waitFor(() => {
-      expect(screen.getByText('User')).toBeInTheDocument();
+      expect(screen.getAllByText('User').length).toBeGreaterThan(0);
     });
   });
 });
-
-// Need fireEvent for keyDown
-import { fireEvent } from '@testing-library/react';

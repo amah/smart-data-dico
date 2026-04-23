@@ -1,292 +1,175 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { entityApi, servicesApi } from '../services/api';
 import { Entity, Package } from '../types';
-import { useStereotypeMetadata, getMetadataValue, setMetadataValue } from '../hooks/useStereotypeMetadata';
-import { useStickyTablePref } from '../hooks/useStickyTablePref';
-import { useResizableColumns, ResizeHandle, type ColumnDef } from '../hooks/useResizableColumns';
+import {
+  useStereotypeMetadata,
+  getMetadataValue,
+  setMetadataValue,
+} from '../hooks/useStereotypeMetadata';
 import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
-import EditableCell from './EditableCell';
-import { BatchActionBar } from './ui';
+import {
+  BatchActionBar,
+  Button,
+  Chip,
+  ColumnChooser,
+  DataTable,
+  EmptyState,
+  Icon,
+  Input,
+  PiiChip,
+  Toolbar,
+} from './ui';
+import type { ColumnDef } from './ui';
 
-const LOCALSTORAGE_KEY = 'entity-flat-table-columns';
+/**
+ * EntityFlatTable — global flat view of every entity across every package.
+ *
+ * Phase-6 rewrite: swaps the raw <table> plus inline-editing for
+ * DataTable<EntityFlat> plus a side-panel slide-over, consistent with
+ * AttributeList / AttributeFlatTable. Create/Delete modals kept but
+ * restyled with design tokens. Column resize & freeze were dropped —
+ * DataTable doesn't yet offer them; if they come back, they come back
+ * centrally on DataTable rather than bolted onto individual tables.
+ */
+
+interface EntityFlat {
+  entity: Entity;
+  packageName: string;
+}
+
+const ENTITY_COL_KEY = 'entity-flat-columns-v2';
 
 const EntityFlatTable = () => {
-  const [entities, setEntities] = useState<{ entity: Entity; packageName: string }[]>([]);
+  const [rows, setRows] = useState<EntityFlat[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
-  const [filters, setFilters] = useState({ name: '', package: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [currentEntity, setCurrentEntity] = useState<{ entity: Entity; packageName: string } | null>(null);
-  const [newEntity, setNewEntity] = useState<{ name: string; description: string; packageName: string }>({
-    name: '',
-    description: '',
-    packageName: '',
-  });
+  const [searchTerm, setSearchTerm] = useState('');
+  const [pkgFilter, setPkgFilter] = useState<string>('');
 
-  // Metadata-as-columns (#91)
-  const { allColumns, columnsByStereotype } = useStereotypeMetadata('entity');
-  const [pinned, togglePinned] = useStickyTablePref('entity-flat');
-  const stickyHead = pinned ? 'sticky top-0 z-20 bg-base-100' : '';
-  const stickyFirstCol = pinned ? 'sticky left-0 z-10 sdd-sticky-col' : '';
-  const stickyCorner = pinned ? 'sticky top-0 left-0 z-30 bg-base-100' : '';
-  const [visibleColumns, setVisibleColumns] = useState<Set<string>>(() => {
+  const { allColumns } = useStereotypeMetadata('entity');
+  const [metaVisible, setMetaVisible] = useState<Set<string>>(() => {
     try {
-      const saved = localStorage.getItem(LOCALSTORAGE_KEY);
+      const saved = localStorage.getItem(ENTITY_COL_KEY);
       if (saved) return new Set(JSON.parse(saved));
     } catch { /* ignore */ }
     return new Set<string>();
   });
-  const [showColumnPicker, setShowColumnPicker] = useState(false);
+  useEffect(() => {
+    localStorage.setItem(ENTITY_COL_KEY, JSON.stringify([...metaVisible]));
+  }, [metaVisible]);
 
-  // Bulk selection: keyed by entity uuid.
-  const [selection, setSelection] = useState<Set<string>>(() => new Set());
+  const [editing, setEditing] = useState<EntityFlat | null>(null);
+  const [selection, setSelection] = useState<Set<string | number>>(() => new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
-  // Persist column visibility
-  useEffect(() => {
-    localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify([...visibleColumns]));
-  }, [visibleColumns]);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<EntityFlat | null>(null);
 
-  // Fetch entities with filters
   const fetchEntities = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const pkgs: Package[] = await entityApi.getAllPackages();
       setPackages(pkgs);
-      const flatEntities: { entity: Entity; packageName: string }[] = [];
+      const next: EntityFlat[] = [];
       for (const pkg of pkgs) {
-        if (filters.package && pkg.name !== filters.package) continue;
-        if (pkg.entities) {
-          for (const entity of pkg.entities) {
-            if (filters.name && !entity.name.toLowerCase().includes(filters.name.toLowerCase())) continue;
-            flatEntities.push({ entity, packageName: pkg.name });
-          }
+        for (const entity of pkg.entities ?? []) {
+          next.push({ entity, packageName: pkg.name });
         }
       }
-      setEntities(flatEntities);
+      setRows(next);
     } catch {
       setError('Failed to load entities. Please try again.');
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, []);
 
-  useEffect(() => {
-    fetchEntities();
-  }, [fetchEntities]);
+  useEffect(() => { fetchEntities(); }, [fetchEntities]);
 
-  // Auto-detect visible metadata columns from data (if no localStorage yet)
+  // Auto-populate visible metadata columns from the data on first load.
   useEffect(() => {
-    if (entities.length > 0 && allColumns.length > 0 && visibleColumns.size === 0) {
-      const usedKeys = new Set<string>();
-      for (const { entity } of entities) {
-        for (const entry of entity.metadata || []) {
-          if (allColumns.some(c => c.name === entry.name)) usedKeys.add(entry.name);
+    if (rows.length > 0 && allColumns.length > 0 && metaVisible.size === 0) {
+      const used = new Set<string>();
+      for (const { entity } of rows) {
+        for (const entry of entity.metadata ?? []) {
+          if (allColumns.some(c => c.name === entry.name)) used.add(entry.name);
         }
       }
-      if (usedKeys.size > 0) setVisibleColumns(usedKeys);
+      if (used.size > 0) setMetaVisible(used);
     }
-  }, [entities, allColumns]);
+  }, [rows, allColumns]);
 
-  const toggleColumn = (name: string) => {
-    setVisibleColumns(prev => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
-  };
-
-  const toggleGroup = (stereotypeId: string) => {
-    const groupCols = columnsByStereotype[stereotypeId] || [];
-    const allVisible = groupCols.every(c => visibleColumns.has(c.name));
-    setVisibleColumns(prev => {
-      const next = new Set(prev);
-      for (const col of groupCols) {
-        if (allVisible) next.delete(col.name);
-        else next.add(col.name);
+  // Drop stale uuids from the selection when the row list refreshes.
+  useEffect(() => {
+    setSelection(prev => {
+      if (prev.size === 0) return prev;
+      const alive = new Set(rows.map(r => r.entity.uuid));
+      let changed = false;
+      const next = new Set<string | number>();
+      for (const k of prev) {
+        if (alive.has(String(k))) next.add(k);
+        else changed = true;
       }
-      return next;
+      return changed ? next : prev;
     });
-  };
+  }, [rows]);
 
-  const activeMetaCols = allColumns.filter(c => visibleColumns.has(c.name));
+  const activeMetaCols = allColumns.filter(c => metaVisible.has(c.name));
 
-  // Resizable columns (#103)
-  const colDefs: ColumnDef[] = useMemo(() => [
-    { key: 'name', defaultWidth: 180 },
-    { key: 'package', defaultWidth: 140 },
-    { key: 'description', defaultWidth: 400 },
-    ...activeMetaCols.map(col => ({ key: col.name, defaultWidth: 120 })),
-    { key: 'actions', defaultWidth: 60 },
-  ], [activeMetaCols]);
-  const { widths, startResize, resetWidths, tableStyle } = useResizableColumns('entity-flat', colDefs);
+  const filtered = useMemo(() => {
+    const needle = searchTerm.trim().toLowerCase();
+    return rows.filter(r => {
+      if (pkgFilter && r.packageName !== pkgFilter) return false;
+      if (!needle) return true;
+      return r.entity.name.toLowerCase().includes(needle)
+        || (r.entity.description ?? '').toLowerCase().includes(needle)
+        || r.packageName.toLowerCase().includes(needle);
+    });
+  }, [rows, searchTerm, pkgFilter]);
 
-  const renderMetaValue = (entity: Entity, col: MetadataColumn) => {
-    const val = getMetadataValue(entity as any, col.name);
-    if (val === undefined || val === '') return <span className="text-base-content/30">-</span>;
-    if (col.type === 'flag' || col.type === 'boolean') {
-      return val ? (
-        <span className="badge badge-xs badge-success">Yes</span>
-      ) : (
-        <span className="badge badge-xs badge-ghost">No</span>
-      );
-    }
-    return <span className="text-sm">{val.toString()}</span>;
-  };
+  // ──────────────── Save paths ────────────────
 
-  const getMetaInputType = (col: MetadataColumn): 'text' | 'toggle' | 'select' => {
-    if (col.type === 'flag' || col.type === 'boolean') return 'toggle';
-    return 'text';
-  };
-
-  /** Save a metadata value on an entity */
-  const saveEntityMetadata = useCallback(async (
+  const saveEntity = useCallback(async (
     packageName: string,
-    entityName: string,
-    entity: Entity,
-    metaName: string,
-    value: string | number | boolean,
+    originalName: string,
+    next: Entity,
   ) => {
-    const updatedMetadata = setMetadataValue(entity.metadata, metaName, value);
-    const updatedEntity = { ...entity, metadata: updatedMetadata };
-    await servicesApi.updateEntity(packageName, entityName, updatedEntity);
-
-    setEntities(prev => prev.map(e => {
-      if (e.entity.uuid === entity.uuid && e.packageName === packageName) {
-        return { ...e, entity: updatedEntity };
+    await servicesApi.updateEntity(packageName, originalName, next);
+    setRows(prev => prev.map(r => {
+      if (r.entity.uuid === next.uuid && r.packageName === packageName) {
+        return { ...r, entity: next };
       }
-      return e;
+      return r;
     }));
     setPackages(prev => prev.map(p => {
       if (p.name !== packageName) return p;
       return {
         ...p,
-        entities: p.entities?.map(e =>
-          e.uuid === entity.uuid ? updatedEntity : e,
-        ),
+        entities: p.entities?.map(e => e.uuid === next.uuid ? next : e),
       };
     }));
   }, []);
 
-  const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setFilters({ ...filters, [e.target.name]: e.target.value });
-  };
-
-  const handleFilterSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleCreateEntity = async (draft: { name: string; description: string; packageName: string }) => {
+    await servicesApi.createEntity(draft.packageName, {
+      uuid: crypto.randomUUID(),
+      name: draft.name,
+      description: draft.description || undefined,
+      attributes: [],
+    });
+    setCreateOpen(false);
     fetchEntities();
   };
 
-  // Handle creating a new entity
-  const handleCreateEntity = async () => {
-    if (!newEntity.name || !newEntity.packageName) {
-      setError('Name and package are required');
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    try {
-      const uuid = crypto.randomUUID();
-      const entityToCreate: Entity = {
-        uuid,
-        name: newEntity.name,
-        description: newEntity.description || undefined,
-        attributes: [],
-      };
-
-      await servicesApi.createEntity(newEntity.packageName, entityToCreate);
-      setIsModalOpen(false);
-      setNewEntity({ name: '', description: '', packageName: '' });
-      fetchEntities();
-    } catch {
-      setError('Failed to create entity. Please try again.');
-    } finally {
-      setLoading(false);
-    }
+  const handleDeleteEntity = async (target: EntityFlat) => {
+    await servicesApi.deleteEntity(target.packageName, target.entity.name);
+    setDeleteTarget(null);
+    setEditing(null);
+    fetchEntities();
   };
 
-  // Handle deleting an entity
-  const handleDeleteEntity = async () => {
-    if (!currentEntity) return;
-
-    setLoading(true);
-    setError(null);
-    try {
-      await servicesApi.deleteEntity(currentEntity.packageName, currentEntity.entity.name);
-      setIsDeleteModalOpen(false);
-      setCurrentEntity(null);
-      fetchEntities();
-    } catch {
-      setError('Failed to delete entity. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  /** Inline save for entity field */
-  const saveEntityField = useCallback(async (
-    packageName: string,
-    originalName: string,
-    entity: Entity,
-    field: keyof Entity,
-    value: string,
-  ) => {
-    const updatedEntity = { ...entity, [field]: value };
-    await servicesApi.updateEntity(packageName, originalName, updatedEntity);
-
-    // Update local state
-    setEntities(prev => prev.map(e => {
-      if (e.entity.uuid === entity.uuid && e.packageName === packageName) {
-        return { ...e, entity: updatedEntity };
-      }
-      return e;
-    }));
-  }, []);
-
-  // Handle input changes for new entity
-  const handleNewEntityChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setNewEntity({ ...newEntity, [name]: value });
-  };
-
-  // Drop stale uuids from the selection when the entity list refreshes.
-  useEffect(() => {
-    setSelection(prev => {
-      if (prev.size === 0) return prev;
-      const alive = new Set(entities.map(e => e.entity.uuid));
-      let changed = false;
-      const next = new Set<string>();
-      for (const k of prev) {
-        if (alive.has(k)) next.add(k);
-        else changed = true;
-      }
-      return changed ? next : prev;
-    });
-  }, [entities]);
-
-  const toggleRowSelection = (uuid: string) => {
-    setSelection(prev => {
-      const next = new Set(prev);
-      if (next.has(uuid)) next.delete(uuid);
-      else next.add(uuid);
-      return next;
-    });
-  };
-
-  const toggleAllSelection = () => {
-    setSelection(prev => {
-      if (prev.size === entities.length) return new Set();
-      return new Set(entities.map(e => e.entity.uuid));
-    });
-  };
-
-  // Bulk delete: fan-out DELETE calls. Promise.allSettled lets partial
-  // failures surface without aborting the rest of the batch.
   const handleBulkDelete = useCallback(async () => {
     const n = selection.size;
     if (n === 0) return;
@@ -296,332 +179,191 @@ const EntityFlatTable = () => {
     if (!ok) return;
     setBulkDeleting(true);
     try {
-      const targets = entities.filter(e => selection.has(e.entity.uuid));
+      const targets = rows.filter(r => selection.has(r.entity.uuid));
       const results = await Promise.allSettled(
         targets.map(t => servicesApi.deleteEntity(t.packageName, t.entity.name)),
       );
       const failed = results.filter(r => r.status === 'rejected').length;
-      if (failed > 0) {
-        console.error(`Bulk delete: ${failed}/${n} entities failed`);
-      }
+      if (failed > 0) console.error(`Bulk delete: ${failed}/${n} entities failed`);
       setSelection(new Set());
       fetchEntities();
     } finally {
       setBulkDeleting(false);
     }
-  }, [selection, entities, fetchEntities]);
+  }, [selection, rows, fetchEntities]);
+
+  // ──────────────── Columns ────────────────
+
+  const columns: ColumnDef<EntityFlat>[] = useMemo(() => {
+    const std: ColumnDef<EntityFlat>[] = [
+      {
+        key: 'name',
+        header: 'Name',
+        group: 'standard',
+        mono: true,
+        sortable: true,
+        filterable: true,
+        width: 'minmax(180px, 1.4fr)',
+        accessor: (r) => r.entity.name,
+      },
+      {
+        key: 'package',
+        header: 'Package',
+        group: 'standard',
+        sortable: true,
+        filterable: true,
+        width: 160,
+        accessor: (r) => r.packageName,
+        render: (r) => <span style={{ color: 'var(--text-muted)' }}>{r.packageName}</span>,
+      },
+      {
+        key: 'attributes',
+        header: 'Attrs',
+        group: 'standard',
+        sortable: true,
+        width: 72,
+        align: 'center',
+        accessor: (r) => r.entity.attributes?.length ?? 0,
+        render: (r) => {
+          const n = r.entity.attributes?.length ?? 0;
+          return n > 0
+            ? <Chip tone="neutral" soft>{n}</Chip>
+            : <span style={{ color: 'var(--text-subtle)' }}>—</span>;
+        },
+      },
+      {
+        key: 'description',
+        header: 'Description',
+        group: 'standard',
+        filterable: true,
+        width: 'minmax(260px, 2.2fr)',
+        accessor: (r) => r.entity.description ?? '',
+        render: (r) => r.entity.description
+          ? <span style={{ color: 'var(--text-muted)' }}>{r.entity.description}</span>
+          : <span style={{ color: 'var(--text-subtle)', fontStyle: 'italic' }}>no description</span>,
+      },
+    ];
+
+    const meta: ColumnDef<EntityFlat>[] = activeMetaCols.map((col) => ({
+      key: `meta:${col.name}`,
+      header: col.label,
+      group: 'metadata',
+      width: col.name === 'pii' ? 110 : 120,
+      accessor: (r) => {
+        const v = getMetadataValue(r.entity, col.name);
+        return v === undefined ? '' : (typeof v === 'boolean' ? (v ? 'yes' : 'no') : String(v));
+      },
+      render: (r) => renderMetadataCell(r.entity, col),
+    }));
+
+    return [...std, ...meta];
+  }, [activeMetaCols]);
+
+  const chooserCols = useMemo(() => columns as unknown as ColumnDef<unknown>[], [columns]);
+  const allVisibleKeys = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of columns) {
+      if ((c.group ?? 'standard') === 'standard') set.add(c.key);
+    }
+    for (const name of metaVisible) set.add(`meta:${name}`);
+    return set;
+  }, [columns, metaVisible]);
+
+  const handleVisibleChange = useCallback((next: Set<string>) => {
+    const nextMeta = new Set<string>();
+    next.forEach((key) => {
+      if (key.startsWith('meta:')) nextMeta.add(key.slice(5));
+    });
+    setMetaVisible(nextMeta);
+  }, []);
+
+  // ──────────────── Render ────────────────
 
   return (
-    <div className="container mx-auto px-4 sm:px-6 lg:px-8 flex-1 flex flex-col min-h-0">
-      <div className="flex justify-between items-center mb-2">
-        <h1 className="text-lg font-semibold">Entities & Attributes (Flat View)</h1>
-        <div className="flex items-center gap-2">
-          {/* Metadata column picker (#91) */}
-          {allColumns.length > 0 && (
-            <div className="relative">
-              <button
-                className="btn btn-sm btn-outline gap-1"
-                onClick={() => setShowColumnPicker(!showColumnPicker)}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                  <path d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" />
-                </svg>
-                Columns
-                {activeMetaCols.length > 0 && (
-                  <span className="badge badge-xs badge-primary">{activeMetaCols.length}</span>
-                )}
-              </button>
-
-              {showColumnPicker && (
-                <div className="absolute right-0 top-full mt-1 z-50 bg-base-100 border border-base-300 rounded-lg shadow-lg p-3 min-w-[220px] max-h-[400px] overflow-y-auto">
-                  {Object.entries(columnsByStereotype).map(([stId, cols]) => {
-                    const allOn = cols.every(c => visibleColumns.has(c.name));
-                    return (
-                      <div key={stId} className="mb-2">
-                        <label className="flex items-center gap-2 font-semibold text-sm cursor-pointer mb-1">
-                          <input
-                            type="checkbox"
-                            className="checkbox checkbox-xs checkbox-primary"
-                            checked={allOn}
-                            onChange={() => toggleGroup(stId)}
-                          />
-                          {cols[0]?.stereotypeName || stId}
-                        </label>
-                        {cols.map(col => (
-                          <label key={col.name} className="flex items-center gap-2 ml-4 text-sm cursor-pointer">
-                            <input
-                              type="checkbox"
-                              className="checkbox checkbox-xs"
-                              checked={visibleColumns.has(col.name)}
-                              onChange={() => toggleColumn(col.name)}
-                            />
-                            {col.label}
-                          </label>
-                        ))}
-                      </div>
-                    );
-                  })}
-                  <div className="border-t border-base-300 mt-2 pt-2 flex gap-2">
-                    <button className="btn btn-xs" onClick={() => setVisibleColumns(new Set(allColumns.map(c => c.name)))}>
-                      All
-                    </button>
-                    <button className="btn btn-xs" onClick={() => setVisibleColumns(new Set())}>
-                      None
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-          <button
-            className={`btn btn-sm ${pinned ? 'btn-primary' : 'btn-outline'}`}
-            onClick={togglePinned}
-            title={pinned ? 'Unfreeze header & first column' : 'Freeze header & first column'}
-          >
-            {pinned ? 'Frozen' : 'Freeze'}
-          </button>
-          <button className="btn btn-sm btn-ghost" onClick={resetWidths} title="Reset column widths">
-            Reset cols
-          </button>
-          <button
-            className="btn btn-primary"
-            onClick={() => setIsModalOpen(true)}
-          >
-            Add Entity
-          </button>
-        </div>
-      </div>
-      <form className="flex flex-wrap gap-2 mb-2 items-center" onSubmit={handleFilterSubmit}>
-        <input
-          type="text"
-          name="name"
-          placeholder="Name"
-          className="input input-bordered input-sm"
-          value={filters.name}
-          onChange={handleFilterChange}
-        />
-        <select
-          name="package"
-          className="select select-bordered select-sm"
-          value={filters.package}
-          onChange={handleFilterChange}
+    <div className="flex flex-col min-h-0" style={{ flex: 1 }}>
+      <Toolbar attached>
+        <h1
+          style={{
+            margin: 0,
+            fontSize: 'var(--fs-lg)',
+            fontWeight: 600,
+            color: 'var(--text)',
+          }}
         >
-          <option value="">All Packages</option>
-          {packages.map((pkg) => (
-            <option key={pkg.id} value={pkg.name}>{pkg.name}</option>
-          ))}
-        </select>
-        <button type="submit" className="btn btn-outline btn-sm">Filter</button>
-      </form>
+          Entities
+        </h1>
+        <span
+          className="mono"
+          style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)' }}
+        >
+          {filtered.length} of {rows.length} · flat view
+        </span>
+        <Toolbar.Spacer />
+        <Input
+          icon="search"
+          size="sm"
+          placeholder="Search entities…"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.currentTarget.value)}
+          width={220}
+        />
+        <PackageFilter
+          value={pkgFilter}
+          packages={packages}
+          onChange={setPkgFilter}
+        />
+        {allColumns.length > 0 && (
+          <ColumnChooser
+            columns={chooserCols}
+            visible={allVisibleKeys}
+            onChange={handleVisibleChange}
+            label={`Metadata (${activeMetaCols.length})`}
+          />
+        )}
+        <Button
+          size="md"
+          variant="primary"
+          icon="plus"
+          onClick={() => setCreateOpen(true)}
+        >
+          Add Entity
+        </Button>
+      </Toolbar>
+
       {loading ? (
-        <div className="flex justify-center items-center h-32">
-          <span className="loading loading-spinner loading-lg"></span>
-        </div>
+        <EmptyState kind="loading" attached message="Loading entities…" />
       ) : error ? (
-        <div className="alert alert-error">{error}</div>
+        <EmptyState
+          kind="error"
+          attached
+          title="Failed to load entities"
+          message={error}
+          action={{ label: 'Retry', icon: 'sparkle', onClick: fetchEntities }}
+        />
       ) : (
-        <div className={`${pinned ? 'overflow-auto max-h-[70vh]' : 'overflow-x-auto p-1'} bg-base-100 rounded-lg shadow flex-1 min-h-0`}>
-          <table className={`table table-xs table-zebra ${pinned ? 'sdd-sticky-table' : ''}`} style={tableStyle}>
-            <thead>
-              <tr>
-                <th className={stickyHead} style={{ width: 36 }}>
-                  <input
-                    type="checkbox"
-                    className="checkbox checkbox-xs"
-                    aria-label="Select all rows"
-                    checked={entities.length > 0 && selection.size === entities.length}
-                    ref={(el) => {
-                      if (el) el.indeterminate = selection.size > 0 && selection.size < entities.length;
-                    }}
-                    onChange={toggleAllSelection}
-                  />
-                </th>
-                <th className={`${stickyCorner} relative`} style={{ width: widths.name }}>
-                  Name
-                  <ResizeHandle onMouseDown={(e) => startResize('name', e)} />
-                </th>
-                <th className={`${stickyHead} relative`} style={{ width: widths.package }}>
-                  Package
-                  <ResizeHandle onMouseDown={(e) => startResize('package', e)} />
-                </th>
-                <th className={`${stickyHead} relative`} style={{ width: widths.description }}>
-                  Description
-                  <ResizeHandle onMouseDown={(e) => startResize('description', e)} />
-                </th>
-                {activeMetaCols.map(col => (
-                  <th key={col.name} title={col.description} className={`${stickyHead} relative`} style={{ width: widths[col.name] }}>
-                    <span className="flex items-center gap-1">
-                      {col.label}
-                      <span className="badge badge-xs badge-ghost font-normal">{col.stereotypeName}</span>
-                    </span>
-                    <ResizeHandle onMouseDown={(e) => startResize(col.name, e)} />
-                  </th>
-                ))}
-                <th className={`${stickyHead} relative`} style={{ width: widths.actions }}>
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {entities.length === 0 ? (
-                <tr>
-                  <td colSpan={5 + activeMetaCols.length} className="text-center text-gray-500">No entities found.</td>
-                </tr>
-              ) : (
-                entities.map(({ entity, packageName }) => (
-                  <tr key={entity.uuid} className={selection.has(entity.uuid) ? 'bg-base-200' : ''}>
-                    <td style={{ width: 36 }}>
-                      <input
-                        type="checkbox"
-                        className="checkbox checkbox-xs"
-                        aria-label={`Select ${entity.name}`}
-                        checked={selection.has(entity.uuid)}
-                        onChange={() => toggleRowSelection(entity.uuid)}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    </td>
-                    <EditableCell
-                      value={entity.name}
-                      className={stickyFirstCol}
-                      onSave={async (v) => {
-                        await saveEntityField(packageName, entity.name, entity, 'name', v as string);
-                      }}
-                    />
-                    <td>{packageName}</td>
-                    <EditableCell
-                      value={entity.description || ''}
-                      inputType="textarea"
-                      className="w-[48ch] max-w-[48ch] align-top"
-                      renderDisplay={(v) => (
-                        <span className="line-clamp-2 leading-snug" title={String(v)}>
-                          {String(v) || <span className="text-base-content/30">—</span>}
-                        </span>
-                      )}
-                      onSave={async (v) => {
-                        await saveEntityField(packageName, entity.name, entity, 'description', v as string);
-                      }}
-                    />
-                    {activeMetaCols.map(col => {
-                      const metaInputType = getMetaInputType(col);
-                      const metaVal = getMetadataValue(entity as any, col.name);
-                      return (
-                        <EditableCell
-                          key={col.name}
-                          value={metaVal ?? (metaInputType === 'toggle' ? false : '')}
-                          inputType={metaInputType}
-                          renderDisplay={() => renderMetaValue(entity, col)}
-                          onSave={async (v) => {
-                            await saveEntityMetadata(packageName, entity.name, entity, col.name, v as string | number | boolean);
-                          }}
-                        />
-                      );
-                    })}
-                    <td>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => {
-                            setCurrentEntity({ entity, packageName });
-                            setIsDeleteModalOpen(true);
-                          }}
-                          className="btn btn-sm btn-ghost btn-square text-error"
-                          title="Delete"
-                          aria-label={`Delete ${entity.name}`}
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                          </svg>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Create Entity Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-base-100 p-6 rounded-lg shadow-lg w-full max-w-md">
-            <h2 className="text-xl font-bold mb-4">Create New Entity</h2>
-
-            {error && <div className="alert alert-error mb-4">{error}</div>}
-
-            <div className="form-control mb-4">
-              <label className="label">
-                <span className="label-text">Name</span>
-              </label>
-              <input
-                type="text"
-                name="name"
-                className="input input-bordered"
-                value={newEntity.name}
-                onChange={handleNewEntityChange}
-                required
-              />
-            </div>
-
-            <div className="form-control mb-4">
-              <label className="label">
-                <span className="label-text">Description</span>
-              </label>
-              <textarea
-                name="description"
-                className="textarea textarea-bordered"
-                value={newEntity.description}
-                onChange={handleNewEntityChange}
-              ></textarea>
-            </div>
-
-            <div className="form-control mb-4">
-              <label className="label">
-                <span className="label-text">Package</span>
-              </label>
-              <select
-                name="packageName"
-                className="select select-bordered"
-                value={newEntity.packageName}
-                onChange={handleNewEntityChange}
-                required
-              >
-                <option value="">Select a package</option>
-                {packages.map((pkg) => (
-                  <option key={pkg.id} value={pkg.name}>{pkg.name}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex justify-end gap-2 mt-6">
-              <button
-                type="button"
-                className="btn btn-outline"
-                onClick={() => {
-                  setIsModalOpen(false);
-                  setError(null);
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={handleCreateEntity}
-                disabled={loading}
-              >
-                {loading ? (
-                  <>
-                    <span className="loading loading-spinner loading-xs mr-2"></span>
-                    Creating...
-                  </>
-                ) : (
-                  'Create'
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
+        <DataTable<EntityFlat>
+          columns={columns}
+          rows={filtered}
+          getRowKey={(r) => r.entity.uuid}
+          visibleColumns={allVisibleKeys}
+          onVisibleColumnsChange={handleVisibleChange}
+          onRowClick={(r) => setEditing(r)}
+          selection={selection}
+          onSelectionChange={setSelection}
+          attached
+          emptyMessage={
+            <EmptyState
+              inline
+              kind="empty"
+              title="No entities found"
+              message={
+                searchTerm || pkgFilter
+                  ? 'No entities match these filters.'
+                  : 'No entities defined yet. Use "Add Entity" to create one.'
+              }
+            />
+          }
+        />
       )}
 
       <BatchActionBar
@@ -639,51 +381,588 @@ const EntityFlatTable = () => {
         ]}
       />
 
-      {/* Delete Confirmation Modal */}
-      {isDeleteModalOpen && currentEntity && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-base-100 p-6 rounded-lg shadow-lg w-full max-w-md">
-            <h2 className="text-xl font-bold mb-4">Delete Entity</h2>
-
-            <p className="mb-4">
-              Are you sure you want to delete the entity <strong>{currentEntity.entity.name}</strong>? This action cannot be undone.
-            </p>
-
-            {error && <div className="alert alert-error mb-4">{error}</div>}
-
-            <div className="flex justify-end gap-2 mt-6">
-              <button
-                type="button"
-                className="btn btn-outline"
-                onClick={() => {
-                  setIsDeleteModalOpen(false);
-                  setCurrentEntity(null);
-                  setError(null);
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-error"
-                onClick={handleDeleteEntity}
-                disabled={loading}
-              >
-                {loading ? (
-                  <>
-                    <span className="loading loading-spinner loading-xs mr-2"></span>
-                    Deleting...
-                  </>
-                ) : (
-                  'Delete'
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
+      {editing && (
+        <EntitySidePanel
+          flat={editing}
+          metaColumns={allColumns}
+          onClose={() => setEditing(null)}
+          onSave={async (patch) => {
+            const next: Entity = { ...editing.entity, ...patch };
+            await saveEntity(editing.packageName, editing.entity.name, next);
+          }}
+          onMetadataChange={async (col, value) => {
+            const next: Entity = {
+              ...editing.entity,
+              metadata: setMetadataValue(editing.entity.metadata, col.name, value),
+            };
+            await saveEntity(editing.packageName, editing.entity.name, next);
+          }}
+          onDelete={() => setDeleteTarget(editing)}
+        />
       )}
+
+      <CreateEntityModal
+        open={createOpen}
+        packages={packages}
+        onCancel={() => setCreateOpen(false)}
+        onSubmit={handleCreateEntity}
+      />
+
+      <DeleteEntityModal
+        target={deleteTarget}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => deleteTarget && handleDeleteEntity(deleteTarget)}
+      />
     </div>
   );
 };
+
+// ──────────────── Helpers ────────────────
+
+function renderMetadataCell(entity: Entity, col: MetadataColumn): ReactNode {
+  if (col.name === 'pii') {
+    const raw = getMetadataValue(entity, 'pii');
+    if (raw === undefined || raw === null || raw === false || raw === '') {
+      return <PiiChip value={null} />;
+    }
+    const key = String(raw).toLowerCase();
+    const shape = (key === 'indirect' ? 'indirect'
+      : key === 'possible' ? 'possible'
+      : 'direct') as 'direct' | 'indirect' | 'possible';
+    return <PiiChip value={shape} />;
+  }
+  const v = getMetadataValue(entity, col.name);
+  if (v === undefined || v === null || v === '') {
+    return <span style={{ color: 'var(--text-subtle)' }}>—</span>;
+  }
+  if (col.type === 'flag' || col.type === 'boolean') {
+    return v
+      ? <Chip tone="success" soft>yes</Chip>
+      : <Chip tone="neutral">no</Chip>;
+  }
+  return <span style={{ color: 'var(--text-muted)' }}>{String(v)}</span>;
+}
+
+// ──────────────── Package filter ────────────────
+
+interface PackageFilterProps {
+  value: string;
+  packages: Package[];
+  onChange: (v: string) => void;
+}
+
+const PackageFilter = ({ value, packages, onChange }: PackageFilterProps) => (
+  <label
+    style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 6,
+      fontSize: 'var(--fs-sm)',
+      color: 'var(--text-muted)',
+    }}
+  >
+    <Icon name="filter" size={12} />
+    <select
+      value={value}
+      aria-label="Filter by package"
+      onChange={(e) => onChange(e.target.value)}
+      style={{
+        height: 28,
+        padding: '0 6px',
+        fontSize: 'var(--fs-sm)',
+        fontFamily: 'inherit',
+        background: 'var(--bg-raised)',
+        color: 'var(--text)',
+        border: '1px solid var(--border-strong)',
+        borderRadius: 'var(--radius-sm)',
+      }}
+    >
+      <option value="">all packages</option>
+      {packages.map((p) => (
+        <option key={p.id ?? p.name} value={p.name}>{p.name}</option>
+      ))}
+    </select>
+  </label>
+);
+
+// ──────────────── Side panel ────────────────
+
+interface EntitySidePanelProps {
+  flat: EntityFlat;
+  metaColumns: MetadataColumn[];
+  onClose: () => void;
+  onSave: (patch: Partial<Entity>) => Promise<void>;
+  onMetadataChange: (col: MetadataColumn, value: string | number | boolean) => Promise<void>;
+  onDelete: () => void;
+}
+
+const EntitySidePanel = ({
+  flat,
+  metaColumns,
+  onClose,
+  onSave,
+  onMetadataChange,
+  onDelete,
+}: EntitySidePanelProps) => {
+  const { entity, packageName } = flat;
+  const [name, setName] = useState(entity.name);
+  const [description, setDescription] = useState(entity.description ?? '');
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  useEffect(() => {
+    setName(entity.name);
+    setDescription(entity.description ?? '');
+    setSavedAt(null);
+  }, [entity.uuid]);
+
+  const dirty = name !== entity.name || description !== (entity.description ?? '');
+
+  const handleSave = async () => {
+    if (!dirty) return;
+    setSaving(true);
+    try {
+      await onSave({ name, description });
+      setSavedAt(Date.now());
+    } catch (err) {
+      console.error('Failed to save entity:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <div
+        onClick={onClose}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.25)',
+          zIndex: 40,
+        }}
+      />
+      <aside
+        role="dialog"
+        aria-label="Edit entity"
+        style={{
+          position: 'fixed',
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: 480,
+          background: 'var(--bg-raised)',
+          borderLeft: '1px solid var(--border)',
+          boxShadow: 'var(--shadow-lg)',
+          display: 'flex',
+          flexDirection: 'column',
+          zIndex: 50,
+          animation: 'sddSlide var(--dur-med) ease-out',
+        }}
+      >
+        <style>{`
+          @keyframes sddSlide {
+            from { transform: translateX(100%); opacity: 0.7; }
+            to   { transform: translateX(0);     opacity: 1;   }
+          }
+        `}</style>
+
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '12px 14px',
+            borderBottom: '1px solid var(--border)',
+          }}
+        >
+          <span
+            className="uppercase mono"
+            style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)', letterSpacing: '0.04em' }}
+          >
+            edit entity
+          </span>
+          <span
+            className="mono"
+            style={{ fontSize: 'var(--fs-md)', fontWeight: 600, color: 'var(--text)' }}
+          >
+            {entity.name}
+          </span>
+          <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>
+            {packageName}
+          </span>
+          <div style={{ flex: 1 }} />
+          <Button size="sm" variant="ghost" icon="close" onClick={onClose} iconOnly aria-label="close" />
+        </div>
+
+        <div
+          style={{
+            flex: 1,
+            overflow: 'auto',
+            padding: 14,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+          }}
+        >
+          <Field label="Name">
+            <input
+              type="text"
+              value={name}
+              aria-label="Name"
+              onChange={(e) => setName(e.target.value)}
+              style={fieldStyleMono}
+            />
+          </Field>
+          <Field label="Description">
+            <textarea
+              value={description}
+              aria-label="Description"
+              onChange={(e) => setDescription(e.target.value)}
+              rows={4}
+              style={{ ...fieldStyle, minHeight: 72, padding: '6px 8px', fontFamily: 'inherit' }}
+            />
+          </Field>
+          <Field label="Attributes" inline>
+            <span className="mono" style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
+              {entity.attributes?.length ?? 0}
+            </span>
+          </Field>
+
+          {metaColumns.length > 0 && (
+            <div>
+              <div
+                className="uppercase"
+                style={{
+                  fontSize: 'var(--fs-xs)',
+                  color: 'var(--meta-label)',
+                  letterSpacing: '0.06em',
+                  fontWeight: 600,
+                  marginTop: 8,
+                  marginBottom: 6,
+                  paddingBottom: 4,
+                  borderBottom: '1px dashed var(--meta-border)',
+                }}
+              >
+                Governance metadata
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {metaColumns.map((col) => (
+                  <MetadataField
+                    key={col.name}
+                    column={col}
+                    value={getMetadataValue(entity, col.name)}
+                    onChange={(v) => onMetadataChange(col, v)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div
+          style={{
+            padding: '10px 14px',
+            borderTop: '1px solid var(--border)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <Button
+            size="md"
+            variant="primary"
+            icon="check"
+            onClick={handleSave}
+            disabled={!dirty || saving}
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
+          <Button size="md" variant="ghost" onClick={onClose}>Cancel</Button>
+          {savedAt && !dirty && (
+            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--success)' }}>Saved</span>
+          )}
+          <div style={{ flex: 1 }} />
+          <Button size="sm" variant="danger" icon="close" onClick={onDelete}>
+            Delete
+          </Button>
+        </div>
+      </aside>
+    </>
+  );
+};
+
+// ──────────────── Create modal ────────────────
+
+interface CreateEntityModalProps {
+  open: boolean;
+  packages: Package[];
+  onCancel: () => void;
+  onSubmit: (draft: { name: string; description: string; packageName: string }) => Promise<void>;
+}
+
+const CreateEntityModal = ({ open, packages, onCancel, onSubmit }: CreateEntityModalProps) => {
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [packageName, setPackageName] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setName(''); setDescription(''); setPackageName(''); setLocalError(null);
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  const handleSubmit = async () => {
+    if (!name.trim() || !packageName) {
+      setLocalError('Name and package are required');
+      return;
+    }
+    setSubmitting(true);
+    setLocalError(null);
+    try {
+      await onSubmit({ name: name.trim(), description: description.trim(), packageName });
+    } catch {
+      setLocalError('Failed to create entity. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <ModalFrame title="Create New Entity" onClose={onCancel}>
+      {localError && (
+        <div
+          style={{
+            padding: '6px 10px',
+            fontSize: 'var(--fs-sm)',
+            background: 'var(--danger-soft)',
+            color: 'var(--danger)',
+            border: '1px solid var(--danger)',
+            borderRadius: 'var(--radius-sm)',
+            marginBottom: 12,
+          }}
+        >
+          {localError}
+        </div>
+      )}
+      <Field label="Name">
+        <input
+          type="text"
+          name="name"
+          aria-label="Name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          style={fieldStyleMono}
+        />
+      </Field>
+      <Field label="Description">
+        <textarea
+          name="description"
+          aria-label="Description"
+          rows={3}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          style={{ ...fieldStyle, minHeight: 60, padding: '6px 8px', fontFamily: 'inherit' }}
+        />
+      </Field>
+      <Field label="Package">
+        <select
+          name="packageName"
+          aria-label="Package"
+          value={packageName}
+          onChange={(e) => setPackageName(e.target.value)}
+          style={fieldStyleMono}
+        >
+          <option value="">Select a package</option>
+          {packages.map((p) => (
+            <option key={p.id ?? p.name} value={p.name}>{p.name}</option>
+          ))}
+        </select>
+      </Field>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+        <Button size="md" variant="ghost" onClick={onCancel}>Cancel</Button>
+        <Button
+          size="md"
+          variant="primary"
+          icon="check"
+          onClick={handleSubmit}
+          disabled={submitting}
+        >
+          {submitting ? 'Creating…' : 'Create'}
+        </Button>
+      </div>
+    </ModalFrame>
+  );
+};
+
+// ──────────────── Delete modal ────────────────
+
+interface DeleteEntityModalProps {
+  target: EntityFlat | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}
+
+const DeleteEntityModal = ({ target, onCancel, onConfirm }: DeleteEntityModalProps) => {
+  if (!target) return null;
+  return (
+    <ModalFrame title="Delete Entity" onClose={onCancel}>
+      <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 16 }}>
+        Are you sure you want to delete the entity{' '}
+        <strong className="mono" style={{ color: 'var(--text)' }}>{target.entity.name}</strong>?
+        This action cannot be undone.
+      </div>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <Button size="md" variant="ghost" onClick={onCancel}>Cancel</Button>
+        <Button size="md" variant="danger" icon="close" onClick={onConfirm}>Delete</Button>
+      </div>
+    </ModalFrame>
+  );
+};
+
+// ──────────────── Modal frame ────────────────
+
+interface ModalFrameProps {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+}
+
+const ModalFrame = ({ title, onClose, children }: ModalFrameProps) => (
+  <>
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.4)',
+        zIndex: 40,
+      }}
+    />
+    <div
+      role="dialog"
+      aria-label={title}
+      style={{
+        position: 'fixed',
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: 'min(90vw, 480px)',
+        maxHeight: '80vh',
+        background: 'var(--bg-raised)',
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--radius-lg)',
+        boxShadow: 'var(--shadow-lg)',
+        display: 'flex',
+        flexDirection: 'column',
+        zIndex: 50,
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          padding: '12px 14px',
+          borderBottom: '1px solid var(--border)',
+        }}
+      >
+        <h2 style={{ margin: 0, fontSize: 'var(--fs-md)', fontWeight: 600, color: 'var(--text)' }}>
+          {title}
+        </h2>
+        <div style={{ flex: 1 }} />
+        <Button size="sm" variant="ghost" icon="close" onClick={onClose} iconOnly aria-label="close" />
+      </div>
+      <div
+        style={{
+          padding: 14,
+          overflow: 'auto',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  </>
+);
+
+// ──────────────── Shared Field / MetadataField helpers ────────────────
+
+interface FieldProps {
+  label: string;
+  inline?: boolean;
+  grow?: boolean;
+  children: ReactNode;
+}
+
+const Field = ({ label, inline, grow, children }: FieldProps) => (
+  <label
+    style={{
+      display: inline ? 'inline-flex' : 'flex',
+      flexDirection: inline ? 'row' : 'column',
+      alignItems: inline ? 'center' : 'stretch',
+      gap: inline ? 6 : 4,
+      flex: grow ? 1 : undefined,
+    }}
+  >
+    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', letterSpacing: '0.02em' }}>
+      {label}
+    </span>
+    {children}
+  </label>
+);
+
+interface MetadataFieldProps {
+  column: MetadataColumn;
+  value: string | number | boolean | undefined;
+  onChange: (value: string | number | boolean) => void;
+}
+
+const MetadataField = ({ column, value, onChange }: MetadataFieldProps) => {
+  if (column.type === 'flag' || column.type === 'boolean') {
+    return (
+      <Field label={`${column.label} · ${column.stereotypeName}`} inline>
+        <input
+          type="checkbox"
+          checked={!!value}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+      </Field>
+    );
+  }
+  return (
+    <Field label={`${column.label} · ${column.stereotypeName}`}>
+      <input
+        type="text"
+        value={value === undefined ? '' : String(value)}
+        onChange={(e) => onChange(e.target.value)}
+        style={fieldStyle}
+      />
+    </Field>
+  );
+};
+
+const fieldStyle = {
+  height: 28,
+  padding: '0 8px',
+  fontSize: 'var(--fs-sm)',
+  fontFamily: 'inherit',
+  background: 'var(--bg-raised)',
+  color: 'var(--text)',
+  border: '1px solid var(--border-strong)',
+  borderRadius: 'var(--radius-sm)',
+  outline: 'none',
+} as const;
+
+const fieldStyleMono = {
+  ...fieldStyle,
+  fontFamily: 'var(--font-mono)',
+} as const;
 
 export default EntityFlatTable;
