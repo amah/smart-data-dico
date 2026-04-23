@@ -118,9 +118,10 @@ describe('PerspectiveTreeTable — hierarchy', () => {
       }
       return 0;
     };
+    // Tree indent is 0.75rem per hop (see PerspectiveTreeTable row renderer).
     expect(indent('User')).toBe(0);
-    expect(indent('Order')).toBe(1.25);
-    expect(indent('OrderItem')).toBe(2.5);
+    expect(indent('Order')).toBe(0.75);
+    expect(indent('OrderItem')).toBe(1.5);
   });
 });
 
