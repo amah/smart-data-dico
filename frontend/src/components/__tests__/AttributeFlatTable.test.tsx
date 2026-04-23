@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
+import { MemoryRouter } from 'react-router-dom';
 import { server } from '../../test/setup';
 import { AttributeType } from '../../types';
 import AttributeFlatTable from '../AttributeFlatTable';
@@ -94,13 +95,13 @@ describe('AttributeFlatTable', () => {
 
   it('renders loading spinner initially', () => {
     setupHandlers();
-    render(<AttributeFlatTable />);
+    render(<MemoryRouter><AttributeFlatTable /></MemoryRouter>);
     expect(document.querySelector('.loading-spinner')).toBeInTheDocument();
   });
 
   it('renders all attributes from all packages', async () => {
     setupHandlers();
-    render(<AttributeFlatTable />);
+    render(<MemoryRouter><AttributeFlatTable /></MemoryRouter>);
 
     await waitFor(() => {
       expect(screen.getByText('email')).toBeInTheDocument();
@@ -125,7 +126,7 @@ describe('AttributeFlatTable', () => {
         return HttpResponse.json({ data: [] });
       }),
     );
-    render(<AttributeFlatTable />);
+    render(<MemoryRouter><AttributeFlatTable /></MemoryRouter>);
 
     await waitFor(() => {
       expect(screen.getByText('Failed to load attributes. Please try again.')).toBeInTheDocument();
@@ -141,7 +142,7 @@ describe('AttributeFlatTable', () => {
         return HttpResponse.json({ data: [] });
       }),
     );
-    render(<AttributeFlatTable />);
+    render(<MemoryRouter><AttributeFlatTable /></MemoryRouter>);
 
     await waitFor(() => {
       expect(screen.getByText('No attributes found.')).toBeInTheDocument();
@@ -158,7 +159,7 @@ describe('AttributeFlatTable', () => {
       }),
     );
 
-    render(<AttributeFlatTable />);
+    render(<MemoryRouter><AttributeFlatTable /></MemoryRouter>);
 
     await waitFor(() => {
       expect(screen.getByText('email')).toBeInTheDocument();
@@ -193,7 +194,7 @@ describe('AttributeFlatTable', () => {
       }),
     );
 
-    render(<AttributeFlatTable />);
+    render(<MemoryRouter><AttributeFlatTable /></MemoryRouter>);
 
     await waitFor(() => {
       expect(screen.getByText('email')).toBeInTheDocument();
@@ -221,7 +222,7 @@ describe('AttributeFlatTable', () => {
       }),
     );
 
-    render(<AttributeFlatTable />);
+    render(<MemoryRouter><AttributeFlatTable /></MemoryRouter>);
 
     await waitFor(() => {
       expect(screen.getByText('age')).toBeInTheDocument();
@@ -262,7 +263,7 @@ describe('AttributeFlatTable', () => {
       }),
     );
 
-    render(<AttributeFlatTable />);
+    render(<MemoryRouter><AttributeFlatTable /></MemoryRouter>);
 
     await waitFor(() => {
       expect(screen.getByText('email')).toBeInTheDocument();
