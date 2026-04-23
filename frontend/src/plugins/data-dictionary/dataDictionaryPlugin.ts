@@ -27,7 +27,7 @@ export function createDataDictionaryPlugin(): PluginModule {
       });
     },
 
-    async activate(ctx) {
+    async activate() {
       console.log('[data-dictionary] Plugin activated');
     },
   };

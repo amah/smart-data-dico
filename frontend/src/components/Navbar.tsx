@@ -23,7 +23,7 @@ const Navbar = ({ toggleSidebar, toggleChat, chatOpen }: NavbarProps) => {
   // Project state (#95)
   const [projectName, setProjectName] = useState('');
   const [projectPath, setProjectPath] = useState('');
-  const [projectOpen, setProjectOpen] = useState(true);
+  const [, setProjectOpen] = useState(true);
   const [showProjectMenu, setShowProjectMenu] = useState(false);
   const [showPathInput, setShowPathInput] = useState<'open' | 'init' | null>(null);
   const [pathInput, setPathInput] = useState('');

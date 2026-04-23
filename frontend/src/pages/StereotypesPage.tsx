@@ -7,6 +7,8 @@ const TARGET_LABELS: Record<StereotypeTarget, string> = {
   entity: 'Entity Stereotypes',
   attribute: 'Attribute Stereotypes',
   package: 'Package Stereotypes',
+  relationship: 'Relationship Stereotypes',
+  model: 'Model Stereotypes',
 };
 
 export default function StereotypesPage() {

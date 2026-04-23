@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { stereotypeApi } from '../services/api';
-import type { Stereotype, MetadataDefinition, StereotypeTarget, Attribute, MetadataEntry } from '../types';
+import type { Stereotype, StereotypeTarget, Attribute, MetadataEntry } from '../types';
 
 export interface MetadataColumn {
   /** Metadata definition name (key in the metadata array) */

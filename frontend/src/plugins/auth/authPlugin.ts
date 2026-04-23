@@ -6,10 +6,8 @@
  */
 
 import type { PluginModule } from '@hamak/microkernel-spi';
-import { REDUCER_REGISTRY_TOKEN } from '@hamak/ui-store-api';
 import { AuthService } from './AuthService';
 import { AUTH_SERVICE_TOKEN } from '../../kernel/tokens';
-import authReducer, { fetchCurrentUser } from '../../store/slices/authSlice';
 
 export function createAuthPlugin(): PluginModule {
   const authService = new AuthService();

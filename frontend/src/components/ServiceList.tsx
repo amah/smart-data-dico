@@ -13,7 +13,7 @@ const ServiceList = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('tree');
-  const [tableTreeToggle, setTableTreeToggle] = useState<'table' | 'tree'>('tree');
+  const [, setTableTreeToggle] = useState<'table' | 'tree'>('tree');
 
   useEffect(() => {
     const fetchPackages = async () => {
