@@ -54,3 +54,6 @@ export type { ColumnChooserProps } from './ColumnChooser';
 
 export { default as BatchActionBar } from './BatchActionBar';
 export type { BatchActionBarProps, BatchAction } from './BatchActionBar';
+
+export { default as EmptyState } from './EmptyState';
+export type { EmptyStateProps, EmptyStateKind, EmptyStateAction } from './EmptyState';

@@ -13,7 +13,7 @@ import {
   Chip,
   ColumnChooser,
   DataTable,
-  Icon,
+  EmptyState,
   Input,
   PiiChip,
   Toolbar,
@@ -374,35 +374,15 @@ const AttributeFlatTable = () => {
       </Toolbar>
 
       {loading ? (
-        <div
-          className="flex justify-center items-center"
-          style={{
-            padding: 40,
-            background: 'var(--bg-raised)',
-            border: '1px solid var(--border)',
-            borderTop: 0,
-            borderRadius: '0 0 var(--radius-md) var(--radius-md)',
-          }}
-        >
-          <span className="loading loading-spinner loading-lg"></span>
-        </div>
+        <EmptyState kind="loading" attached message="Loading attributes…" />
       ) : error ? (
-        <div
-          style={{
-            padding: '10px 14px',
-            background: 'var(--danger-soft)',
-            color: 'var(--danger)',
-            border: '1px solid var(--danger)',
-            borderTop: 0,
-            borderRadius: '0 0 var(--radius-md) var(--radius-md)',
-            fontSize: 'var(--fs-sm)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-          }}
-        >
-          <Icon name="warning" size={14} /> {error}
-        </div>
+        <EmptyState
+          kind="error"
+          attached
+          title="Failed to load attributes"
+          message={error}
+          action={{ label: 'Retry', icon: 'sparkle', onClick: fetchAttributes }}
+        />
       ) : (
         <DataTable<FlatAttribute>
           columns={columns}
@@ -414,7 +394,18 @@ const AttributeFlatTable = () => {
           selection={selection}
           onSelectionChange={setSelection}
           attached
-          emptyMessage="No attributes found."
+          emptyMessage={
+            <EmptyState
+              inline
+              kind="empty"
+              title="No attributes found"
+              message={
+                searchTerm
+                  ? `No attributes match "${searchTerm}".`
+                  : 'No attributes defined in any package yet.'
+              }
+            />
+          }
         />
       )}
 

@@ -145,7 +145,7 @@ describe('AttributeFlatTable', () => {
     render(<MemoryRouter><AttributeFlatTable /></MemoryRouter>);
 
     await waitFor(() => {
-      expect(screen.getByText('No attributes found.')).toBeInTheDocument();
+      expect(screen.getByText('No attributes found')).toBeInTheDocument();
     });
   });
 
