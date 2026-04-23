@@ -14,8 +14,13 @@ import {
   ColumnChooser,
   DataTable,
   EmptyState,
+  Field,
+  fieldStyle,
+  fieldStyleMono,
   Icon,
   Input,
+  MetadataField,
+  Modal,
   PiiChip,
   Toolbar,
 } from './ui';
@@ -733,7 +738,7 @@ const CreateEntityModal = ({ open, packages, onCancel, onSubmit }: CreateEntityM
   };
 
   return (
-    <ModalFrame title="Create New Entity" onClose={onCancel}>
+    <Modal open title="Create New Entity" onClose={onCancel}>
       {localError && (
         <div
           style={{
@@ -795,7 +800,7 @@ const CreateEntityModal = ({ open, packages, onCancel, onSubmit }: CreateEntityM
           {submitting ? 'Creating…' : 'Create'}
         </Button>
       </div>
-    </ModalFrame>
+    </Modal>
   );
 };
 
@@ -808,161 +813,19 @@ interface DeleteEntityModalProps {
 }
 
 const DeleteEntityModal = ({ target, onCancel, onConfirm }: DeleteEntityModalProps) => {
-  if (!target) return null;
   return (
-    <ModalFrame title="Delete Entity" onClose={onCancel}>
+    <Modal open={!!target} title="Delete Entity" onClose={onCancel}>
       <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginBottom: 16 }}>
         Are you sure you want to delete the entity{' '}
-        <strong className="mono" style={{ color: 'var(--text)' }}>{target.entity.name}</strong>?
+        <strong className="mono" style={{ color: 'var(--text)' }}>{target?.entity.name}</strong>?
         This action cannot be undone.
       </div>
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
         <Button size="md" variant="ghost" onClick={onCancel}>Cancel</Button>
         <Button size="md" variant="danger" icon="close" onClick={onConfirm}>Delete</Button>
       </div>
-    </ModalFrame>
+    </Modal>
   );
 };
-
-// ──────────────── Modal frame ────────────────
-
-interface ModalFrameProps {
-  title: string;
-  onClose: () => void;
-  children: ReactNode;
-}
-
-const ModalFrame = ({ title, onClose, children }: ModalFrameProps) => (
-  <>
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.4)',
-        zIndex: 40,
-      }}
-    />
-    <div
-      role="dialog"
-      aria-label={title}
-      style={{
-        position: 'fixed',
-        top: '50%',
-        left: '50%',
-        transform: 'translate(-50%, -50%)',
-        width: 'min(90vw, 480px)',
-        maxHeight: '80vh',
-        background: 'var(--bg-raised)',
-        border: '1px solid var(--border)',
-        borderRadius: 'var(--radius-lg)',
-        boxShadow: 'var(--shadow-lg)',
-        display: 'flex',
-        flexDirection: 'column',
-        zIndex: 50,
-        overflow: 'hidden',
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          padding: '12px 14px',
-          borderBottom: '1px solid var(--border)',
-        }}
-      >
-        <h2 style={{ margin: 0, fontSize: 'var(--fs-md)', fontWeight: 600, color: 'var(--text)' }}>
-          {title}
-        </h2>
-        <div style={{ flex: 1 }} />
-        <Button size="sm" variant="ghost" icon="close" onClick={onClose} iconOnly aria-label="close" />
-      </div>
-      <div
-        style={{
-          padding: 14,
-          overflow: 'auto',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 12,
-        }}
-      >
-        {children}
-      </div>
-    </div>
-  </>
-);
-
-// ──────────────── Shared Field / MetadataField helpers ────────────────
-
-interface FieldProps {
-  label: string;
-  inline?: boolean;
-  grow?: boolean;
-  children: ReactNode;
-}
-
-const Field = ({ label, inline, grow, children }: FieldProps) => (
-  <label
-    style={{
-      display: inline ? 'inline-flex' : 'flex',
-      flexDirection: inline ? 'row' : 'column',
-      alignItems: inline ? 'center' : 'stretch',
-      gap: inline ? 6 : 4,
-      flex: grow ? 1 : undefined,
-    }}
-  >
-    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', letterSpacing: '0.02em' }}>
-      {label}
-    </span>
-    {children}
-  </label>
-);
-
-interface MetadataFieldProps {
-  column: MetadataColumn;
-  value: string | number | boolean | undefined;
-  onChange: (value: string | number | boolean) => void;
-}
-
-const MetadataField = ({ column, value, onChange }: MetadataFieldProps) => {
-  if (column.type === 'flag' || column.type === 'boolean') {
-    return (
-      <Field label={`${column.label} · ${column.stereotypeName}`} inline>
-        <input
-          type="checkbox"
-          checked={!!value}
-          onChange={(e) => onChange(e.target.checked)}
-        />
-      </Field>
-    );
-  }
-  return (
-    <Field label={`${column.label} · ${column.stereotypeName}`}>
-      <input
-        type="text"
-        value={value === undefined ? '' : String(value)}
-        onChange={(e) => onChange(e.target.value)}
-        style={fieldStyle}
-      />
-    </Field>
-  );
-};
-
-const fieldStyle = {
-  height: 28,
-  padding: '0 8px',
-  fontSize: 'var(--fs-sm)',
-  fontFamily: 'inherit',
-  background: 'var(--bg-raised)',
-  color: 'var(--text)',
-  border: '1px solid var(--border-strong)',
-  borderRadius: 'var(--radius-sm)',
-  outline: 'none',
-} as const;
-
-const fieldStyleMono = {
-  ...fieldStyle,
-  fontFamily: 'var(--font-mono)',
-} as const;
 
 export default EntityFlatTable;

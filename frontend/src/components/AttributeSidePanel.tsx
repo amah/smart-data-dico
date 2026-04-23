@@ -1,8 +1,8 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Attribute, AttributeType } from '../types';
 import { getMetadataValue, type MetadataColumn } from '../hooks/useStereotypeMetadata';
-import { Button } from './ui';
+import { Button, Field, MetadataField, fieldStyle, fieldStyleMono } from './ui';
 
 /**
  * AttributeSidePanel — the shared slide-over editor for a single
@@ -294,77 +294,6 @@ const AttributeSidePanel = ({
     </>
   );
 };
-
-interface FieldProps {
-  label: string;
-  inline?: boolean;
-  grow?: boolean;
-  children: ReactNode;
-}
-
-const Field = ({ label, inline, grow, children }: FieldProps) => (
-  <label
-    style={{
-      display: inline ? 'inline-flex' : 'flex',
-      flexDirection: inline ? 'row' : 'column',
-      alignItems: inline ? 'center' : 'stretch',
-      gap: inline ? 6 : 4,
-      flex: grow ? 1 : undefined,
-    }}
-  >
-    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', letterSpacing: '0.02em' }}>
-      {label}
-    </span>
-    {children}
-  </label>
-);
-
-interface MetadataFieldProps {
-  column: MetadataColumn;
-  value: string | number | boolean | undefined;
-  onChange: (value: string | number | boolean) => void;
-}
-
-const MetadataField = ({ column, value, onChange }: MetadataFieldProps) => {
-  if (column.type === 'flag' || column.type === 'boolean') {
-    return (
-      <Field label={`${column.label} · ${column.stereotypeName}`} inline>
-        <input
-          type="checkbox"
-          checked={!!value}
-          onChange={(e) => onChange(e.target.checked)}
-        />
-      </Field>
-    );
-  }
-  return (
-    <Field label={`${column.label} · ${column.stereotypeName}`}>
-      <input
-        type="text"
-        value={value === undefined ? '' : String(value)}
-        onChange={(e) => onChange(e.target.value)}
-        style={fieldStyle}
-      />
-    </Field>
-  );
-};
-
-const fieldStyle = {
-  height: 28,
-  padding: '0 8px',
-  fontSize: 'var(--fs-sm)',
-  fontFamily: 'inherit',
-  background: 'var(--bg-raised)',
-  color: 'var(--text)',
-  border: '1px solid var(--border-strong)',
-  borderRadius: 'var(--radius-sm)',
-  outline: 'none',
-} as const;
-
-const fieldStyleMono = {
-  ...fieldStyle,
-  fontFamily: 'var(--font-mono)',
-} as const;
 
 export default AttributeSidePanel;
 export type { AttributeSidePanelProps };
