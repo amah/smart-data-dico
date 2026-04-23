@@ -24,6 +24,15 @@ const mockEntities = {
 
 // Setup MSW server for API mocking
 export const server = setupServer(
+  // Default stereotype handler — many surfaces fetch `/api/stereotypes`
+  // via useStereotypeMetadata(). Returning an empty list keeps the
+  // component render path happy without forcing every test to register
+  // its own handler. Tests that need real stereotypes override via
+  // server.use(...).
+  http.get('/api/stereotypes', () => {
+    return HttpResponse.json({ data: [] });
+  }),
+
   // Dictionary endpoints
   http.get('/api/dictionaries', () => {
     return HttpResponse.json(mockDictionaries);
