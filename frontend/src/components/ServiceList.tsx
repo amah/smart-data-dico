@@ -5,6 +5,7 @@ import { getAllPackageHierarchies } from '../services/api';
 import { Entity, Package } from '../types';
 import CytoscapeGraph from './CytoscapeGraph';
 import EntityFlatTable from './EntityFlatTable';
+import { Button, EmptyState, Toolbar } from './ui';
 
 type ViewMode = 'table' | 'tree' | 'diagram';
 
@@ -13,7 +14,6 @@ const ServiceList = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('tree');
-  const [, setTableTreeToggle] = useState<'table' | 'tree'>('tree');
 
   useEffect(() => {
     const fetchPackages = async () => {
@@ -33,106 +33,194 @@ const ServiceList = () => {
     fetchPackages();
   }, []);
 
-  const renderTree = (pkgs: Package[], level = 0) => (
-    <ul className={`pl-${level * 4}`}>
-      {pkgs.map((pkg) => (
-        <li key={pkg.id} className="mb-2">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold">{pkg.name}</span>
-            {pkg.description && (
-              <span className="text-xs text-gray-500">({pkg.description})</span>
-            )}
-            <Link to={`/packages/${pkg.id}`} className="btn btn-xs btn-outline ml-2">
-              Details
-            </Link>
-          </div>
-          {/* Entities in this package */}
-          {pkg.entities && pkg.entities.length > 0 && (
-            <ul className="ml-6 mt-1">
-              {pkg.entities.map((entity: Entity) => (
-                <li key={entity.uuid} className="flex items-center gap-2">
-                  <Link
-                    to={`/services/${pkg.name}/entities/${entity.name}`}
-                    className="link"
-                  >
-                    {entity.name}
-                  </Link>
-                  <span className="text-xs text-gray-400">{entity.description}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          {/* Sub-packages */}
-          {pkg.subPackages && pkg.subPackages.length > 0 && renderTree(pkg.subPackages, level + 1)}
-        </li>
-      ))}
-    </ul>
-  );
-
   if (loading) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <span className="loading loading-spinner loading-lg"></span>
-      </div>
-    );
+    return <EmptyState kind="loading" message="Loading packages…" />;
   }
 
   if (error) {
     return (
-      <div className="alert alert-error">
-        <svg xmlns="http://www.w3.org/2000/svg" className="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-        <span>{error}</span>
-      </div>
+      <EmptyState
+        kind="error"
+        title="Failed to load packages"
+        message={error}
+        action={{ label: 'Retry', icon: 'sparkle', onClick: () => window.location.reload() }}
+      />
     );
   }
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-2">
-        <h1 className="text-lg font-semibold">Package Hierarchy</h1>
-        <div className="flex gap-2">
-          <button
-            className={`btn btn-sm ${viewMode !== 'diagram' ? 'btn-outline' : 'btn-ghost'}`}
-            onClick={() => {
-              // Toggle between table and tree
-              const newMode = viewMode === 'table' ? 'tree' : 'table';
-              setViewMode(newMode);
-              setTableTreeToggle(newMode);
+    <div className="flex flex-col min-h-0" style={{ flex: 1 }}>
+      <Toolbar>
+        <h1
+          style={{
+            margin: 0,
+            fontSize: 'var(--fs-lg)',
+            fontWeight: 600,
+            color: 'var(--text)',
+          }}
+        >
+          Package Hierarchy
+        </h1>
+        <Toolbar.Spacer />
+        <ViewModeSwitcher value={viewMode} onChange={setViewMode} />
+      </Toolbar>
+
+      {viewMode === 'table' ? (
+        <EntityFlatTable />
+      ) : viewMode === 'tree' ? (
+        packages.length === 0 ? (
+          <EmptyState
+            kind="empty"
+            title="No packages"
+            message="No packages found. Create a new package to get started."
+          />
+        ) : (
+          <div
+            style={{
+              padding: 14,
+              background: 'var(--bg-raised)',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-md)',
+              overflow: 'auto',
             }}
           >
-            {viewMode === 'table' ? 'Table View' : 'Tree View'}
-          </button>
-          <button
-            className={`btn btn-sm ${viewMode === 'diagram' ? 'btn-outline' : 'btn-ghost'}`}
-            onClick={() => setViewMode('diagram')}
-          >
-            Diagram View
-          </button>
-        </div>
-      </div>
-      {viewMode === 'table' ? (
-        <div className="overflow-x-auto">
-          <EntityFlatTable />
-        </div>
-      ) : viewMode === 'tree' ? (
-        <div className="overflow-x-auto">
-          {packages.length === 0 ? (
-            <div className="alert alert-info">
-              <span>No packages found. Create a new package to get started.</span>
-            </div>
-          ) : (
-            renderTree(packages)
-          )}
-        </div>
+            <PackageTree packages={packages} />
+          </div>
+        )
       ) : (
-        <div className="h-[700px]">
+        <div style={{ height: 700 }}>
           <CytoscapeGraph mode="organization" packages={packages} />
         </div>
       )}
     </div>
   );
 };
+
+// ──────────────── View mode switcher ────────────────
+
+const MODES: { value: ViewMode; label: string }[] = [
+  { value: 'tree', label: 'Tree' },
+  { value: 'table', label: 'Table' },
+  { value: 'diagram', label: 'Diagram' },
+];
+
+interface ViewModeSwitcherProps {
+  value: ViewMode;
+  onChange: (v: ViewMode) => void;
+}
+
+const ViewModeSwitcher = ({ value, onChange }: ViewModeSwitcherProps) => (
+  <div
+    role="group"
+    aria-label="View mode"
+    style={{
+      display: 'inline-flex',
+      background: 'var(--bg-raised)',
+      border: '1px solid var(--border)',
+      borderRadius: 'var(--radius-sm)',
+      overflow: 'hidden',
+    }}
+  >
+    {MODES.map((m, i) => (
+      <Button
+        key={m.value}
+        size="sm"
+        variant={value === m.value ? 'primary' : 'ghost'}
+        onClick={() => onChange(m.value)}
+        style={{
+          borderRadius: 0,
+          borderLeft: i === 0 ? 0 : '1px solid var(--border)',
+        }}
+      >
+        {m.label}
+      </Button>
+    ))}
+  </div>
+);
+
+// ──────────────── Tree ────────────────
+
+interface PackageTreeProps {
+  packages: Package[];
+}
+
+const PackageTree = ({ packages }: PackageTreeProps) => (
+  <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+    {packages.map((pkg) => (
+      <PackageNode key={pkg.id} pkg={pkg} level={0} />
+    ))}
+  </ul>
+);
+
+interface PackageNodeProps {
+  pkg: Package;
+  level: number;
+}
+
+const PackageNode = ({ pkg, level }: PackageNodeProps) => (
+  <li
+    style={{
+      marginBottom: 8,
+      paddingLeft: level * 16,
+    }}
+  >
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span
+        className="mono"
+        style={{ fontWeight: 600, color: 'var(--text)' }}
+      >
+        {pkg.name}
+      </span>
+      {pkg.description && (
+        <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>
+          {pkg.description}
+        </span>
+      )}
+      <Link
+        to={`/packages/${pkg.id}`}
+        style={{ marginLeft: 4 }}
+      >
+        <Button size="sm" variant="ghost">Details</Button>
+      </Link>
+    </div>
+
+    {pkg.entities && pkg.entities.length > 0 && (
+      <ul style={{ listStyle: 'none', padding: 0, margin: '4px 0 0 24px' }}>
+        {pkg.entities.map((entity: Entity) => (
+          <li
+            key={entity.uuid}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '2px 0',
+            }}
+          >
+            <Link
+              to={`/services/${pkg.name}/entities/${entity.name}`}
+              className="mono"
+              style={{ color: 'var(--accent)', textDecoration: 'none' }}
+            >
+              {entity.name}
+            </Link>
+            {entity.description && (
+              <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>
+                {entity.description}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    )}
+
+    {pkg.subPackages && pkg.subPackages.length > 0 && (
+      <ul style={{ listStyle: 'none', padding: 0, margin: '4px 0 0 0' }}>
+        {pkg.subPackages.map((sub) => (
+          <PackageNode key={sub.id} pkg={sub} level={level + 1} />
+        ))}
+      </ul>
+    )}
+  </li>
+);
 
 export default ServiceList;
