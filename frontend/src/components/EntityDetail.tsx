@@ -8,7 +8,7 @@ import MetadataEditor from './MetadataEditor';
 import AttributeList from './AttributeList';
 import RelationshipList from './RelationshipList';
 import EntityRulesList from './EntityRulesList';
-import { Button, Chip, Icon } from './ui';
+import { Button, Chip, EmptyState, Icon } from './ui';
 
 /**
  * Entity detail page — Phase 4.1 redesign.
@@ -194,11 +194,7 @@ const EntityDetail = (props: EntityDetailProps) => {
     return <ErrorBanner message="Service name is required" />;
   }
   if (loading) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <span className="loading loading-spinner loading-lg"></span>
-      </div>
-    );
+    return <EmptyState kind="loading" message="Loading entity…" />;
   }
   if (error && !isCreateMode) {
     return <ErrorBanner message={error} />;
@@ -576,7 +572,7 @@ const EntityDetail = (props: EntityDetailProps) => {
         {activeTab === 'impact' && (
           <div>
             {impactLoading ? (
-              <div className="flex justify-center py-8"><span className="loading loading-spinner" /></div>
+              <EmptyState kind="loading" message="Analyzing impact…" />
             ) : impact ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 <ImpactSection title={`Relationships (${impact.relationships.length})`}>
