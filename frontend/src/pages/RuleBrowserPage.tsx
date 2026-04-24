@@ -1,16 +1,45 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Markdown from 'react-markdown';
 import { ruleApi } from '../services/api';
 import type { Rule, RuleScope, RuleSeverityValue, RuleEnforcement } from '../types';
 import RuleEditor from '../components/RuleEditor';
+import {
+  Button,
+  Chip,
+  DataTable,
+  EmptyState,
+  Icon,
+  Input,
+  Toolbar,
+} from '../components/ui';
+import type { ColumnDef } from '../components/ui';
 
 /**
  * Rule browser page (#74).
  *
- * Lists all rules across the dictionary with filters by scope and severity.
- * Click a row to open the editor in side panel mode. Click "+ New Rule" to
- * create a new one.
+ * Phase-6 rewrite: Toolbar + DataTable + EmptyState, matching the
+ * pattern established on the four flat-data surfaces.
  */
+
+const SEVERITY_TONE: Record<RuleSeverityValue, 'danger' | 'warning' | 'info' | 'neutral'> = {
+  error:   'danger',
+  warning: 'warning',
+  info:    'info',
+};
+
+const ENFORCEMENT_TONE: Record<RuleEnforcement, 'danger' | 'warning' | 'neutral'> = {
+  save:     'danger',
+  process:  'warning',
+  advisory: 'neutral',
+};
+
+const SCOPE_TONE: Record<RuleScope, 'accent' | 'meta' | 'warning' | 'neutral'> = {
+  entity:       'accent',
+  package:      'meta',
+  perspective:  'accent',
+  global:       'warning',
+};
+
 const RuleBrowserPage = () => {
   const [rules, setRules] = useState<Rule[]>([]);
   const [loading, setLoading] = useState(false);
@@ -39,47 +68,123 @@ const RuleBrowserPage = () => {
     }
   }, [scopeFilter, severityFilter, enforcementFilter]);
 
-  useEffect(() => {
-    fetchRules();
-  }, [fetchRules]);
+  useEffect(() => { fetchRules(); }, [fetchRules]);
 
-  const filteredRules = rules.filter(r => {
-    if (!search) return true;
+  const filteredRules = useMemo(() => {
+    if (!search) return rules;
     const s = search.toLowerCase();
-    return (
+    return rules.filter(r =>
       r.name.toLowerCase().includes(s) ||
       r.description.toLowerCase().includes(s) ||
-      (r.tags || []).some(t => t.toLowerCase().includes(s))
+      (r.tags || []).some(t => t.toLowerCase().includes(s)),
     );
-  });
+  }, [rules, search]);
 
-  const severityBadgeClass = (severity: RuleSeverityValue) => {
-    switch (severity) {
-      case 'error': return 'badge-error';
-      case 'warning': return 'badge-warning';
-      case 'info': return 'badge-info';
-      default: return 'badge-ghost';
-    }
-  };
-
-  const scopeBadgeClass = (scope: RuleScope) => {
-    switch (scope) {
-      case 'entity': return 'badge-primary';
-      case 'package': return 'badge-secondary';
-      case 'perspective': return 'badge-accent';
-      case 'global': return 'badge-warning';
-      default: return 'badge-ghost';
-    }
-  };
-
-  const enforcementBadgeClass = (enf: RuleEnforcement) => {
-    switch (enf) {
-      case 'save': return 'badge-error';
-      case 'process': return 'badge-warning';
-      case 'advisory': return 'badge-ghost';
-      default: return 'badge-ghost';
-    }
-  };
+  const columns: ColumnDef<Rule>[] = useMemo(() => [
+    {
+      key: 'name',
+      header: 'Name',
+      group: 'standard',
+      mono: true,
+      sortable: true,
+      filterable: true,
+      width: 'minmax(180px, 1.2fr)',
+      accessor: (r) => r.name,
+    },
+    {
+      key: 'severity',
+      header: 'Severity',
+      group: 'standard',
+      sortable: true,
+      width: 100,
+      accessor: (r) => r.severity,
+      render: (r) => <Chip tone={SEVERITY_TONE[r.severity] ?? 'neutral'} soft>{r.severity}</Chip>,
+    },
+    {
+      key: 'enforcement',
+      header: 'Enforcement',
+      group: 'standard',
+      sortable: true,
+      width: 120,
+      accessor: (r) => r.enforcement,
+      render: (r) => <Chip tone={ENFORCEMENT_TONE[r.enforcement] ?? 'neutral'} soft>{r.enforcement}</Chip>,
+    },
+    {
+      key: 'scope',
+      header: 'Scope',
+      group: 'standard',
+      sortable: true,
+      width: 'minmax(130px, auto)',
+      accessor: (r) => r.scope,
+      render: (r) => (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <Chip tone={SCOPE_TONE[r.scope] ?? 'neutral'} soft>{r.scope}</Chip>
+          {r.scope === 'global' &&
+            [...new Set(r.targets.map(t => t.packageName).filter(Boolean))].map(pkg => (
+              <Chip key={pkg} tone="neutral" soft>{pkg}</Chip>
+            ))}
+        </span>
+      ),
+    },
+    {
+      key: 'description',
+      header: 'Description',
+      group: 'standard',
+      filterable: true,
+      width: 'minmax(280px, 2fr)',
+      accessor: (r) => r.description,
+      render: (r) => (
+        <div
+          style={{
+            fontSize: 'var(--fs-sm)',
+            color: 'var(--text-muted)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <Markdown>{r.description.split('\n')[0] || ''}</Markdown>
+        </div>
+      ),
+    },
+    {
+      key: 'targets',
+      header: 'Targets',
+      group: 'standard',
+      sortable: true,
+      width: 90,
+      align: 'center',
+      accessor: (r) => r.targets.length,
+      render: (r) => <Chip tone="neutral" soft>{r.targets.length}</Chip>,
+    },
+    {
+      key: 'tags',
+      header: 'Tags',
+      group: 'standard',
+      width: 'minmax(120px, 1fr)',
+      accessor: (r) => (r.tags || []).join(','),
+      render: (r) => (
+        <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
+          {(r.tags || []).slice(0, 3).map(tag => (
+            <Chip key={tag} tone="neutral">{tag}</Chip>
+          ))}
+        </span>
+      ),
+    },
+    {
+      key: 'updatedAt',
+      header: 'Updated',
+      group: 'standard',
+      sortable: true,
+      width: 110,
+      accessor: (r) => r.updatedAt ?? '',
+      render: (r) => r.updatedAt
+        ? <span className="mono" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+            {new Date(r.updatedAt).toLocaleDateString()}
+          </span>
+        : <span style={{ color: 'var(--text-subtle)' }}>—</span>,
+    },
+  ], []);
 
   const handleSaved = () => {
     setEditorRule(null);
@@ -88,143 +193,109 @@ const RuleBrowserPage = () => {
   };
 
   return (
-    <div className="container mx-auto px-4 sm:px-6 lg:px-8 flex-1 flex flex-col min-h-0">
-      <div className="flex items-center justify-between mb-2">
-        <h1 className="text-lg font-semibold">Validation Rules</h1>
-        <button className="btn btn-sm btn-primary" onClick={() => setCreating(true)}>
-          + New Rule
-        </button>
-      </div>
-
-      {/* Filters */}
-      <div className="flex flex-wrap gap-2 mb-3 items-end">
-        <input
-          type="text"
-          placeholder="Search by name, description, or tag..."
-          className="input input-sm input-bordered flex-1 min-w-[200px]"
+    <div className="flex flex-col min-h-0" style={{ flex: 1 }}>
+      <Toolbar attached>
+        <h1
+          style={{
+            margin: 0,
+            fontSize: 'var(--fs-lg)',
+            fontWeight: 600,
+            color: 'var(--text)',
+          }}
+        >
+          Validation Rules
+        </h1>
+        <span
+          className="mono"
+          style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)' }}
+        >
+          {filteredRules.length} of {rules.length}
+        </span>
+        <Toolbar.Spacer />
+        <Input
+          icon="search"
+          size="sm"
+          placeholder="Search rules…"
           value={search}
-          onChange={e => setSearch(e.target.value)}
+          onChange={(e) => setSearch(e.currentTarget.value)}
+          width={220}
         />
-        <select
-          className="select select-sm select-bordered"
+        <FilterSelect<RuleScope | 'all'>
           value={scopeFilter}
-          onChange={e => setScopeFilter(e.target.value as RuleScope | 'all')}
-        >
-          <option value="all">All scopes</option>
-          <option value="entity">Entity</option>
-          <option value="package">Package</option>
-          <option value="perspective">Perspective</option>
-          <option value="global">Global (cross-package)</option>
-        </select>
-        <select
-          className="select select-sm select-bordered"
+          onChange={setScopeFilter}
+          options={[
+            { value: 'all', label: 'all scopes' },
+            { value: 'entity', label: 'entity' },
+            { value: 'package', label: 'package' },
+            { value: 'perspective', label: 'perspective' },
+            { value: 'global', label: 'global' },
+          ]}
+          label="Scope"
+        />
+        <FilterSelect<RuleSeverityValue | 'all'>
           value={severityFilter}
-          onChange={e => setSeverityFilter(e.target.value as RuleSeverityValue | 'all')}
-        >
-          <option value="all">All severities</option>
-          <option value="error">Error</option>
-          <option value="warning">Warning</option>
-          <option value="info">Info</option>
-        </select>
-        <select
-          className="select select-sm select-bordered"
+          onChange={setSeverityFilter}
+          options={[
+            { value: 'all', label: 'all severities' },
+            { value: 'error', label: 'error' },
+            { value: 'warning', label: 'warning' },
+            { value: 'info', label: 'info' },
+          ]}
+          label="Severity"
+        />
+        <FilterSelect<RuleEnforcement | 'all'>
           value={enforcementFilter}
-          onChange={e => setEnforcementFilter(e.target.value as RuleEnforcement | 'all')}
+          onChange={setEnforcementFilter}
+          options={[
+            { value: 'all', label: 'all enforcements' },
+            { value: 'save', label: 'save' },
+            { value: 'process', label: 'process' },
+            { value: 'advisory', label: 'advisory' },
+          ]}
+          label="Enforcement"
+        />
+        <Button
+          size="md"
+          variant="primary"
+          icon="plus"
+          onClick={() => setCreating(true)}
         >
-          <option value="all">All enforcements</option>
-          <option value="save">Save (blocking)</option>
-          <option value="process">Process gate</option>
-          <option value="advisory">Advisory</option>
-        </select>
-      </div>
+          New Rule
+        </Button>
+      </Toolbar>
 
       {loading ? (
-        <div className="flex justify-center items-center h-32">
-          <span className="loading loading-spinner loading-lg"></span>
-        </div>
+        <EmptyState kind="loading" attached message="Loading rules…" />
       ) : error ? (
-        <div className="alert alert-error">{error}</div>
+        <EmptyState
+          kind="error"
+          attached
+          title="Failed to load rules"
+          message={error}
+          action={{ label: 'Retry', icon: 'sparkle', onClick: fetchRules }}
+        />
       ) : (
-        <div className="overflow-x-auto bg-base-100 rounded-lg shadow p-1 flex-1 min-h-0">
-          <table className="table table-zebra table-sm w-full">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Severity</th>
-                <th>Enforcement</th>
-                <th>Scope</th>
-                <th>Description</th>
-                <th>Targets</th>
-                <th>Tags</th>
-                <th>Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredRules.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="text-center text-gray-500 py-4">
-                    {rules.length === 0
-                      ? 'No rules yet. Click "+ New Rule" to add one.'
-                      : 'No rules match the current filters.'}
-                  </td>
-                </tr>
-              ) : (
-                filteredRules.map(rule => (
-                  <tr
-                    key={rule.uuid}
-                    className="hover cursor-pointer"
-                    onClick={() => setEditorRule(rule)}
-                  >
-                    <td className="font-medium">
-                      {rule.name}
-                    </td>
-                    <td>
-                      <span className={`badge badge-xs ${severityBadgeClass(rule.severity)}`}>
-                        {rule.severity}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`badge badge-xs ${enforcementBadgeClass(rule.enforcement)}`}>
-                        {rule.enforcement}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`badge badge-xs ${scopeBadgeClass(rule.scope)}`}>
-                        {rule.scope}
-                      </span>
-                      {rule.scope === 'global' && (
-                        <span className="ml-1">
-                          {[...new Set(rule.targets.map(t => t.packageName).filter(Boolean))].map(pkg => (
-                            <span key={pkg} className="badge badge-xs badge-outline ml-0.5">{pkg}</span>
-                          ))}
-                        </span>
-                      )}
-                    </td>
-                    <td className="max-w-md">
-                      <div className="prose prose-xs prose-invert max-w-none line-clamp-2 text-sm">
-                        <Markdown>{rule.description.split('\n')[0] || ''}</Markdown>
-                      </div>
-                    </td>
-                    <td className="text-xs">
-                      {rule.targets.length} {rule.targets.length === 1 ? 'target' : 'targets'}
-                    </td>
-                    <td className="text-xs">
-                      {(rule.tags || []).slice(0, 3).map(tag => (
-                        <span key={tag} className="badge badge-xs badge-ghost mr-1">{tag}</span>
-                      ))}
-                    </td>
-                    <td className="text-xs text-base-content/60">
-                      {rule.updatedAt ? new Date(rule.updatedAt).toLocaleDateString() : '-'}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<Rule>
+          columns={columns}
+          rows={filteredRules}
+          getRowKey={(r) => r.uuid}
+          onRowClick={(r) => setEditorRule(r)}
+          attached
+          emptyMessage={
+            <EmptyState
+              inline
+              kind="empty"
+              title="No rules found"
+              message={
+                search || scopeFilter !== 'all' || severityFilter !== 'all' || enforcementFilter !== 'all'
+                  ? 'No rules match the current filters.'
+                  : 'No rules yet. Click "New Rule" to add one.'
+              }
+            />
+          }
+        />
       )}
 
-      {/* Editor modal */}
       {(editorRule || creating) && (
         <RuleEditor
           rule={editorRule}
@@ -238,5 +309,49 @@ const RuleBrowserPage = () => {
     </div>
   );
 };
+
+// ──────────────── Filter select ────────────────
+
+interface FilterSelectProps<T extends string> {
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: string }[];
+  label: string;
+}
+
+function FilterSelect<T extends string>({ value, onChange, options, label }: FilterSelectProps<T>) {
+  return (
+    <label
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        fontSize: 'var(--fs-sm)',
+        color: 'var(--text-muted)',
+      }}
+    >
+      <Icon name="filter" size={12} />
+      <select
+        value={value}
+        aria-label={`Filter by ${label.toLowerCase()}`}
+        onChange={(e) => onChange(e.target.value as T)}
+        style={{
+          height: 28,
+          padding: '0 6px',
+          fontSize: 'var(--fs-sm)',
+          fontFamily: 'inherit',
+          background: 'var(--bg-raised)',
+          color: 'var(--text)',
+          border: '1px solid var(--border-strong)',
+          borderRadius: 'var(--radius-sm)',
+        }}
+      >
+        {options.map(o => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
 
 export default RuleBrowserPage;
