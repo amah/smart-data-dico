@@ -26,8 +26,8 @@ import type { ColumnDef } from './ui';
 /**
  * AttributeList — Phase 4.1 redesign.
  *
- * Visual grammar follows design_handoff README §Core (standard-vs-metadata
- * split) plus Toolbar → DataTable → ColumnChooser wiring.
+ * Visual grammar: standard-vs-metadata split + Toolbar → DataTable →
+ * ColumnChooser wiring (see /design-system).
  *
  * Edit pattern for Calm: side-panel slide-over from the right (480px).
  * Inline-editing has been retired; all writes go through the panel,

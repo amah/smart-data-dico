@@ -1,9 +1,9 @@
 /**
  * PiiChip — PII classification indicator.
  *
- * Visual: colored dot + label in the PII color, no chip bg. Matches
- * design_handoff/primitives.jsx PiiChip — intentionally quieter than
- * StatusChip because PII repeats on nearly every row.
+ * Visual: colored dot + label in the PII color, no chip bg —
+ * intentionally quieter than StatusChip because PII repeats on nearly
+ * every row. See /design-system → PiiChip.
  *
  * null / undefined → em-dash in text-subtle.
  */

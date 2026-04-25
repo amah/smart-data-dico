@@ -1,7 +1,6 @@
 /**
- * Icon — minimal inline-SVG icon primitive ported from
- * design_handoff/primitives.jsx. Only the glyphs used by the design
- * system are included; add more to PATHS as new surfaces need them.
+ * Icon — minimal inline-SVG icon primitive. Only the glyphs used by
+ * the app are included; add more to PATHS as new surfaces need them.
  *
  * Preferred over ad-hoc inline SVG in components because every icon
  * then honors stroke width, focus color, and size consistently.

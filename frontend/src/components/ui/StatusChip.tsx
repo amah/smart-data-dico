@@ -1,12 +1,9 @@
 /**
  * StatusChip — pass/fail/drift + breaking/major/minor/info.
  *
- * Drift is first-class amber per the Integrity spec (design_handoff
- * README §7). Severity for the Model Diff uses the same component,
- * so we keep the tone mapping in one place.
- *
- * Soft-filled by default (*-soft bg + solid-color text) to match the
- * README's chip grammar.
+ * Drift is first-class amber per the Integrity spec; severity for the
+ * Model Diff uses the same component so the tone mapping lives in one
+ * place. Soft-filled by default (*-soft bg + solid-color text).
  */
 
 import Chip, { type ChipTone } from './Chip';

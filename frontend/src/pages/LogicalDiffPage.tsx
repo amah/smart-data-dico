@@ -1,7 +1,7 @@
 /**
  * Logical model diff — Phase 4.6 redesign.
  *
- * Grammar (design_handoff README §8 Model Diff):
+ * Grammar (Model Diff):
  *   - Default compare: Working copy vs Last published (HEAD).
  *   - Ref swap happens in the toolbar.
  *   - Changes are grouped by entity inside severity bands, ordered

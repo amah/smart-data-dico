@@ -1,7 +1,7 @@
 /**
  * TypeChip — renders an attribute type identifier (string, uuid, enum, …)
- * in the mono font with tone mapped to the type family. Ported from
- * design_handoff/primitives.jsx TYPE_STYLES.
+ * in the mono font with tone mapped to the type family.
+ * See /design-system → TypeChip.
  *
  * Unknown types (e.g. derived types like `email`, `url`) fall through
  * to the neutral mono style so they still render consistently.

@@ -13,7 +13,7 @@ import { Button, Chip, EmptyState, Icon } from './ui';
 /**
  * Entity detail page — Phase 4.1 redesign.
  *
- * Grammar (design_handoff README §Shell + §Entity):
+ * Grammar (Shell + Entity, see /design-system):
  *   - breadcrumb strip (home > packages > service > entity)
  *   - entity header: name in mono fs-2xl, bounded-context chip, counts
  *   - action cluster on the right (Clone / Visualize / Edit / status actions)
