@@ -141,7 +141,7 @@ const EntityDetail = (props: EntityDetailProps) => {
       };
       try {
         await servicesApi.createEntity(service, newEntity);
-        navigate(`/services/${service}/entities/${newEntityName}`);
+        navigate(`/packages/${service}/entities/${newEntityName}`);
       } catch (err: any) {
         if (err.response) {
           setError(`API error: ${err.response.data?.message || err.message || 'Unknown error'}`);
