@@ -38,8 +38,7 @@ import ForgotPassword from './pages/ForgotPassword';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import DerivedTypesPage from './pages/DerivedTypesPage';
-import DesignTokensPage from './pages/DesignTokensPage';
-import DesignPrimitivesPage from './pages/DesignPrimitivesPage';
+import DesignSystemPage from './pages/DesignSystemPage';
 
 // Package Navigation
 import PackageRouter from './components/PackageRouter';
@@ -152,10 +151,11 @@ function App() {
         <Route path="settings" element={<Settings />} />
         <Route path="types" element={<DerivedTypesPage />} />
 
-        {/* Design system showcase — Phase 1 wiring check (#114) */}
-        <Route path="design/tokens" element={<DesignTokensPage />} />
-        {/* Design system primitives — Phase 2 (#115) */}
-        <Route path="design/primitives" element={<DesignPrimitivesPage />} />
+        {/* Living style guide — tokens + every ui/* primitive + the
+            patterns that hold them together. */}
+        <Route path="design-system" element={<DesignSystemPage />} />
+        <Route path="design/tokens" element={<Navigate to="/design-system" replace />} />
+        <Route path="design/primitives" element={<Navigate to="/design-system" replace />} />
 
         {/* 404 - Not Found */}
         <Route path="*" element={<NotFoundPage />} />
