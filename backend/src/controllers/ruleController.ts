@@ -10,7 +10,7 @@ export const listRules = async (req: Request, res: Response) => {
       severity: req.query.severity as 'info' | 'warning' | 'error' | undefined,
       enforcement: req.query.enforcement as 'save' | 'process' | 'advisory' | undefined,
       targetUuid: req.query.targetUuid as string | undefined,
-      perspectiveUuid: req.query.perspective as string | undefined,
+      caseUuid: (req.query.case as string | undefined) ?? (req.query.perspective as string | undefined),
       packageName: req.query.package as string | undefined,
     });
     res.json({ message: 'Success', data: rules });

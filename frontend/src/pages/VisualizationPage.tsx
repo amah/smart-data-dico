@@ -1,7 +1,7 @@
 /**
  * Visualization page — renders CytoscapeGraph for a specific service/entity
  * or the full organization diagram. Bridges the broken `/visualization/*`
- * links from EntityDetail and PerspectiveDetailPage to a real route.
+ * links from EntityDetail and CaseDetailPage to a real route.
  */
 import { useParams, useSearchParams } from 'react-router-dom';
 import CytoscapeGraph from '../components/CytoscapeGraph';
@@ -9,7 +9,7 @@ import CytoscapeGraph from '../components/CytoscapeGraph';
 export default function VisualizationPage() {
   const { service, entity } = useParams<{ service?: string; entity?: string }>();
   const [searchParams] = useSearchParams();
-  const perspectiveId = searchParams.get('perspective') || undefined;
+  const caseId = searchParams.get('case') || searchParams.get('perspective') || undefined;
 
   const title = entity
     ? `${entity} — ${service}`
@@ -35,7 +35,7 @@ export default function VisualizationPage() {
         <CytoscapeGraph
           service={service}
           mode={service ? 'service' : 'organization'}
-          perspectiveId={perspectiveId}
+          caseId={caseId}
         />
       </div>
     </div>

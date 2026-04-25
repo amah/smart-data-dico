@@ -33,7 +33,7 @@ const sourceChipFor = (rule: Rule): { label: string; cls: string } => {
   switch (rule.scope) {
     case 'entity': return { label: 'entity', cls: 'badge-primary' };
     case 'package': return { label: 'package', cls: 'badge-secondary' };
-    case 'perspective': return { label: 'perspective', cls: 'badge-accent' };
+    case 'case': return { label: 'case', cls: 'badge-accent' };
     default: return { label: rule.scope, cls: 'badge-ghost' };
   }
 };

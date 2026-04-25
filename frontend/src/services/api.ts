@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-import { Entity, Relationship, Stereotype, StereotypeTarget, Perspective, ResolvedPerspective, PerspectiveNode, GraphData, ImpactAnalysis, ReviewComment, LineageResult, Rule, RuleScope, RuleSeverityValue, RuleEnforcement, PhysicalConstraint, MetadataEntry } from '../types';
+import { Entity, Relationship, Stereotype, StereotypeTarget, Case, ResolvedCase, CaseNode, GraphData, ImpactAnalysis, ReviewComment, LineageResult, Rule, RuleScope, RuleSeverityValue, RuleEnforcement, PhysicalConstraint, MetadataEntry } from '../types';
 import { Package } from '../types';
 
 /**
@@ -495,38 +495,38 @@ export const gitApi = {
   },
 };
 
-// Perspective API endpoints
-export const perspectiveApi = {
-  getAll: async (): Promise<Perspective[]> => {
-    const response = await api.get('/perspectives');
+// Case API endpoints (#121)
+export const caseApi = {
+  getAll: async (): Promise<Case[]> => {
+    const response = await api.get('/cases');
     return response.data.data;
   },
-  getById: async (id: string): Promise<Perspective> => {
-    const response = await api.get(`/perspectives/${id}`);
+  getById: async (id: string): Promise<Case> => {
+    const response = await api.get(`/cases/${id}`);
     return response.data.data;
   },
-  create: async (data: Partial<Perspective>) => {
-    const response = await api.post('/perspectives', data);
+  create: async (data: Partial<Case>) => {
+    const response = await api.post('/cases', data);
     return response.data;
   },
-  update: async (id: string, data: Partial<Perspective>) => {
-    const response = await api.put(`/perspectives/${id}`, data);
+  update: async (id: string, data: Partial<Case>) => {
+    const response = await api.put(`/cases/${id}`, data);
     return response.data;
   },
   delete: async (id: string) => {
-    const response = await api.delete(`/perspectives/${id}`);
+    const response = await api.delete(`/cases/${id}`);
     return response.data;
   },
-  resolve: async (id: string): Promise<ResolvedPerspective> => {
-    const response = await api.get(`/perspectives/${id}/resolve`);
+  resolve: async (id: string): Promise<ResolvedCase> => {
+    const response = await api.get(`/cases/${id}/resolve`);
     return response.data.data;
   },
   getGraphData: async (id: string): Promise<GraphData> => {
-    const response = await api.get(`/perspectives/${id}/graph`);
+    const response = await api.get(`/cases/${id}/graph`);
     return response.data.data;
   },
-  upsertNode: async (id: string, node: PerspectiveNode) => {
-    const response = await api.put(`/perspectives/${id}/nodes`, node);
+  upsertNode: async (id: string, node: CaseNode) => {
+    const response = await api.put(`/cases/${id}/nodes`, node);
     return response.data;
   },
 };
@@ -585,7 +585,7 @@ export const ruleApi = {
     severity?: RuleSeverityValue;
     enforcement?: RuleEnforcement;
     targetUuid?: string;
-    perspective?: string;
+    case?: string;
     package?: string;
   } = {}): Promise<Rule[]> => {
     const params = new URLSearchParams();
@@ -593,7 +593,7 @@ export const ruleApi = {
     if (filters.severity) params.set('severity', filters.severity);
     if (filters.enforcement) params.set('enforcement', filters.enforcement);
     if (filters.targetUuid) params.set('targetUuid', filters.targetUuid);
-    if (filters.perspective) params.set('perspective', filters.perspective);
+    if (filters.case) params.set('case', filters.case);
     if (filters.package) params.set('package', filters.package);
     const qs = params.toString();
     const response = await api.get(`/rules${qs ? '?' + qs : ''}`);

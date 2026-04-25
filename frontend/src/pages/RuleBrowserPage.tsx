@@ -36,7 +36,7 @@ const ENFORCEMENT_TONE: Record<RuleEnforcement, 'danger' | 'warning' | 'neutral'
 const SCOPE_TONE: Record<RuleScope, 'accent' | 'meta' | 'warning' | 'neutral'> = {
   entity:       'accent',
   package:      'meta',
-  perspective:  'accent',
+  case:         'accent',
   global:       'warning',
 };
 
@@ -227,7 +227,7 @@ const RuleBrowserPage = () => {
             { value: 'all', label: 'all scopes' },
             { value: 'entity', label: 'entity' },
             { value: 'package', label: 'package' },
-            { value: 'perspective', label: 'perspective' },
+            { value: 'case', label: 'case' },
             { value: 'global', label: 'global' },
           ]}
           label="Scope"

@@ -41,7 +41,7 @@ interface SearchResult {
 
 interface ImpactAnalysis {
   relationships: { uuid: string; description: string; service: string; sourceEntity: string; targetEntity: string }[];
-  perspectives: { uuid: string; name: string; path: string }[];
+  cases: { uuid: string; name: string; path: string }[];
   diagrams: { id: string; name: string }[];
 }
 
@@ -512,7 +512,7 @@ export class ServiceService {
   // --- Impact Analysis ---
 
   async getImpactAnalysis(entityUuid: string): Promise<ImpactAnalysis> {
-    const impact: ImpactAnalysis = { relationships: [], perspectives: [], diagrams: [] };
+    const impact: ImpactAnalysis = { relationships: [], cases: [], diagrams: [] };
 
     try {
       // Find relationships referencing this entity
@@ -538,15 +538,15 @@ export class ServiceService {
         }
       }
 
-      // Find perspectives containing this entity
-      const { listPerspectives } = await import('../utils/fileOperations.js');
-      const perspectives = await listPerspectives();
-      const { perspectiveService } = await import('./perspectiveService.js');
-      for (const p of perspectives) {
-        const resolved = await perspectiveService.resolve(p.uuid);
+      // Find cases containing this entity
+      const { listCases } = await import('../utils/fileOperations.js');
+      const cases = await listCases();
+      const { caseService } = await import('./caseService.js');
+      for (const c of cases) {
+        const resolved = await caseService.resolve(c.uuid);
         if (resolved?.resolvedNodes.some(n => n.entityUuid === entityUuid)) {
           const paths = resolved.resolvedNodes.filter(n => n.entityUuid === entityUuid).map(n => n.path);
-          impact.perspectives.push({ uuid: p.uuid, name: p.name, path: paths[0] });
+          impact.cases.push({ uuid: c.uuid, name: c.name, path: paths[0] });
         }
       }
 

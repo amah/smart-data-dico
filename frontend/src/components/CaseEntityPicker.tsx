@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { entityApi } from '../services/api';
 import type { Package } from '../types';
 
-interface PerspectiveEntityPickerProps {
+interface CaseEntityPickerProps {
   selected: string[];
   onChange: (uuids: string[]) => void;
 }
@@ -13,7 +13,7 @@ interface FlatEntity {
   service: string;
 }
 
-export default function PerspectiveEntityPicker({ selected, onChange }: PerspectiveEntityPickerProps) {
+export default function CaseEntityPicker({ selected, onChange }: CaseEntityPickerProps) {
   const [entities, setEntities] = useState<FlatEntity[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);

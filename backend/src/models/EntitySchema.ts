@@ -101,9 +101,9 @@ export interface Stereotype {
 }
 
 /**
- * A node in a perspective — annotates, sets frontier, or excludes a path
+ * A node in a case — annotates, sets frontier, or excludes a path
  */
-export interface PerspectiveNode {
+export interface CaseNode {
   path: string;
   traverse?: boolean;
   exclude?: boolean;
@@ -111,24 +111,24 @@ export interface PerspectiveNode {
 }
 
 /**
- * A perspective is a business view over a subset of the data model
+ * A case is a business view over a subset of the data model
  */
-export interface Perspective {
+export interface Case {
   uuid: string;
   name: string;
   description?: string;
   rootEntities: string[];
-  nodes?: PerspectiveNode[];
+  nodes?: CaseNode[];
   maxDepth?: number;
   metadata?: MetadataEntry[];
-  /** Validation rules scoped to this perspective (#74). Use `any[]` to avoid a circular import on Rule. */
+  /** Validation rules scoped to this case (#74). Use `any[]` to avoid a circular import on Rule. */
   rules?: any[];
   createdAt?: string;
   updatedAt?: string;
 }
 
 /**
- * Slim attribute view used on resolved perspective nodes — avoids shipping
+ * Slim attribute view used on resolved case nodes — avoids shipping
  * the full `Attribute` (which carries validation, metadata, nested items,
  * etc.) when the tree view only needs the cheap display fields.
  */
@@ -141,7 +141,7 @@ export interface ResolvedAttribute {
 }
 
 /**
- * A resolved node from BFS traversal of a perspective.
+ * A resolved node from BFS traversal of a case.
  *
  * The tree view renders each non-root as `<navName> (<navCardinality>) →
  * <entityName>`. `navName` is the relationship end-name at the side the
@@ -176,16 +176,16 @@ export interface ResolvedNode {
    */
   attributes?: ResolvedAttribute[];
   /**
-   * Entity-level metadata entries — used by the perspective tree view to
+   * Entity-level metadata entries — used by the case tree view to
    * render metadata-as-columns alongside entity rows (#93).
    */
   metadata?: MetadataEntry[];
 }
 
 /**
- * A perspective with its resolved entity graph
+ * A case with its resolved entity graph
  */
-export interface ResolvedPerspective extends Perspective {
+export interface ResolvedCase extends Case {
   resolvedNodes: ResolvedNode[];
 }
 

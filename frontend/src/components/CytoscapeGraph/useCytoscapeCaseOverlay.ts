@@ -1,27 +1,27 @@
 import { useEffect, useState } from 'react';
 import type { Core } from 'cytoscape';
-import { perspectiveApi } from '../../services/api';
-import type { ResolvedPerspective } from '../../types';
+import { caseApi } from '../../services/api';
+import type { ResolvedCase } from '../../types';
 
-export function useCytoscapePerspectiveOverlay(
+export function useCytoscapeCaseOverlay(
   cyRef: React.RefObject<Core | null>,
-  perspectiveId?: string,
+  caseId?: string,
 ) {
-  const [resolved, setResolved] = useState<ResolvedPerspective | null>(null);
+  const [resolved, setResolved] = useState<ResolvedCase | null>(null);
 
   useEffect(() => {
-    if (!perspectiveId) {
+    if (!caseId) {
       setResolved(null);
       // Clear overlay classes
       const cy = cyRef.current;
       if (cy) {
-        cy.elements().removeClass('perspective-root perspective-member perspective-frontier dimmed');
+        cy.elements().removeClass('case-root case-member case-frontier dimmed');
       }
       return;
     }
 
-    perspectiveApi.resolve(perspectiveId).then(setResolved).catch(() => setResolved(null));
-  }, [perspectiveId]);
+    caseApi.resolve(caseId).then(setResolved).catch(() => setResolved(null));
+  }, [caseId]);
 
   // Apply overlay when resolved data or cy changes
   useEffect(() => {
@@ -34,13 +34,13 @@ export function useCytoscapePerspectiveOverlay(
 
     cy.batch(() => {
       // Reset all
-      cy.elements().removeClass('perspective-root perspective-member perspective-frontier dimmed');
+      cy.elements().removeClass('case-root case-member case-frontier dimmed');
 
       // Dim everything first
       cy.nodes().addClass('dimmed');
       cy.edges().addClass('dimmed');
 
-      // Highlight perspective members
+      // Highlight case members
       cy.nodes().forEach((node) => {
         const nodeId = node.id();
         if (!entityUuids.has(nodeId)) return;
@@ -48,15 +48,15 @@ export function useCytoscapePerspectiveOverlay(
         node.removeClass('dimmed');
 
         if (rootUuids.has(nodeId)) {
-          node.addClass('perspective-root');
+          node.addClass('case-root');
         } else if (frontierUuids.has(nodeId)) {
-          node.addClass('perspective-frontier');
+          node.addClass('case-frontier');
         } else {
-          node.addClass('perspective-member');
+          node.addClass('case-member');
         }
       });
 
-      // Un-dim edges between perspective members
+      // Un-dim edges between case members
       cy.edges().forEach((edge) => {
         if (entityUuids.has(edge.source().id()) && entityUuids.has(edge.target().id())) {
           edge.removeClass('dimmed');

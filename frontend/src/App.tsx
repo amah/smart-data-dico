@@ -14,9 +14,9 @@ import IntegrityPage from './pages/IntegrityPage';
 import LogicalDiffPage from './pages/LogicalDiffPage';
 import PhysicalDiffPage from './pages/PhysicalDiffPage';
 import VisualizationPage from './pages/VisualizationPage';
-import PerspectiveListPage from './pages/PerspectiveListPage';
-import PerspectiveDetailPage from './pages/PerspectiveDetailPage';
-import PerspectiveCreatePage from './pages/PerspectiveCreatePage';
+import CaseListPage from './pages/CaseListPage';
+import CaseDetailPage from './pages/CaseDetailPage';
+import CaseCreatePage from './pages/CaseCreatePage';
 
 // Service and Entity Components
 import ServiceList from './components/ServiceList';
@@ -75,22 +75,26 @@ function App() {
         </Route>
 
         
-        {/* Perspectives */}
-        <Route path="perspectives">
-          <Route index element={<PerspectiveListPage />} />
+        {/* Cases (#121 — renamed from Perspectives) */}
+        <Route path="cases">
+          <Route index element={<CaseListPage />} />
           <Route path="create" element={
-            <AuthGuard roles={['admin', 'editor']}><PerspectiveCreatePage /></AuthGuard>
+            <AuthGuard roles={['admin', 'editor']}><CaseCreatePage /></AuthGuard>
           } />
-          <Route path=":id" element={<PerspectiveDetailPage />} />
+          <Route path=":id" element={<CaseDetailPage />} />
           <Route path=":id/edit" element={
-            <AuthGuard roles={['admin', 'editor']}><PerspectiveCreatePage /></AuthGuard>
+            <AuthGuard roles={['admin', 'editor']}><CaseCreatePage /></AuthGuard>
           } />
         </Route>
+
+        {/* Legacy /perspectives/* — redirects to /cases/* for one release */}
+        <Route path="perspectives" element={<Navigate to="/cases" replace />} />
+        <Route path="perspectives/*" element={<Navigate to="/cases" replace />} />
 
         {/* Organization Diagram */}
         <Route path="diagram" element={<OrganizationDiagramPage />} />
 
-        {/* Visualization — per-entity, per-service, or perspective overlay */}
+        {/* Visualization — per-entity, per-service, or case overlay */}
         <Route path="visualization" element={<VisualizationPage />} />
         <Route path="visualization/:service" element={<VisualizationPage />} />
         <Route path="visualization/:service/:entity" element={<VisualizationPage />} />

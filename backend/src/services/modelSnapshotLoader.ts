@@ -104,7 +104,7 @@ async function loadPackageFromDisk(serviceName: string): Promise<PackageSnapshot
  * Rewritten for the post-#105/#106 layout: packages live at the project
  * root, identified by a `package.yaml` marker; each `.yaml` inside a
  * package folder may carry any mix of the `entities:` / `relationships:`
- * / `rules:` / `perspectives:` sections. Section parsing and collision
+ * / `rules:` / `cases:` sections. Section parsing and collision
  * detection are delegated to the shared helpers in `fileOperations` so
  * disk loads and git-ref loads stay byte-identical.
  *

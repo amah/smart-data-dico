@@ -8,7 +8,7 @@
  */
 
 /** Where a rule lives — determines storage location and lookup */
-export type RuleScope = 'entity' | 'package' | 'perspective' | 'global';
+export type RuleScope = 'entity' | 'package' | 'case' | 'global';
 
 /** Severity of a rule's violation — answers HOW BAD */
 export type RuleSeverityValue = 'info' | 'warning' | 'error';
@@ -23,7 +23,7 @@ export type RuleSeverityValue = 'info' | 'warning' | 'error';
 export type RuleEnforcement = 'save' | 'process' | 'advisory';
 
 /** What kind of node a rule target points to */
-export type RuleTargetKind = 'attribute' | 'entity' | 'relationship' | 'perspective-node';
+export type RuleTargetKind = 'attribute' | 'entity' | 'relationship' | 'case-node';
 
 /**
  * Free-form metadata entry on a rule, mirroring the existing
@@ -48,8 +48,8 @@ export interface RuleTarget {
    * package. Set automatically by auto-promote when a rule becomes global.
    */
   packageName?: string;
-  /** For perspective nodes: the path within the perspective (e.g. "Order.customer.address") */
-  perspectivePath?: string;
+  /** For case nodes: the path within the case (e.g. "Order.customer.address") */
+  casePath?: string;
 }
 
 /**
@@ -78,8 +78,8 @@ export interface Rule {
   packageName?: string;
   /** For scope='entity': the parent entity UUID and (denormalized) name */
   entityUuid?: string;
-  /** For scope='perspective': the perspective UUID */
-  perspectiveUuid?: string;
+  /** For scope='case': the case UUID */
+  caseUuid?: string;
   /** Nodes the rule references (1+) */
   targets: RuleTarget[];
   /** Optional structured expression (deferred to v2 — v1 leaves this empty) */
@@ -122,8 +122,8 @@ export function validateRule(rule: Partial<Rule>): string[] {
   if (!rule.enforcement || !['save', 'process', 'advisory'].includes(rule.enforcement)) {
     errors.push('Rule enforcement must be one of: save, process, advisory');
   }
-  if (!rule.scope || !['entity', 'package', 'perspective', 'global'].includes(rule.scope)) {
-    errors.push('Rule scope must be one of: entity, package, perspective, global');
+  if (!rule.scope || !['entity', 'package', 'case', 'global'].includes(rule.scope)) {
+    errors.push('Rule scope must be one of: entity, package, case, global');
   }
   if (!Array.isArray(rule.targets) || rule.targets.length === 0) {
     errors.push('Rule must have at least one target');
@@ -134,8 +134,8 @@ export function validateRule(rule: Partial<Rule>): string[] {
   if (rule.scope === 'package' && !rule.packageName) {
     errors.push('Package-scoped rules must specify packageName');
   }
-  if (rule.scope === 'perspective' && !rule.perspectiveUuid) {
-    errors.push('Perspective-scoped rules must specify perspectiveUuid');
+  if (rule.scope === 'case' && !rule.caseUuid) {
+    errors.push('Case-scoped rules must specify caseUuid');
   }
   // Process-stage binding sanity check (warning-level — we don't fail save here,
   // since the referenced metadata field may be added shortly after the rule)

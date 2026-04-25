@@ -10,7 +10,7 @@ import { useCytoscapeLayout } from './useCytoscapeLayout';
 import { useCytoscapeStyles } from './useCytoscapeStyles';
 import { useCytoscapeInteractions } from './useCytoscapeInteractions';
 import { useCytoscapePersistence } from './useCytoscapePersistence';
-import { useCytoscapePerspectiveOverlay } from './useCytoscapePerspectiveOverlay';
+import { useCytoscapeCaseOverlay } from './useCytoscapeCaseOverlay';
 import CytoscapeToolbar from './CytoscapeToolbar';
 import CytoscapeTooltip from './CytoscapeTooltip';
 import CytoscapeInfoPanel from './CytoscapeInfoPanel';
@@ -25,7 +25,7 @@ export default function CytoscapeGraph({
   mode = 'service',
   packages,
   initialLayoutId,
-  perspectiveId,
+  caseId,
 }: CytoscapeGraphProps) {
   const params = useParams<{ service?: string; entity?: string }>();
   const navigate = useNavigate();
@@ -94,8 +94,8 @@ export default function CytoscapeGraph({
   const { tooltip, infoPanel, setInfoPanel, applySearchFilter } =
     useCytoscapeInteractions(cyRef, handleNodeClick);
 
-  // Perspective overlay
-  useCytoscapePerspectiveOverlay(cyRef, perspectiveId);
+  // Case overlay (renamed from perspective in #121)
+  useCytoscapeCaseOverlay(cyRef, caseId);
 
   // Edge creation (right-click → connect)
   const edgeCreation = useCytoscapeEdgeCreation(cyRef);
@@ -203,7 +203,7 @@ export default function CytoscapeGraph({
         {elements.length > 0 && (
           <CytoscapeLegend
             serviceColorMap={serviceColorMap}
-            showPerspectiveStates={!!perspectiveId}
+            showCaseStates={!!caseId}
           />
         )}
 

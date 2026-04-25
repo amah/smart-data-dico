@@ -196,9 +196,9 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
         color: fg,
       } as any,
     },
-    // Perspective overlay styles
+    // Case overlay styles (renamed from perspective in #121)
     {
-      selector: '.perspective-root',
+      selector: '.case-root',
       style: {
         'border-width': 5,
         'border-color': '#e74c3c',
@@ -207,14 +207,14 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
       } as any,
     },
     {
-      selector: '.perspective-member',
+      selector: '.case-member',
       style: {
         'border-width': 3,
         'border-color': '#2ecc71',
       } as any,
     },
     {
-      selector: '.perspective-frontier',
+      selector: '.case-frontier',
       style: {
         'border-width': 3,
         'border-color': '#f39c12',

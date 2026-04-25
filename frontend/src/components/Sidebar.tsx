@@ -2,9 +2,8 @@
  * Sidebar — 240px nav rail with Browse / Views / Tools grammar
  * (Shell grammar — see /design-system).
  *
- *   Browse — Home + packages tree.
- *   Views  — Quality · Integrity · Model Diff · Physical Sync · Diagram
- *            · Perspectives (each perspective as a row).
+ *   Browse — Home + packages tree (entities + cases under each package).
+ *   Views  — Quality · Integrity · Model Diff · Physical Sync · Diagram.
  *   Tools  — Flat views · Data Types · Settings.
  *
  * Collapsed mode: icon rail at ~48px for desktop-density screens.
@@ -21,9 +20,9 @@
 
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { entityApi, perspectiveApi } from '../services/api';
-import type { Package, Perspective } from '../types';
-import { Icon, Chip, type IconName } from './ui';
+import { entityApi } from '../services/api';
+import type { Package } from '../types';
+import { Icon, type IconName } from './ui';
 
 interface SidebarProps {
   collapsed?: boolean;
@@ -31,7 +30,6 @@ interface SidebarProps {
 
 const Sidebar = ({ collapsed = false }: SidebarProps) => {
   const [packages, setPackages] = useState<Package[]>([]);
-  const [perspectives, setPerspectives] = useState<Perspective[]>([]);
   const [expandedPackages, setExpandedPackages] = useState<Record<string, boolean>>({});
   const [packagesLoading, setPackagesLoading] = useState(true);
   const [packagesError, setPackagesError] = useState<string | null>(null);
@@ -53,7 +51,6 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
       }
     };
     fetchPackages();
-    perspectiveApi.getAll().then(setPerspectives).catch(() => {});
   }, []);
 
   // Standard "inside this section" match — used for View/Tools rows where the
@@ -147,25 +144,6 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
       <NavItem to="/diff/logical" icon="link"    active={isActive('/diff/logical')}>Model Diff</NavItem>
       <NavItem to="/diff/physical" icon="layers" active={isActive('/diff/physical')}>Physical Sync</NavItem>
       <NavItem to="/diagram"      icon="chart"   active={isActive('/diagram')}>Org Diagram</NavItem>
-
-      {perspectives.length > 0 && (
-        <div style={{ marginTop: 2 }}>
-          {perspectives.map(p => (
-            <NavItem
-              key={p.uuid}
-              to={`/perspectives/${p.uuid}`}
-              icon="layers"
-              active={isActive(`/perspectives/${p.uuid}`)}
-              trailing={<Chip tone="meta">perspective</Chip>}
-            >
-              {p.name}
-            </NavItem>
-          ))}
-        </div>
-      )}
-      <NavItem to="/perspectives/create" icon="plus" subtle>
-        Create perspective
-      </NavItem>
 
       {/* Tools */}
       <SectionLabel>Tools</SectionLabel>
@@ -434,6 +412,64 @@ function renderPackageTree(
                     }}
                   >
                     {entity.name}
+                  </Link>
+                </div>
+              );
+            })}
+            {/* Cases as siblings of entities at the same indent level (#121).
+                Distinct from entity rows by icon (eye = view) and softer tone
+                (--accent-soft). No subheader, no trailing chip — keeps the
+                tree dense. Active styling matches entity rows. */}
+            {pkg.cases?.map(c => {
+              const caseUrl = `/cases/${c.uuid}`;
+              const active = isActive(caseUrl);
+              return (
+                <div
+                  key={c.uuid}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    background: active ? 'var(--accent-soft)' : 'transparent',
+                    borderLeft: active
+                      ? '2px solid var(--accent)'
+                      : '2px solid transparent',
+                  }}
+                  onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                  onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <span
+                    style={{
+                      width: 8 + (parentPath.length + 1) * 10,
+                      flexShrink: 0,
+                    }}
+                  />
+                  <span
+                    style={{
+                      width: 16,
+                      display: 'grid',
+                      placeItems: 'center',
+                      color: active ? 'var(--accent)' : 'var(--accent-soft-fg, var(--text-subtle))',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Icon name="eye" size={11} />
+                  </span>
+                  <Link
+                    to={caseUrl}
+                    style={{
+                      flex: 1,
+                      padding: '3px 8px 3px 4px',
+                      fontSize: 'var(--fs-xs)',
+                      color: active ? 'var(--accent)' : 'var(--accent-soft-fg, var(--text-subtle))',
+                      textDecoration: 'none',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      fontWeight: active ? 600 : 400,
+                      fontStyle: active ? 'normal' : 'italic',
+                    }}
+                  >
+                    {c.name}
                   </Link>
                 </div>
               );

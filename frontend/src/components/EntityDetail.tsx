@@ -590,15 +590,15 @@ const EntityDetail = (props: EntityDetailProps) => {
                     </ul>
                   )}
                 </ImpactSection>
-                <ImpactSection title={`Perspectives (${impact.perspectives.length})`}>
-                  {impact.perspectives.length === 0 ? (
-                    <MutedText>Not included in any perspective.</MutedText>
+                <ImpactSection title={`Cases (${impact.cases.length})`}>
+                  {impact.cases.length === 0 ? (
+                    <MutedText>Not included in any case.</MutedText>
                   ) : (
                     <ul style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      {impact.perspectives.map((p) => (
-                        <li key={p.uuid} style={{ fontSize: 'var(--fs-sm)' }}>
-                          <Link to={`/perspectives/${p.uuid}`} style={{ color: 'var(--accent)' }}>{p.name}</Link>
-                          <span className="mono" style={{ color: 'var(--text-subtle)', fontSize: 'var(--fs-xs)', marginLeft: 8 }}>{p.path}</span>
+                      {impact.cases.map((c) => (
+                        <li key={c.uuid} style={{ fontSize: 'var(--fs-sm)' }}>
+                          <Link to={`/cases/${c.uuid}`} style={{ color: 'var(--accent)' }}>{c.name}</Link>
+                          <span className="mono" style={{ color: 'var(--text-subtle)', fontSize: 'var(--fs-xs)', marginLeft: 8 }}>{c.path}</span>
                         </li>
                       ))}
                     </ul>

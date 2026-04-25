@@ -1,4 +1,4 @@
-perspectives:
+cases:
   - uuid: 5a5b54d5-ce57-4af6-a47f-f369351d05f4
     name: Ordering
     description: Order lifecycle business process

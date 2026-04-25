@@ -1,5 +1,5 @@
 /**
- * PerspectiveTreeTable tests. Covers:
+ * CaseTreeTable tests. Covers:
  *
  *   - The original "only root entities" regression: non-root hops are
  *     nested under their parent, not rendered as siblings at indent 0.
@@ -17,7 +17,7 @@ import { describe, expect, it } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import PerspectiveTreeTable from '../PerspectiveTreeTable';
+import CaseTreeTable from '../CaseTreeTable';
 import type { ResolvedNode } from '../../types';
 import { Cardinality } from '../../types';
 
@@ -37,7 +37,7 @@ const node = (overrides: Partial<ResolvedNode>): ResolvedNode => ({
   attributes: overrides.attributes,
 });
 
-describe('PerspectiveTreeTable — hierarchy', () => {
+describe('CaseTreeTable — hierarchy', () => {
   it('nests hop-1 children under their hop-0 root (regression: not rendered as siblings)', () => {
     const nodes: ResolvedNode[] = [
       node({
@@ -65,7 +65,7 @@ describe('PerspectiveTreeTable — hierarchy', () => {
       }),
     ];
 
-    render(wrap(<PerspectiveTreeTable nodes={nodes} />));
+    render(wrap(<CaseTreeTable nodes={nodes} />));
 
     expect(screen.getByRole('link', { name: 'Order' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'OrderItem' })).toBeInTheDocument();
@@ -105,7 +105,7 @@ describe('PerspectiveTreeTable — hierarchy', () => {
       }),
     ];
 
-    render(wrap(<PerspectiveTreeTable nodes={nodes} />));
+    render(wrap(<CaseTreeTable nodes={nodes} />));
 
     const indent = (name: string) => {
       const link = screen.getByRole('link', { name });
@@ -121,14 +121,14 @@ describe('PerspectiveTreeTable — hierarchy', () => {
       }
       return 0;
     };
-    // Tree indent is 0.75rem per hop (see PerspectiveTreeTable row renderer).
+    // Tree indent is 0.75rem per hop (see CaseTreeTable row renderer).
     expect(indent('User')).toBe(0);
     expect(indent('Order')).toBe(0.75);
     expect(indent('OrderItem')).toBe(1.5);
   });
 });
 
-describe('PerspectiveTreeTable — attribute expansion', () => {
+describe('CaseTreeTable — attribute expansion', () => {
   it('reveals attribute leaf rows when the entity is expanded', async () => {
     const nodes: ResolvedNode[] = [
       node({
@@ -145,7 +145,7 @@ describe('PerspectiveTreeTable — attribute expansion', () => {
       }),
     ];
 
-    render(wrap(<PerspectiveTreeTable nodes={nodes} />));
+    render(wrap(<CaseTreeTable nodes={nodes} />));
 
     // Attributes are collapsed by default — only entity rows visible, no
     // `id` / `sku` / `price` cells yet. (A root entity with only attribute
@@ -194,7 +194,7 @@ describe('PerspectiveTreeTable — attribute expansion', () => {
       }),
     ];
 
-    render(wrap(<PerspectiveTreeTable nodes={nodes} />));
+    render(wrap(<CaseTreeTable nodes={nodes} />));
 
     // Order is auto-expanded (has entity children), so OrderItem + Order's
     // own attributes show. OrderItem is a leaf (no entity children) → not

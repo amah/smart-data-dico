@@ -12,7 +12,7 @@ export interface CytoscapeGraphProps {
   mode?: GraphMode;
   packages?: Package[];
   initialLayoutId?: string;
-  perspectiveId?: string;
+  caseId?: string;
 }
 
 export interface TooltipData {

@@ -49,7 +49,7 @@ function formatCardinality(card?: { from: Cardinality; to: Cardinality }): strin
 /**
  * Build a tree from the flat resolved-node array.
  *
- * Path contract (backend `perspectiveService.resolve`): each path is a
+ * Path contract (backend `caseService.resolve`): each path is a
  * sequence `"<rootEntityName>/<nav1>/<nav2>/…"` where `<navN>` is the
  * relationship end-name of hop N. Parent lookup strips one trailing
  * segment — the contract is NOT an alternating entity/nav pattern.
@@ -130,9 +130,9 @@ interface Props {
   onMetadataUpdated?: () => void;
 }
 
-const LOCALSTORAGE_KEY = 'perspective-tree-table-columns';
+const LOCALSTORAGE_KEY = 'case-tree-table-columns';
 
-export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props) {
+export default function CaseTreeTable({ nodes, onMetadataUpdated }: Props) {
   const tree = useMemo(() => buildTree(nodes), [nodes]);
 
   // Metadata-as-columns (#93) — dual-target: entity + attribute stereotypes
@@ -444,7 +444,7 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
         <Button
           size="sm"
           variant="ghost"
-          onClick={() => resetTreeTableWidths('perspective-tree')}
+          onClick={() => resetTreeTableWidths('case-tree')}
           title="Reset column widths"
         >
           Reset cols
@@ -544,7 +544,7 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
         rows={treeRows}
         getRowKey={(n) => n.path}
         treeColumnKey="entity"
-        resizeKey="perspective-tree"
+        resizeKey="case-tree"
         stickyHeader
         stickyFirstColumn
         attached
