@@ -49,7 +49,7 @@ export { default as DataTable } from './DataTable';
 export type { DataTableProps } from './DataTable';
 export type { ColumnDef, ColumnGroup, SortDir } from './DataTable.types';
 
-export { default as TreeTable } from './TreeTable';
+export { default as TreeTable, resetTreeTableWidths } from './TreeTable';
 export type { TreeTableProps, TreeTableRow } from './TreeTable';
 
 export { default as ColumnChooser } from './ColumnChooser';

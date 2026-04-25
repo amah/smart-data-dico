@@ -23,6 +23,24 @@ import type { ColumnDef, ColumnGroup } from './DataTable.types';
 const WIDTH_STORAGE_PREFIX = 'sdd.treeTable.widths.';
 const GROUP_ROW_HEIGHT = 28;
 
+// Custom DOM event the hook listens to so a same-tab reset takes effect
+// immediately without forcing a remount. The native `storage` event
+// only fires across tabs.
+const RESET_EVENT = 'sdd.treeTable.widths.reset';
+
+/**
+ * Wipe persisted column widths for a TreeTable resizeKey. Use this from
+ * a "Reset cols" toolbar button when the user has dragged columns out of
+ * shape — the live TreeTable re-reads widths and falls back to each
+ * column's declared width.
+ */
+export function resetTreeTableWidths(resizeKey: string): void {
+  try {
+    localStorage.removeItem(WIDTH_STORAGE_PREFIX + resizeKey);
+    window.dispatchEvent(new CustomEvent(RESET_EVENT, { detail: { resizeKey } }));
+  } catch { /* ignore */ }
+}
+
 const GROUP_LABEL: Record<ColumnGroup, string> = {
   standard: 'Standard',
   metadata: 'Governance metadata',
@@ -46,6 +64,17 @@ function useColumnWidths(resizeKey: string | undefined) {
     if (!storageKey) return;
     try { localStorage.setItem(storageKey, JSON.stringify(widths)); } catch { /* ignore */ }
   }, [storageKey, widths]);
+
+  // Listen for in-tab reset events fired by resetTreeTableWidths().
+  useEffect(() => {
+    if (!resizeKey) return;
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<{ resizeKey: string }>;
+      if (ce.detail?.resizeKey === resizeKey) setWidths({});
+    };
+    window.addEventListener(RESET_EVENT, handler);
+    return () => window.removeEventListener(RESET_EVENT, handler);
+  }, [resizeKey]);
 
   const active = useRef<{ key: string; startX: number; startW: number } | null>(null);
 
