@@ -87,11 +87,13 @@ export function useCytoscapeInteractions(
       });
     };
 
-    // Double-tap to expand/collapse node
+    // Double-tap to expand/collapse node. Mark as user-toggled so the
+    // zoom-driven LOD pass leaves it alone for the rest of the session.
     const onNodeDblTap = (evt: any) => {
       const node = evt.target;
       if (node.isParent()) return;
       const nodeId = node.id();
+      node.data('userToggled', true);
       toggleNodeExpansionInternal(cy, nodeId);
     };
 
@@ -100,12 +102,32 @@ export function useCytoscapeInteractions(
       setInfoPanel(null);
     };
 
+    let zoomTimer: ReturnType<typeof setTimeout> | null = null;
+    const onZoom = () => {
+      if (zoomTimer) clearTimeout(zoomTimer);
+      zoomTimer = setTimeout(() => {
+        const z = cy.zoom();
+        if (z > 1.5) {
+          cy.nodes('[type = "entity"]').forEach((n) => {
+            if (n.data('userToggled')) return;
+            if (!n.data('expanded')) toggleNodeExpansionInternal(cy, n.id());
+          });
+        } else if (z < 1.0) {
+          cy.nodes('[type = "entity"]').forEach((n) => {
+            if (n.data('userToggled')) return;
+            if (n.data('expanded')) toggleNodeExpansionInternal(cy, n.id());
+          });
+        }
+      }, 150);
+    };
+
     cy.on('mouseover', 'node[type = "entity"]', onMouseOver);
     cy.on('mouseout', 'node', onMouseOut);
     cy.on('tap', 'node', onNodeTap);
     cy.on('tap', 'edge', onEdgeTap);
     cy.on('dbltap', 'node[type = "entity"]', onNodeDblTap);
     cy.on('tap', onBgTap);
+    cy.on('zoom', onZoom);
 
     return () => {
       cy.off('mouseover', 'node[type = "entity"]', onMouseOver);
@@ -114,6 +136,8 @@ export function useCytoscapeInteractions(
       cy.off('tap', 'edge', onEdgeTap);
       cy.off('dbltap', 'node[type = "entity"]', onNodeDblTap);
       cy.off('tap', onBgTap);
+      cy.off('zoom', onZoom);
+      if (zoomTimer) clearTimeout(zoomTimer);
     };
   }, [cyRef, onNodeClick]);
 

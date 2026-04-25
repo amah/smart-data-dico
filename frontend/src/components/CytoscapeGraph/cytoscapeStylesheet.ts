@@ -59,6 +59,8 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
   const primary = resolveColor('--p', '#570df8');
   const primaryContent = resolveColor('--pc', '#ffffff');
   const neutral = resolveColor('--n', '#2a323c');
+  const accent = resolveColor('--accent', primary);
+  const bgRaised = resolveColor('--bg-raised', bg);
 
   const sheets: StylesheetStyle[] = [
     // Node base — two-line UML-style compartment
@@ -92,7 +94,7 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
         'border-width': 3,
         'z-index': 5,
         'overlay-opacity': 0.08,
-        'overlay-color': primary,
+        'overlay-color': accent,
       } as any,
     },
     // PK indicator
@@ -174,12 +176,24 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
         'z-index': 10,
       } as any,
     },
-    // Expanded node
+    // Expanded node — UML class compartment (header + separator + attribute list)
     {
       selector: 'node[?expanded]',
       style: {
         'text-valign': 'top',
+        'text-halign': 'center',
+        'text-margin-y': 6,
         'font-size': 11,
+        'font-weight': 'normal',
+        'background-color': bgRaised,
+        'border-color': accent,
+        'border-width': 2,
+        'text-max-width': '220px',
+        'padding-top': '6px',
+        'padding-bottom': '6px',
+        'padding-left': '8px',
+        'padding-right': '8px',
+        color: fg,
       } as any,
     },
     // Perspective overlay styles
