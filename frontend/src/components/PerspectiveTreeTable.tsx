@@ -1,15 +1,14 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import type { ResolvedNode, ResolvedAttribute, MetadataEntry } from '../types';
 import { Cardinality } from '../types';
 import { useStereotypeMetadata, setMetadataValue } from '../hooks/useStereotypeMetadata';
-import { useStickyTablePref } from '../hooks/useStickyTablePref';
-import { useResizableColumns, ResizeHandle, type ColumnDef } from '../hooks/useResizableColumns';
 import InlineMetadataCell from './InlineMetadataCell';
 import { servicesApi } from '../services/api';
 import type { Entity, Attribute } from '../types';
 import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
-import { Button, Chip, Input, Menu, Toolbar } from './ui';
+import { Button, Chip, Input, Menu, Toolbar, TreeTable } from './ui';
+import type { ColumnDef, TreeTableRow } from './ui';
 
 // ────────────────────────────────────────────────────────────────────────
 // Tree data model
@@ -146,14 +145,6 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
     } catch { /* ignore */ }
     return new Set<string>();
   });
-  const [pinned, togglePinned] = useStickyTablePref('perspective-tree');
-
-  // Sticky class helpers. The first column + thead get opaque backgrounds
-  // + z-index so they sit above scrolled content. Corner (thead first th)
-  // needs the highest z-index since it's pinned on both axes.
-  const stickyHead = pinned ? 'sticky top-0 z-20 bg-base-100' : '';
-  const stickyFirstCol = pinned ? 'sticky left-0 z-10 bg-base-100' : '';
-  const stickyCorner = pinned ? 'sticky top-0 left-0 z-30 bg-base-100' : '';
 
   // Persist column visibility
   const updateVisibleCols = useCallback((next: Set<string>) => {
@@ -194,25 +185,10 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
 
   const activeMetaCols = allMetaCols.filter(c => visibleMetaCols.has(`${c.target}:${c.name}`));
 
-  // Resizable columns (#103)
-  const colDefs: ColumnDef[] = useMemo(() => [
-    { key: 'entity', defaultWidth: 300 },
-    { key: 'type', defaultWidth: 80 },
-    { key: 'service', defaultWidth: 120 },
-    { key: 'hops', defaultWidth: 50 },
-    { key: 'status', defaultWidth: 100 },
-    ...activeMetaCols.map(col => ({
-      key: `${col.target}:${col.name}`,
-      defaultWidth: 120,
-    })),
-  ], [activeMetaCols]);
-  const { widths, startResize, resetWidths, tableStyle } = useResizableColumns('perspective-tree', colDefs);
-
   // Single expansion dimension: a path in this Set means "show all my
   // children (both entity descendants and attribute leaves)". Default:
   // entities that have entity children start expanded so the graph
-  // hierarchy is visible on first view. The earlier two-set approach
-  // (separate entity/attr expansion) created non-toggleable states.
+  // hierarchy is visible on first view.
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     const initial = new Set<string>();
     function walk(items: TreeNode[]) {
@@ -297,11 +273,10 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
     return matches;
   }, [tree, filter]);
 
-  // Flatten visible rows for rendering.
-  // An entity's children (both entity descendants and attribute leaves)
-  // render iff the entity's path is in `expanded` OR a filter is active.
-  const rows = useMemo(() => {
-    const result: { node: TreeNode; indent: number; hasChildren: boolean; isExpanded: boolean }[] = [];
+  // Flatten visible rows for TreeTable — a TreeTableRow per visible node,
+  // with the indent / hasChildren / isExpanded / toggle ops resolved here.
+  const treeRows = useMemo<TreeTableRow<TreeNode>[]>(() => {
+    const result: TreeTableRow<TreeNode>[] = [];
     function walk(items: TreeNode[], indent: number) {
       for (const item of items) {
         if (matchingPaths && !matchingPaths.has(item.path)) continue;
@@ -309,7 +284,13 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
         if (item.kind === 'entity') {
           const hasChildren = item.children.length > 0;
           const isExpanded = expanded.has(item.path);
-          result.push({ node: item, indent, hasChildren, isExpanded });
+          result.push({
+            row: item,
+            indent,
+            hasChildren,
+            isExpanded,
+            toggle: () => toggle(item.path),
+          });
 
           const showChildren = isExpanded || !!matchingPaths;
           if (!showChildren) continue;
@@ -317,19 +298,139 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
             walk([child], indent + 1);
           }
         } else {
-          // Attribute rows never have their own children — render flat.
-          result.push({ node: item, indent, hasChildren: false, isExpanded: false });
+          // Attribute rows are leaves.
+          result.push({
+            row: item,
+            indent,
+            hasChildren: false,
+            isExpanded: false,
+            toggle: () => { /* no-op */ },
+          });
         }
       }
     }
     walk(tree, 0);
     return result;
-  }, [tree, expanded, matchingPaths]);
+  }, [tree, expanded, matchingPaths, toggle]);
+
+  // Save metadata callbacks — passed to InlineMetadataCell renderers.
+  const handleEntityMeta = useCallback(async (rn: ResolvedNode, name: string, value: string | number | boolean) => {
+    try {
+      await saveEntityMeta(rn.service, rn.entityName, name, value);
+      onMetadataUpdated?.();
+    } catch (err) {
+      console.error('Failed to save entity metadata:', err);
+    }
+  }, [onMetadataUpdated]);
+
+  const handleAttrMeta = useCallback(async (n: TreeNode, name: string, value: string | number | boolean) => {
+    if (!n.ownerService || !n.ownerEntityName || !n.attribute) return;
+    try {
+      await saveAttrMeta(n.ownerService, n.ownerEntityName, n.attribute.name, name, value);
+      onMetadataUpdated?.();
+    } catch (err) {
+      console.error('Failed to save attribute metadata:', err);
+    }
+  }, [onMetadataUpdated]);
+
+  const columns: ColumnDef<TreeNode>[] = useMemo(() => {
+    const std: ColumnDef<TreeNode>[] = [
+      {
+        key: 'entity',
+        header: 'Entity / Attribute',
+        group: 'standard',
+        width: 300,
+        render: (n) => renderTreeLabel(n),
+      },
+      {
+        key: 'type',
+        header: 'Type',
+        group: 'standard',
+        width: 80,
+        render: (n) => n.kind === 'attribute' && n.attribute
+          ? <span className="mono" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{n.attribute.type}</span>
+          : null,
+      },
+      {
+        key: 'service',
+        header: 'Service',
+        group: 'standard',
+        width: 120,
+        render: (n) => n.kind === 'entity' && n.node
+          ? <Chip tone="neutral">{n.node.service}</Chip>
+          : null,
+      },
+      {
+        key: 'hops',
+        header: 'Hops',
+        group: 'standard',
+        width: 50,
+        align: 'center',
+        render: (n) => n.kind === 'entity' && n.node ? n.node.hopDistance : null,
+      },
+      {
+        key: 'status',
+        header: 'Status',
+        group: 'standard',
+        width: 100,
+        render: (n) => {
+          if (n.kind !== 'entity' || !n.node) return null;
+          const rn = n.node;
+          return (
+            <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
+              {rn.isRoot && <Chip tone="accent">root</Chip>}
+              {rn.isFrontier && <Chip tone="warning">frontier</Chip>}
+              {rn.isManualInclusion && <Chip tone="info">included</Chip>}
+            </span>
+          );
+        },
+      },
+    ];
+
+    const meta: ColumnDef<TreeNode>[] = activeMetaCols.map((col) => {
+      const colKey = `${col.target}:${col.name}`;
+      return {
+        key: colKey,
+        header: (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }} title={col.description}>
+            {col.label}
+            <Chip tone="neutral">{col.target === 'entity' ? 'E' : 'A'}</Chip>
+          </span>
+        ),
+        group: 'metadata',
+        width: 120,
+        render: (n) => {
+          // Only render the inline editor when the row's kind matches the
+          // column's target — opposite-target cells stay blank ("—").
+          if (col.target === 'entity' && n.kind === 'entity' && n.node) {
+            return (
+              <InlineMetadataCell
+                value={getMetaVal(n.node.metadata, col.name)}
+                column={col}
+                onChange={(v) => handleEntityMeta(n.node!, col.name, v)}
+              />
+            );
+          }
+          if (col.target === 'attribute' && n.kind === 'attribute' && n.attribute) {
+            return (
+              <InlineMetadataCell
+                value={getMetaVal(n.attribute.metadata, col.name)}
+                column={col}
+                onChange={(v) => handleAttrMeta(n, col.name, v)}
+              />
+            );
+          }
+          return <span style={{ color: 'var(--text-subtle)' }}>—</span>;
+        },
+      };
+    });
+
+    return [...std, ...meta];
+  }, [activeMetaCols, handleEntityMeta, handleAttrMeta]);
 
   return (
-    <div className="space-y-3">
-      {/* Toolbar */}
-      <Toolbar>
+    <div className="flex flex-col gap-2">
+      <Toolbar attached>
         <Input
           icon="search"
           size="sm"
@@ -340,17 +441,6 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
         />
         <Button size="sm" variant="ghost" onClick={expandAll}>Expand all</Button>
         <Button size="sm" variant="ghost" onClick={collapseAll}>Collapse all</Button>
-        <Button
-          size="sm"
-          variant={pinned ? 'primary' : 'ghost'}
-          onClick={togglePinned}
-          title={pinned ? 'Unfreeze header & first column' : 'Freeze header & first column'}
-        >
-          {pinned ? 'Frozen' : 'Freeze'}
-        </Button>
-        <Button size="sm" variant="ghost" onClick={resetWidths} title="Reset column widths">
-          Reset cols
-        </Button>
 
         <Toolbar.Spacer />
 
@@ -441,96 +531,65 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
         )}
       </Toolbar>
 
-      {/* Tree table */}
-      <div className={pinned ? 'overflow-auto max-h-[70vh] border border-base-300 rounded' : 'overflow-x-auto'}>
-        <table className="table table-sm" style={tableStyle}>
-          <thead>
-            <tr>
-              <th className={`${stickyCorner} relative`} style={{ width: widths.entity }}>
-                Entity / Attribute
-                <ResizeHandle onMouseDown={(e) => startResize('entity', e)} />
-              </th>
-              <th className={`${stickyHead} relative`} style={{ width: widths.type }}>
-                Type
-                <ResizeHandle onMouseDown={(e) => startResize('type', e)} />
-              </th>
-              <th className={`${stickyHead} relative`} style={{ width: widths.service }}>
-                Service
-                <ResizeHandle onMouseDown={(e) => startResize('service', e)} />
-              </th>
-              <th className={`${stickyHead} relative`} style={{ width: widths.hops }}>
-                Hops
-                <ResizeHandle onMouseDown={(e) => startResize('hops', e)} />
-              </th>
-              <th className={`${stickyHead} relative`} style={{ width: widths.status }}>
-                Status
-                <ResizeHandle onMouseDown={(e) => startResize('status', e)} />
-              </th>
-              {activeMetaCols.map(col => {
-                const colKey = `${col.target}:${col.name}`;
-                return (
-                  <th key={colKey} title={col.description} className={`${stickyHead} relative`} style={{ width: widths[colKey] }}>
-                    <span className="flex items-center gap-1">
-                      {col.label}
-                      <Chip tone="neutral">{col.target === 'entity' ? 'E' : 'A'}</Chip>
-                    </span>
-                    <ResizeHandle onMouseDown={(e) => startResize(colKey, e)} />
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(({ node: treeNode, indent, hasChildren, isExpanded }) => {
-              if (treeNode.kind === 'attribute') {
-                return (
-                  <AttributeRow
-                    key={treeNode.path}
-                    treeNode={treeNode}
-                    indent={indent}
-                    metaCols={activeMetaCols}
-                    onMetadataUpdated={onMetadataUpdated}
-                    firstColClass={stickyFirstCol}
-                  />
-                );
-              }
-              return (
-                <EntityRow
-                  key={treeNode.path}
-                  treeNode={treeNode}
-                  indent={indent}
-                  hasChildren={hasChildren}
-                  isExpanded={isExpanded}
-                  onToggle={() => toggle(treeNode.path)}
-                  metaCols={activeMetaCols}
-                  onMetadataUpdated={onMetadataUpdated}
-                  firstColClass={stickyFirstCol}
-                />
-              );
-            })}
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={5 + activeMetaCols.length} className="text-center text-base-content/50 py-8">
-                  {filter ? 'No matching entities found' : 'No resolved paths'}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <TreeTable<TreeNode>
+        columns={columns}
+        rows={treeRows}
+        getRowKey={(n) => n.path}
+        treeColumnKey="entity"
+        resizeKey="perspective-tree"
+        stickyHeader
+        stickyFirstColumn
+        attached
+        emptyMessage={filter ? 'No matching entities found' : 'No resolved paths'}
+      />
     </div>
   );
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// Row components
+// Cell renderers
 // ────────────────────────────────────────────────────────────────────────
 
 /**
- * Entity row. For non-roots, the nav prefix appears on the same line
- * as the entity name: `navName (1..*) → EntityName`. Roots render as a
- * plain entity name — no prefix.
+ * Tree column label — entity link with optional nav prefix, or attribute
+ * name with PK / required markers.
  */
+function renderTreeLabel(n: TreeNode): ReactNode {
+  if (n.kind === 'entity' && n.node) {
+    const rn = n.node;
+    const card = formatCardinality(rn.navCardinality);
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 'var(--fs-sm)' }}>
+        {rn.navName && (
+          <span style={{ color: 'var(--text-muted)' }}>
+            <span style={{ fontStyle: 'italic' }}>{rn.navName}</span>
+            {card && <span style={{ color: 'var(--text-subtle)', marginLeft: 4 }}>({card})</span>}
+            <span style={{ color: 'var(--text-subtle)', margin: '0 4px' }}>→</span>
+          </span>
+        )}
+        <Link
+          to={`/packages/${rn.service}/entities/${rn.entityName}`}
+          style={{ color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {rn.entityName}
+        </Link>
+      </span>
+    );
+  }
+  if (n.kind === 'attribute' && n.attribute) {
+    const attr = n.attribute;
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+        <span className="mono">{attr.name}</span>
+        {attr.primaryKey && <Chip tone="accent">PK</Chip>}
+        {attr.required && !attr.primaryKey && <Chip tone="neutral">required</Chip>}
+      </span>
+    );
+  }
+  return null;
+}
+
 /**
  * Lookup a metadata value from a raw MetadataEntry array.
  */
@@ -569,178 +628,6 @@ async function saveAttrMeta(
   if (!attr) return;
   attr.metadata = setMetadataValue(attr.metadata, metaName, value);
   await servicesApi.updateEntity(service, entityName, entity);
-}
-
-function EntityRow({
-  treeNode,
-  indent,
-  hasChildren,
-  isExpanded,
-  onToggle,
-  metaCols,
-  onMetadataUpdated,
-  firstColClass,
-}: {
-  treeNode: TreeNode;
-  indent: number;
-  hasChildren: boolean;
-  isExpanded: boolean;
-  onToggle: () => void;
-  metaCols: (MetadataColumn & { target: 'entity' | 'attribute' })[];
-  onMetadataUpdated?: () => void;
-  firstColClass?: string;
-}) {
-  const rn = treeNode.node!;
-  const card = formatCardinality(rn.navCardinality);
-  return (
-    <tr className="hover">
-      <td className={firstColClass}>
-        <div
-          className="flex items-center gap-1 text-sm"
-          style={{ paddingLeft: `${indent * 0.75}rem` }}
-        >
-          {hasChildren ? (
-            <button
-              type="button"
-              onClick={onToggle}
-              aria-label={isExpanded ? 'Collapse' : 'Expand'}
-              style={{
-                width: 20,
-                height: 20,
-                padding: 0,
-                background: 'transparent',
-                border: 'none',
-                cursor: 'pointer',
-                color: 'var(--text-muted)',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <svg
-                className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-          ) : (
-            <span className="w-5" />
-          )}
-
-          {rn.navName && (
-            <span className="text-base-content/60">
-              <span className="italic">{rn.navName}</span>
-              {card && <span className="text-base-content/40 ml-1">({card})</span>}
-              <span className="text-base-content/40 mx-1">→</span>
-            </span>
-          )}
-          <Link
-            to={`/packages/${rn.service}/entities/${rn.entityName}`}
-            className="link link-primary font-semibold"
-          >
-            {rn.entityName}
-          </Link>
-        </div>
-      </td>
-      <td />
-      <td>
-        <Chip tone="neutral">{rn.service}</Chip>
-      </td>
-      <td>{rn.hopDistance}</td>
-      <td style={{ display: 'flex', gap: 4 }}>
-        {rn.isRoot && <Chip tone="accent">root</Chip>}
-        {rn.isFrontier && <Chip tone="warning">frontier</Chip>}
-        {rn.isManualInclusion && <Chip tone="info">included</Chip>}
-      </td>
-      {metaCols.map(col => {
-        if (col.target !== 'entity') {
-          return <td key={`${col.target}:${col.name}`} className="text-base-content/20 text-center">—</td>;
-        }
-        return (
-          <td key={`${col.target}:${col.name}`}>
-            <InlineMetadataCell
-              value={getMetaVal(rn.metadata, col.name)}
-              column={col}
-              onChange={async (v) => {
-                try {
-                  await saveEntityMeta(rn.service, rn.entityName, col.name, v);
-                  onMetadataUpdated?.();
-                } catch (err) {
-                  console.error('Failed to save entity metadata:', err);
-                }
-              }}
-            />
-          </td>
-        );
-      })}
-    </tr>
-  );
-}
-
-/**
- * Attribute leaf row. No expand chevron, no entity link — just name ·
- * type with PK / required markers.
- */
-function AttributeRow({
-  treeNode,
-  indent,
-  metaCols,
-  onMetadataUpdated,
-  firstColClass,
-}: {
-  treeNode: TreeNode;
-  indent: number;
-  metaCols: (MetadataColumn & { target: 'entity' | 'attribute' })[];
-  onMetadataUpdated?: () => void;
-  firstColClass?: string;
-}) {
-  const attr = treeNode.attribute!;
-  return (
-    <tr className="hover">
-      <td className={firstColClass}>
-        <div
-          className="flex items-center gap-1 text-xs text-base-content/80"
-          style={{ paddingLeft: `${indent * 0.75 + 0.25}rem` }}
-        >
-          <span className="w-5 text-base-content/30">·</span>
-          <span className="font-mono">{attr.name}</span>
-          {attr.primaryKey && <span style={{ marginLeft: 4 }}><Chip tone="accent">PK</Chip></span>}
-          {attr.required && !attr.primaryKey && (
-            <span style={{ marginLeft: 4 }}><Chip tone="neutral">required</Chip></span>
-          )}
-        </div>
-      </td>
-      <td className="text-xs font-mono text-base-content/60">{attr.type}</td>
-      <td />
-      <td />
-      <td />
-      {metaCols.map(col => {
-        if (col.target !== 'attribute') {
-          return <td key={`${col.target}:${col.name}`} className="text-base-content/20 text-center">—</td>;
-        }
-        return (
-          <td key={`${col.target}:${col.name}`}>
-            <InlineMetadataCell
-              value={getMetaVal(attr.metadata, col.name)}
-              column={col}
-              onChange={async (v) => {
-                if (!treeNode.ownerService || !treeNode.ownerEntityName) return;
-                try {
-                  await saveAttrMeta(treeNode.ownerService, treeNode.ownerEntityName, attr.name, col.name, v);
-                  onMetadataUpdated?.();
-                } catch (err) {
-                  console.error('Failed to save attribute metadata:', err);
-                }
-              }}
-            />
-          </td>
-        );
-      })}
-    </tr>
-  );
 }
 
 // ──────────────── Column-chooser helpers ────────────────

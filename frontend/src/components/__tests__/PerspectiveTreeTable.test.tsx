@@ -72,15 +72,15 @@ describe('PerspectiveTreeTable — hierarchy', () => {
     expect(screen.getByRole('link', { name: 'Quote' })).toBeInTheDocument();
 
     // Non-root rows carry the inline nav prefix ("navName (card) →").
-    const itemRow = screen.getByRole('link', { name: 'OrderItem' }).closest('tr')!;
+    const itemRow = screen.getByRole('link', { name: 'OrderItem' }).closest('[role="row"]') as HTMLElement;
     expect(within(itemRow).getByText('items')).toBeInTheDocument();
     expect(within(itemRow).getByText('(1..*)')).toBeInTheDocument();
-    const quoteRow = screen.getByRole('link', { name: 'Quote' }).closest('tr')!;
+    const quoteRow = screen.getByRole('link', { name: 'Quote' }).closest('[role="row"]') as HTMLElement;
     expect(within(quoteRow).getByText('generatedFrom')).toBeInTheDocument();
     expect(within(quoteRow).getByText('(1..1)')).toBeInTheDocument();
 
     // Root row has no nav prefix text.
-    const orderRow = screen.getByRole('link', { name: 'Order' }).closest('tr')!;
+    const orderRow = screen.getByRole('link', { name: 'Order' }).closest('[role="row"]') as HTMLElement;
     expect(orderRow.textContent).not.toMatch(/\(\d\.\.[\d*]\)/);
   });
 
@@ -109,8 +109,11 @@ describe('PerspectiveTreeTable — hierarchy', () => {
 
     const indent = (name: string) => {
       const link = screen.getByRole('link', { name });
+      // Walk up to the row-cell wrapper, scanning every ancestor's
+      // inline padding-left for the indent value (set on the indent
+      // wrapper inside the tree-column cell).
       let el: HTMLElement | null = link;
-      while (el && el.tagName !== 'TD') {
+      while (el && el.getAttribute('role') !== 'row') {
         const pad = el.getAttribute('style') || '';
         const m = /padding-left:\s*([0-9.]+)rem/.exec(pad);
         if (m) return parseFloat(m[1]);
@@ -151,7 +154,7 @@ describe('PerspectiveTreeTable — attribute expansion', () => {
     expect(screen.queryByText('sku')).not.toBeInTheDocument();
 
     // Click the expand chevron on the Product row.
-    const productRow = screen.getByRole('link', { name: 'Product' }).closest('tr')!;
+    const productRow = screen.getByRole('link', { name: 'Product' }).closest('[role="row"]') as HTMLElement;
     const chevron = within(productRow).getByRole('button', { name: /Expand/i });
     await userEvent.click(chevron);
 
@@ -161,9 +164,9 @@ describe('PerspectiveTreeTable — attribute expansion', () => {
     expect(screen.getByText('price')).toBeInTheDocument();
 
     // PK badge on the id row, `required` on the sku row.
-    const idRow = screen.getByText('id').closest('tr')!;
+    const idRow = screen.getByText('id').closest('[role="row"]') as HTMLElement;
     expect(within(idRow).getByText('PK')).toBeInTheDocument();
-    const skuRow = screen.getByText('sku').closest('tr')!;
+    const skuRow = screen.getByText('sku').closest('[role="row"]') as HTMLElement;
     expect(within(skuRow).getByText('required')).toBeInTheDocument();
     // Type columns populate
     expect(within(idRow).getByText('uuid')).toBeInTheDocument();

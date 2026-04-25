@@ -11,7 +11,8 @@ export type SortDir = 'asc' | 'desc';
 
 export interface ColumnDef<Row> {
   key: string;
-  header: string;
+  /** Header text. Accepts ReactNode so consumers can add chips/icons. */
+  header: ReactNode;
   /** Which side of the standard/metadata split this column lives on. Defaults to 'standard'. */
   group?: ColumnGroup;
   /** CSS width — number (px) or explicit string (e.g. '1fr', '160px'). */

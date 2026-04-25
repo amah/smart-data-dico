@@ -763,7 +763,7 @@ function FilterCell<Row>({ col, value, onChange, meta, metaFirst, stickyTop, sti
     <div role="cell" style={baseStyle}>
       <input
         type="text"
-        placeholder={`filter ${col.header.toLowerCase()}…`}
+        placeholder={`filter ${typeof col.header === 'string' ? col.header.toLowerCase() : col.key}…`}
         value={value}
         onChange={e => onChange(e.target.value)}
         style={{
