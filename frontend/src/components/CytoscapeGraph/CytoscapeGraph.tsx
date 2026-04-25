@@ -66,7 +66,7 @@ export default function CytoscapeGraph({
   );
 
   // Create Cytoscape instance
-  const cyRef = useCytoscapeInstance(containerRef, elements, stylesheet);
+  const { cyRef, cy } = useCytoscapeInstance(containerRef, elements, stylesheet);
 
   // Re-apply styles when cyRef changes (for theme sync)
   useCytoscapeStyles(cyRef, services);
@@ -90,9 +90,10 @@ export default function CytoscapeGraph({
     [navigate],
   );
 
-  // Interactions — default tap navigates; Alt/Option click opens info panel
+  // Interactions — default tap navigates; Alt/Option click opens info panel.
+  // Pass `cy` (state) so the hook re-runs when the instance is created.
   const { tooltip, infoPanel, setInfoPanel, applySearchFilter } =
-    useCytoscapeInteractions(cyRef, handleNodeClick);
+    useCytoscapeInteractions(cy, handleNodeClick);
 
   // Case overlay (renamed from perspective in #121)
   useCytoscapeCaseOverlay(cyRef, caseId);

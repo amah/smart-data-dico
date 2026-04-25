@@ -12,14 +12,13 @@ interface InteractionState {
 }
 
 export function useCytoscapeInteractions(
-  cyRef: React.RefObject<Core | null>,
+  cy: Core | null,
   onNodeClick?: (service: string, entityName: string) => void,
 ): InteractionState {
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
   const [infoPanel, setInfoPanel] = useState<InfoPanelData | null>(null);
 
   useEffect(() => {
-    const cy = cyRef.current;
     if (!cy) return;
 
     // Node hover - tooltip + hover class for styling
@@ -139,11 +138,10 @@ export function useCytoscapeInteractions(
       cy.off('zoom', onZoom);
       if (zoomTimer) clearTimeout(zoomTimer);
     };
-  }, [cyRef, onNodeClick]);
+  }, [cy, onNodeClick]);
 
   const applySearchFilter = useCallback(
     (query: string) => {
-      const cy = cyRef.current;
       if (!cy) return;
 
       if (!query.trim()) {
@@ -164,16 +162,15 @@ export function useCytoscapeInteractions(
         matches.neighborhood('node').removeClass('dimmed');
       });
     },
-    [cyRef],
+    [cy],
   );
 
   const toggleNodeExpansion = useCallback(
     (nodeId: string) => {
-      const cy = cyRef.current;
       if (!cy) return;
       toggleNodeExpansionInternal(cy, nodeId);
     },
-    [cyRef],
+    [cy],
   );
 
   return { tooltip, infoPanel, setInfoPanel, applySearchFilter, toggleNodeExpansion };

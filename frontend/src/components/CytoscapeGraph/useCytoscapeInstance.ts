@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import cytoscape, { type Core, type ElementDefinition, type StylesheetStyle } from 'cytoscape';
 // @ts-expect-error - no types for cytoscape-dagre
 import dagre from 'cytoscape-dagre';
@@ -26,6 +26,9 @@ export function useCytoscapeInstance(
   stylesheet: StylesheetStyle[],
 ) {
   const cyRef = useRef<Core | null>(null);
+  // State mirror of cyRef so consumer hooks (useCytoscapeInteractions, etc.)
+  // can re-run their effects once the instance is ready.
+  const [cy, setCy] = useState<Core | null>(null);
 
   useEffect(() => {
     registerExtensions();
@@ -38,11 +41,12 @@ export function useCytoscapeInstance(
     if (cyRef.current) {
       cyRef.current.destroy();
       cyRef.current = null;
+      setCy(null);
     }
 
     if (elements.length === 0) return;
 
-    const cy = cytoscape({
+    const instance = cytoscape({
       container: containerRef.current,
       elements,
       style: stylesheet,
@@ -53,13 +57,15 @@ export function useCytoscapeInstance(
       boxSelectionEnabled: false,
     });
 
-    cyRef.current = cy;
+    cyRef.current = instance;
+    setCy(instance);
 
     return () => {
-      cy.destroy();
+      instance.destroy();
       cyRef.current = null;
+      setCy(null);
     };
   }, [containerRef, elements, stylesheet]);
 
-  return cyRef;
+  return { cyRef, cy };
 }

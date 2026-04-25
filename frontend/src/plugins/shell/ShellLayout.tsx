@@ -11,6 +11,7 @@ import Navbar from '../../components/Navbar';
 import Sidebar from '../../components/Sidebar';
 import Breadcrumbs from '../../components/Breadcrumbs';
 import Footer from '../../components/Footer';
+import { usePageHeaderMounted } from '../../components/ui/PageHeader';
 import { useKeyboardShortcuts, useKeyboardShortcutsEnabled } from '../../hooks/useKeyboardShortcuts';
 import KeyboardShortcutsModal from '../../components/KeyboardShortcutsModal';
 import AIChatPanel from '../../components/AIChatPanel';
@@ -21,6 +22,7 @@ const ShellLayout: React.FC = () => {
   const { enabled: shortcutsEnabled } = useKeyboardShortcutsEnabled();
   const { showHelp, setShowHelp, gPending } = useKeyboardShortcuts(shortcutsEnabled);
   const [chatOpen, setChatOpen] = useState(false);
+  const pageHasOwnHeader = usePageHeaderMounted();
 
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
   const toggleCollapse = () => setSidebarCollapsed(!sidebarCollapsed);
@@ -64,7 +66,7 @@ const ShellLayout: React.FC = () => {
 
         {/* Main content slot */}
         <main className="flex-1 overflow-auto flex flex-col px-4 md:px-5 py-2">
-          <Breadcrumbs />
+          {!pageHasOwnHeader && <Breadcrumbs />}
           <div className="flex-1 min-h-0 flex flex-col mt-1">
             <Outlet />
           </div>
