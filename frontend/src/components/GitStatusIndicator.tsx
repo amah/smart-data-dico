@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { gitApi } from '../services/api';
+import { Button, Chip, Icon, Menu } from './ui';
 
 interface GitStatus {
   branch?: string;
@@ -10,9 +11,15 @@ interface GitStatus {
   files?: { path: string; status: string }[];
 }
 
+/**
+ * Top-bar workspace / git status pill. Shows the current branch + a
+ * tri-state indicator (clean / unsaved / ahead / behind) and opens a
+ * Menu with Save / Publish / Sync / workspace links.
+ *
+ * See /design-system → Menu, Chip.
+ */
 export default function GitStatusIndicator() {
   const [status, setStatus] = useState<GitStatus | null>(null);
-  const [open, setOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
   const fetchStatus = async () => {
@@ -40,97 +47,134 @@ export default function GitStatusIndicator() {
 
   const handlePull = async () => {
     setSyncing(true);
-    try { await gitApi.pull(); fetchStatus(); } catch {} finally { setSyncing(false); }
+    try { await gitApi.pull(); fetchStatus(); } catch { /* ignore */ } finally { setSyncing(false); }
   };
 
   const handlePush = async () => {
     setSyncing(true);
-    try { await gitApi.push(); fetchStatus(); } catch {} finally { setSyncing(false); }
+    try { await gitApi.push(); fetchStatus(); } catch { /* ignore */ } finally { setSyncing(false); }
   };
 
   if (!status) return null;
 
   const unsavedCount = status.files?.length || 0;
-  const isClean = !status.hasUncommittedChanges && status.ahead === 0 && status.behind === 0;
+  const ahead = status.ahead || 0;
+  const behind = status.behind || 0;
+  const isClean = !status.hasUncommittedChanges && ahead === 0 && behind === 0;
+
+  const titleParts: string[] = [`Workspace: ${status.branch || 'main'}`];
+  if (unsavedCount > 0) titleParts.push(`${unsavedCount} unsaved`);
+  if (ahead > 0) titleParts.push(`↑${ahead} ahead of shared`);
+  if (behind > 0) titleParts.push(`↓${behind} updates available`);
+  if (isClean) titleParts.push('clean');
+  const triggerTitle = titleParts.join(' · ');
 
   return (
-    <div className="dropdown dropdown-end">
-      <button
-        className="btn btn-ghost btn-sm gap-1 text-primary-content"
-        onClick={() => setOpen(!open)}
-        title={(() => {
-          const parts: string[] = [`Workspace: ${status.branch || 'main'}`];
-          if (unsavedCount > 0) parts.push(`${unsavedCount} unsaved`);
-          if ((status.ahead || 0) > 0) parts.push(`↑${status.ahead} ahead of shared`);
-          if ((status.behind || 0) > 0) parts.push(`↓${status.behind} updates available`);
-          if (isClean) parts.push('clean');
-          return parts.join(' · ');
-        })()}
-      >
-        {/* Branch icon */}
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-          <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-        </svg>
-        <span className="text-xs font-mono">{status.branch || 'main'}</span>
-
-        {/* Status indicator */}
-        {isClean ? (
-          <span className="text-success text-xs">&#10003;</span>
-        ) : (
-          <span className="flex gap-0.5">
-            {unsavedCount > 0 && <span className="badge badge-xs badge-warning">{unsavedCount}</span>}
-            {(status.ahead || 0) > 0 && <span className="badge badge-xs badge-info">&uarr;{status.ahead}</span>}
-            {(status.behind || 0) > 0 && <span className="badge badge-xs badge-error">&darr;{status.behind}</span>}
+    <Menu
+      align="end"
+      width={260}
+      trigger={({ open, toggle }) => (
+        <button
+          type="button"
+          onClick={toggle}
+          aria-pressed={open}
+          title={triggerTitle}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '4px 8px',
+            height: 28,
+            background: open ? 'var(--bg-active)' : 'transparent',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-sm)',
+            color: 'var(--text-muted)',
+            cursor: 'pointer',
+            fontSize: 'var(--fs-sm)',
+          }}
+          onMouseEnter={e => { if (!open) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+          onMouseLeave={e => { if (!open) e.currentTarget.style.background = 'transparent'; }}
+        >
+          <Icon name="branch" size={13} />
+          <span className="mono" style={{ color: 'var(--text)', fontSize: 'var(--fs-xs)' }}>
+            {status.branch || 'main'}
           </span>
-        )}
-      </button>
+          {isClean ? (
+            <Icon name="check" size={12} style={{ color: 'var(--success)' }} />
+          ) : (
+            <span style={{ display: 'inline-flex', gap: 3 }}>
+              {unsavedCount > 0 && <Chip tone="warning" soft>{unsavedCount}</Chip>}
+              {ahead > 0 && <Chip tone="info" soft>↑{ahead}</Chip>}
+              {behind > 0 && <Chip tone="danger" soft>↓{behind}</Chip>}
+            </span>
+          )}
+        </button>
+      )}
+    >
+      {({ close }) => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--text)' }}>
+            Workspace:{' '}
+            <span className="mono" style={{ color: 'var(--text-muted)' }}>{status.branch}</span>
+          </div>
 
-      {open && (
-        <div className="dropdown-content z-50 bg-base-200 rounded-box shadow-lg p-3 w-64 mt-1">
-          <div className="text-sm font-semibold mb-2">Workspace: {status.branch}</div>
-
-          <div className="space-y-1 text-xs mb-3">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 'var(--fs-xs)' }}>
             {unsavedCount > 0 && (
-              <div className="text-warning">{unsavedCount} unsaved change{unsavedCount > 1 ? 's' : ''}</div>
+              <span style={{ color: 'var(--warning)' }}>
+                {unsavedCount} unsaved change{unsavedCount > 1 ? 's' : ''}
+              </span>
             )}
-            {(status.ahead || 0) > 0 && (
-              <div className="text-info">{status.ahead} save{status.ahead! > 1 ? 's' : ''} ahead of shared</div>
+            {ahead > 0 && (
+              <span style={{ color: 'var(--accent)' }}>
+                {ahead} save{ahead > 1 ? 's' : ''} ahead of shared
+              </span>
             )}
-            {(status.behind || 0) > 0 && (
-              <div className="text-error">{status.behind} update{status.behind! > 1 ? 's' : ''} available</div>
+            {behind > 0 && (
+              <span style={{ color: 'var(--danger)' }}>
+                {behind} update{behind > 1 ? 's' : ''} available
+              </span>
             )}
-            {isClean && <div className="text-success">Up to date</div>}
+            {isClean && <span style={{ color: 'var(--success)' }}>Up to date</span>}
           </div>
 
-          <div className="flex gap-1">
-            <Link to="/version/save" className="btn btn-xs btn-primary flex-1" onClick={() => setOpen(false)}>
-              Save
+          <div style={{ display: 'flex', gap: 4 }}>
+            <Link to="/version/save" onClick={close} style={{ flex: 1 }}>
+              <Button size="sm" variant="primary" icon="check" style={{ width: '100%' }}>Save</Button>
             </Link>
-            <button className="btn btn-xs btn-outline flex-1" onClick={handlePush} disabled={syncing}>
-              {syncing ? <span className="loading loading-spinner loading-xs" /> : 'Publish'}
-            </button>
-            <button className="btn btn-xs btn-ghost flex-1" onClick={handlePull} disabled={syncing}>
+            <Button size="sm" variant="secondary" onClick={handlePush} disabled={syncing} style={{ flex: 1 }}>
+              {syncing ? '…' : 'Publish'}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={handlePull} disabled={syncing} style={{ flex: 1 }}>
               Sync
-            </button>
+            </Button>
           </div>
 
-          <div className="divider my-1" />
-          <div className="flex flex-col gap-1">
-            <Link to="/version/save" className="btn btn-xs btn-ghost justify-start" onClick={() => setOpen(false)}>
-              Save & Publish
-            </Link>
-            <Link to="/version/workspaces" className="btn btn-xs btn-ghost justify-start" onClick={() => setOpen(false)}>
-              Workspaces
-            </Link>
-            <Link to="/version/merge" className="btn btn-xs btn-ghost justify-start" onClick={() => setOpen(false)}>
-              Merge
-            </Link>
-            <Link to="/version/history" className="btn btn-xs btn-ghost justify-start" onClick={() => setOpen(false)}>
-              History
-            </Link>
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <MenuLink to="/version/save" onClick={close}>Save &amp; Publish</MenuLink>
+            <MenuLink to="/version/workspaces" onClick={close}>Workspaces</MenuLink>
+            <MenuLink to="/version/merge" onClick={close}>Merge</MenuLink>
+            <MenuLink to="/version/history" onClick={close}>History</MenuLink>
           </div>
         </div>
       )}
-    </div>
+    </Menu>
   );
 }
+
+const MenuLink = ({ to, onClick, children }: { to: string; onClick: () => void; children: React.ReactNode }) => (
+  <Link
+    to={to}
+    onClick={onClick}
+    style={{
+      padding: '4px 8px',
+      fontSize: 'var(--fs-sm)',
+      color: 'var(--text)',
+      textDecoration: 'none',
+      borderRadius: 'var(--radius-sm)',
+    }}
+    onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+  >
+    {children}
+  </Link>
+);
