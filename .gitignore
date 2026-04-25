@@ -41,3 +41,6 @@ coverage/
 # Misc
 .cache/
 .temp/
+
+# MCP tool working dirs
+.playwright-mcp/
