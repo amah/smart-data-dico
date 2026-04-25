@@ -6,7 +6,19 @@
  * one line by default and expanded on click.
  */
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
+
+// Module-level subscription so <Layout> can hide its global breadcrumb
+// while a <PageHeader> is mounted (avoiding the duplicate-breadcrumb stack).
+let mountCount = 0;
+const listeners = new Set<() => void>();
+const subscribe = (cb: () => void) => {
+  listeners.add(cb);
+  return () => { listeners.delete(cb); };
+};
+const getSnapshot = () => mountCount;
+export const usePageHeaderMounted = () =>
+  useSyncExternalStore(subscribe, getSnapshot, getSnapshot) > 0;
 
 export interface PageHeaderProps {
   breadcrumb: ReactNode;
@@ -24,6 +36,15 @@ const PageHeader = ({
   className = '',
 }: PageHeaderProps) => {
   const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    mountCount++;
+    listeners.forEach(cb => cb());
+    return () => {
+      mountCount--;
+      listeners.forEach(cb => cb());
+    };
+  }, []);
 
   return (
     <div className={className} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>

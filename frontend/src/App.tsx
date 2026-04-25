@@ -47,7 +47,14 @@ import OrganizationDiagramPage from './pages/OrganizationDiagramPage';
 // Auth Guard Component
 import AuthGuard from './components/AuthGuard';
 import { useAppMode } from './hooks/useAppMode';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useParams } from 'react-router-dom';
+
+// Preserves the splat so /perspectives/<uuid>/edit → /cases/<uuid>/edit, etc.
+function LegacyPerspectiveRedirect() {
+  const params = useParams<{ '*': string }>();
+  const rest = params['*'] || '';
+  return <Navigate to={`/cases${rest ? '/' + rest : ''}`} replace />;
+}
 
 function App() {
   const { mode } = useAppMode();
@@ -89,7 +96,7 @@ function App() {
 
         {/* Legacy /perspectives/* — redirects to /cases/* for one release */}
         <Route path="perspectives" element={<Navigate to="/cases" replace />} />
-        <Route path="perspectives/*" element={<Navigate to="/cases" replace />} />
+        <Route path="perspectives/*" element={<LegacyPerspectiveRedirect />} />
 
         {/* Organization Diagram */}
         <Route path="diagram" element={<OrganizationDiagramPage />} />

@@ -4,9 +4,11 @@ import Navbar from './Navbar';
 import Footer from './Footer';
 import Sidebar from './Sidebar';
 import Breadcrumbs from './Breadcrumbs';
+import { usePageHeaderMounted } from './ui/PageHeader';
 
 const Layout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const pageHasOwnHeader = usePageHeaderMounted();
 
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);
@@ -31,10 +33,12 @@ const Layout = () => {
         
         {/* Main content */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Breadcrumbs — compact strip */}
-          <div className="bg-base-200 px-4 py-1">
-            <Breadcrumbs />
-          </div>
+          {/* Breadcrumbs — compact strip; hidden when the page owns a PageHeader */}
+          {!pageHasOwnHeader && (
+            <div className="bg-base-200 px-4 py-1">
+              <Breadcrumbs />
+            </div>
+          )}
 
           {/* Page content */}
           <main className="flex-1 overflow-auto px-4 md:px-5 py-2">
