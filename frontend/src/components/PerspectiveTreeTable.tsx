@@ -7,7 +7,7 @@ import InlineMetadataCell from './InlineMetadataCell';
 import { servicesApi } from '../services/api';
 import type { Entity, Attribute } from '../types';
 import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
-import { Button, Chip, Input, Menu, Toolbar, TreeTable } from './ui';
+import { Button, Chip, Input, Menu, Toolbar, TreeTable, resetTreeTableWidths } from './ui';
 import type { ColumnDef, TreeTableRow } from './ui';
 
 // ────────────────────────────────────────────────────────────────────────
@@ -441,6 +441,14 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
         />
         <Button size="sm" variant="ghost" onClick={expandAll}>Expand all</Button>
         <Button size="sm" variant="ghost" onClick={collapseAll}>Collapse all</Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => resetTreeTableWidths('perspective-tree')}
+          title="Reset column widths"
+        >
+          Reset cols
+        </Button>
 
         <Toolbar.Spacer />
 

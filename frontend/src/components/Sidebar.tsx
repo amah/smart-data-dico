@@ -192,7 +192,7 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
       )}
 
       <NavItem to="/types"         icon="rows"    active={isActive('/types')}>Data Types</NavItem>
-      <NavItem to="/design-system" icon="sparkle" active={isActive('/design-system')}>Design system</NavItem>
+      <NavItem to="/design-system" icon="layers" active={isActive('/design-system')}>Design system</NavItem>
       <NavItem to="/settings"      icon="gear"    active={isActive('/settings')}>Settings</NavItem>
     </aside>
   );

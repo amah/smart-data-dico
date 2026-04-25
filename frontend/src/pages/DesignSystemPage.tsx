@@ -11,7 +11,7 @@
  * Visit /design-system.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Chip,
   TypeChip,
@@ -225,12 +225,25 @@ const DesignSystemPage = () => {
   const { density, setDensity } = usePrefs();
   // Variant is scoped to this page's subtree via data-variant on the
   // wrapper div — the shell plugin owns the global variant on <html>, so
-  // mutating that here would just race with its watcher. Token rules in
-  // tokens.css match any element carrying data-variant, so the scoped
-  // attribute cascades through all primitives below.
+  // mutating that here would race with its watcher. We also mirror
+  // <html>'s data-theme onto the wrapper because the token rules match
+  // [data-variant=*][data-theme=*] together; without both attributes on
+  // the same element the wrapper would always render the light pair.
   const [variant, setVariant] = useState<Variant>(() => {
     return (document.documentElement.getAttribute('data-variant') as Variant) || 'calm';
   });
+  const [theme, setTheme] = useState<string>(() =>
+    document.documentElement.getAttribute('data-theme') || 'light'
+  );
+
+  useEffect(() => {
+    const obs = new MutationObserver(() => {
+      const t = document.documentElement.getAttribute('data-theme') || 'light';
+      setTheme(t);
+    });
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => obs.disconnect();
+  }, []);
 
   // DataTable demo
   const [visibleCols, setVisibleCols] = useState(new Set(ATTR_COLUMNS.map(c => c.key)));
@@ -291,6 +304,7 @@ const DesignSystemPage = () => {
   return (
     <div
       data-variant={variant}
+      data-theme={theme}
       style={{
         padding: 24,
         background: 'var(--bg)',
