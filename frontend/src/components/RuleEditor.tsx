@@ -12,6 +12,7 @@ import type {
   Stereotype,
   StereotypeTarget,
 } from '../types';
+import { Button, Field, fieldStyle, Modal } from './ui';
 
 interface RuleEditorProps {
   /** Rule to edit, or null to create a new one */
@@ -194,236 +195,296 @@ const RuleEditor = ({ rule, onClose, onSaved }: RuleEditorProps) => {
   const currentPackage = packages.find(p => p.name === packageName);
   const entitiesInPackage = currentPackage?.entities || [];
 
+  const textareaStyle = {
+    ...fieldStyle,
+    height: 'auto',
+    minHeight: 120,
+    padding: '8px 10px',
+    fontFamily: 'var(--font-mono)',
+    resize: 'vertical' as const,
+  };
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-base-100 p-6 rounded-lg shadow-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold">{isNew ? 'New Rule' : `Edit Rule: ${rule?.name}`}</h2>
-          <button className="btn btn-sm btn-ghost btn-circle" onClick={onClose} aria-label="Close">✕</button>
-        </div>
+    <Modal
+      open
+      title={isNew ? 'New Rule' : `Edit Rule: ${rule?.name}`}
+      onClose={onClose}
+      width={900}
+    >
+      {error && <ErrorPane>{error}</ErrorPane>}
 
-        {error && <div className="alert alert-error mb-4">{error}</div>}
-
-        {/* Name + severity + enforcement + scope */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
-          <div className="form-control">
-            <label className="label py-1"><span className="label-text">Name (kebab-case)</span></label>
-            <input
-              type="text"
-              className="input input-sm input-bordered"
-              placeholder="e.g. email-format"
-              value={name}
-              onChange={e => setName(e.target.value)}
-            />
-          </div>
-          <div className="form-control">
-            <label className="label py-1"><span className="label-text">Severity</span></label>
-            <select
-              className="select select-sm select-bordered"
-              value={severity}
-              onChange={e => setSeverity(e.target.value as RuleSeverityValue)}
-            >
-              <option value="info">Info</option>
-              <option value="warning">Warning</option>
-              <option value="error">Error</option>
-            </select>
-          </div>
-          <div className="form-control">
-            <label className="label py-1">
-              <span className="label-text">Enforcement</span>
-            </label>
-            <select
-              className="select select-sm select-bordered"
-              value={enforcement}
-              onChange={e => setEnforcement(e.target.value as RuleEnforcement)}
-              title="When the rule is checked (decoupled from severity)"
-            >
-              <option value="advisory">Advisory (review only)</option>
-              <option value="save">Save (blocks save on violation)</option>
-              <option value="process">Process gate (transition)</option>
-            </select>
-          </div>
-          <div className="form-control">
-            <label className="label py-1"><span className="label-text">Scope</span></label>
-            <select
-              className="select select-sm select-bordered"
-              value={scope}
-              onChange={e => setScope(e.target.value as RuleScope)}
-            >
-              <option value="entity">Entity (within a single entity)</option>
-              <option value="package">Package (within a package)</option>
-              <option value="perspective">Perspective</option>
-              <option value="global">Global (cross-package)</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Global scope banner (#75) */}
-        {scope === 'global' && (
-          <div className="alert alert-warning py-2 text-sm mb-3">
-            Global rules are stored at the project root as <code>rules.yaml</code> and reviewed by everyone.
-            Use a package-local rule unless the rule truly crosses package boundaries.
-          </div>
-        )}
-
-        {/* Target picker */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-          {(scope === 'entity' || scope === 'package' || scope === 'global') && (
-            <div className="form-control">
-              <label className="label py-1"><span className="label-text">Package</span></label>
-              <select
-                className="select select-sm select-bordered"
-                value={packageName}
-                onChange={e => {
-                  setPackageName(e.target.value);
-                  setEntityUuid('');
-                }}
-              >
-                <option value="">Select a package…</option>
-                {packages.map(p => (
-                  <option key={p.id} value={p.name}>{p.name}</option>
-                ))}
-              </select>
-            </div>
-          )}
-          {scope === 'entity' && (
-            <div className="form-control">
-              <label className="label py-1"><span className="label-text">Entity</span></label>
-              <select
-                className="select select-sm select-bordered"
-                value={entityUuid}
-                onChange={e => setEntityUuid(e.target.value)}
-                disabled={!packageName}
-              >
-                <option value="">Select an entity…</option>
-                {entitiesInPackage.map(e => (
-                  <option key={e.uuid} value={e.uuid}>{e.name}</option>
-                ))}
-              </select>
-            </div>
-          )}
-        </div>
-
-        {/* Process-stage picker (#76 C7) — only when enforcement is 'process' */}
-        {enforcement === 'process' && (
-          <div className="border border-warning/40 rounded-lg p-3 mb-3 bg-warning/5">
-            <div className="text-xs text-base-content/70 mb-2">
-              Process-enforcement rules fire when a node's metadata field changes.
-              Pick the field to gate, and optionally a target value at which the
-              rule must pass.
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="form-control">
-                <label className="label py-1">
-                  <span className="label-text">Process stage field</span>
-                </label>
-                {stageFieldOptions.length > 0 ? (
-                  <select
-                    className="select select-sm select-bordered"
-                    value={stageField}
-                    onChange={e => setStageField(e.target.value)}
-                  >
-                    <option value="">Select a metadata field…</option>
-                    {stageFieldOptions.map(opt => (
-                      <option key={opt.name} value={opt.name}>
-                        {opt.name} (from {opt.stereotypeName})
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    type="text"
-                    className="input input-sm input-bordered"
-                    placeholder="e.g. lifecycle-stage"
-                    value={stageField}
-                    onChange={e => setStageField(e.target.value)}
-                  />
-                )}
-                {stageFieldOptions.length === 0 && (
-                  <span className="label-text-alt text-warning mt-1">
-                    No stereotype metadata fields found for this scope. Free-text accepted.
-                  </span>
-                )}
-              </div>
-              <div className="form-control">
-                <label className="label py-1">
-                  <span className="label-text">Target value (optional)</span>
-                </label>
-                <input
-                  type="text"
-                  className="input input-sm input-bordered"
-                  placeholder="e.g. approved"
-                  value={stageValue}
-                  onChange={e => setStageValue(e.target.value)}
-                />
-                <span className="label-text-alt text-base-content/50 mt-1">
-                  If empty, the rule fires on any change to the field.
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Description / markdown editor */}
-        <div className="form-control mb-3">
-          <div className="flex items-center justify-between">
-            <label className="label py-1"><span className="label-text">Description (markdown)</span></label>
-            <button
-              type="button"
-              className="btn btn-xs btn-ghost"
-              onClick={() => setShowPreview(!showPreview)}
-            >
-              {showPreview ? 'Edit' : 'Preview'}
-            </button>
-          </div>
-          {showPreview ? (
-            <div className="border border-base-300 rounded-lg p-3 min-h-[120px] prose prose-sm prose-invert max-w-none">
-              <Markdown>{description || '*(empty)*'}</Markdown>
-            </div>
-          ) : (
-            <textarea
-              className="textarea textarea-bordered font-mono text-sm"
-              rows={6}
-              placeholder="Describe the rule in markdown. e.g.&#10;&#10;## Email format&#10;Must match RFC 5322. Violations indicate a data-import bug."
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-            />
-          )}
-        </div>
-
-        {/* Tags */}
-        <div className="form-control mb-3">
-          <label className="label py-1"><span className="label-text">Tags (comma-separated)</span></label>
+      {/* Name + severity + enforcement + scope */}
+      <FieldGrid columns={4}>
+        <Field label="Name (kebab-case)">
           <input
             type="text"
-            className="input input-sm input-bordered"
-            placeholder="e.g. data-quality, pii, referential-integrity"
-            value={tagsInput}
-            onChange={e => setTagsInput(e.target.value)}
+            placeholder="e.g. email-format"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            style={fieldStyle}
           />
-        </div>
+        </Field>
+        <Field label="Severity">
+          <select
+            value={severity}
+            onChange={e => setSeverity(e.target.value as RuleSeverityValue)}
+            style={fieldStyle}
+          >
+            <option value="info">Info</option>
+            <option value="warning">Warning</option>
+            <option value="error">Error</option>
+          </select>
+        </Field>
+        <Field label="Enforcement">
+          <select
+            value={enforcement}
+            onChange={e => setEnforcement(e.target.value as RuleEnforcement)}
+            title="When the rule is checked (decoupled from severity)"
+            style={fieldStyle}
+          >
+            <option value="advisory">Advisory (review only)</option>
+            <option value="save">Save (blocks save on violation)</option>
+            <option value="process">Process gate (transition)</option>
+          </select>
+        </Field>
+        <Field label="Scope">
+          <select
+            value={scope}
+            onChange={e => setScope(e.target.value as RuleScope)}
+            style={fieldStyle}
+          >
+            <option value="entity">Entity (within a single entity)</option>
+            <option value="package">Package (within a package)</option>
+            <option value="perspective">Perspective</option>
+            <option value="global">Global (cross-package)</option>
+          </select>
+        </Field>
+      </FieldGrid>
 
-        {/* Actions */}
-        <div className="flex justify-between items-center mt-6">
-          <div>
-            {!isNew && (
-              <button className="btn btn-sm btn-error btn-outline" onClick={handleDelete} disabled={saving}>
-                Delete
-              </button>
-            )}
+      {/* Global scope banner (#75) */}
+      {scope === 'global' && (
+        <WarningPane>
+          Global rules are stored at the project root as <code>rules.yaml</code> and reviewed by everyone.
+          Use a package-local rule unless the rule truly crosses package boundaries.
+        </WarningPane>
+      )}
+
+      {/* Target picker */}
+      <FieldGrid columns={2}>
+        {(scope === 'entity' || scope === 'package' || scope === 'global') && (
+          <Field label="Package">
+            <select
+              value={packageName}
+              onChange={e => {
+                setPackageName(e.target.value);
+                setEntityUuid('');
+              }}
+              style={fieldStyle}
+            >
+              <option value="">Select a package…</option>
+              {packages.map(p => (
+                <option key={p.id} value={p.name}>{p.name}</option>
+              ))}
+            </select>
+          </Field>
+        )}
+        {scope === 'entity' && (
+          <Field label="Entity">
+            <select
+              value={entityUuid}
+              onChange={e => setEntityUuid(e.target.value)}
+              disabled={!packageName}
+              style={fieldStyle}
+            >
+              <option value="">Select an entity…</option>
+              {entitiesInPackage.map(e => (
+                <option key={e.uuid} value={e.uuid}>{e.name}</option>
+              ))}
+            </select>
+          </Field>
+        )}
+      </FieldGrid>
+
+      {/* Process-stage picker (#76 C7) — only when enforcement is 'process' */}
+      {enforcement === 'process' && (
+        <div
+          style={{
+            border: '1px solid var(--warning)',
+            borderRadius: 'var(--radius-md)',
+            padding: 12,
+            background: 'var(--warning-soft)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+          }}
+        >
+          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+            Process-enforcement rules fire when a node's metadata field changes.
+            Pick the field to gate, and optionally a target value at which the
+            rule must pass.
           </div>
-          <div className="flex gap-2">
-            <button className="btn btn-sm btn-ghost" onClick={onClose} disabled={saving}>
-              Cancel
-            </button>
-            <button className="btn btn-sm btn-primary" onClick={handleSave} disabled={saving}>
-              {saving ? <span className="loading loading-spinner loading-xs"></span> : 'Save'}
-            </button>
+          <FieldGrid columns={2}>
+            <Field label="Process stage field">
+              {stageFieldOptions.length > 0 ? (
+                <select
+                  value={stageField}
+                  onChange={e => setStageField(e.target.value)}
+                  style={fieldStyle}
+                >
+                  <option value="">Select a metadata field…</option>
+                  {stageFieldOptions.map(opt => (
+                    <option key={opt.name} value={opt.name}>
+                      {opt.name} (from {opt.stereotypeName})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  placeholder="e.g. lifecycle-stage"
+                  value={stageField}
+                  onChange={e => setStageField(e.target.value)}
+                  style={fieldStyle}
+                />
+              )}
+              {stageFieldOptions.length === 0 && (
+                <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--warning)', marginTop: 4 }}>
+                  No stereotype metadata fields found for this scope. Free-text accepted.
+                </span>
+              )}
+            </Field>
+            <Field label="Target value (optional)">
+              <input
+                type="text"
+                placeholder="e.g. approved"
+                value={stageValue}
+                onChange={e => setStageValue(e.target.value)}
+                style={fieldStyle}
+              />
+              <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)', marginTop: 4 }}>
+                If empty, the rule fires on any change to the field.
+              </span>
+            </Field>
+          </FieldGrid>
+        </div>
+      )}
+
+      {/* Description / markdown editor */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', letterSpacing: '0.02em' }}>
+            Description (markdown)
+          </span>
+          <Button size="sm" variant="ghost" onClick={() => setShowPreview(!showPreview)}>
+            {showPreview ? 'Edit' : 'Preview'}
+          </Button>
+        </div>
+        {showPreview ? (
+          <div
+            style={{
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-md)',
+              padding: 12,
+              minHeight: 120,
+              fontSize: 'var(--fs-sm)',
+              color: 'var(--text)',
+            }}
+          >
+            <Markdown>{description || '*(empty)*'}</Markdown>
           </div>
+        ) : (
+          <textarea
+            rows={6}
+            placeholder="Describe the rule in markdown. e.g.&#10;&#10;## Email format&#10;Must match RFC 5322. Violations indicate a data-import bug."
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            style={textareaStyle}
+          />
+        )}
+      </div>
+
+      {/* Tags */}
+      <Field label="Tags (comma-separated)">
+        <input
+          type="text"
+          placeholder="e.g. data-quality, pii, referential-integrity"
+          value={tagsInput}
+          onChange={e => setTagsInput(e.target.value)}
+          style={fieldStyle}
+        />
+      </Field>
+
+      {/* Actions */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginTop: 8,
+          paddingTop: 12,
+          borderTop: '1px solid var(--border)',
+        }}
+      >
+        <div>
+          {!isNew && (
+            <Button size="sm" variant="danger" icon="close" onClick={handleDelete} disabled={saving}>
+              Delete
+            </Button>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Button size="md" variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button size="md" variant="primary" icon="check" onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };
+
+// ──────────────── Helpers ────────────────
+
+const FieldGrid = ({ columns, children }: { columns: 2 | 4; children: React.ReactNode }) => (
+  <div
+    style={{
+      display: 'grid',
+      gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+      gap: 12,
+    }}
+  >
+    {children}
+  </div>
+);
+
+const ErrorPane = ({ children }: { children: React.ReactNode }) => (
+  <div
+    style={{
+      padding: '8px 12px',
+      fontSize: 'var(--fs-sm)',
+      background: 'var(--danger-soft)',
+      color: 'var(--danger)',
+      border: '1px solid var(--danger)',
+      borderRadius: 'var(--radius-sm)',
+    }}
+  >
+    {children}
+  </div>
+);
+
+const WarningPane = ({ children }: { children: React.ReactNode }) => (
+  <div
+    style={{
+      padding: '8px 12px',
+      fontSize: 'var(--fs-sm)',
+      background: 'var(--warning-soft)',
+      color: 'var(--text)',
+      border: '1px solid var(--warning)',
+      borderRadius: 'var(--radius-sm)',
+    }}
+  >
+    {children}
+  </div>
+);
 
 export default RuleEditor;
