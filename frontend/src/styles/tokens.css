@@ -1,7 +1,6 @@
 /* ──────────────────────────────────────────────────────────────
-   Design tokens — ported from design_handoff/tokens.css.
-   Phase 1 ships the Calm variant only (light + a derived dark).
-   Bold + Mono are Phase 6.
+   Design tokens. Calm + Bold variants live here; live catalog at
+   /design-system. Mono is a future variant.
 
    Structure:
      :root                                 → static tokens (typography, scale, motion, densities)
@@ -128,9 +127,8 @@
 }
 
 /* ───────── Calm — dark (derived) ─────────
-   design_handoff specs Bold as the night theme, but we need a dark
-   palette tonight so the existing light/dark toggle keeps working.
-   This is a minimal derivation: Calm accent retained, surfaces darkened. */
+   Calm accent retained, surfaces darkened. Bold has its own native
+   night palette below. */
 [data-variant="calm"][data-theme="dark"] {
   --bg:            #1a1915;
   --bg-raised:     #22201b;

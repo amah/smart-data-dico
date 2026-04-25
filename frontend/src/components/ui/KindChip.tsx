@@ -6,7 +6,7 @@
  *   embedded / reference — relationship kinds; accent for embedded, neutral
  *                for reference.
  *
- * Source: design_handoff README §7 (Integrity) and §4 (Relationships).
+ * See /design-system → KindChip.
  */
 
 import Chip, { type ChipTone } from './Chip';

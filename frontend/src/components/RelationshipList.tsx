@@ -29,7 +29,7 @@ import type { RelationshipKind } from './ui';
 /**
  * RelationshipList — Phase 4.2 redesign.
  *
- * Grammar (design_handoff README §4 Relationships):
+ * Grammar:
  *   Standard: From · To · Kind · Cardinality · Description
  *   Metadata: Owner, Cascade, CDC, Navigability, … (stereotype-driven)
  *   Cross-service targets carry a dashed `xsvc` chip next to the name.

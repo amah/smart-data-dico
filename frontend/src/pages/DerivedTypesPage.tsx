@@ -1,7 +1,7 @@
 /**
  * Derived Data Types page (#107 + rollout 4.7).
  *
- * Grammar (design_handoff README §9 Data Types):
+ * Grammar (Data Types):
  *   - Split layout: 280px list (left) + editor (right)
  *   - Editor sections: Identity · Regex with live tester · Constraints
  *     · Enum editor · Format / validation · Used by

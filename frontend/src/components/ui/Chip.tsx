@@ -1,6 +1,6 @@
 /**
  * Base chip primitive — the shared skeleton for TypeChip / PiiChip /
- * StatusChip / KindChip. Ported from design_handoff/primitives.jsx.
+ * StatusChip / KindChip. See /design-system → Chip.
  *
  * Visual grammar (spec):
  *   --fs-xs · --radius-sm · padding 2px 6px · font-weight 500

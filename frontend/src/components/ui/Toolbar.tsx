@@ -1,7 +1,7 @@
 /**
  * Toolbar — the shared horizontal band that sits above every table.
  *
- * Grammar (design_handoff README §Shell):
+ * Grammar (see /design-system → Toolbar):
  *   primary action → secondary ghost buttons → spacer → search →
  *   density switcher → kebab
  *

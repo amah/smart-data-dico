@@ -1,15 +1,15 @@
 /**
  * Quality dashboard — Phase 4.5 redesign.
  *
- * Grammar (design_handoff README §6 Quality):
+ * Grammar (Quality):
  *   services × metrics matrix, cells = percent + mini horizontal bar,
  *   threshold bands red <50 / amber 50-79 / green ≥80. Value + fill
  *   width both encode the score so the matrix remains colorblind-safe.
  *
  *   Metrics shown: Description · Metadata · Relationships · Overall.
- *   Overall is the backend's pre-weighted score (handoff prescribes
- *   PII=3, attr-desc=3, rules=1 — the weighting already happens server
- *   side in qualityService); we just render it.
+ *   Overall is the backend's pre-weighted score (PII=3, attr-desc=3,
+ *   rules=1 — weighting happens server side in qualityService); we
+ *   just render it.
  *
  *   Per-row drill-down expands an entity-level breakdown table under
  *   the package row.

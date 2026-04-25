@@ -1,6 +1,6 @@
 /**
  * Sidebar — 240px nav rail with Browse / Views / Tools grammar
- * (design_handoff README §Shell).
+ * (Shell grammar — see /design-system).
  *
  *   Browse — Home + packages tree.
  *   Views  — Quality · Integrity · Model Diff · Physical Sync · Diagram

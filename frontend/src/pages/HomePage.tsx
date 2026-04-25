@@ -1,7 +1,7 @@
 /**
  * Home / Packages landing — Phase 4.4 redesign.
  *
- * Grammar (design_handoff README §3 Home / Packages):
+ * Grammar (Home / Packages):
  *   - workspace KPI strip: 4 tiles (Quality · Integrity · Open diff ·
  *     Physical sync)
  *   - package cards in a 3-col auto-fit grid (minmax(320px, 1fr), 16px

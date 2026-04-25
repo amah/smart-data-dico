@@ -1,7 +1,7 @@
 /**
  * DataTable — the load-bearing table component for the redesign.
  *
- * Grammar (design_handoff README §Shell + §Core):
+ * Grammar (see /design-system → DataTable):
  *   - Columns split into `standard` and `metadata` groups.
  *   - Dashed vertical divider at the group boundary, --meta-bg tint
  *     across the metadata side.
