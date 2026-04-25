@@ -508,6 +508,7 @@ const AttributeList = ({
         onRowClick={(a) => setEditAttr(a)}
         selection={selection}
         onSelectionChange={setSelection}
+        resizeKey="attribute-list"
         showFilterRow
         attached
         emptyMessage={

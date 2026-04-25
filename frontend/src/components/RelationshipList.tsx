@@ -299,6 +299,7 @@ const RelationshipList = ({
         onRowClick={(r) => setEditRel(r)}
         selection={selection}
         onSelectionChange={setSelection}
+        resizeKey="relationship-list"
         showFilterRow
         attached
         emptyMessage={

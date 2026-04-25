@@ -393,6 +393,8 @@ const AttributeFlatTable = () => {
           onRowClick={(f) => setEditing(f)}
           selection={selection}
           onSelectionChange={setSelection}
+          resizeKey="attribute-flat"
+          stickyHeader
           attached
           emptyMessage={
             <EmptyState

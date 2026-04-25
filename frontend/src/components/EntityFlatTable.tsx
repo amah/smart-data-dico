@@ -32,9 +32,9 @@ import type { ColumnDef } from './ui';
  * Phase-6 rewrite: swaps the raw <table> plus inline-editing for
  * DataTable<EntityFlat> plus a side-panel slide-over, consistent with
  * AttributeList / AttributeFlatTable. Create/Delete modals kept but
- * restyled with design tokens. Column resize & freeze were dropped —
- * DataTable doesn't yet offer them; if they come back, they come back
- * centrally on DataTable rather than bolted onto individual tables.
+ * restyled with design tokens. Column resize, sticky header + sticky
+ * first column are wired through DataTable's opt-in props (resizeKey,
+ * stickyHeader, stickyFirstColumn).
  */
 
 interface EntityFlat {
@@ -355,6 +355,19 @@ const EntityFlatTable = () => {
           onRowClick={(r) => setEditing(r)}
           selection={selection}
           onSelectionChange={setSelection}
+          resizeKey="entity-flat"
+          stickyHeader
+          stickyFirstColumn
+          rowActions={(r) => (
+            <Button
+              size="sm"
+              variant="ghost"
+              icon="close"
+              iconOnly
+              aria-label={`Delete ${r.entity.name}`}
+              onClick={() => setDeleteTarget(r)}
+            />
+          )}
           attached
           emptyMessage={
             <EmptyState

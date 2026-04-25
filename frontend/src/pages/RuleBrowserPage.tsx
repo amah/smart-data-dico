@@ -280,6 +280,8 @@ const RuleBrowserPage = () => {
           rows={filteredRules}
           getRowKey={(r) => r.uuid}
           onRowClick={(r) => setEditorRule(r)}
+          resizeKey="rules"
+          stickyHeader
           attached
           emptyMessage={
             <EmptyState

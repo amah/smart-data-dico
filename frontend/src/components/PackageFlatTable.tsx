@@ -288,6 +288,8 @@ const PackageFlatTable = () => {
           visibleColumns={allVisibleKeys}
           onVisibleColumnsChange={handleVisibleChange}
           onRowClick={(p) => setEditing(p)}
+          resizeKey="package-flat"
+          stickyHeader
           attached
           emptyMessage={
             <EmptyState
