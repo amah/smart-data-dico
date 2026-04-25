@@ -16,6 +16,15 @@ export default function PackageRouter() {
 
   const entitiesIndex = segments.indexOf('entities');
 
+  // Bare /entities suffix with no entity name (e.g. clicked from the
+  // breadcrumb trail) — treat as the package's entity list, which the
+  // PackageDetailPage already renders. Without this the path would be
+  // mis-parsed as a sub-package literally named "entities" and 404.
+  if (entitiesIndex >= 0 && entitiesIndex === segments.length - 1) {
+    const packagePath = segments.slice(0, entitiesIndex);
+    return <PackageDetailPage packagePath={packagePath} />;
+  }
+
   if (entitiesIndex >= 0 && entitiesIndex < segments.length - 1) {
     // Entity mode: /packages/root/sub/.../entities/EntityName[/...]
     const packagePath = segments.slice(0, entitiesIndex);
