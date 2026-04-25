@@ -197,7 +197,7 @@ const PackageNode = ({ pkg, level }: PackageNodeProps) => (
             }}
           >
             <Link
-              to={`/services/${pkg.name}/entities/${entity.name}`}
+              to={`/packages/${pkg.name}/entities/${entity.name}`}
               className="mono"
               style={{ color: 'var(--accent)', textDecoration: 'none' }}
             >
