@@ -10,7 +10,7 @@ import { createDictionary, getDictionaries, getDictionaryById, getDictionaryEntr
 import { createEntity, deleteEntity, getAllServices, getEntitySchema, getGraphData, getServiceEntities, searchEntities, updateEntity, getPackageRelationships, createRelationship, updateRelationship, deleteRelationship, getImpactAnalysis, getLineage, submitEntity, approveEntity, returnEntity, getEntityComments, addEntityComment, resolveEntityComment } from '../controllers/serviceController.js';
 import { getAllStereotypes, getStereotype, createStereotype, updateStereotype, deleteStereotype } from '../controllers/stereotypeController.js';
 import { getModelMetadata, putModelMetadata } from '../controllers/modelMetadataController.js';
-import { getAllPerspectives, getPerspective, createPerspective, updatePerspective, deletePerspective, resolvePerspective, getPerspectiveGraph, upsertPerspectiveNode } from '../controllers/perspectiveController.js';
+import { getAllCases, getCase, createCase, updateCase, deleteCase, resolveCase, getCaseGraph, upsertCaseNode } from '../controllers/caseController.js';
 import { listRules, getRule, getRulesForEntity, createRule, updateRule, deleteRule } from '../controllers/ruleController.js';
 import { getIntegrityReport } from '../controllers/integrityController.js';
 import {
@@ -107,15 +107,22 @@ router.post('/api/stereotypes', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]),
 router.put('/api/stereotypes/:id', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), updateStereotype);
 router.delete('/api/stereotypes/:id', authorizeJwt([UserRole.ADMIN]), deleteStereotype);
 
-// Perspective API
-router.get('/api/perspectives', getAllPerspectives);
-router.get('/api/perspectives/:id', getPerspective);
-router.post('/api/perspectives', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), createPerspective);
-router.put('/api/perspectives/:id', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), updatePerspective);
-router.delete('/api/perspectives/:id', authorizeJwt([UserRole.ADMIN]), deletePerspective);
-router.get('/api/perspectives/:id/resolve', resolvePerspective);
-router.get('/api/perspectives/:id/graph', getPerspectiveGraph);
-router.put('/api/perspectives/:id/nodes', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), upsertPerspectiveNode);
+// Case API (#121 — renamed from Perspective)
+router.get('/api/cases', getAllCases);
+router.get('/api/cases/:id', getCase);
+router.post('/api/cases', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), createCase);
+router.put('/api/cases/:id', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), updateCase);
+router.delete('/api/cases/:id', authorizeJwt([UserRole.ADMIN]), deleteCase);
+router.get('/api/cases/:id/resolve', resolveCase);
+router.get('/api/cases/:id/graph', getCaseGraph);
+router.put('/api/cases/:id/nodes', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), upsertCaseNode);
+
+// Legacy alias — 308-redirects /api/perspectives/* to /api/cases/* for one release.
+router.all('/api/perspectives*', (req, res) => {
+  const target = '/api/cases' + req.path.replace('/api/perspectives', '');
+  const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  res.redirect(308, target + query);
+});
 
 // Rule API (#74)
 router.get('/api/rules', listRules);

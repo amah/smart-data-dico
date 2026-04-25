@@ -5,7 +5,7 @@
  *   package → entity → attribute → relationship → constraint → rule
  *
  * Identity keys:
- *   - Entity/Attribute/Rule/Perspective: UUID
+ *   - Entity/Attribute/Rule/Case: UUID
  *   - Relationship: UUID (user-created) or physical.constraintName (imported FK)
  *   - Constraint: name (if present) or structural key
  *

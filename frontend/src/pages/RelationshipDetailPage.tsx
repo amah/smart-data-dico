@@ -7,7 +7,7 @@
  *   - identity header shows a Source → Target visual with two entity
  *     blobs, a colored arrow, and a kind badge
  *   - sections: Semantics · Cascade · Opposite side · Physical ·
- *     Invariants · Perspectives · Usage · Activity
+ *     Invariants · Cases · Usage · Activity
  *   - Invariants = rules that target this relationship's uuid, rendered
  *     in mono with a severity chip
  *   - Opposite side = one-click jump to the inverse relationship on
@@ -20,7 +20,7 @@ import {
   relationshipApi,
   ruleApi,
   entityApi,
-  perspectiveApi,
+  caseApi,
 } from '../services/api';
 import {
   useStereotypeMetadata,
@@ -30,7 +30,7 @@ import {
 } from '../hooks/useStereotypeMetadata';
 import {
   Cardinality,
-  Perspective,
+  Case,
   Relationship,
   RelationshipType,
   Rule,
@@ -60,7 +60,7 @@ const RelationshipDetailPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [entityMap, setEntityMap] = useState<Record<string, EntityLookupEntry>>({});
   const [rules, setRules] = useState<Rule[]>([]);
-  const [perspectives, setPerspectives] = useState<Perspective[]>([]);
+  const [cases, setCases] = useState<Case[]>([]);
   const { allColumns: metaColumns } = useStereotypeMetadata('relationship');
 
   const load = useCallback(async () => {
@@ -96,7 +96,7 @@ const RelationshipDetailPage = () => {
   }, []);
 
   useEffect(() => {
-    perspectiveApi.getAll().then(setPerspectives).catch(() => setPerspectives([]));
+    caseApi.getAll().then(setCases).catch(() => setCases([]));
   }, []);
 
   const rel = useMemo<Relationship | null>(
@@ -168,11 +168,11 @@ const RelationshipDetailPage = () => {
     r.target.entity === rel.source.entity,
   );
 
-  // Perspectives referencing either endpoint (heuristic — nothing
+  // Cases referencing either endpoint (heuristic — nothing
   // points at a relationship by uuid in the current storage).
-  const matchingPerspectives = perspectives.filter(p =>
-    (p.rootEntities || []).includes(rel.source.entity) ||
-    (p.rootEntities || []).includes(rel.target.entity),
+  const matchingCases = cases.filter(c =>
+    (c.rootEntities || []).includes(rel.source.entity) ||
+    (c.rootEntities || []).includes(rel.target.entity),
   );
 
   return (
@@ -253,7 +253,7 @@ const RelationshipDetailPage = () => {
         />
         <PhysicalSection rel={rel} />
         <InvariantsSection invariants={invariants} />
-        <PerspectivesSection perspectives={matchingPerspectives} />
+        <CasesSection cases={matchingCases} />
         <UsageSection
           rel={rel}
           fromInfo={fromInfo}
@@ -746,18 +746,18 @@ const InvariantsSection = ({ invariants }: { invariants: Rule[] }) => (
 const severityTone = (s: Rule['severity']): 'danger' | 'warning' | 'info' =>
   s === 'error' ? 'danger' : s === 'warning' ? 'warning' : 'info';
 
-// ──────────────── Perspectives ────────────────
+// ──────────────── Cases ────────────────
 
-const PerspectivesSection = ({ perspectives }: { perspectives: Perspective[] }) => (
-  <Section title={`Perspectives (${perspectives.length})`} initiallyOpen={false}>
-    {perspectives.length === 0 ? (
-      <MutedText>Not rooted by any perspective (heuristic — matches perspectives rooted at source or target).</MutedText>
+const CasesSection = ({ cases }: { cases: Case[] }) => (
+  <Section title={`Cases (${cases.length})`} initiallyOpen={false}>
+    {cases.length === 0 ? (
+      <MutedText>Not rooted by any case (heuristic — matches cases rooted at source or target).</MutedText>
     ) : (
       <ul style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {perspectives.map((p) => (
-          <li key={p.uuid} style={{ fontSize: 'var(--fs-sm)' }}>
-            <Link to={`/perspectives/${p.uuid}`} style={{ color: 'var(--accent)' }}>{p.name}</Link>
-            {p.description && <span style={{ color: 'var(--text-subtle)', marginLeft: 6 }}>{p.description}</span>}
+        {cases.map((c) => (
+          <li key={c.uuid} style={{ fontSize: 'var(--fs-sm)' }}>
+            <Link to={`/cases/${c.uuid}`} style={{ color: 'var(--accent)' }}>{c.name}</Link>
+            {c.description && <span style={{ color: 'var(--text-subtle)', marginLeft: 6 }}>{c.description}</span>}
           </li>
         ))}
       </ul>

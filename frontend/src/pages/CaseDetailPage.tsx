@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { perspectiveApi } from '../services/api';
-import type { ResolvedPerspective } from '../types';
-import PerspectiveTreeTable from '../components/PerspectiveTreeTable';
+import { caseApi } from '../services/api';
+import type { ResolvedCase } from '../types';
+import CaseTreeTable from '../components/CaseTreeTable';
 import Breadcrumbs from '../components/Breadcrumbs';
 import { Button, PageHeader } from '../components/ui';
 
-export default function PerspectiveDetailPage() {
+export default function CaseDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [resolved, setResolved] = useState<ResolvedPerspective | null>(null);
+  const [resolved, setResolved] = useState<ResolvedCase | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'paths' | 'graph' | 'annotations'>('paths');
@@ -17,17 +17,17 @@ export default function PerspectiveDetailPage() {
   useEffect(() => {
     if (!id) return;
     setLoading(true);
-    perspectiveApi.resolve(id)
+    caseApi.resolve(id)
       .then(setResolved)
-      .catch(() => setError('Failed to load perspective'))
+      .catch(() => setError('Failed to load case'))
       .finally(() => setLoading(false));
   }, [id]);
 
   const handleDelete = async () => {
-    if (!id || !confirm('Delete this perspective?')) return;
+    if (!id || !confirm('Delete this case?')) return;
     try {
-      await perspectiveApi.delete(id);
-      navigate('/perspectives');
+      await caseApi.delete(id);
+      navigate('/cases');
     } catch {
       setError('Failed to delete');
     }
@@ -52,8 +52,8 @@ export default function PerspectiveDetailPage() {
           <Breadcrumbs
             items={[
               { label: 'Home', path: '/' },
-              { label: 'Perspectives', path: '/perspectives' },
-              { label: resolved.name, path: `/perspectives/${id}` },
+              { label: 'Cases', path: '/cases' },
+              { label: resolved.name, path: `/cases/${id}` },
             ]}
           />
         }
@@ -65,7 +65,7 @@ export default function PerspectiveDetailPage() {
         description={resolved.description}
         actions={
           <>
-            <Link to={`/perspectives/${id}/edit`}>
+            <Link to={`/cases/${id}/edit`}>
               <Button size="sm" variant="ghost" icon="edit">Edit</Button>
             </Link>
             <Button size="sm" variant="danger" icon="close" onClick={handleDelete}>Delete</Button>
@@ -89,18 +89,18 @@ export default function PerspectiveDetailPage() {
 
         <div className="mt-4">
           {activeTab === 'paths' && (
-            <PerspectiveTreeTable
+            <CaseTreeTable
               nodes={resolved.resolvedNodes}
               onMetadataUpdated={() => {
-                if (id) perspectiveApi.resolve(id).then(setResolved).catch(() => {});
+                if (id) caseApi.resolve(id).then(setResolved).catch(() => {});
               }}
             />
           )}
 
           {activeTab === 'graph' && (
             <div className="text-center py-12 text-base-content/50">
-              <p>Graph visualization for this perspective.</p>
-              <Link to={`/visualization?perspective=${id}`} className="btn btn-sm btn-primary mt-2">
+              <p>Graph visualization for this case.</p>
+              <Link to={`/visualization?case=${id}`} className="btn btn-sm btn-primary mt-2">
                 Open in Visualization
               </Link>
             </div>
@@ -109,7 +109,7 @@ export default function PerspectiveDetailPage() {
           {activeTab === 'annotations' && (
             <div>
               {annotations.length === 0 ? (
-                <p className="text-base-content/50 py-4">No annotations defined. Edit the perspective to add path-scoped metadata.</p>
+                <p className="text-base-content/50 py-4">No annotations defined. Edit the case to add path-scoped metadata.</p>
               ) : (
                 <div className="space-y-3">
                   {annotations.map((node) => (

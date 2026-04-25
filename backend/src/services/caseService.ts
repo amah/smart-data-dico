@@ -1,18 +1,16 @@
 import {
-  Perspective,
+  Case,
   ResolvedNode,
   ResolvedAttribute,
-  ResolvedPerspective,
-  PerspectiveNode,
-  Relationship,
+  ResolvedCase,
+  CaseNode,
   Cardinality,
   Entity,
   MetadataEntry,
   normalizeRelationshipEnds,
 } from '../models/EntitySchema.js';
-import { listPerspectives, readPerspectiveFile, writePerspectiveFile, deletePerspectiveFile, getAllRelationships, listAllEntities, readEntityFile } from '../utils/fileOperations.js';
+import { listCases, readCaseFile, writeCaseFile, deleteCaseFile, getAllRelationships, listAllEntities, readEntityFile } from '../utils/fileOperations.js';
 import { generateUUID } from '../utils/uuid.js';
-import { logger } from '../utils/logger.js';
 
 interface AdjacencyEntry {
   neighborUuid: string;
@@ -28,7 +26,7 @@ interface EntityInfo {
   uuid: string;
   name: string;
   service: string;
-  /** Slim attribute list for display in the perspective tree view. */
+  /** Slim attribute list for display in the case tree view. */
   attributes: ResolvedAttribute[];
   /** Entity-level metadata entries (for metadata-as-columns in the tree). */
   metadata: MetadataEntry[];
@@ -36,7 +34,7 @@ interface EntityInfo {
 
 /**
  * Flatten an Entity's attributes to the slim shape used on ResolvedNode.
- * Keeps only the fields the perspective tree renders, so we don't ship
+ * Keeps only the fields the case tree renders, so we don't ship
  * validation/metadata/nested items for every node.
  *
  * Also honours the legacy `metadata: [{ name: 'isPrimaryKey', value: true }]`
@@ -60,22 +58,22 @@ function slimAttributes(entity: Entity): ResolvedAttribute[] {
   });
 }
 
-class PerspectiveService {
+class CaseService {
   // --- CRUD ---
 
-  async getAll(): Promise<Perspective[]> {
-    return listPerspectives();
+  async getAll(): Promise<Case[]> {
+    return listCases();
   }
 
-  async getById(uuid: string): Promise<Perspective | null> {
-    return readPerspectiveFile(uuid);
+  async getById(uuid: string): Promise<Case | null> {
+    return readCaseFile(uuid);
   }
 
-  async create(data: Partial<Perspective>): Promise<{ success: boolean; perspective?: Perspective; errors?: string[] }> {
+  async create(data: Partial<Case>): Promise<{ success: boolean; case?: Case; errors?: string[] }> {
     if (!data.name) return { success: false, errors: ['Name is required'] };
     if (!data.rootEntities?.length) return { success: false, errors: ['At least one root entity is required'] };
 
-    const perspective: Perspective = {
+    const newCase: Case = {
       uuid: data.uuid || generateUUID(),
       name: data.name,
       description: data.description,
@@ -87,16 +85,16 @@ class PerspectiveService {
       updatedAt: new Date().toISOString(),
     };
 
-    const ok = await writePerspectiveFile(perspective);
-    if (!ok) return { success: false, errors: ['Failed to write perspective file'] };
-    return { success: true, perspective };
+    const ok = await writeCaseFile(newCase);
+    if (!ok) return { success: false, errors: ['Failed to write case file'] };
+    return { success: true, case: newCase };
   }
 
-  async update(uuid: string, data: Partial<Perspective>): Promise<{ success: boolean; perspective?: Perspective; errors?: string[] }> {
-    const existing = await readPerspectiveFile(uuid);
-    if (!existing) return { success: false, errors: ['Perspective not found'] };
+  async update(uuid: string, data: Partial<Case>): Promise<{ success: boolean; case?: Case; errors?: string[] }> {
+    const existing = await readCaseFile(uuid);
+    if (!existing) return { success: false, errors: ['Case not found'] };
 
-    const updated: Perspective = {
+    const updated: Case = {
       ...existing,
       name: data.name ?? existing.name,
       description: data.description ?? existing.description,
@@ -107,43 +105,43 @@ class PerspectiveService {
       updatedAt: new Date().toISOString(),
     };
 
-    const ok = await writePerspectiveFile(updated);
-    if (!ok) return { success: false, errors: ['Failed to write perspective file'] };
-    return { success: true, perspective: updated };
+    const ok = await writeCaseFile(updated);
+    if (!ok) return { success: false, errors: ['Failed to write case file'] };
+    return { success: true, case: updated };
   }
 
   async delete(uuid: string): Promise<{ success: boolean; errors?: string[] }> {
-    const ok = await deletePerspectiveFile(uuid);
-    if (!ok) return { success: false, errors: ['Perspective not found'] };
+    const ok = await deleteCaseFile(uuid);
+    if (!ok) return { success: false, errors: ['Case not found'] };
     return { success: true };
   }
 
   // --- Node (annotation) management ---
 
-  async upsertNode(uuid: string, node: PerspectiveNode): Promise<{ success: boolean; errors?: string[] }> {
-    const perspective = await readPerspectiveFile(uuid);
-    if (!perspective) return { success: false, errors: ['Perspective not found'] };
+  async upsertNode(uuid: string, node: CaseNode): Promise<{ success: boolean; errors?: string[] }> {
+    const c = await readCaseFile(uuid);
+    if (!c) return { success: false, errors: ['Case not found'] };
 
-    const nodes = perspective.nodes || [];
+    const nodes = c.nodes || [];
     const idx = nodes.findIndex(n => n.path === node.path);
     if (idx >= 0) {
       nodes[idx] = node;
     } else {
       nodes.push(node);
     }
-    perspective.nodes = nodes;
-    perspective.updatedAt = new Date().toISOString();
+    c.nodes = nodes;
+    c.updatedAt = new Date().toISOString();
 
-    const ok = await writePerspectiveFile(perspective);
+    const ok = await writeCaseFile(c);
     if (!ok) return { success: false, errors: ['Failed to write'] };
     return { success: true };
   }
 
   // --- BFS Resolution ---
 
-  async resolve(uuid: string): Promise<ResolvedPerspective | null> {
-    const perspective = await readPerspectiveFile(uuid);
-    if (!perspective) return null;
+  async resolve(uuid: string): Promise<ResolvedCase | null> {
+    const c = await readCaseFile(uuid);
+    if (!c) return null;
 
     // Build entity info map: uuid → { name, service }
     const entityMap = await this.buildEntityMap();
@@ -152,12 +150,12 @@ class PerspectiveService {
     const adjacency = await this.buildAdjacencyMap();
 
     // Build node lookup for exclude/traverse checks
-    const nodesByPath = new Map<string, PerspectiveNode>();
-    for (const node of perspective.nodes || []) {
+    const nodesByPath = new Map<string, CaseNode>();
+    for (const node of c.nodes || []) {
       nodesByPath.set(node.path, node);
     }
 
-    const maxDepth = perspective.maxDepth ?? 10;
+    const maxDepth = c.maxDepth ?? 10;
     const resolvedNodes: ResolvedNode[] = [];
 
     /**
@@ -179,7 +177,7 @@ class PerspectiveService {
     }
     const queue: QueueItem[] = [];
 
-    for (const rootUuid of perspective.rootEntities) {
+    for (const rootUuid of c.rootEntities) {
       const info = entityMap.get(rootUuid);
       if (!info) continue;
       queue.push({ entityUuid: rootUuid, hopDistance: 0, pathSegments: [info.name], usedRelationships: new Set() });
@@ -270,7 +268,7 @@ class PerspectiveService {
       }
     }
 
-    return { ...perspective, resolvedNodes };
+    return { ...c, resolvedNodes };
   }
 
   // --- Graph Data ---
@@ -385,4 +383,4 @@ class PerspectiveService {
   }
 }
 
-export const perspectiveService = new PerspectiveService();
+export const caseService = new CaseService();

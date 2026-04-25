@@ -2,9 +2,9 @@
  * Rule service (#74) — CRUD across the three storage scopes.
  *
  * Storage scopes:
- *   - entity     → {entityUuid}.rules.yaml sidecar
- *   - package    → microservices/{pkg}/rules.yaml
- *   - perspective → embedded in perspectives/{uuid}.yaml under `rules`
+ *   - entity   → inlined on the entity (`entity.rules`)
+ *   - package  → packages/{pkg}/rules section
+ *   - case     → embedded in {Name}.case.yaml under `rules`
  *
  * Rule UUIDs are unique across the whole dictionary, so callers can lookup
  * a rule by uuid without knowing its scope upfront.
@@ -15,13 +15,13 @@ import {
   writeEntityRules,
   readPackageRules,
   writePackageRules,
-  readPerspectiveRules,
-  writePerspectiveRules,
+  readCaseRules,
+  writeCaseRules,
   readGlobalRules,
   writeGlobalRules,
   listAllEntityRuleFiles,
   listPackagesWithRules,
-  listPerspectives,
+  listCases,
 } from '../utils/fileOperations.js';
 import { generateUUID } from '../utils/uuid.js';
 import { logger } from '../utils/logger.js';
@@ -32,8 +32,8 @@ interface ListFilters {
   enforcement?: 'save' | 'process' | 'advisory';
   /** Match rules whose targets include this node UUID (entity, attribute, etc.) */
   targetUuid?: string;
-  /** For perspective scope: filter by perspective uuid */
-  perspectiveUuid?: string;
+  /** For case scope: filter by case uuid */
+  caseUuid?: string;
   /** For package scope: filter by package name */
   packageName?: string;
 }
@@ -72,15 +72,15 @@ class RuleService {
       all.push(...globalRules);
     }
 
-    // Perspective-scoped rules
-    if (!filters.scope || filters.scope === 'perspective') {
-      if (filters.perspectiveUuid) {
-        const rules = await readPerspectiveRules(filters.perspectiveUuid);
+    // Case-scoped rules
+    if (!filters.scope || filters.scope === 'case') {
+      if (filters.caseUuid) {
+        const rules = await readCaseRules(filters.caseUuid);
         all.push(...rules);
       } else {
-        const perspectives = await listPerspectives();
-        for (const p of perspectives) {
-          const rules = ((p.rules as Rule[]) || []);
+        const cases = await listCases();
+        for (const c of cases) {
+          const rules = ((c.rules as Rule[]) || []);
           all.push(...rules);
         }
       }
@@ -141,7 +141,7 @@ class RuleService {
       targets: input.targets!,
       packageName: input.packageName,
       entityUuid: input.entityUuid,
-      perspectiveUuid: input.perspectiveUuid,
+      caseUuid: input.caseUuid,
       expression: input.expression,
       tags: input.tags,
       metadata: input.metadata,
@@ -178,7 +178,7 @@ class RuleService {
       existing.scope !== merged.scope ||
       existing.packageName !== merged.packageName ||
       existing.entityUuid !== merged.entityUuid ||
-      existing.perspectiveUuid !== merged.perspectiveUuid;
+      existing.caseUuid !== merged.caseUuid;
     if (scopeMoved) {
       await this.removeRuleFromScope(existing);
     }
@@ -224,11 +224,11 @@ class RuleService {
         const updated = [...existing.filter(r => r.uuid !== rule.uuid), rule];
         return writePackageRules(rule.packageName, updated);
       }
-      case 'perspective': {
-        if (!rule.perspectiveUuid) return false;
-        const existing = await readPerspectiveRules(rule.perspectiveUuid);
+      case 'case': {
+        if (!rule.caseUuid) return false;
+        const existing = await readCaseRules(rule.caseUuid);
         const updated = [...existing.filter(r => r.uuid !== rule.uuid), rule];
-        return writePerspectiveRules(rule.perspectiveUuid, updated);
+        return writeCaseRules(rule.caseUuid, updated);
       }
       case 'global': {
         const existing = await readGlobalRules();
@@ -257,11 +257,11 @@ class RuleService {
         const updated = existing.filter(r => r.uuid !== rule.uuid);
         return writePackageRules(rule.packageName, updated);
       }
-      case 'perspective': {
-        if (!rule.perspectiveUuid) return false;
-        const existing = await readPerspectiveRules(rule.perspectiveUuid);
+      case 'case': {
+        if (!rule.caseUuid) return false;
+        const existing = await readCaseRules(rule.caseUuid);
         const updated = existing.filter(r => r.uuid !== rule.uuid);
-        return writePerspectiveRules(rule.perspectiveUuid, updated);
+        return writeCaseRules(rule.caseUuid, updated);
       }
       case 'global': {
         const existing = await readGlobalRules();

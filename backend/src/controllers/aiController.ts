@@ -82,9 +82,9 @@ async function getModel() {
 async function getServices() {
   const { dictionaryService } = await import('../services/dictionaryService.js');
   const { serviceService } = await import('../services/serviceService.js');
-  const { perspectiveService } = await import('../services/perspectiveService.js');
+  const { caseService } = await import('../services/caseService.js');
   const { stereotypeService } = await import('../services/stereotypeService.js');
-  return { dictionaryService, serviceService, perspectiveService, stereotypeService };
+  return { dictionaryService, serviceService, caseService, stereotypeService };
 }
 
 const SYSTEM_PROMPT = `You are an AI assistant for a Data Dictionary Management System. You help users create, modify, and analyze data models.

@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { perspectiveApi } from '../services/api';
-import PerspectiveEntityPicker from '../components/PerspectiveEntityPicker';
+import { caseApi } from '../services/api';
+import CaseEntityPicker from '../components/CaseEntityPicker';
 import MetadataEditor from '../components/MetadataEditor';
 import type { MetadataEntry } from '../types';
 
-export default function PerspectiveCreatePage() {
+export default function CaseCreatePage() {
   const navigate = useNavigate();
   const { id } = useParams();
   const isEdit = !!id;
@@ -19,16 +19,16 @@ export default function PerspectiveCreatePage() {
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(!isEdit);
 
-  // Load existing perspective for edit mode
+  // Load existing case for edit mode
   if (isEdit && !loaded) {
-    perspectiveApi.getById(id).then((p) => {
-      setName(p.name);
-      setDescription(p.description || '');
-      setRootEntities(p.rootEntities);
-      setMaxDepth(p.maxDepth ?? 10);
-      setMetadata(p.metadata || []);
+    caseApi.getById(id).then((c) => {
+      setName(c.name);
+      setDescription(c.description || '');
+      setRootEntities(c.rootEntities);
+      setMaxDepth(c.maxDepth ?? 10);
+      setMetadata(c.metadata || []);
       setLoaded(true);
-    }).catch(() => { setError('Failed to load perspective'); setLoaded(true); });
+    }).catch(() => { setError('Failed to load case'); setLoaded(true); });
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -42,11 +42,11 @@ export default function PerspectiveCreatePage() {
     setError(null);
     try {
       if (isEdit) {
-        await perspectiveApi.update(id, { name, description, rootEntities, maxDepth, metadata });
-        navigate(`/perspectives/${id}`);
+        await caseApi.update(id, { name, description, rootEntities, maxDepth, metadata });
+        navigate(`/cases/${id}`);
       } else {
-        const result = await perspectiveApi.create({ name, description, rootEntities, maxDepth, metadata });
-        navigate(`/perspectives/${result.data.uuid}`);
+        const result = await caseApi.create({ name, description, rootEntities, maxDepth, metadata });
+        navigate(`/cases/${result.data.uuid}`);
       }
     } catch (err: any) {
       setError(err.response?.data?.errors?.[0] || 'Failed to save');
@@ -61,7 +61,7 @@ export default function PerspectiveCreatePage() {
 
   return (
     <div className="p-6 max-w-2xl">
-      <h1 className="text-2xl font-bold mb-6">{isEdit ? 'Edit' : 'Create'} Perspective</h1>
+      <h1 className="text-2xl font-bold mb-6">{isEdit ? 'Edit' : 'Create'} Case</h1>
 
       {error && <div className="alert alert-error mb-4"><span>{error}</span></div>}
 
@@ -84,7 +84,7 @@ export default function PerspectiveCreatePage() {
             className="textarea textarea-bordered"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="What business process does this perspective capture?"
+            placeholder="What business process does this case capture?"
             rows={3}
           />
         </div>
@@ -104,16 +104,16 @@ export default function PerspectiveCreatePage() {
 
         <div className="form-control">
           <label className="label"><span className="label-text">Root Entities</span></label>
-          <PerspectiveEntityPicker selected={rootEntities} onChange={setRootEntities} />
+          <CaseEntityPicker selected={rootEntities} onChange={setRootEntities} />
         </div>
 
         <div className="form-control">
-          <label className="label"><span className="label-text">Perspective Metadata</span></label>
+          <label className="label"><span className="label-text">Case Metadata</span></label>
           <MetadataEditor entries={metadata} onChange={setMetadata} />
         </div>
 
         <div className="flex gap-2 justify-end pt-4">
-          <button type="button" className="btn btn-ghost" onClick={() => navigate('/perspectives')}>Cancel</button>
+          <button type="button" className="btn btn-ghost" onClick={() => navigate('/cases')}>Cancel</button>
           <button type="submit" className="btn btn-primary" disabled={saving || !name || rootEntities.length === 0}>
             {saving && <span className="loading loading-spinner loading-sm" />}
             {isEdit ? 'Update' : 'Create'}

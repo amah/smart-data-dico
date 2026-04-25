@@ -29,6 +29,8 @@ export interface Package {
   subPackages?: Package[];
   entities?: Entity[];
   relationships?: Relationship[];
+  /** Cases owned by this package — slim shape for sidebar tree (#121). */
+  cases?: { uuid: string; name: string }[];
   metadata?: MetadataEntry[];
   createdAt?: string;
   updatedAt?: string;
@@ -115,11 +117,11 @@ export enum RuleSeverity {
 // Validation rules (#74)
 // ────────────────────────────────────────────
 
-export type RuleScope = 'entity' | 'package' | 'perspective' | 'global';
+export type RuleScope = 'entity' | 'package' | 'case' | 'global';
 export type RuleSeverityValue = 'info' | 'warning' | 'error';
 /** When a rule is checked. Decoupled from severity (#76). */
 export type RuleEnforcement = 'save' | 'process' | 'advisory';
-export type RuleTargetKind = 'attribute' | 'entity' | 'relationship' | 'perspective-node';
+export type RuleTargetKind = 'attribute' | 'entity' | 'relationship' | 'case-node';
 
 export interface RuleTarget {
   kind: RuleTargetKind;
@@ -127,7 +129,7 @@ export interface RuleTarget {
   entityUuid?: string;
   /** Package the target lives in — set on global (cross-package) rules (#75). */
   packageName?: string;
-  perspectivePath?: string;
+  casePath?: string;
 }
 
 export interface RuleExpression {
@@ -151,7 +153,7 @@ export interface Rule {
   scope: RuleScope;
   packageName?: string;
   entityUuid?: string;
-  perspectiveUuid?: string;
+  caseUuid?: string;
   targets: RuleTarget[];
   expression?: RuleExpression;
   tags?: string[];
@@ -205,19 +207,19 @@ export interface MetadataEntry {
   severity?: RuleSeverity;
 }
 
-export interface PerspectiveNode {
+export interface CaseNode {
   path: string;
   traverse?: boolean;
   exclude?: boolean;
   metadata?: MetadataEntry[];
 }
 
-export interface Perspective {
+export interface Case {
   uuid: string;
   name: string;
   description?: string;
   rootEntities: string[];
-  nodes?: PerspectiveNode[];
+  nodes?: CaseNode[];
   maxDepth?: number;
   metadata?: MetadataEntry[];
   createdAt?: string;
@@ -226,7 +228,7 @@ export interface Perspective {
 
 /**
  * Slim attribute shape shipped on ResolvedNode — mirrors the backend's
- * ResolvedAttribute. Keeps only what the perspective tree view needs.
+ * ResolvedAttribute. Keeps only what the case tree view needs.
  */
 export interface ResolvedAttribute {
   name: string;
@@ -255,7 +257,7 @@ export interface ResolvedNode {
   metadata?: MetadataEntry[];
 }
 
-export interface ResolvedPerspective extends Perspective {
+export interface ResolvedCase extends Case {
   resolvedNodes: ResolvedNode[];
 }
 
@@ -463,7 +465,7 @@ export interface SearchResult {
 
 export interface ImpactAnalysis {
   relationships: { uuid: string; description: string; service: string; sourceEntity: string; targetEntity: string }[];
-  perspectives: { uuid: string; name: string; path: string }[];
+  cases: { uuid: string; name: string; path: string }[];
   diagrams: { id: string; name: string }[];
 }
 

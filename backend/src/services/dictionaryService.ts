@@ -187,14 +187,16 @@ export class DictionaryService {
       }
     }
 
-    // Content-driven load — pulls entities / relationships from every `.yaml`
-    // in the package folder via the #106 sections format.
+    // Content-driven load — pulls entities / relationships / cases from every
+    // `.yaml` in the package folder via the #106 sections format.
     let entities: Entity[] = [];
     let relationships: Relationship[] = [];
+    let cases: { uuid: string; name: string }[] = [];
     try {
       const model = await loadPackage(packageName);
       entities = model.entities;
       relationships = model.relationships;
+      cases = model.cases.map(c => ({ uuid: c.uuid, name: c.name }));
     } catch (e) {
       logger.warn(`Failed to load package ${packageName}: ${e}`);
     }
@@ -216,6 +218,7 @@ export class DictionaryService {
       entities,
       subPackages,
       relationships,
+      cases,
       metadata: packageMeta.metadata,
     };
   }

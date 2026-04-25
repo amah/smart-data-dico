@@ -2,17 +2,17 @@ import { useState } from 'react';
 
 interface CytoscapeLegendProps {
   serviceColorMap: Record<string, string>;
-  showPerspectiveStates?: boolean;
+  showCaseStates?: boolean;
 }
 
 export default function CytoscapeLegend({
   serviceColorMap,
-  showPerspectiveStates = false,
+  showCaseStates = false,
 }: CytoscapeLegendProps) {
   const [open, setOpen] = useState(true);
 
   const services = Object.entries(serviceColorMap);
-  if (services.length === 0 && !showPerspectiveStates) return null;
+  if (services.length === 0 && !showCaseStates) return null;
 
   if (!open) {
     return (
@@ -65,19 +65,19 @@ export default function CytoscapeLegend({
             <LegendSwatch borderClass="border-primary" />
             <span>Has primary key</span>
           </li>
-          {showPerspectiveStates && (
+          {showCaseStates && (
             <>
               <li className="flex items-center gap-2">
                 <LegendSwatch borderStyle="double" customColor="#e74c3c" />
-                <span>Perspective root</span>
+                <span>Case root</span>
               </li>
               <li className="flex items-center gap-2">
                 <LegendSwatch customColor="#2ecc71" />
-                <span>Perspective member</span>
+                <span>Case member</span>
               </li>
               <li className="flex items-center gap-2">
                 <LegendSwatch borderStyle="dashed" customColor="#f39c12" />
-                <span>Perspective frontier</span>
+                <span>Case frontier</span>
               </li>
             </>
           )}

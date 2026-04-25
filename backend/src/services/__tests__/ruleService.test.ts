@@ -1,6 +1,6 @@
 /**
  * Tests for the rule service (#74) — covers the three storage scopes:
- * entity-sidecar, package, and perspective. Mocks the file operations layer
+ * entity-sidecar, package, and case. Mocks the file operations layer
  * so tests don't touch the real filesystem.
  */
 import { ruleService } from '../ruleService.js';
@@ -13,11 +13,11 @@ jest.mock('../../utils/fileOperations', () => ({
   writeEntityRules: jest.fn(),
   readPackageRules: jest.fn(),
   writePackageRules: jest.fn(),
-  readPerspectiveRules: jest.fn(),
-  writePerspectiveRules: jest.fn(),
+  readCaseRules: jest.fn(),
+  writeCaseRules: jest.fn(),
   listAllEntityRuleFiles: jest.fn(),
   listPackagesWithRules: jest.fn(),
-  listPerspectives: jest.fn(),
+  listCases: jest.fn(),
 }));
 jest.mock('../../utils/logger');
 jest.mock('../../utils/uuid', () => ({
@@ -31,11 +31,11 @@ const mocked = fileOps as {
   writeEntityRules: jest.Mock;
   readPackageRules: jest.Mock;
   writePackageRules: jest.Mock;
-  readPerspectiveRules: jest.Mock;
-  writePerspectiveRules: jest.Mock;
+  readCaseRules: jest.Mock;
+  writeCaseRules: jest.Mock;
   listAllEntityRuleFiles: jest.Mock;
   listPackagesWithRules: jest.Mock;
-  listPerspectives: jest.Mock;
+  listCases: jest.Mock;
 };
 
 const buildRule = (overrides: Partial<Rule> = {}): Rule => ({
@@ -59,13 +59,13 @@ describe('ruleService', () => {
     // Default: empty store
     mocked.listAllEntityRuleFiles.mockResolvedValue([]);
     mocked.listPackagesWithRules.mockResolvedValue([]);
-    mocked.listPerspectives.mockResolvedValue([]);
+    mocked.listCases.mockResolvedValue([]);
     mocked.readEntityRules.mockResolvedValue([]);
     mocked.readPackageRules.mockResolvedValue([]);
-    mocked.readPerspectiveRules.mockResolvedValue([]);
+    mocked.readCaseRules.mockResolvedValue([]);
     mocked.writeEntityRules.mockResolvedValue(true);
     mocked.writePackageRules.mockResolvedValue(true);
-    mocked.writePerspectiveRules.mockResolvedValue(true);
+    mocked.writeCaseRules.mockResolvedValue(true);
   });
 
   // ─── listRules ─────────────────────────────────────────────────────────
@@ -86,15 +86,15 @@ describe('ruleService', () => {
         buildRule({ uuid: 'r-package', scope: 'package', packageName: 'order-service' }),
       ]);
 
-      mocked.listPerspectives.mockResolvedValue([
+      mocked.listCases.mockResolvedValue([
         { uuid: 'p-1', name: 'Ordering', rootEntities: [], rules: [
-          buildRule({ uuid: 'r-perspective', scope: 'perspective', perspectiveUuid: 'p-1' }),
+          buildRule({ uuid: 'r-case', scope: 'case', caseUuid: 'p-1' }),
         ] } as any,
       ]);
 
       const rules = await ruleService.listRules();
       const uuids = rules.map(r => r.uuid).sort();
-      expect(uuids).toEqual(['r-entity', 'r-package', 'r-perspective']);
+      expect(uuids).toEqual(['r-case', 'r-entity', 'r-package']);
     });
 
     it('filters by scope', async () => {
@@ -228,18 +228,18 @@ describe('ruleService', () => {
       );
     });
 
-    it('creates a perspective-scoped rule and persists via writePerspectiveRules', async () => {
+    it('creates a case-scoped rule and persists via writeCaseRules', async () => {
       const result = await ruleService.createRule({
         name: 'fraud-check',
         description: 'check',
         severity: 'error',
-        scope: 'perspective',
-        perspectiveUuid: 'p-fraud',
-        targets: [{ kind: 'perspective-node', uuid: 'p-fraud', perspectivePath: 'Customer' }],
+        scope: 'case',
+        caseUuid: 'p-fraud',
+        targets: [{ kind: 'case-node', uuid: 'p-fraud', casePath: 'Customer' }],
       });
 
       expect(result.success).toBe(true);
-      expect(mocked.writePerspectiveRules).toHaveBeenCalledWith(
+      expect(mocked.writeCaseRules).toHaveBeenCalledWith(
         'p-fraud',
         expect.arrayContaining([expect.objectContaining({ name: 'fraud-check' })])
       );

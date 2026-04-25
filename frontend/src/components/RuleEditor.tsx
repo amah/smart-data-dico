@@ -31,7 +31,7 @@ const stereotypeTargetsForScope = (scope: RuleScope): StereotypeTarget[] => {
   switch (scope) {
     case 'entity':      return ['entity', 'attribute'];
     case 'package':     return ['package', 'entity', 'attribute'];
-    case 'perspective': return ['entity', 'attribute', 'package'];
+    case 'case':        return ['entity', 'attribute', 'package'];
     case 'global':      return ['package', 'entity', 'attribute'];
     default:            return ['entity', 'attribute', 'package'];
   }
@@ -53,7 +53,7 @@ const RuleEditor = ({ rule, onClose, onSaved }: RuleEditorProps) => {
   const [tagsInput, setTagsInput] = useState((rule?.tags || []).join(', '));
   const [packageName, setPackageName] = useState(rule?.packageName || '');
   const [entityUuid, setEntityUuid] = useState(rule?.entityUuid || '');
-  const [perspectiveUuid] = useState(rule?.perspectiveUuid || '');
+  const [caseUuid] = useState(rule?.caseUuid || '');
   const [packages, setPackages] = useState<Package[]>([]);
   const [stereotypes, setStereotypes] = useState<Stereotype[]>([]);
   const [saving, setSaving] = useState(false);
@@ -114,8 +114,8 @@ const RuleEditor = ({ rule, onClose, onSaved }: RuleEditorProps) => {
       const pkg = packages.find(p => p.name === packageName);
       if (pkg) return [{ kind: 'entity', uuid: pkg.id, packageName }];
     }
-    if (scope === 'perspective' && perspectiveUuid) {
-      return [{ kind: 'perspective-node', uuid: perspectiveUuid }];
+    if (scope === 'case' && caseUuid) {
+      return [{ kind: 'case-node', uuid: caseUuid }];
     }
     return [];
   };
@@ -161,7 +161,7 @@ const RuleEditor = ({ rule, onClose, onSaved }: RuleEditorProps) => {
         tags: tagsInput.split(',').map(t => t.trim()).filter(Boolean),
         packageName: scope === 'package' || scope === 'entity' ? packageName : undefined,
         entityUuid: scope === 'entity' ? entityUuid : undefined,
-        perspectiveUuid: scope === 'perspective' ? perspectiveUuid : undefined,
+        caseUuid: scope === 'case' ? caseUuid : undefined,
         metadata: metadata.length > 0 ? metadata : undefined,
       };
       if (isNew) {
@@ -255,7 +255,7 @@ const RuleEditor = ({ rule, onClose, onSaved }: RuleEditorProps) => {
           >
             <option value="entity">Entity (within a single entity)</option>
             <option value="package">Package (within a package)</option>
-            <option value="perspective">Perspective</option>
+            <option value="case">Case</option>
             <option value="global">Global (cross-package)</option>
           </select>
         </Field>

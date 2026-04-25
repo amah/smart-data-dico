@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import YAML from 'yaml';
 import { logger } from './logger.js';
-import { Entity, Relationship, Perspective, ReviewComment, validateEntity } from '../models/EntitySchema.js';
+import { Entity, Relationship, Case, ReviewComment, validateEntity } from '../models/EntitySchema.js';
 import { Rule } from '../models/Rule.js';
 import { Dictionary } from '../models/Dictionary.js';
 import { sanitizeFsName } from './uuid.js';
@@ -16,7 +16,7 @@ const getDataDir = () => config.dataDir;
  * Reserved top-level directory names that must not be treated as packages (#105/#106).
  * `.dico/` holds project-level system files; `.git/` and `node_modules/` are
  * filesystem noise. The legacy `perspectives/` project-root folder was
- * eliminated in #106 — perspectives now live inside packages as sections.
+ * eliminated in #106 — cases now live inside packages as sections.
  */
 const RESERVED_DIRS = new Set(['.dico', '.git', 'node_modules']);
 
@@ -188,15 +188,15 @@ export interface PackageModel {
   relationships: Relationship[];
   /** Package-scope rules (entity-scoped rules live on `entity.rules`). */
   rules: Rule[];
-  /** Perspectives owned by this package. */
-  perspectives: Perspective[];
+  /** Cases owned by this package. */
+  cases: Case[];
   /** Ownership maps (absolute file path) so writes can find the owning file. */
   ownership: {
     entityByName: Map<string, string>;
     entityByUuid: Map<string, string>;
     relationshipByUuid: Map<string, string>;
     ruleByUuid: Map<string, string>;
-    perspectiveByUuid: Map<string, string>;
+    caseByUuid: Map<string, string>;
   };
 }
 
@@ -208,7 +208,7 @@ export interface SectionsFile {
   entities: Entity[];
   relationships: Relationship[];
   rules: Rule[];
-  perspectives: Perspective[];
+  cases: Case[];
 }
 
 /**
@@ -230,7 +230,7 @@ export interface SectionsFile {
 export function parseSectionsFromString(raw: string, label: string, filename?: string): SectionsFile {
   try {
     const parsed = YAML.parse(raw);
-    if (!parsed) return { entities: [], relationships: [], rules: [], perspectives: [] };
+    if (!parsed) return { entities: [], relationships: [], rules: [], cases: [] };
 
     // Legacy pre-#106: single-entity file (unwrapped `{ uuid, name, attributes }`).
     // Check FIRST because pre-#100 entity files also carried a top-level
@@ -238,45 +238,54 @@ export function parseSectionsFromString(raw: string, label: string, filename?: s
     // collide with the multi-kind detector below.
     if (typeof parsed === 'object' && !Array.isArray(parsed)
       && typeof parsed.uuid === 'string' && Array.isArray(parsed.attributes)) {
-      return { entities: [parsed as Entity], relationships: [], rules: [], perspectives: [] };
+      return { entities: [parsed as Entity], relationships: [], rules: [], cases: [] };
     }
 
-    // Multi-kind sections format (#106 — current)
+    // Multi-kind sections format (#106 — current). Prefers `cases:` (#121)
+    // and falls back to the legacy `perspectives:` key with a deprecation
+    // warning so existing YAML keeps loading for one release.
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && (
       'entities' in parsed || 'relationships' in parsed ||
-      'rules' in parsed || 'perspectives' in parsed
+      'rules' in parsed || 'cases' in parsed || 'perspectives' in parsed
     )) {
+      let cases: Case[] = [];
+      if (Array.isArray(parsed.cases)) {
+        cases = parsed.cases;
+      } else if (Array.isArray(parsed.perspectives)) {
+        console.warn(`[dico] deprecated YAML key "perspectives:" in ${label} — rename to "cases:"`);
+        cases = parsed.perspectives;
+      }
       return {
         entities: Array.isArray(parsed.entities) ? parsed.entities : [],
         relationships: Array.isArray(parsed.relationships) ? parsed.relationships : [],
         rules: Array.isArray(parsed.rules) ? parsed.rules : [],
-        perspectives: Array.isArray(parsed.perspectives) ? parsed.perspectives : [],
+        cases,
       };
     }
 
     // Legacy pre-#106: top-level YAML array. Route by filename.
     if (Array.isArray(parsed) && filename) {
       if (filename === 'relationships.yaml') {
-        return { entities: [], relationships: parsed, rules: [], perspectives: [] };
+        return { entities: [], relationships: parsed, rules: [], cases: [] };
       }
       if (filename === 'rules.yaml' || filename.endsWith('.rules.yaml')) {
-        return { entities: [], relationships: [], rules: parsed, perspectives: [] };
+        return { entities: [], relationships: [], rules: parsed, cases: [] };
       }
     }
 
-    return { entities: [], relationships: [], rules: [], perspectives: [] };
+    return { entities: [], relationships: [], rules: [], cases: [] };
   } catch (e) {
     logger.warn(`Failed to parse YAML: ${label}: ${e}`);
-    return { entities: [], relationships: [], rules: [], perspectives: [] };
+    return { entities: [], relationships: [], rules: [], cases: [] };
   }
 }
 
 function parseSections(filePath: string): SectionsFile {
   try {
-    return parseSectionsFromString(fs.readFileSync(filePath, 'utf8'), filePath);
+    return parseSectionsFromString(fs.readFileSync(filePath, 'utf8'), filePath, path.basename(filePath));
   } catch (e) {
     logger.warn(`Failed to read YAML: ${filePath}: ${e}`);
-    return { entities: [], relationships: [], rules: [], perspectives: [] };
+    return { entities: [], relationships: [], rules: [], cases: [] };
   }
 }
 
@@ -296,7 +305,7 @@ export interface ParsedSections {
  * produce identical snapshots and enforce the same identity rules.
  *
  * Identifier collisions (same entity name, entity uuid, relationship
- * uuid, rule uuid, perspective uuid) are hard errors reporting both
+ * uuid, rule uuid, case uuid) are hard errors reporting both
  * owner labels.
  */
 export function mergePackageSections(
@@ -308,13 +317,13 @@ export function mergePackageSections(
     entities: [],
     relationships: [],
     rules: [],
-    perspectives: [],
+    cases: [],
     ownership: {
       entityByName: new Map(),
       entityByUuid: new Map(),
       relationshipByUuid: new Map(),
       ruleByUuid: new Map(),
-      perspectiveByUuid: new Map(),
+      caseByUuid: new Map(),
     },
   };
 
@@ -363,16 +372,16 @@ export function mergePackageSections(
       model.rules.push(rule);
     }
 
-    for (const p of sections.perspectives) {
-      if (!p?.uuid) continue;
-      const existing = model.ownership.perspectiveByUuid.get(p.uuid);
+    for (const c of sections.cases) {
+      if (!c?.uuid) continue;
+      const existing = model.ownership.caseByUuid.get(c.uuid);
       if (existing) {
         throw new Error(
-          `Duplicate perspective uuid '${p.uuid}' in package '${packageName}': ${existing} and ${label}`,
+          `Duplicate case uuid '${c.uuid}' in package '${packageName}': ${existing} and ${label}`,
         );
       }
-      model.ownership.perspectiveByUuid.set(p.uuid, label);
-      model.perspectives.push(p);
+      model.ownership.caseByUuid.set(c.uuid, label);
+      model.cases.push(c);
     }
   }
 
@@ -395,7 +404,7 @@ function writeSections(filePath: string, sections: SectionsFile): void {
   if (sections.entities.length > 0) payload.entities = sections.entities;
   if (sections.relationships.length > 0) payload.relationships = sections.relationships;
   if (sections.rules.length > 0) payload.rules = sections.rules;
-  if (sections.perspectives.length > 0) payload.perspectives = sections.perspectives;
+  if (sections.cases.length > 0) payload.cases = sections.cases;
 
   if (Object.keys(payload).length === 0) {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
@@ -496,7 +505,7 @@ export async function writeEntityFile(entity: Entity, packageName?: string): Pro
 
     const newFilePath = path.join(packageDir, `${sanitizeFsName(entity.name)}.model.yaml`);
     writeSections(newFilePath, {
-      entities: [entity], relationships: [], rules: [], perspectives: [],
+      entities: [entity], relationships: [], rules: [], cases: [],
     });
     logger.info(`Entity written to new file: ${newFilePath}`);
     await commitChanges(newFilePath, `Added entity: ${entity.name} (${entity.uuid})`);
@@ -621,7 +630,7 @@ export async function writeRelationshipsFile(packagePath: string, relationships:
 
     const existing = fs.existsSync(targetFile)
       ? parseSections(targetFile)
-      : { entities: [], relationships: [], rules: [], perspectives: [] };
+      : { entities: [], relationships: [], rules: [], cases: [] };
     existing.relationships = relationships;
     writeSections(targetFile, existing);
     logger.info(`Relationships written to: ${targetFile}`);
@@ -690,7 +699,7 @@ export async function writeComments(service: string, entityUuid: string, comment
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// Rules — three scopes (entity-inlined, package-section, perspective, global)
+// Rules — three scopes (entity-inlined, package-section, case, global)
 // ────────────────────────────────────────────────────────────────────────
 
 /** Read entity-scoped rules inlined on the entity (replaces the sidecar — #106). */
@@ -762,7 +771,7 @@ export async function writePackageRules(service: string, rules: Rule[]): Promise
 
     const existing = fs.existsSync(targetFile)
       ? parseSections(targetFile)
-      : { entities: [], relationships: [], rules: [], perspectives: [] };
+      : { entities: [], relationships: [], rules: [], cases: [] };
     existing.rules = rules;
     writeSections(targetFile, existing);
     logger.info(`Package rules written to: ${targetFile}`);
@@ -818,28 +827,28 @@ export async function listPackagesWithRules(): Promise<string[]> {
   }
 }
 
-/** Read rules embedded in a perspective. */
-export async function readPerspectiveRules(perspectiveUuid: string): Promise<Rule[]> {
+/** Read rules embedded in a case. */
+export async function readCaseRules(caseUuid: string): Promise<Rule[]> {
   try {
-    const perspective = await readPerspectiveFile(perspectiveUuid);
-    if (!perspective) return [];
-    return (perspective.rules as Rule[]) || [];
+    const c = await readCaseFile(caseUuid);
+    if (!c) return [];
+    return (c.rules as Rule[]) || [];
   } catch (error) {
-    logger.error(`Error reading perspective rules: ${error}`);
+    logger.error(`Error reading case rules: ${error}`);
     return [];
   }
 }
 
-/** Write rules embedded in a perspective (preserves the rest of the perspective). */
-export async function writePerspectiveRules(perspectiveUuid: string, rules: Rule[]): Promise<boolean> {
+/** Write rules embedded in a case (preserves the rest of the case). */
+export async function writeCaseRules(caseUuid: string, rules: Rule[]): Promise<boolean> {
   try {
-    const perspective = await readPerspectiveFile(perspectiveUuid);
-    if (!perspective) return false;
-    perspective.rules = rules;
-    perspective.updatedAt = new Date().toISOString();
-    return await writePerspectiveFile(perspective);
+    const c = await readCaseFile(caseUuid);
+    if (!c) return false;
+    c.rules = rules;
+    c.updatedAt = new Date().toISOString();
+    return await writeCaseFile(c);
   } catch (error) {
-    logger.error(`Error writing perspective rules: ${error}`);
+    logger.error(`Error writing case rules: ${error}`);
     return false;
   }
 }
@@ -876,109 +885,108 @@ export async function writeGlobalRules(rules: Rule[]): Promise<boolean> {
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// Perspectives — package-embedded (#106; global folder eliminated)
+// Cases — package-embedded (#106; global folder eliminated)
 // ────────────────────────────────────────────────────────────────────────
 
 /**
- * List every perspective across every package. The legacy project-root
+ * List every case across every package. The legacy project-root
  * `perspectives/` folder is no longer supported (eliminated by migration).
  */
-export async function listPerspectives(): Promise<Perspective[]> {
-  const all: Perspective[] = [];
+export async function listCases(): Promise<Case[]> {
+  const all: Case[] = [];
   try {
     const packages = await listPackages();
     for (const pkg of packages) {
       try {
         const model = await loadPackage(pkg);
-        all.push(...model.perspectives);
+        all.push(...model.cases);
       } catch (e) {
-        logger.warn(`Failed to load perspectives for ${pkg}: ${e}`);
+        logger.warn(`Failed to load cases for ${pkg}: ${e}`);
       }
     }
   } catch (error) {
-    logger.error(`Error listing perspectives: ${error}`);
+    logger.error(`Error listing cases: ${error}`);
   }
   return all;
 }
 
-/** Locate the package + file that owns a perspective by uuid. */
-async function findPerspectiveOwner(uuid: string): Promise<{ packageName: string; filePath: string } | null> {
+/** Locate the package + file that owns a case by uuid. */
+async function findCaseOwner(uuid: string): Promise<{ packageName: string; filePath: string } | null> {
   const packages = await listPackages();
   for (const pkg of packages) {
     try {
       const model = await loadPackage(pkg);
-      const filePath = model.ownership.perspectiveByUuid.get(uuid);
+      const filePath = model.ownership.caseByUuid.get(uuid);
       if (filePath) return { packageName: pkg, filePath };
     } catch { /* skip */ }
   }
   return null;
 }
 
-export async function readPerspectiveFile(uuid: string): Promise<Perspective | null> {
+export async function readCaseFile(uuid: string): Promise<Case | null> {
   try {
     const packages = await listPackages();
     for (const pkg of packages) {
       try {
         const model = await loadPackage(pkg);
-        const p = model.perspectives.find(x => x.uuid === uuid);
-        if (p) return p;
+        const c = model.cases.find(x => x.uuid === uuid);
+        if (c) return c;
       } catch { /* skip */ }
     }
     return null;
   } catch (error) {
-    logger.error(`Error reading perspective ${uuid}: ${error}`);
+    logger.error(`Error reading case ${uuid}: ${error}`);
     return null;
   }
 }
 
 /**
- * Write a perspective. Placement rules:
- *   1. If a file already owns this perspective, rewrite it there.
+ * Write a case. Placement rules:
+ *   1. If a file already owns this case, rewrite it there.
  *   2. Otherwise, place it in the package of its first root entity as
- *      `<Name>.perspective.yaml` (#106 default convention).
+ *      `<Name>.case.yaml` (#121 default convention).
  *   3. If no root-entity package can be resolved, fall back to the first
  *      package on disk so the write doesn't silently fail.
  */
-export async function writePerspectiveFile(perspective: Perspective): Promise<boolean> {
+export async function writeCaseFile(c: Case): Promise<boolean> {
   try {
-    const owner = await findPerspectiveOwner(perspective.uuid);
+    const owner = await findCaseOwner(c.uuid);
     if (owner) {
       const sections = parseSections(owner.filePath);
-      sections.perspectives = sections.perspectives.filter(p => p.uuid !== perspective.uuid);
-      sections.perspectives.push(perspective);
+      sections.cases = sections.cases.filter(p => p.uuid !== c.uuid);
+      sections.cases.push(c);
       writeSections(owner.filePath, sections);
-      await commitChanges(owner.filePath, `Updated perspective: ${perspective.name}`);
+      await commitChanges(owner.filePath, `Updated case: ${c.name}`);
       return true;
     }
 
-    // New perspective — pick an owner package
-    const targetPackage = await resolvePerspectiveHomePackage(perspective);
+    const targetPackage = await resolveCaseHomePackage(c);
     if (!targetPackage) {
-      logger.error(`Cannot write perspective ${perspective.uuid}: no package found`);
+      logger.error(`Cannot write case ${c.uuid}: no package found`);
       return false;
     }
     ensurePackageDirectoryStructure(targetPackage);
-    const filename = `${sanitizeFsName(perspective.name || perspective.uuid)}.perspective.yaml`;
+    const filename = `${sanitizeFsName(c.name || c.uuid)}.case.yaml`;
     const filePath = path.join(getPackagePath(targetPackage), filename);
 
     const sections: SectionsFile = fs.existsSync(filePath)
       ? parseSections(filePath)
-      : { entities: [], relationships: [], rules: [], perspectives: [] };
-    sections.perspectives.push(perspective);
+      : { entities: [], relationships: [], rules: [], cases: [] };
+    sections.cases.push(c);
     writeSections(filePath, sections);
-    await commitChanges(filePath, `Added perspective: ${perspective.name}`);
+    await commitChanges(filePath, `Added case: ${c.name}`);
     return true;
   } catch (error) {
-    logger.error(`Error writing perspective: ${error}`);
+    logger.error(`Error writing case: ${error}`);
     return false;
   }
 }
 
 /** First-root-entity's package, or the first package, or null. */
-async function resolvePerspectiveHomePackage(perspective: Perspective): Promise<string | null> {
+async function resolveCaseHomePackage(c: Case): Promise<string | null> {
   const packages = await listPackages();
-  if (perspective.rootEntities && perspective.rootEntities.length > 0) {
-    const rootUuid = perspective.rootEntities[0];
+  if (c.rootEntities && c.rootEntities.length > 0) {
+    const rootUuid = c.rootEntities[0];
     for (const pkg of packages) {
       try {
         const model = await loadPackage(pkg);
@@ -989,17 +997,17 @@ async function resolvePerspectiveHomePackage(perspective: Perspective): Promise<
   return packages[0] || null;
 }
 
-export async function deletePerspectiveFile(uuid: string): Promise<boolean> {
+export async function deleteCaseFile(uuid: string): Promise<boolean> {
   try {
-    const owner = await findPerspectiveOwner(uuid);
+    const owner = await findCaseOwner(uuid);
     if (!owner) return false;
     const sections = parseSections(owner.filePath);
-    sections.perspectives = sections.perspectives.filter(p => p.uuid !== uuid);
+    sections.cases = sections.cases.filter(p => p.uuid !== uuid);
     writeSections(owner.filePath, sections);
-    await commitChanges(owner.filePath, `Deleted perspective ${uuid}`);
+    await commitChanges(owner.filePath, `Deleted case ${uuid}`);
     return true;
   } catch (error) {
-    logger.error(`Error deleting perspective ${uuid}: ${error}`);
+    logger.error(`Error deleting case ${uuid}: ${error}`);
     return false;
   }
 }
