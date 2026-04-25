@@ -9,6 +9,7 @@ import InlineMetadataCell from './InlineMetadataCell';
 import { servicesApi } from '../services/api';
 import type { Entity, Attribute } from '../types';
 import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
+import { Button, Chip, Input, Toolbar } from './ui';
 
 // ────────────────────────────────────────────────────────────────────────
 // Tree data model
@@ -329,39 +330,40 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
   return (
     <div className="space-y-3">
       {/* Toolbar */}
-      <div className="flex items-center gap-2">
-        <input
-          type="text"
-          placeholder="Filter entities or attributes..."
-          className="input input-sm input-bordered flex-1 max-w-xs"
+      <Toolbar>
+        <Input
+          icon="search"
+          size="sm"
+          placeholder="Filter entities or attributes…"
           value={filter}
-          onChange={(e) => setFilter(e.target.value)}
+          onChange={(e) => setFilter(e.currentTarget.value)}
+          width={240}
         />
-        <button className="btn btn-xs btn-ghost" onClick={expandAll}>Expand all</button>
-        <button className="btn btn-xs btn-ghost" onClick={collapseAll}>Collapse all</button>
-        <button
-          className={`btn btn-xs ${pinned ? 'btn-primary' : 'btn-ghost'}`}
+        <Button size="sm" variant="ghost" onClick={expandAll}>Expand all</Button>
+        <Button size="sm" variant="ghost" onClick={collapseAll}>Collapse all</Button>
+        <Button
+          size="sm"
+          variant={pinned ? 'primary' : 'ghost'}
           onClick={togglePinned}
           title={pinned ? 'Unfreeze header & first column' : 'Freeze header & first column'}
         >
           {pinned ? 'Frozen' : 'Freeze'}
-        </button>
-        <button className="btn btn-xs btn-ghost" onClick={resetWidths} title="Reset column widths">
+        </Button>
+        <Button size="sm" variant="ghost" onClick={resetWidths} title="Reset column widths">
           Reset cols
-        </button>
+        </Button>
 
         {/* Metadata column picker (#93) */}
         {allMetaCols.length > 0 && (
-          <div className="relative ml-auto">
-            <button
-              className="btn btn-xs btn-outline gap-1"
+          <div className="relative" style={{ marginLeft: 'auto' }}>
+            <Button
+              size="sm"
+              variant="secondary"
+              icon="columns"
               onClick={() => setShowColumnPicker(!showColumnPicker)}
             >
-              Columns
-              {activeMetaCols.length > 0 && (
-                <span className="badge badge-xs badge-primary">{activeMetaCols.length}</span>
-              )}
-            </button>
+              Columns{activeMetaCols.length > 0 && <span style={{ marginLeft: 6 }}><Chip tone="accent" soft>{activeMetaCols.length}</Chip></span>}
+            </Button>
             {showColumnPicker && (
               <div className="absolute right-0 top-full mt-1 z-50 bg-base-100 border border-base-300 rounded-lg shadow-lg p-3 min-w-[250px] max-h-[400px] overflow-y-auto">
                 {Object.keys(entityColsByS).length > 0 && (
@@ -417,17 +419,19 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
                   );
                 })}
                 <div className="border-t border-base-300 mt-2 pt-2 flex gap-2">
-                  <button className="btn btn-xs" onClick={() => updateVisibleCols(new Set(allMetaCols.map(c => `${c.target}:${c.name}`)))}>All</button>
-                  <button className="btn btn-xs" onClick={() => updateVisibleCols(new Set())}>None</button>
+                  <Button size="sm" variant="ghost" onClick={() => updateVisibleCols(new Set(allMetaCols.map(c => `${c.target}:${c.name}`)))}>All</Button>
+                  <Button size="sm" variant="ghost" onClick={() => updateVisibleCols(new Set())}>None</Button>
                 </div>
               </div>
             )}
           </div>
         )}
         {allMetaCols.length === 0 && (
-          <span className="text-xs text-base-content/50 ml-auto">{nodes.length} nodes</span>
+          <span style={{ marginLeft: 'auto', fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>
+            {nodes.length} nodes
+          </span>
         )}
-      </div>
+      </Toolbar>
 
       {/* Tree table */}
       <div className={pinned ? 'overflow-auto max-h-[70vh] border border-base-300 rounded' : 'overflow-x-auto'}>
@@ -460,7 +464,7 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
                   <th key={colKey} title={col.description} className={`${stickyHead} relative`} style={{ width: widths[colKey] }}>
                     <span className="flex items-center gap-1">
                       {col.label}
-                      <span className="badge badge-xs badge-ghost font-normal">{col.target === 'entity' ? 'E' : 'A'}</span>
+                      <Chip tone="neutral">{col.target === 'entity' ? 'E' : 'A'}</Chip>
                     </span>
                     <ResizeHandle onMouseDown={(e) => startResize(colKey, e)} />
                   </th>
@@ -589,9 +593,21 @@ function EntityRow({
         >
           {hasChildren ? (
             <button
-              className="btn btn-ghost btn-xs px-0 min-h-0 h-5 w-5"
+              type="button"
               onClick={onToggle}
               aria-label={isExpanded ? 'Collapse' : 'Expand'}
+              style={{
+                width: 20,
+                height: 20,
+                padding: 0,
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'var(--text-muted)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
             >
               <svg
                 className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
@@ -623,13 +639,13 @@ function EntityRow({
       </td>
       <td />
       <td>
-        <span className="badge badge-ghost badge-sm">{rn.service}</span>
+        <Chip tone="neutral">{rn.service}</Chip>
       </td>
       <td>{rn.hopDistance}</td>
-      <td>
-        {rn.isRoot && <span className="badge badge-primary badge-sm mr-1">root</span>}
-        {rn.isFrontier && <span className="badge badge-warning badge-sm mr-1">frontier</span>}
-        {rn.isManualInclusion && <span className="badge badge-info badge-sm">included</span>}
+      <td style={{ display: 'flex', gap: 4 }}>
+        {rn.isRoot && <Chip tone="accent">root</Chip>}
+        {rn.isFrontier && <Chip tone="warning">frontier</Chip>}
+        {rn.isManualInclusion && <Chip tone="info">included</Chip>}
       </td>
       {metaCols.map(col => {
         if (col.target !== 'entity') {
@@ -683,9 +699,9 @@ function AttributeRow({
         >
           <span className="w-5 text-base-content/30">·</span>
           <span className="font-mono">{attr.name}</span>
-          {attr.primaryKey && <span className="badge badge-primary badge-xs ml-1">PK</span>}
+          {attr.primaryKey && <span style={{ marginLeft: 4 }}><Chip tone="accent">PK</Chip></span>}
           {attr.required && !attr.primaryKey && (
-            <span className="badge badge-ghost badge-xs ml-1">required</span>
+            <span style={{ marginLeft: 4 }}><Chip tone="neutral">required</Chip></span>
           )}
         </div>
       </td>
