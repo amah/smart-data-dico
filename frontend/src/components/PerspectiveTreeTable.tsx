@@ -9,7 +9,7 @@ import InlineMetadataCell from './InlineMetadataCell';
 import { servicesApi } from '../services/api';
 import type { Entity, Attribute } from '../types';
 import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
-import { Button, Chip, Input, Toolbar } from './ui';
+import { Button, Chip, Input, Menu, Toolbar } from './ui';
 
 // ────────────────────────────────────────────────────────────────────────
 // Tree data model
@@ -146,7 +146,6 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
     } catch { /* ignore */ }
     return new Set<string>();
   });
-  const [showColumnPicker, setShowColumnPicker] = useState(false);
   const [pinned, togglePinned] = useStickyTablePref('perspective-tree');
 
   // Sticky class helpers. The first column + thead get opaque backgrounds
@@ -353,81 +352,90 @@ export default function PerspectiveTreeTable({ nodes, onMetadataUpdated }: Props
           Reset cols
         </Button>
 
-        {/* Metadata column picker (#93) */}
+        <Toolbar.Spacer />
+
+        {/* Metadata column picker (#93) — entity/attribute target groups
+            don't fit the standard ColumnChooser API, so we keep a custom
+            body wrapped in the shared Menu primitive. */}
         {allMetaCols.length > 0 && (
-          <div className="relative" style={{ marginLeft: 'auto' }}>
-            <Button
-              size="sm"
-              variant="secondary"
-              icon="columns"
-              onClick={() => setShowColumnPicker(!showColumnPicker)}
-            >
-              Columns{activeMetaCols.length > 0 && <span style={{ marginLeft: 6 }}><Chip tone="accent" soft>{activeMetaCols.length}</Chip></span>}
-            </Button>
-            {showColumnPicker && (
-              <div className="absolute right-0 top-full mt-1 z-50 bg-base-100 border border-base-300 rounded-lg shadow-lg p-3 min-w-[250px] max-h-[400px] overflow-y-auto">
-                {Object.keys(entityColsByS).length > 0 && (
-                  <div className="text-xs font-bold text-base-content/50 mb-1">Entity metadata</div>
+          <Menu
+            align="end"
+            width={260}
+            trigger={({ open, toggle }) => (
+              <Button
+                size="sm"
+                variant="secondary"
+                icon="columns"
+                pressed={open}
+                onClick={toggle}
+              >
+                Columns
+                {activeMetaCols.length > 0 && (
+                  <span style={{ marginLeft: 6 }}>
+                    <Chip tone="accent" soft>{activeMetaCols.length}</Chip>
+                  </span>
                 )}
-                {Object.entries(entityColsByS).map(([stId, cols]) => {
-                  const allOn = cols.every(c => visibleMetaCols.has(`entity:${c.name}`));
-                  return (
-                    <div key={`e-${stId}`} className="mb-2">
-                      <label className="flex items-center gap-2 font-semibold text-sm cursor-pointer mb-1">
-                        <input type="checkbox" className="checkbox checkbox-xs checkbox-primary"
-                          checked={allOn}
-                          onChange={() => toggleMetaGroup(cols.map(c => ({ ...c, name: `entity:${c.name}` })) as any)}
-                        />
-                        {cols[0]?.stereotypeName || stId}
-                      </label>
-                      {cols.map(col => (
-                        <label key={col.name} className="flex items-center gap-2 ml-4 text-sm cursor-pointer">
-                          <input type="checkbox" className="checkbox checkbox-xs"
-                            checked={visibleMetaCols.has(`entity:${col.name}`)}
-                            onChange={() => toggleMetaCol(`entity:${col.name}`)}
-                          />
-                          {col.label}
-                        </label>
-                      ))}
-                    </div>
-                  );
-                })}
-                {Object.keys(attrColsByS).length > 0 && (
-                  <div className="text-xs font-bold text-base-content/50 mt-2 mb-1 border-t border-base-300 pt-2">Attribute metadata</div>
-                )}
-                {Object.entries(attrColsByS).map(([stId, cols]) => {
-                  const allOn = cols.every(c => visibleMetaCols.has(`attribute:${c.name}`));
-                  return (
-                    <div key={`a-${stId}`} className="mb-2">
-                      <label className="flex items-center gap-2 font-semibold text-sm cursor-pointer mb-1">
-                        <input type="checkbox" className="checkbox checkbox-xs checkbox-primary"
-                          checked={allOn}
-                          onChange={() => toggleMetaGroup(cols.map(c => ({ ...c, name: `attribute:${c.name}` })) as any)}
-                        />
-                        {cols[0]?.stereotypeName || stId}
-                      </label>
-                      {cols.map(col => (
-                        <label key={col.name} className="flex items-center gap-2 ml-4 text-sm cursor-pointer">
-                          <input type="checkbox" className="checkbox checkbox-xs"
-                            checked={visibleMetaCols.has(`attribute:${col.name}`)}
-                            onChange={() => toggleMetaCol(`attribute:${col.name}`)}
-                          />
-                          {col.label}
-                        </label>
-                      ))}
-                    </div>
-                  );
-                })}
-                <div className="border-t border-base-300 mt-2 pt-2 flex gap-2">
-                  <Button size="sm" variant="ghost" onClick={() => updateVisibleCols(new Set(allMetaCols.map(c => `${c.target}:${c.name}`)))}>All</Button>
-                  <Button size="sm" variant="ghost" onClick={() => updateVisibleCols(new Set())}>None</Button>
-                </div>
-              </div>
+              </Button>
             )}
-          </div>
+          >
+            <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+              {Object.keys(entityColsByS).length > 0 && (
+                <SectionLabel>Entity metadata</SectionLabel>
+              )}
+              {Object.entries(entityColsByS).map(([stId, cols]) => {
+                const allOn = cols.every(c => visibleMetaCols.has(`entity:${c.name}`));
+                return (
+                  <ChooserGroup
+                    key={`e-${stId}`}
+                    title={cols[0]?.stereotypeName || stId}
+                    allOn={allOn}
+                    onToggleGroup={() => toggleMetaGroup(cols.map(c => ({ ...c, name: `entity:${c.name}` })) as any)}
+                    items={cols.map(col => ({
+                      key: col.name,
+                      label: col.label,
+                      checked: visibleMetaCols.has(`entity:${col.name}`),
+                      onToggle: () => toggleMetaCol(`entity:${col.name}`),
+                    }))}
+                  />
+                );
+              })}
+              {Object.keys(attrColsByS).length > 0 && (
+                <SectionLabel divider>Attribute metadata</SectionLabel>
+              )}
+              {Object.entries(attrColsByS).map(([stId, cols]) => {
+                const allOn = cols.every(c => visibleMetaCols.has(`attribute:${c.name}`));
+                return (
+                  <ChooserGroup
+                    key={`a-${stId}`}
+                    title={cols[0]?.stereotypeName || stId}
+                    allOn={allOn}
+                    onToggleGroup={() => toggleMetaGroup(cols.map(c => ({ ...c, name: `attribute:${c.name}` })) as any)}
+                    items={cols.map(col => ({
+                      key: col.name,
+                      label: col.label,
+                      checked: visibleMetaCols.has(`attribute:${col.name}`),
+                      onToggle: () => toggleMetaCol(`attribute:${col.name}`),
+                    }))}
+                  />
+                );
+              })}
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 6,
+                  marginTop: 6,
+                  paddingTop: 6,
+                  borderTop: '1px solid var(--border)',
+                }}
+              >
+                <Button size="sm" variant="ghost" onClick={() => updateVisibleCols(new Set(allMetaCols.map(c => `${c.target}:${c.name}`)))}>All</Button>
+                <Button size="sm" variant="ghost" onClick={() => updateVisibleCols(new Set())}>None</Button>
+              </div>
+            </div>
+          </Menu>
         )}
         {allMetaCols.length === 0 && (
-          <span style={{ marginLeft: 'auto', fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>
+          <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>
             {nodes.length} nodes
           </span>
         )}
@@ -734,3 +742,107 @@ function AttributeRow({
     </tr>
   );
 }
+
+// ──────────────── Column-chooser helpers ────────────────
+
+const SectionLabel = ({ children, divider }: { children: React.ReactNode; divider?: boolean }) => (
+  <div
+    className="uppercase"
+    style={{
+      fontSize: 'var(--fs-xs)',
+      color: 'var(--text-subtle)',
+      letterSpacing: '0.06em',
+      fontWeight: 600,
+      padding: '6px 8px 4px',
+      marginTop: divider ? 6 : 0,
+      borderTop: divider ? '1px solid var(--border)' : undefined,
+      paddingTop: divider ? 8 : 6,
+    }}
+  >
+    {children}
+  </div>
+);
+
+interface ChooserItem {
+  key: string;
+  label: string;
+  checked: boolean;
+  onToggle: () => void;
+}
+
+interface ChooserGroupProps {
+  title: string;
+  allOn: boolean;
+  onToggleGroup: () => void;
+  items: ChooserItem[];
+}
+
+const ChooserGroup = ({ title, allOn, onToggleGroup, items }: ChooserGroupProps) => (
+  <div style={{ marginBottom: 6 }}>
+    <ChooserRow checked={allOn} onToggle={onToggleGroup} bold>
+      {title}
+    </ChooserRow>
+    {items.map(item => (
+      <ChooserRow key={item.key} checked={item.checked} onToggle={item.onToggle} indent>
+        {item.label}
+      </ChooserRow>
+    ))}
+  </div>
+);
+
+interface ChooserRowProps {
+  checked: boolean;
+  onToggle: () => void;
+  bold?: boolean;
+  indent?: boolean;
+  children: React.ReactNode;
+}
+
+const ChooserRow = ({ checked, onToggle, bold, indent, children }: ChooserRowProps) => (
+  <button
+    type="button"
+    role="menuitemcheckbox"
+    aria-checked={checked}
+    onClick={onToggle}
+    style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      width: '100%',
+      textAlign: 'left',
+      padding: indent ? '3px 8px 3px 24px' : '4px 8px',
+      fontSize: 'var(--fs-sm)',
+      fontWeight: bold ? 600 : 400,
+      color: 'var(--text)',
+      background: 'transparent',
+      border: 'none',
+      borderRadius: 'var(--radius-sm)',
+      cursor: 'pointer',
+    }}
+    onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+  >
+    <span
+      aria-hidden
+      style={{
+        width: 14,
+        height: 14,
+        borderRadius: 3,
+        border: `1px solid ${checked ? 'var(--accent)' : 'var(--border-strong)'}`,
+        background: checked ? 'var(--accent)' : 'transparent',
+        color: 'var(--accent-fg)',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+      }}
+    >
+      {checked && (
+        <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
+          <path d="m5 12 5 5L20 7" />
+        </svg>
+      )}
+    </span>
+    <span style={{ flex: 1 }}>{children}</span>
+  </button>
+);
