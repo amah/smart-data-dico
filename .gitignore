@@ -44,3 +44,8 @@ coverage/
 
 # MCP tool working dirs
 .playwright-mcp/
+
+# Claude Code local state (per-machine permissions, locks, worktrees)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/worktrees/
