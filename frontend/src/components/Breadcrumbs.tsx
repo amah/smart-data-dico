@@ -2,10 +2,16 @@ import { useMemo } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Breadcrumb } from '../types';
 
-const Breadcrumbs = () => {
+interface BreadcrumbsProps {
+  /** When provided, render these items instead of deriving from the URL. */
+  items?: Breadcrumb[];
+}
+
+const Breadcrumbs = ({ items: itemsProp }: BreadcrumbsProps = {}) => {
   const location = useLocation();
 
   const breadcrumbs = useMemo(() => {
+    if (itemsProp) return itemsProp;
     const pathSegments = location.pathname.split('/').filter(Boolean);
     const items: Breadcrumb[] = [{ label: 'Home', path: '/' }];
 
@@ -75,7 +81,7 @@ const Breadcrumbs = () => {
     }
 
     return items;
-  }, [location.pathname]);
+  }, [location.pathname, itemsProp]);
 
   if (breadcrumbs.length <= 1) return null;
 

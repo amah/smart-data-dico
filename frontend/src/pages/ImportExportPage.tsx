@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { servicesApi, importExportApi } from '../services/api';
 import SchemaImportWizard from '../components/SchemaImportWizard';
+import Breadcrumbs from '../components/Breadcrumbs';
+import { PageHeader } from '../components/ui';
 
 export default function ImportExportPage() {
   const [activeTab, setActiveTab] = useState<'wizard' | 'import' | 'export'>('wizard');
@@ -81,11 +83,17 @@ export default function ImportExportPage() {
   };
 
   return (
-    <div className="p-6 max-w-3xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Import & Export</h1>
-        <p className="text-base-content/70">Import from existing schemas or export your data dictionary.</p>
-      </div>
+    <div className="p-4 max-w-3xl space-y-4">
+      <PageHeader
+        breadcrumb={
+          <Breadcrumbs
+            items={[
+              { label: 'Home', path: '/' },
+              { label: 'Import & Export', path: '/import-export' },
+            ]}
+          />
+        }
+      />
 
       {result && (
         <div className={`alert ${result.type === 'success' ? 'alert-success' : 'alert-error'}`}>

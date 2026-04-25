@@ -33,9 +33,11 @@ import {
   Field,
   MetadataField,
   fieldStyle,
+  PageHeader,
   type ColumnDef,
   type TreeTableRow,
 } from '../components/ui';
+import Breadcrumbs from '../components/Breadcrumbs';
 import { usePrefs } from '../hooks/usePrefs';
 
 // ──────────────── Token catalog ────────────────
@@ -540,6 +542,72 @@ const DesignSystemPage = () => {
           <Toolbar.Divider />
           <DensitySwitcher value={density} onChange={setDensity} />
         </Toolbar>
+      </Section>
+
+      <Section title="PageHeader" hint="One-row detail-page header: breadcrumb + meta + actions, with an optional truncated description below.">
+        <Surface>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <PageHeader
+              breadcrumb={
+                <Breadcrumbs
+                  items={[
+                    { label: 'Home', path: '/' },
+                    { label: 'Packages', path: '/packages' },
+                    { label: 'order-service', path: '/packages/order-service' },
+                    { label: 'Order', path: '/packages/order-service/entities/Order' },
+                  ]}
+                />
+              }
+              actions={
+                <>
+                  <Button size="sm" variant="ghost" icon="chevron">Back</Button>
+                  <Button size="sm" variant="secondary" icon="edit">Edit</Button>
+                </>
+              }
+            />
+            <PageHeader
+              breadcrumb={
+                <Breadcrumbs
+                  items={[
+                    { label: 'Home', path: '/' },
+                    { label: 'Packages', path: '/packages' },
+                    { label: 'order-service', path: '/packages/order-service' },
+                    { label: 'Order', path: '/packages/order-service/entities/Order' },
+                    { label: 'total', path: '/packages/order-service/entities/Order/attributes/total' },
+                  ]}
+                />
+              }
+              meta={
+                <>
+                  <Chip tone="warning" soft>PK</Chip>
+                  <Chip tone="accent" soft>unique</Chip>
+                </>
+              }
+              actions={
+                <Button size="sm" variant="secondary" icon="edit">Form editor</Button>
+              }
+            />
+            <PageHeader
+              breadcrumb={
+                <Breadcrumbs
+                  items={[
+                    { label: 'Home', path: '/' },
+                    { label: 'Packages', path: '/packages' },
+                    { label: 'order-service', path: '/packages/order-service' },
+                  ]}
+                />
+              }
+              meta={<Chip tone="meta">aggregate-root</Chip>}
+              actions={
+                <>
+                  <Button size="sm" variant="ghost" icon="edit">Edit</Button>
+                  <Button size="sm" variant="danger" icon="close">Delete</Button>
+                </>
+              }
+              description="The order-service package owns Order, OrderLine, Payment, and supporting reference data. Click to expand a longer multi-line description that wraps onto subsequent lines for richer context."
+            />
+          </div>
+        </Surface>
       </Section>
 
       <Section title="Menu — popover with click-outside">

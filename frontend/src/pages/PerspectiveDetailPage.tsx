@@ -3,6 +3,8 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { perspectiveApi } from '../services/api';
 import type { ResolvedPerspective } from '../types';
 import PerspectiveTreeTable from '../components/PerspectiveTreeTable';
+import Breadcrumbs from '../components/Breadcrumbs';
+import { Button, PageHeader } from '../components/ui';
 
 export default function PerspectiveDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -45,24 +47,31 @@ export default function PerspectiveDetailPage() {
 
   return (
     <div className="p-4 space-y-3">
-      {/* Compact header: title + description inline + stats + actions */}
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-3 flex-wrap min-w-0">
-          <h1 className="text-xl font-bold whitespace-nowrap">{resolved.name}</h1>
-          {resolved.description && (
-            <span className="text-sm text-base-content/60 truncate max-w-md" title={resolved.description}>
-              {resolved.description}
-            </span>
-          )}
-          <span className="text-xs text-base-content/50">
+      <PageHeader
+        breadcrumb={
+          <Breadcrumbs
+            items={[
+              { label: 'Home', path: '/' },
+              { label: 'Perspectives', path: '/perspectives' },
+              { label: resolved.name, path: `/perspectives/${id}` },
+            ]}
+          />
+        }
+        meta={
+          <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>
             <b>{rootNodes.length}</b> roots · <b>{resolved.resolvedNodes.length}</b> resolved · <b>{frontierNodes.length}</b> frontier · <b>{annotations.length}</b> annotations
           </span>
-        </div>
-        <div className="flex gap-2">
-          <Link to={`/perspectives/${id}/edit`} className="btn btn-sm btn-ghost">Edit</Link>
-          <button className="btn btn-sm btn-error btn-ghost" onClick={handleDelete}>Delete</button>
-        </div>
-      </div>
+        }
+        description={resolved.description}
+        actions={
+          <>
+            <Link to={`/perspectives/${id}/edit`}>
+              <Button size="sm" variant="ghost" icon="edit">Edit</Button>
+            </Link>
+            <Button size="sm" variant="danger" icon="close" onClick={handleDelete}>Delete</Button>
+          </>
+        }
+      />
 
       {/* Tabs */}
       <div>
