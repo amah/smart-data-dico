@@ -12,10 +12,7 @@ export function mapGraphDataToCytoscape(
     const entity = node.data;
     const pkCount = entity?.attributes?.filter((a) => a.primaryKey).length ?? 0;
     const attrCount = entity?.attributes?.length ?? 0;
-    const summaryParts: string[] = [];
-    if (pkCount > 0) summaryParts.push(`${pkCount} PK`);
-    summaryParts.push(`${attrCount} ${attrCount === 1 ? 'attr' : 'attrs'}`);
-    const displayLabel = `${node.label}\n${summaryParts.join(' · ')}`;
+    const displayLabel = node.label;
 
     elements.push({
       group: 'nodes',

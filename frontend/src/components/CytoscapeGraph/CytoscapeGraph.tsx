@@ -197,7 +197,7 @@ export default function CytoscapeGraph({
         )}
 
         {/* Cytoscape container */}
-        <div ref={containerRef} className="w-full h-full" />
+        <div ref={containerRef} className="w-full h-full" style={{ cursor: 'pointer' }} />
 
         {/* Legend overlay */}
         {elements.length > 0 && (
