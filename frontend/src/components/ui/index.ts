@@ -42,6 +42,9 @@ export type { Density, DensitySwitcherProps } from './DensitySwitcher';
 export { default as Toolbar } from './Toolbar';
 export type { ToolbarProps } from './Toolbar';
 
+export { default as PageHeader } from './PageHeader';
+export type { PageHeaderProps } from './PageHeader';
+
 export { default as Menu } from './Menu';
 export type { MenuProps } from './Menu';
 

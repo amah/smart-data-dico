@@ -42,9 +42,11 @@ import {
   Button,
   Chip,
   Icon,
+  PageHeader,
   PiiChip,
   TypeChip,
 } from '../components/ui';
+import Breadcrumbs from '../components/Breadcrumbs';
 
 const AttributeDetailPage = () => {
   const params = useParams<{ '*': string }>();
@@ -157,59 +159,35 @@ const AttributeDetailPage = () => {
 
   return (
     <div className="flex flex-col gap-3" style={{ padding: 12 }}>
-      {/* Breadcrumb */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          fontSize: 'var(--fs-sm)',
-          color: 'var(--text-muted)',
-        }}
-      >
-        <Link to="/" style={{ color: 'inherit' }}><Icon name="home" size={12} /></Link>
-        <span style={{ color: 'var(--text-subtle)' }}>/</span>
-        <Link to="/packages" style={{ color: 'inherit' }}>packages</Link>
-        <span style={{ color: 'var(--text-subtle)' }}>/</span>
-        <Link to={`/packages/${service}`} style={{ color: 'inherit' }}>{service}</Link>
-        <span style={{ color: 'var(--text-subtle)' }}>/</span>
-        <Link
-          to={`/packages/${service}/entities/${entity.name}`}
-          className="mono"
-          style={{ color: 'inherit' }}
-        >
-          {entity.name}
-        </Link>
-        <span style={{ color: 'var(--text-subtle)' }}>/</span>
-        <span className="mono" style={{ color: 'var(--text)', fontWeight: 500 }}>
-          {attribute.name}
-        </span>
-      </div>
-
-      {/* Identity header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <h1
-          className="mono"
-          style={{
-            margin: 0,
-            fontSize: 'var(--fs-3xl)',
-            fontWeight: 600,
-            letterSpacing: '-0.02em',
-            color: 'var(--text)',
-          }}
-        >
-          {attribute.name}
-        </h1>
-        {attribute.primaryKey && <Chip tone="warning" soft>PK</Chip>}
-        {attribute.unique && <Chip tone="accent" soft>unique</Chip>}
-        <div style={{ flex: 1 }} />
-        <Link to={`/packages/${service}/entities/${entity.name}`}>
-          <Button size="sm" variant="ghost" icon="chevron">Back to entity</Button>
-        </Link>
-        <Link to={`/packages/${service}/entities/${entity.name}/attributes/${attribute.name}/edit`}>
-          <Button size="sm" variant="secondary" icon="edit">Form editor</Button>
-        </Link>
-      </div>
+      <PageHeader
+        breadcrumb={
+          <Breadcrumbs
+            items={[
+              { label: 'Home', path: '/' },
+              { label: 'packages', path: '/packages' },
+              { label: service ?? '', path: `/packages/${service}` },
+              { label: entity.name, path: `/packages/${service}/entities/${entity.name}` },
+              { label: attribute.name, path: `/packages/${service}/entities/${entity.name}/attributes/${attribute.name}` },
+            ]}
+          />
+        }
+        meta={
+          <>
+            {attribute.primaryKey && <Chip tone="warning" soft>PK</Chip>}
+            {attribute.unique && <Chip tone="accent" soft>unique</Chip>}
+          </>
+        }
+        actions={
+          <>
+            <Link to={`/packages/${service}/entities/${entity.name}`}>
+              <Button size="sm" variant="ghost" icon="chevron">Back to entity</Button>
+            </Link>
+            <Link to={`/packages/${service}/entities/${entity.name}/attributes/${attribute.name}/edit`}>
+              <Button size="sm" variant="secondary" icon="edit">Form editor</Button>
+            </Link>
+          </>
+        }
+      />
 
       {/* Key-facts strip */}
       <KeyFacts attribute={attribute} />

@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { gitApi, versionApi } from '../services/api';
+import Breadcrumbs from '../components/Breadcrumbs';
+import { PageHeader } from '../components/ui';
 
 export default function SavePublishPage() {
   const [status, setStatus] = useState<any>(null);
@@ -67,11 +69,17 @@ export default function SavePublishPage() {
   };
 
   return (
-    <div className="p-6 max-w-2xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Save & Publish</h1>
-        <p className="text-base-content/70">Save your changes locally, then publish to share with the team.</p>
-      </div>
+    <div className="p-4 max-w-2xl space-y-4">
+      <PageHeader
+        breadcrumb={
+          <Breadcrumbs
+            items={[
+              { label: 'Home', path: '/' },
+              { label: 'Save & Publish', path: '/save-publish' },
+            ]}
+          />
+        }
+      />
 
       {result && (
         <div className={`alert ${result.type === 'success' ? 'alert-success' : 'alert-error'}`}>

@@ -39,8 +39,10 @@ import {
   Button,
   Chip,
   Icon,
+  PageHeader,
   RelationshipKindChip,
 } from '../components/ui';
+import Breadcrumbs from '../components/Breadcrumbs';
 
 interface EntityLookupEntry {
   name: string;
@@ -175,35 +177,25 @@ const RelationshipDetailPage = () => {
 
   return (
     <div className="flex flex-col gap-3" style={{ padding: 12 }}>
-      {/* Breadcrumb */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          fontSize: 'var(--fs-sm)',
-          color: 'var(--text-muted)',
-          flexWrap: 'wrap',
-        }}
-      >
-        <Link to="/" style={{ color: 'inherit' }}><Icon name="home" size={12} /></Link>
-        <span style={{ color: 'var(--text-subtle)' }}>/</span>
-        <Link to="/packages" style={{ color: 'inherit' }}>packages</Link>
-        <span style={{ color: 'var(--text-subtle)' }}>/</span>
-        <Link to={`/packages/${service}`} style={{ color: 'inherit' }}>{service}</Link>
-        <span style={{ color: 'var(--text-subtle)' }}>/</span>
-        <Link
-          to={`/packages/${service}/entities/${entityName}`}
-          className="mono"
-          style={{ color: 'inherit' }}
-        >
-          {entityName}
-        </Link>
-        <span style={{ color: 'var(--text-subtle)' }}>/</span>
-        <span className="mono" style={{ color: 'var(--text)', fontWeight: 500 }}>
-          rel:{rel.uuid.slice(0, 8)}
-        </span>
-      </div>
+      <PageHeader
+        breadcrumb={
+          <Breadcrumbs
+            items={[
+              { label: 'Home', path: '/' },
+              { label: 'packages', path: '/packages' },
+              { label: service ?? '', path: `/packages/${service}` },
+              { label: entityName ?? '', path: `/packages/${service}/entities/${entityName}` },
+              { label: `rel:${rel.uuid.slice(0, 8)}`, path: `/packages/${service}/entities/${entityName}/relationships/${rel.uuid}` },
+            ]}
+          />
+        }
+        meta={rel.type ? <Chip tone={rel.type === 'lineage' ? 'info' : 'meta'}>{rel.type}</Chip> : undefined}
+        actions={
+          <Link to={`/packages/${service}/entities/${entityName}/relationships/${rel.uuid}/edit`}>
+            <Button size="sm" variant="secondary" icon="edit">Form editor</Button>
+          </Link>
+        }
+      />
 
       {/* Identity visual: source → target */}
       <div
@@ -211,11 +203,12 @@ const RelationshipDetailPage = () => {
           background: 'var(--bg-raised)',
           border: '1px solid var(--border)',
           borderRadius: 'var(--radius-md)',
-          padding: '14px 16px',
+          padding: '6px 10px',
           display: 'flex',
           alignItems: 'center',
-          gap: 14,
+          gap: 12,
           flexWrap: 'wrap',
+          minHeight: 40,
         }}
       >
         <EntityBlob
@@ -234,11 +227,6 @@ const RelationshipDetailPage = () => {
           currentService={service}
           href={toInfo ? `/packages/${toInfo.service}/entities/${toInfo.name}` : undefined}
         />
-        <div style={{ flex: 1 }} />
-        {rel.type && <Chip tone={rel.type === 'lineage' ? 'info' : 'meta'}>{rel.type}</Chip>}
-        <Link to={`/packages/${service}/entities/${entityName}/relationships/${rel.uuid}/edit`}>
-          <Button size="sm" variant="secondary" icon="edit">Form editor</Button>
-        </Link>
       </div>
 
       {/* Sections */}
@@ -322,12 +310,12 @@ const EntityBlob = ({ label, service, currentService, href }: EntityBlobProps) =
         display: 'inline-flex',
         flexDirection: 'column',
         alignItems: 'flex-start',
-        padding: '10px 14px',
+        padding: '4px 10px',
         background: 'var(--bg-subtle)',
         border: '1px solid var(--border-strong)',
         borderRadius: 'var(--radius-md)',
-        minWidth: 160,
-        maxWidth: 260,
+        minWidth: 140,
+        maxWidth: 240,
         cursor: href ? 'pointer' : undefined,
         transition: 'border-color var(--dur-fast)',
       }}
@@ -338,7 +326,7 @@ const EntityBlob = ({ label, service, currentService, href }: EntityBlobProps) =
         <span
           className="mono"
           style={{
-            fontSize: 'var(--fs-lg)',
+            fontSize: 'var(--fs-md)',
             fontWeight: 600,
             color: 'var(--text)',
             overflow: 'hidden',

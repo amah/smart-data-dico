@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { packageApi, servicesApi, stereotypeApi } from '../services/api';
-import type { Package, Entity, Stereotype } from '../types';
+import type { Package, Entity, Stereotype, Breadcrumb } from '../types';
 import PackageForm from '../components/PackageForm';
 import CytoscapeGraph from '../components/CytoscapeGraph';
+import Breadcrumbs from '../components/Breadcrumbs';
+import { Button, Chip, PageHeader } from '../components/ui';
 import { useRecordRecentPackage } from '../hooks/useRecentPackages';
 
 interface PackageDetailPageProps {
@@ -171,28 +173,28 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
   const subPackageCount = pkg.subPackages?.length ?? 0;
   const relationshipCount = pkg.relationships?.length ?? 0;
 
+  const headerCrumbs: Breadcrumb[] = [
+    { label: 'Home', path: '/' },
+    { label: 'Packages', path: '/packages' },
+    ...packagePath.map((seg, i) => ({
+      label: seg,
+      path: '/packages/' + packagePath.slice(0, i + 1).join('/'),
+    })),
+  ];
+
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">{pkg.name}</h1>
-          {pkg.description && (
-            <p className="text-base-content/70 mt-1">{pkg.description}</p>
-          )}
-          {pkg.type && (
-            <span className="badge badge-outline badge-sm mt-2">{pkg.type}</span>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <button className="btn btn-sm btn-ghost" onClick={() => setShowEdit(true)}>
-            Edit
-          </button>
-          <button className="btn btn-sm btn-error btn-ghost" onClick={() => setShowDeleteConfirm(true)}>
-            Delete
-          </button>
-        </div>
-      </div>
+    <div className="p-4 space-y-4">
+      <PageHeader
+        breadcrumb={<Breadcrumbs items={headerCrumbs} />}
+        meta={pkg.type ? <Chip tone="meta" soft>{pkg.type}</Chip> : undefined}
+        description={pkg.description}
+        actions={
+          <>
+            <Button size="sm" variant="ghost" icon="edit" onClick={() => setShowEdit(true)}>Edit</Button>
+            <Button size="sm" variant="danger" icon="close" onClick={() => setShowDeleteConfirm(true)}>Delete</Button>
+          </>
+        }
+      />
 
       {/* View mode toggle */}
       <div className="tabs tabs-boxed w-fit">
