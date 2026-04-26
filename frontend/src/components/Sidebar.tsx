@@ -144,10 +144,6 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
       <NavItem to="/diff/logical" icon="link"    active={isActive('/diff/logical')}>Model Diff</NavItem>
       <NavItem to="/diff/physical" icon="layers" active={isActive('/diff/physical')}>Physical Sync</NavItem>
       <NavItem to="/diagram"      icon="chart"   active={isActive('/diagram')}>Diagram</NavItem>
-
-      {/* Tools */}
-      <SectionLabel>Tools</SectionLabel>
-
       <NavItem
         icon="rows"
         onClick={() => setFlatViewsOpen(v => !v)}
@@ -168,6 +164,9 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
           <NavItem to="/flat/attributes" indent={1} active={isActive('/flat/attributes')}>Attributes</NavItem>
         </>
       )}
+
+      {/* Tools */}
+      <SectionLabel>Tools</SectionLabel>
 
       <NavItem to="/types"         icon="rows"    active={isActive('/types')}>Data Types</NavItem>
       <NavItem to="/design-system" icon="layers" active={isActive('/design-system')}>Design system</NavItem>
