@@ -176,7 +176,7 @@ const RelationshipDetailPage = () => {
   );
 
   return (
-    <div className="flex flex-col gap-3" style={{ padding: 12 }}>
+    <div className="flex flex-col gap-3" style={{ padding: '4px 12px 12px' }}>
       <PageHeader
         breadcrumb={
           <Breadcrumbs

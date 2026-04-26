@@ -83,7 +83,7 @@ export default function ImportExportPage() {
   };
 
   return (
-    <div className="p-4 max-w-3xl space-y-4">
+    <div className="px-4 pt-2 pb-4 max-w-3xl space-y-4">
       <PageHeader
         breadcrumb={
           <Breadcrumbs

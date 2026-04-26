@@ -301,7 +301,7 @@ const EntityDetail = (props: EntityDetailProps) => {
       className="flex-1 flex flex-col min-h-0"
       style={{ background: 'var(--bg)', color: 'var(--text)' }}
     >
-      <div style={{ padding: '8px 12px 4px' }}>
+      <div style={{ padding: '2px 12px 4px' }}>
         <PageHeader
           breadcrumb={
             <Breadcrumbs
