@@ -188,6 +188,42 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
         breadcrumb={<Breadcrumbs items={headerCrumbs} />}
         meta={pkg.type ? <Chip tone="meta" soft>{pkg.type}</Chip> : undefined}
         description={pkg.description}
+        tabs={
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              padding: 2,
+              background: 'var(--bg-raised)',
+              gap: 2,
+            }}
+          >
+            {(['page', 'graph'] as const).map((v) => {
+              const active = viewMode === v;
+              return (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setSearchParams({ view: v })}
+                  style={{
+                    padding: '2px 10px',
+                    fontSize: 'var(--fs-sm)',
+                    borderRadius: 4,
+                    border: 'none',
+                    background: active ? 'var(--accent-soft)' : 'transparent',
+                    color: active ? 'var(--accent)' : 'var(--text-subtle)',
+                    cursor: 'pointer',
+                    fontWeight: active ? 600 : 400,
+                  }}
+                >
+                  {v === 'page' ? 'Page' : 'Diagram'}
+                </button>
+              );
+            })}
+          </div>
+        }
         actions={
           <>
             <Button size="sm" variant="ghost" icon="edit" onClick={() => setShowEdit(true)}>Edit</Button>
@@ -195,22 +231,6 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
           </>
         }
       />
-
-      {/* View mode toggle */}
-      <div className="tabs tabs-boxed w-fit">
-        <button
-          className={`tab ${viewMode === 'page' ? 'tab-active' : ''}`}
-          onClick={() => setSearchParams({ view: 'page' })}
-        >
-          Page View
-        </button>
-        <button
-          className={`tab ${viewMode === 'graph' ? 'tab-active' : ''}`}
-          onClick={() => setSearchParams({ view: 'graph' })}
-        >
-          Diagram View
-        </button>
-      </div>
 
       {viewMode === 'graph' ? (
         <div className="h-[600px] border border-base-300 rounded-lg overflow-hidden">

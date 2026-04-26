@@ -63,6 +63,46 @@ export default function CaseDetailPage() {
           </span>
         }
         description={resolved.description}
+        tabs={
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              padding: 2,
+              background: 'var(--bg-raised)',
+              gap: 2,
+            }}
+          >
+            {([
+              { id: 'paths', label: `Paths (${resolved.resolvedNodes.length})` },
+              { id: 'graph', label: 'Graph' },
+              { id: 'annotations', label: `Annotations (${annotations.length})` },
+            ] as const).map((t) => {
+              const active = activeTab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setActiveTab(t.id)}
+                  style={{
+                    padding: '2px 10px',
+                    fontSize: 'var(--fs-sm)',
+                    borderRadius: 4,
+                    border: 'none',
+                    background: active ? 'var(--accent-soft)' : 'transparent',
+                    color: active ? 'var(--accent)' : 'var(--text-subtle)',
+                    cursor: 'pointer',
+                    fontWeight: active ? 600 : 400,
+                  }}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+        }
         actions={
           <>
             <Link to={`/cases/${id}/edit`}>
@@ -73,21 +113,7 @@ export default function CaseDetailPage() {
         }
       />
 
-      {/* Tabs */}
       <div>
-        <div className="tabs tabs-bordered">
-          <button className={`tab ${activeTab === 'paths' ? 'tab-active' : ''}`} onClick={() => setActiveTab('paths')}>
-            Resolved Paths ({resolved.resolvedNodes.length})
-          </button>
-          <button className={`tab ${activeTab === 'graph' ? 'tab-active' : ''}`} onClick={() => setActiveTab('graph')}>
-            Graph
-          </button>
-          <button className={`tab ${activeTab === 'annotations' ? 'tab-active' : ''}`} onClick={() => setActiveTab('annotations')}>
-            Annotations ({annotations.length})
-          </button>
-        </div>
-
-        <div className="mt-4">
           {activeTab === 'paths' && (
             <CaseTreeTable
               nodes={resolved.resolvedNodes}
@@ -132,7 +158,6 @@ export default function CaseDetailPage() {
               )}
             </div>
           )}
-        </div>
       </div>
     </div>
   );

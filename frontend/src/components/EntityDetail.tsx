@@ -8,7 +8,8 @@ import MetadataEditor from './MetadataEditor';
 import AttributeList from './AttributeList';
 import RelationshipList from './RelationshipList';
 import EntityRulesList from './EntityRulesList';
-import { Button, Chip, EmptyState, Icon } from './ui';
+import { Button, Chip, EmptyState, Icon, PageHeader } from './ui';
+import Breadcrumbs from './Breadcrumbs';
 
 /**
  * Entity detail page — Phase 4.1 redesign.
@@ -300,144 +301,78 @@ const EntityDetail = (props: EntityDetailProps) => {
       className="flex-1 flex flex-col min-h-0"
       style={{ background: 'var(--bg)', color: 'var(--text)' }}
     >
-      {/* ───── Breadcrumb strip ───── */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          padding: '6px 12px',
-          fontSize: 'var(--fs-sm)',
-          color: 'var(--text-muted)',
-          background: 'var(--bg-raised)',
-          border: '1px solid var(--border)',
-          borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
-          borderBottom: 'none',
-        }}
-      >
-        <Link to="/" style={{ display: 'inline-flex', alignItems: 'center', color: 'inherit' }}>
-          <Icon name="home" size={12} />
-        </Link>
-        <span style={{ color: 'var(--text-subtle)' }}>/</span>
-        <Link to="/packages" style={{ color: 'inherit' }}>packages</Link>
-        <span style={{ color: 'var(--text-subtle)' }}>/</span>
-        <Link to={`/packages/${service}`} style={{ color: 'inherit' }}>{service}</Link>
-        <span style={{ color: 'var(--text-subtle)' }}>/</span>
-        <span className="mono" style={{ color: 'var(--text)', fontWeight: 500 }}>{entityData?.name}</span>
-      </div>
-
-      {/* ───── Entity header ───── */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          padding: '10px 12px 8px',
-          background: 'var(--bg-raised)',
-          borderLeft: '1px solid var(--border)',
-          borderRight: '1px solid var(--border)',
-          flexWrap: 'wrap',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, minWidth: 0 }}>
-          <h1
-            className="mono"
-            style={{
-              margin: 0,
-              fontSize: 'var(--fs-2xl)',
-              fontWeight: 600,
-              letterSpacing: '-0.02em',
-              color: 'var(--text)',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {entityData?.name}
-          </h1>
-          <Chip tone="meta" className="mono">{service}</Chip>
-          <span
-            className="mono"
-            style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)' }}
-          >
-            {attrCount} attr{attrCount === 1 ? '' : 's'} · {relCount} rel{relCount === 1 ? '' : 's'}
-          </span>
-        </div>
-
-        <div style={{ flex: 1 }} />
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Chip tone={statusTone as any} soft={statusTone !== 'neutral'}>{statusValue}</Chip>
-          {(statusValue === 'draft' || statusValue === 'returned') && (
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={async () => {
-                if (!service || !entity) return;
-                try { await servicesApi.submitEntity(service, entity); await refreshEntity(); } catch { /* ignore */ }
-              }}
-            >
-              Submit
-            </Button>
-          )}
-          {statusValue === 'submitted' && (
+      <div style={{ padding: '8px 12px 4px' }}>
+        <PageHeader
+          breadcrumb={
+            <Breadcrumbs
+              items={[
+                { label: 'Home', path: '/' },
+                { label: 'packages', path: '/packages' },
+                { label: service ?? '', path: `/packages/${service}` },
+                { label: entityData?.name ?? '', path: `/packages/${service}/entities/${entityData?.name}` },
+              ]}
+            />
+          }
+          meta={
             <>
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={async () => {
-                  if (!service || !entity) return;
-                  try { await servicesApi.approveEntity(service, entity); await refreshEntity(); } catch { /* ignore */ }
-                }}
-              >
-                Approve
-              </Button>
-              <Button
-                size="sm"
-                variant="danger"
-                onClick={async () => {
-                  const comment = prompt('Return comment (optional):');
-                  if (!service || !entity) return;
-                  try { await servicesApi.returnEntity(service, entity, comment || undefined); await refreshEntity(); } catch { /* ignore */ }
-                }}
-              >
-                Return
-              </Button>
+              <Chip tone="meta" className="mono">{service}</Chip>
+              <span className="mono" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>
+                {attrCount} attr · {relCount} rel
+              </span>
+              <Chip tone={statusTone as any} soft={statusTone !== 'neutral'}>{statusValue}</Chip>
             </>
-          )}
-
-          <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 4px' }} />
-
-          <Button size="sm" variant="ghost" icon="copy" onClick={handleCloneEntity}>Clone</Button>
-          <Link
-            to={`/visualization/${service}/${entity}`}
-            style={{ display: 'inline-flex' }}
-          >
-            <Button size="sm" variant="ghost" icon="chart">Visualize</Button>
-          </Link>
-          <Link
-            to={`/packages/${service}/entities/${entity}/edit`}
-            style={{ display: 'inline-flex' }}
-          >
-            <Button size="sm" variant="primary" icon="edit">Edit entity</Button>
-          </Link>
-        </div>
+          }
+          description={entityData?.description}
+          actions={
+            <>
+              {(statusValue === 'draft' || statusValue === 'returned') && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={async () => {
+                    if (!service || !entity) return;
+                    try { await servicesApi.submitEntity(service, entity); await refreshEntity(); } catch { /* ignore */ }
+                  }}
+                >
+                  Submit
+                </Button>
+              )}
+              {statusValue === 'submitted' && (
+                <>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={async () => {
+                      if (!service || !entity) return;
+                      try { await servicesApi.approveEntity(service, entity); await refreshEntity(); } catch { /* ignore */ }
+                    }}
+                  >
+                    Approve
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    onClick={async () => {
+                      const comment = prompt('Return comment (optional):');
+                      if (!service || !entity) return;
+                      try { await servicesApi.returnEntity(service, entity, comment || undefined); await refreshEntity(); } catch { /* ignore */ }
+                    }}
+                  >
+                    Return
+                  </Button>
+                </>
+              )}
+              <Button size="sm" variant="ghost" icon="copy" onClick={handleCloneEntity}>Clone</Button>
+              <Link to={`/visualization/${service}/${entity}`} style={{ display: 'inline-flex' }}>
+                <Button size="sm" variant="ghost" icon="chart">Visualize</Button>
+              </Link>
+              <Link to={`/packages/${service}/entities/${entity}/edit`} style={{ display: 'inline-flex' }}>
+                <Button size="sm" variant="primary" icon="edit">Edit</Button>
+              </Link>
+            </>
+          }
+        />
       </div>
-
-      {entityData?.description && (
-        <div
-          style={{
-            padding: '4px 12px 10px',
-            fontSize: 'var(--fs-sm)',
-            color: 'var(--text-muted)',
-            background: 'var(--bg-raised)',
-            borderLeft: '1px solid var(--border)',
-            borderRight: '1px solid var(--border)',
-          }}
-        >
-          {entityData.description}
-        </div>
-      )}
 
       {/* ───── Tabs ───── */}
       <div
