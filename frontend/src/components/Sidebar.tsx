@@ -86,6 +86,7 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
         <CollapsedLink to="/diff/logical" icon="link"    label="Model Diff" active={isActive('/diff/logical') || isActive('/diff/physical')} />
         <CollapsedLink to="/diagram"     icon="chart"   label="Diagram"     active={isActive('/diagram')} />
         <CollapsedLink to="/types"       icon="rows"    label="Data Types"  active={isActive('/types')} />
+        <CollapsedLink to="/stereotypes" icon="layers"  label="Stereotypes" active={isActive('/stereotypes')} />
         <CollapsedLink to="/settings"    icon="gear"    label="Settings"    active={isActive('/settings')} />
       </div>
     );
@@ -169,6 +170,7 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
       <SectionLabel>Tools</SectionLabel>
 
       <NavItem to="/types"         icon="rows"    active={isActive('/types')}>Data Types</NavItem>
+      <NavItem to="/stereotypes"   icon="layers"  active={isActive('/stereotypes')}>Stereotypes</NavItem>
       <NavItem to="/design-system" icon="layers" active={isActive('/design-system')}>Design system</NavItem>
       <NavItem to="/settings"      icon="gear"    active={isActive('/settings')}>Settings</NavItem>
     </aside>
