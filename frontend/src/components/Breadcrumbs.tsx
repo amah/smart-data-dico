@@ -88,15 +88,26 @@ const Breadcrumbs = ({ items: itemsProp }: BreadcrumbsProps = {}) => {
   return (
     <div className="text-xs breadcrumbs py-0">
       <ul>
-        {breadcrumbs.map((breadcrumb, index) => (
-          <li key={breadcrumb.path}>
-            {index < breadcrumbs.length - 1 ? (
-              <Link to={breadcrumb.path}>{breadcrumb.label}</Link>
-            ) : (
-              <span className="font-medium">{breadcrumb.label}</span>
-            )}
-          </li>
-        ))}
+        {breadcrumbs.map((breadcrumb, index) => {
+          const isLast = index === breadcrumbs.length - 1;
+          return (
+            <li key={breadcrumb.path}>
+              {!isLast ? (
+                <Link to={breadcrumb.path}>{breadcrumb.label}</Link>
+              ) : (
+                <span
+                  style={{
+                    fontSize: 'var(--fs-md)',
+                    fontWeight: 600,
+                    color: 'var(--text-default)',
+                  }}
+                >
+                  {breadcrumb.label}
+                </span>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

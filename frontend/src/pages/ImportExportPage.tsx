@@ -93,6 +93,46 @@ export default function ImportExportPage() {
             ]}
           />
         }
+        tabs={
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              padding: 2,
+              background: 'var(--bg-raised)',
+              gap: 2,
+            }}
+          >
+            {([
+              { id: 'wizard', label: 'Wizard' },
+              { id: 'import', label: 'Import' },
+              { id: 'export', label: 'Export' },
+            ] as const).map((t) => {
+              const active = activeTab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setActiveTab(t.id)}
+                  style={{
+                    padding: '2px 10px',
+                    fontSize: 'var(--fs-sm)',
+                    borderRadius: 4,
+                    border: 'none',
+                    background: active ? 'var(--accent-soft)' : 'transparent',
+                    color: active ? 'var(--accent)' : 'var(--text-subtle)',
+                    cursor: 'pointer',
+                    fontWeight: active ? 600 : 400,
+                  }}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+        }
       />
 
       {result && (
@@ -100,12 +140,6 @@ export default function ImportExportPage() {
           <span>{result.text}</span>
         </div>
       )}
-
-      <div className="tabs tabs-bordered">
-        <button className={`tab ${activeTab === 'wizard' ? 'tab-active' : ''}`} onClick={() => setActiveTab('wizard')}>Schema Import Wizard</button>
-        <button className={`tab ${activeTab === 'import' ? 'tab-active' : ''}`} onClick={() => setActiveTab('import')}>JSON Schema Import</button>
-        <button className={`tab ${activeTab === 'export' ? 'tab-active' : ''}`} onClick={() => setActiveTab('export')}>Export</button>
-      </div>
 
       {activeTab === 'wizard' && (
         <SchemaImportWizard
