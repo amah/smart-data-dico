@@ -143,7 +143,7 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
       <NavItem to="/integrity"    icon="check"   active={isActive('/integrity')}>Integrity</NavItem>
       <NavItem to="/diff/logical" icon="link"    active={isActive('/diff/logical')}>Model Diff</NavItem>
       <NavItem to="/diff/physical" icon="layers" active={isActive('/diff/physical')}>Physical Sync</NavItem>
-      <NavItem to="/diagram"      icon="chart"   active={isActive('/diagram')}>Org Diagram</NavItem>
+      <NavItem to="/diagram"      icon="chart"   active={isActive('/diagram')}>Diagram</NavItem>
 
       {/* Tools */}
       <SectionLabel>Tools</SectionLabel>
