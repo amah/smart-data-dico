@@ -27,7 +27,7 @@ export default function OrganizationDiagramPage() {
     <div className="flex flex-col h-[calc(100vh-6rem)]">
       <div className="flex items-center justify-between mb-2">
         <div>
-          <h1 className="text-2xl font-bold">Organization Diagram</h1>
+          <h1 className="text-2xl font-bold">Diagram</h1>
           <p className="text-base-content/60 text-sm">
             All entities and relationships across {packages.length} packages
           </p>

@@ -15,7 +15,7 @@ export default function VisualizationPage() {
     ? `${entity} — ${service}`
     : service
       ? service
-      : 'Organization Diagram';
+      : 'Diagram';
 
   return (
     <div className="flex flex-col h-[calc(100vh-6rem)]">
