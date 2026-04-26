@@ -65,9 +65,9 @@ const ShellLayout: React.FC = () => {
         </div>
 
         {/* Main content slot */}
-        <main className="flex-1 overflow-auto flex flex-col px-4 md:px-5 py-2">
+        <main className="flex-1 overflow-auto flex flex-col px-4 md:px-5 pt-0 pb-2">
           {!pageHasOwnHeader && <Breadcrumbs />}
-          <div className="flex-1 min-h-0 flex flex-col mt-1">
+          <div className="flex-1 min-h-0 flex flex-col">
             <Outlet />
           </div>
         </main>
