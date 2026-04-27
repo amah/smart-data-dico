@@ -71,11 +71,35 @@ export default function StereotypesPage() {
     }
   };
 
-  const grouped = VISIBLE_TARGETS.map((target) => ({
-    target,
-    label: TARGET_LABELS[target],
-    items: stereotypes.filter((s) => s.appliesTo === target),
-  }));
+  const knownDomains = Array.from(
+    new Set(stereotypes.map((s) => s.domain?.trim()).filter((d): d is string => !!d)),
+  ).sort();
+
+  // Group by domain → then by appliesTo target.
+  const groupedByDomain = (() => {
+    const buckets = new Map<string, Stereotype[]>();
+    for (const s of stereotypes) {
+      const key = (s.domain && s.domain.trim()) || 'Uncategorized';
+      const arr = buckets.get(key) || [];
+      arr.push(s);
+      buckets.set(key, arr);
+    }
+    const sorted = Array.from(buckets.entries()).sort(([a], [b]) => {
+      if (a === 'Uncategorized') return 1;
+      if (b === 'Uncategorized') return -1;
+      return a.localeCompare(b);
+    });
+    return sorted.map(([domain, items]) => ({
+      domain,
+      byTarget: VISIBLE_TARGETS
+        .map((target) => ({
+          target,
+          label: TARGET_LABELS[target],
+          items: items.filter((s) => s.appliesTo === target),
+        }))
+        .filter((g) => g.items.length > 0),
+    }));
+  })();
 
   if (loading) {
     return <EmptyState kind="loading" message="Loading stereotypes…" />;
@@ -144,52 +168,82 @@ export default function StereotypesPage() {
         </div>
       )}
 
-      {grouped.map(({ target, label, items }) => (
-        <section key={target}>
+      {groupedByDomain.length === 0 && (
+        <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)' }}>
+          No stereotypes defined yet.
+        </p>
+      )}
+
+      {groupedByDomain.map(({ domain, byTarget }) => (
+        <section
+          key={domain}
+          style={{
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-md)',
+            background: 'var(--bg-subtle)',
+            padding: 12,
+          }}
+        >
           <h2
+            className="uppercase"
             style={{
-              fontSize: 'var(--fs-md)',
-              fontWeight: 600,
-              color: 'var(--text)',
-              marginBottom: 8,
+              fontSize: 'var(--fs-xs)',
+              fontWeight: 700,
+              color: 'var(--text-subtle)',
+              letterSpacing: '0.06em',
+              margin: 0,
+              marginBottom: 10,
             }}
           >
-            {label}
+            {domain}
           </h2>
-          {items.length === 0 ? (
-            <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)', marginBottom: 16 }}>
-              No {target} stereotypes defined.
-            </p>
-          ) : (
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-                gap: 10,
-                marginBottom: 16,
-              }}
-            >
-              {items.map((s) => (
-                <StereotypeCard
-                  key={s.id}
-                  stereotype={s}
-                  onEdit={() => setEditingId(s.id)}
-                  onDelete={() => handleDelete(s.id)}
-                />
-              ))}
+
+          {byTarget.map(({ target, label, items }) => (
+            <div key={target} style={{ marginBottom: 12 }}>
+              <h3
+                style={{
+                  fontSize: 'var(--fs-sm)',
+                  fontWeight: 600,
+                  color: 'var(--text-muted)',
+                  marginBottom: 6,
+                }}
+              >
+                {label}
+              </h3>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+                  gap: 10,
+                }}
+              >
+                {items.map((s) => (
+                  <StereotypeCard
+                    key={s.id}
+                    stereotype={s}
+                    onEdit={() => setEditingId(s.id)}
+                    onDelete={() => handleDelete(s.id)}
+                  />
+                ))}
+              </div>
             </div>
-          )}
+          ))}
         </section>
       ))}
 
       <Modal open={showCreate} title="Create Stereotype" onClose={() => setShowCreate(false)} width={640}>
-        <StereotypeForm onSubmit={handleCreate} onCancel={() => setShowCreate(false)} />
+        <StereotypeForm
+          knownDomains={knownDomains}
+          onSubmit={handleCreate}
+          onCancel={() => setShowCreate(false)}
+        />
       </Modal>
 
       <Modal open={!!editingId} title="Edit Stereotype" onClose={() => setEditingId(null)} width={640}>
         {editingId && (
           <StereotypeForm
             initialValues={stereotypes.find((s) => s.id === editingId)}
+            knownDomains={knownDomains}
             onSubmit={handleUpdate}
             onCancel={() => setEditingId(null)}
             isEdit

@@ -46,6 +46,7 @@ class StereotypeService {
       id: data.id,
       name: data.name,
       description: data.description,
+      domain: data.domain,
       appliesTo: data.appliesTo,
       metadataDefinitions: data.metadataDefinitions || [],
     };
@@ -64,6 +65,7 @@ class StereotypeService {
       ...all[index],
       name: data.name ?? all[index].name,
       description: data.description ?? all[index].description,
+      domain: data.domain ?? all[index].domain,
       appliesTo: data.appliesTo ?? all[index].appliesTo,
       metadataDefinitions: data.metadataDefinitions ?? all[index].metadataDefinitions,
     };
