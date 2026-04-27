@@ -4,15 +4,18 @@ import { MetadataValueType } from '../types';
 
 interface StereotypeFormProps {
   initialValues?: Partial<Stereotype>;
+  /** Domains already used by other stereotypes — drives the autocomplete list. */
+  knownDomains?: string[];
   onSubmit: (data: Stereotype) => void;
   onCancel: () => void;
   isEdit?: boolean;
 }
 
-export default function StereotypeForm({ initialValues, onSubmit, onCancel, isEdit }: StereotypeFormProps) {
+export default function StereotypeForm({ initialValues, knownDomains = [], onSubmit, onCancel, isEdit }: StereotypeFormProps) {
   const [id, setId] = useState(initialValues?.id || '');
   const [name, setName] = useState(initialValues?.name || '');
   const [description, setDescription] = useState(initialValues?.description || '');
+  const [domain, setDomain] = useState(initialValues?.domain || '');
   const [appliesTo, setAppliesTo] = useState<StereotypeTarget>(initialValues?.appliesTo || 'entity');
   const [definitions, setDefinitions] = useState<MetadataDefinition[]>(initialValues?.metadataDefinitions || []);
 
@@ -33,7 +36,14 @@ export default function StereotypeForm({ initialValues, onSubmit, onCancel, isEd
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!id || !name) return;
-    onSubmit({ id, name, description, appliesTo, metadataDefinitions: definitions.filter((d) => d.name) });
+    onSubmit({
+      id,
+      name,
+      description,
+      domain: domain.trim() || undefined,
+      appliesTo,
+      metadataDefinitions: definitions.filter((d) => d.name),
+    });
   };
 
   return (
@@ -74,19 +84,37 @@ export default function StereotypeForm({ initialValues, onSubmit, onCancel, isEd
         />
       </div>
 
-      <div className="form-control">
-        <label className="label"><span className="label-text">Applies To</span></label>
-        <select
-          className="select select-bordered select-sm"
-          value={appliesTo}
-          onChange={(e) => setAppliesTo(e.target.value as StereotypeTarget)}
-        >
-          <option value="entity">Entity</option>
-          <option value="attribute">Attribute</option>
-          <option value="package">Package</option>
-          <option value="model">Model</option>
-          <option value="relationship">Relationship</option>
-        </select>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="form-control">
+          <label className="label"><span className="label-text">Domain</span></label>
+          <input
+            type="text"
+            list="stereotype-domains"
+            className="input input-bordered input-sm"
+            value={domain}
+            onChange={(e) => setDomain(e.target.value)}
+            placeholder="e.g. DDD, Database, Privacy"
+          />
+          <datalist id="stereotype-domains">
+            {knownDomains.map((d) => (
+              <option key={d} value={d} />
+            ))}
+          </datalist>
+        </div>
+        <div className="form-control">
+          <label className="label"><span className="label-text">Applies To</span></label>
+          <select
+            className="select select-bordered select-sm"
+            value={appliesTo}
+            onChange={(e) => setAppliesTo(e.target.value as StereotypeTarget)}
+          >
+            <option value="entity">Entity</option>
+            <option value="attribute">Attribute</option>
+            <option value="package">Package</option>
+            <option value="model">Model</option>
+            <option value="relationship">Relationship</option>
+          </select>
+        </div>
       </div>
 
       {/* Metadata Definitions */}

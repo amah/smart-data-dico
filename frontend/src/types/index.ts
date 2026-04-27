@@ -265,6 +265,8 @@ export interface Stereotype {
   id: string;
   name: string;
   description?: string;
+  /** Free-form domain grouping (e.g. "DDD", "Database", "Privacy"). */
+  domain?: string;
   appliesTo: StereotypeTarget;
   metadataDefinitions: MetadataDefinition[];
 }
