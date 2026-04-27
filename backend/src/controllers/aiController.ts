@@ -21,9 +21,16 @@ function loadAIConfig(): AIConfig | null {
   // 1. Try app config file (~/.dico-app/dico-app.json → ai section)
   const cfg = getConfigSection<AIConfig>('ai');
   if (cfg?.apiKey && cfg?.provider) {
+    // openai-compatible has no sane default model — every backend
+    // (OpenRouter, Mammouth, etc.) uses its own ids. Require explicit model.
+    if (cfg.provider === 'openai-compatible' && !cfg.model) {
+      return null;
+    }
+    const model = cfg.model || getDefaultModel(cfg.provider);
+    if (!model) return null;
     return {
       provider: cfg.provider,
-      model: cfg.model || getDefaultModel(cfg.provider),
+      model,
       apiKey: cfg.apiKey,
       baseURL: cfg.baseURL,
       name: cfg.name,
@@ -34,9 +41,14 @@ function loadAIConfig(): AIConfig | null {
   const apiKey = process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY;
   if (apiKey) {
     const provider = process.env.AI_PROVIDER || (process.env.ANTHROPIC_API_KEY ? 'anthropic' : 'openai');
+    if (provider === 'openai-compatible' && !process.env.AI_MODEL) {
+      return null;
+    }
+    const model = process.env.AI_MODEL || getDefaultModel(provider);
+    if (!model) return null;
     return {
       provider: provider as AIConfig['provider'],
-      model: process.env.AI_MODEL || getDefaultModel(provider),
+      model,
       apiKey,
       baseURL: process.env.AI_BASE_URL,
     };
@@ -47,11 +59,20 @@ function loadAIConfig(): AIConfig | null {
 
 function getDefaultModel(provider: string): string {
   switch (provider) {
-    case 'anthropic': return 'claude-sonnet-4-5-20250514';
+    case 'anthropic': return 'claude-sonnet-4-6';
     case 'openai': return 'gpt-4o';
-    case 'openai-compatible': return 'gpt-4o';
-    default: return 'gpt-4o';
+    // No default for openai-compatible — every backend uses different ids.
+    case 'openai-compatible': return '';
+    default: return '';
   }
+}
+
+function configReadyError(): string {
+  const cfg = getConfigSection<AIConfig>('ai');
+  if (cfg?.provider === 'openai-compatible' && !cfg.model) {
+    return '`model` is required for `openai-compatible` provider. Edit ' + CONFIG_FILE + ' and set the model id used by your backend (e.g. `openai/gpt-4o-mini`).';
+  }
+  return `AI not configured. Use Settings page or create ${CONFIG_FILE}.`;
 }
 
 function saveAIConfig(cfg: AIConfig): void {
@@ -234,11 +255,11 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
           }
         }
         if (event.type === 'tool-start') {
-          sendEvent({ type: 'tool-input-start', toolCallId: `${event.name}:0`, toolName: event.name });
-          sendEvent({ type: 'tool-input-available', toolCallId: `${event.name}:0`, toolName: event.name, input: event.input });
+          sendEvent({ type: 'tool-input-start', toolCallId: event.toolCallId, toolName: event.name });
+          sendEvent({ type: 'tool-input-available', toolCallId: event.toolCallId, toolName: event.name, input: event.input });
         }
         if (event.type === 'tool-end') {
-          sendEvent({ type: 'tool-output-available', toolCallId: `${event.name}:0`, output: event.output });
+          sendEvent({ type: 'tool-output-available', toolCallId: event.toolCallId, output: event.output });
         }
       },
     );
@@ -267,7 +288,7 @@ export const aiChat = async (req: Request, res: Response) => {
     const cfg = loadAIConfig();
     if (!cfg) {
       return res.status(503).json({
-        message: 'AI not configured. Use Settings page or create ~/.cfg/ai-config.json.',
+        message: configReadyError(),
       });
     }
 
@@ -534,6 +555,7 @@ export const aiStatus = async (_req: Request, res: Response) => {
     name: cfg?.name || cfg?.provider || null,
     baseURL: cfg?.baseURL || null,
     configPath: CONFIG_FILE,
+    ...(cfg ? {} : { message: configReadyError() }),
   });
 };
 
@@ -554,6 +576,11 @@ export const aiSaveConfig = async (req: Request, res: Response) => {
     const { provider, model, apiKey, baseURL, name } = req.body;
     if (!provider || !apiKey) {
       return res.status(400).json({ message: 'provider and apiKey are required' });
+    }
+    if (provider === 'openai-compatible' && !model) {
+      return res.status(400).json({
+        message: '`model` is required for `openai-compatible` provider (no portable default exists across backends).',
+      });
     }
     const cfg: AIConfig = {
       provider,
