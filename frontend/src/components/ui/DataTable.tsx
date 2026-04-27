@@ -23,7 +23,7 @@
  * state in Redux.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Icon from './Icon';
 import Button from './Button';
 import type { ColumnDef, ColumnGroup, SortDir } from './DataTable.types';
@@ -32,11 +32,9 @@ type RowKey = string | number;
 
 const WIDTH_STORAGE_PREFIX = 'sdd.dataTable.widths.';
 
-// Approximate rendered heights of header rows, used to compute sticky
-// `top` offsets so the rows stack (group → column-header → filter)
-// instead of overlapping. If render padding changes, re-measure.
+// Approximate rendered height of the group row, used to compute the
+// sticky `top` offset for the column-header row beneath it.
 const GROUP_ROW_HEIGHT = 28;
-const COLUMN_HEADER_HEIGHT = 34;
 
 /**
  * Tracks per-column drag-resized widths, persisted in localStorage per
@@ -468,6 +466,7 @@ function DataTable<Row>({
               onStartResize={resizable ? (e) => startResize(col.key, initialDragWidth(col), e) : undefined}
               stickyTop={stickyHeader ? (hasMeta ? GROUP_ROW_HEIGHT : 0) : undefined}
               stickyLeft={stickyFirstColumn && !selectable && col.key === firstDataColKey}
+              filter={showFilterRow ? { value: filters[col.key] ?? '', onChange: v => setFilter(col.key, v) } : undefined}
             />
           ))}
           {metadataCols.map((col, i) => (
@@ -480,6 +479,7 @@ function DataTable<Row>({
               metaFirst={i === 0}
               onStartResize={resizable ? (e) => startResize(col.key, initialDragWidth(col), e) : undefined}
               stickyTop={stickyHeader ? (hasMeta ? GROUP_ROW_HEIGHT : 0) : undefined}
+              filter={showFilterRow ? { value: filters[col.key] ?? '', onChange: v => setFilter(col.key, v) } : undefined}
             />
           ))}
           {hasActions && (
@@ -493,60 +493,6 @@ function DataTable<Row>({
             />
           )}
         </div>
-
-        {showFilterRow && (
-          <div role="row" style={{ display: 'contents' }}>
-            {selectable && (
-              <div
-                role="cell"
-                style={{
-                  borderBottom: '1px solid var(--border)',
-                  background: 'var(--bg-raised)',
-                  ...(stickyHeader
-                    ? {
-                        position: 'sticky',
-                        top: hasMeta ? GROUP_ROW_HEIGHT + COLUMN_HEADER_HEIGHT : COLUMN_HEADER_HEIGHT,
-                        left: stickyFirstColumn ? 0 : undefined,
-                        zIndex: stickyFirstColumn ? 13 : 9,
-                      }
-                    : stickyFirstColumn
-                      ? { position: 'sticky', left: 0, zIndex: 4 }
-                      : null),
-                }}
-              />
-            )}
-            {standardCols.map(col => (
-              <FilterCell
-                key={col.key}
-                col={col}
-                value={filters[col.key] ?? ''}
-                onChange={v => setFilter(col.key, v)}
-                stickyTop={stickyHeader ? (hasMeta ? GROUP_ROW_HEIGHT + COLUMN_HEADER_HEIGHT : COLUMN_HEADER_HEIGHT) : undefined}
-                stickyLeft={stickyFirstColumn && !selectable && col.key === firstDataColKey}
-              />
-            ))}
-            {metadataCols.map((col, i) => (
-              <FilterCell
-                key={col.key}
-                col={col}
-                value={filters[col.key] ?? ''}
-                onChange={v => setFilter(col.key, v)}
-                meta
-                metaFirst={i === 0}
-                stickyTop={stickyHeader ? (hasMeta ? GROUP_ROW_HEIGHT + COLUMN_HEADER_HEIGHT : COLUMN_HEADER_HEIGHT) : undefined}
-              />
-            ))}
-            {hasActions && (
-              <div
-                role="cell"
-                style={{
-                  borderBottom: '1px solid var(--border)',
-                  background: 'var(--bg-raised)',
-                }}
-              />
-            )}
-          </div>
-        )}
 
         {processedRows.length === 0 ? (
           <div
@@ -661,55 +607,91 @@ interface ColumnHeaderCellProps<Row> {
   stickyTop?: number;
   /** `left: 0` sticky for the leftmost data column. */
   stickyLeft?: boolean;
+  /** Excel-style inline filter (rendered in this cell when set). */
+  filter?: { value: string; onChange: (v: string) => void };
 }
 
-function ColumnHeaderCell<Row>({ col, sort, onClick, meta, metaFirst, onStartResize, stickyTop, stickyLeft }: ColumnHeaderCellProps<Row>) {
+function ColumnHeaderCell<Row>({ col, sort, onClick, meta, metaFirst, onStartResize, stickyTop, stickyLeft, filter }: ColumnHeaderCellProps<Row>) {
   const active = sort && sort.key === col.key;
   const align = col.align ?? 'left';
+  const hasFilter = !!filter && !!col.filterable;
 
   return (
     <div
       role="columnheader"
-      onClick={col.sortable ? onClick : undefined}
       aria-sort={active ? (sort!.dir === 'asc' ? 'ascending' : 'descending') : undefined}
       style={{
         position: (stickyTop !== undefined || stickyLeft) ? 'sticky' : 'relative',
         top: stickyTop,
         left: stickyLeft ? 0 : undefined,
-        // Header that also sticks horizontally needs the higher z.
         zIndex: stickyTop !== undefined && stickyLeft ? 13 : stickyTop !== undefined ? 10 : stickyLeft ? 5 : undefined,
-        padding: '7px 10px',
+        padding: hasFilter ? '4px 10px 4px' : '7px 10px',
         fontSize: 'var(--fs-sm)',
         color: meta ? 'var(--meta-label)' : 'var(--text-muted)',
-        fontWeight: 600,
-        textTransform: 'uppercase',
-        letterSpacing: '0.03em',
         background: meta ? 'var(--meta-bg)' : 'var(--bg-subtle)',
         borderBottom: '1px solid var(--border-strong)',
         borderLeft: metaFirst ? '1px dashed var(--meta-border)' : undefined,
-        cursor: col.sortable ? 'pointer' : 'default',
         textAlign: align,
         display: 'flex',
-        justifyContent: align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start',
-        alignItems: 'center',
-        gap: 4,
-        whiteSpace: 'nowrap',
+        flexDirection: 'column',
+        gap: 2,
       }}
     >
-      <span>{col.header}</span>
-      {col.sortable && (
-        <span
-          aria-hidden
+      <div
+        onClick={col.sortable ? onClick : undefined}
+        style={{
+          fontWeight: 600,
+          textTransform: 'uppercase',
+          letterSpacing: '0.03em',
+          cursor: col.sortable ? 'pointer' : 'default',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start',
+          gap: 4,
+          whiteSpace: 'nowrap',
+        }}
+      >
+        <span>{col.header}</span>
+        {col.sortable && (
+          <span
+            aria-hidden
+            style={{
+              opacity: active ? 1 : 0.3,
+              display: 'inline-flex',
+              color: active ? 'var(--accent)' : 'currentColor',
+              transform: active && sort!.dir === 'desc' ? 'rotate(180deg)' : undefined,
+              transition: 'transform var(--dur-fast), opacity var(--dur-fast)',
+            }}
+          >
+            <Icon name="chevron" size={10} stroke={2} />
+          </span>
+        )}
+      </div>
+      {hasFilter && (
+        <input
+          type="text"
+          placeholder="filter…"
+          value={filter!.value}
+          onChange={e => filter!.onChange(e.target.value)}
+          onClick={e => e.stopPropagation()}
           style={{
-            opacity: active ? 1 : 0.3,
-            display: 'inline-flex',
-            color: active ? 'var(--accent)' : 'currentColor',
-            transform: active && sort!.dir === 'desc' ? 'rotate(180deg)' : undefined,
-            transition: 'transform var(--dur-fast), opacity var(--dur-fast)',
+            width: '100%',
+            height: 20,
+            padding: '0 6px',
+            fontSize: 'var(--fs-xs)',
+            fontFamily: 'inherit',
+            background: 'var(--bg-raised)',
+            color: 'var(--text)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-sm)',
+            outline: 'none',
+            textTransform: 'none',
+            letterSpacing: 'normal',
+            fontWeight: 400,
           }}
-        >
-          <Icon name="chevron" size={10} stroke={2} />
-        </span>
+          onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent)'; }}
+          onBlur={e => { e.currentTarget.style.borderColor = 'var(--border)'; }}
+        />
       )}
       {onStartResize && (
         <span
@@ -728,65 +710,6 @@ function ColumnHeaderCell<Row>({ col, sort, onClick, meta, metaFirst, onStartRes
           }}
         />
       )}
-    </div>
-  );
-}
-
-interface FilterCellProps<Row> {
-  col: ColumnDef<Row>;
-  value: string;
-  onChange: (v: string) => void;
-  meta?: boolean;
-  metaFirst?: boolean;
-  stickyTop?: number;
-  stickyLeft?: boolean;
-}
-
-function FilterCell<Row>({ col, value, onChange, meta, metaFirst, stickyTop, stickyLeft }: FilterCellProps<Row>) {
-  const sticky = stickyTop !== undefined || stickyLeft;
-  const baseStyle: CSSProperties = {
-    padding: '4px 6px',
-    borderBottom: '1px solid var(--border)',
-    background: meta ? 'var(--meta-bg)' : 'var(--bg-raised)',
-    ...(metaFirst ? { borderLeft: '1px dashed var(--meta-border)' } : null),
-    ...(sticky
-      ? {
-          position: 'sticky',
-          top: stickyTop,
-          left: stickyLeft ? 0 : undefined,
-          zIndex: stickyTop !== undefined && stickyLeft ? 13 : stickyTop !== undefined ? 9 : 4,
-        }
-      : null),
-  };
-  if (!col.filterable) return <div role="cell" style={baseStyle} />;
-  return (
-    <div role="cell" style={baseStyle}>
-      <input
-        type="text"
-        placeholder={`filter ${typeof col.header === 'string' ? col.header.toLowerCase() : col.key}…`}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        style={{
-          width: '100%',
-          height: 22,
-          padding: '2px 6px',
-          fontSize: 'var(--fs-xs)',
-          fontFamily: 'inherit',
-          background: 'transparent',
-          color: 'var(--text)',
-          border: '1px solid transparent',
-          borderRadius: 'var(--radius-sm)',
-          outline: 'none',
-        }}
-        onFocus={e => {
-          e.currentTarget.style.borderColor = 'var(--border)';
-          e.currentTarget.style.background = 'var(--bg-raised)';
-        }}
-        onBlur={e => {
-          e.currentTarget.style.borderColor = 'transparent';
-          e.currentTarget.style.background = 'transparent';
-        }}
-      />
     </div>
   );
 }
