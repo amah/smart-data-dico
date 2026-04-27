@@ -389,6 +389,36 @@ const AttributeList = ({
           : <span className="mono" style={{ fontSize: 'var(--fs-sm)' }}>{String(a.defaultValue)}</span>,
       },
       {
+        key: 'values',
+        header: 'Values',
+        group: 'standard',
+        filterable: true,
+        width: 'minmax(160px, 1.4fr)',
+        accessor: (a) => (a.validation?.enumValues || []).join(', '),
+        render: (a) => {
+          const vals = a.validation?.enumValues || [];
+          if (vals.length === 0) {
+            return <span style={{ color: 'var(--text-subtle)' }}>—</span>;
+          }
+          return (
+            <span style={{ display: 'inline-flex', flexWrap: 'nowrap', gap: 3, overflow: 'hidden' }}>
+              {vals.slice(0, 3).map((v) => (
+                <Chip key={v} tone="neutral" mono>{v}</Chip>
+              ))}
+              {vals.length > 3 && (
+                <span
+                  className="mono"
+                  style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)', alignSelf: 'center' }}
+                  title={vals.join(', ')}
+                >
+                  +{vals.length - 3}
+                </span>
+              )}
+            </span>
+          );
+        },
+      },
+      {
         key: 'description',
         header: 'Description',
         group: 'standard',
