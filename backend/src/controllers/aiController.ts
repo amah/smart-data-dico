@@ -17,27 +17,35 @@ interface AIConfig {
   name?: string;
 }
 
+// AI_CONFIG_SOURCE=env forces env-only mode: skip the on-disk config entirely
+// (for deployments that keep the key in a secret store and never touch ~/.dico-app).
+// Audited (#125): cfg.apiKey is never logged or echoed to a response — only used
+// to construct upstream provider clients and the Authorization header.
 function loadAIConfig(): AIConfig | null {
-  // 1. Try app config file (~/.dico-app/dico-app.json → ai section)
-  const cfg = getConfigSection<AIConfig>('ai');
-  if (cfg?.apiKey && cfg?.provider) {
-    // openai-compatible has no sane default model — every backend
-    // (OpenRouter, Mammouth, etc.) uses its own ids. Require explicit model.
-    if (cfg.provider === 'openai-compatible' && !cfg.model) {
-      return null;
+  const envOnly = process.env.AI_CONFIG_SOURCE === 'env';
+
+  if (!envOnly) {
+    // 1. Try app config file (~/.dico-app/dico-app.json → ai section)
+    const cfg = getConfigSection<AIConfig>('ai');
+    if (cfg?.apiKey && cfg?.provider) {
+      // openai-compatible has no sane default model — every backend
+      // (OpenRouter, Mammouth, etc.) uses its own ids. Require explicit model.
+      if (cfg.provider === 'openai-compatible' && !cfg.model) {
+        return null;
+      }
+      const model = cfg.model || getDefaultModel(cfg.provider);
+      if (!model) return null;
+      return {
+        provider: cfg.provider,
+        model,
+        apiKey: cfg.apiKey,
+        baseURL: cfg.baseURL,
+        name: cfg.name,
+      };
     }
-    const model = cfg.model || getDefaultModel(cfg.provider);
-    if (!model) return null;
-    return {
-      provider: cfg.provider,
-      model,
-      apiKey: cfg.apiKey,
-      baseURL: cfg.baseURL,
-      name: cfg.name,
-    };
   }
 
-  // 2. Fall back to env vars
+  // 2. Fall back to env vars (sole source when AI_CONFIG_SOURCE=env)
   const apiKey = process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY;
   if (apiKey) {
     const provider = process.env.AI_PROVIDER || (process.env.ANTHROPIC_API_KEY ? 'anthropic' : 'openai');
@@ -548,13 +556,15 @@ export const aiChat = async (req: Request, res: Response) => {
 
 export const aiStatus = async (_req: Request, res: Response) => {
   const cfg = loadAIConfig();
+  // configPath intentionally omitted (#125): the absolute path under the user's
+  // home directory leaks layout. The path is backend-internal — the frontend
+  // only needs to know whether AI is configured.
   res.json({
     available: !!cfg,
     provider: cfg?.provider || null,
     model: cfg?.model || null,
     name: cfg?.name || cfg?.provider || null,
     baseURL: cfg?.baseURL || null,
-    configPath: CONFIG_FILE,
     ...(cfg ? {} : { message: configReadyError() }),
   });
 };
