@@ -149,6 +149,40 @@ describe('AIChatPanel — syntax highlighting (#129)', () => {
     expect(blockRoot.textContent).toContain('graph TD');
   });
 
+  it('switches highlighter theme between light/dark based on usePrefs', async () => {
+    // Force dark theme before render via the same localStorage key used
+    // by usePrefs.ts, so the panel picks oneDark.
+    window.localStorage.setItem('theme', 'dark');
+    document.documentElement.setAttribute('data-theme', 'dark');
+
+    try {
+      renderPanel();
+      const btn = await screen.findByTestId('copy-code-button');
+      const blockRoot = btn.parentElement!;
+      // PreTag="div" means the wrapper is a <div>, not <pre>. The
+      // first child div carries the Prism inline-style background.
+      const codeEl = blockRoot.querySelector('code.language-ts') as HTMLElement | null;
+      expect(codeEl).not.toBeNull();
+      // The styled wrapper is the parent of <code>; SyntaxHighlighter
+      // emits inline styles for background/colour from oneDark/oneLight.
+      const wrapper = codeEl!.parentElement as HTMLElement;
+      const bg = wrapper.style.background || wrapper.style.backgroundColor;
+      expect(bg).toBeTruthy();
+      // oneDark uses #282c34 (rgb 40,44,52). The colour must be a dark
+      // shade — verify the red channel is below 128 (well within "dark").
+      const m = bg.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+      if (m) {
+        const r = parseInt(m[1], 10);
+        const g = parseInt(m[2], 10);
+        const b = parseInt(m[3], 10);
+        expect(r + g + b).toBeLessThan(128 * 3); // overall dark
+      }
+    } finally {
+      window.localStorage.removeItem('theme');
+      document.documentElement.setAttribute('data-theme', 'light');
+    }
+  });
+
   it('Copy button: writes to clipboard and shows "Copied!" on success', async () => {
     const originalDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
     const writeText = vi.fn().mockResolvedValue(undefined);
