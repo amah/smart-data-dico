@@ -20,6 +20,13 @@ import {
   shouldAutoApprove,
 } from '../utils/aiAutoApprovePolicy';
 import { processMentions } from './EntityMention';
+import {
+  SlashCommand,
+  extractSlashToken,
+  filterSlashCommands,
+  expandTemplate,
+  buildHelpMessage,
+} from '../utils/aiSlashCommands';
 
 SyntaxHighlighter.registerLanguage('ts', typescript);
 SyntaxHighlighter.registerLanguage('typescript', typescript);
@@ -222,6 +229,10 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   // #54 — @entity / @package mention picker. Token is the partial after the
   // most recent `@` at the cursor; null when not actively picking.
   const [mentionToken, setMentionToken] = useState<string | null>(null);
+  // #56 — slash command palette. Token is the partial command name after
+  // a leading `/` at the start of the input (no leading `/` itself); null
+  // when the input doesn't look like a slash command.
+  const [slashToken, setSlashToken] = useState<string | null>(null);
   const [mentionResults, setMentionResults] = useState<{ entities: Array<{ name: string; packageName: string }>; packages: Array<{ name: string }> }>({ entities: [], packages: [] });
   // #57 — diff preview for createEntity-on-existing. Keyed by toolCallId.
   // Loaded on demand when the user clicks "Show diff" on a failing
@@ -952,6 +963,9 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     if (token === null) {
       setMentionResults({ entities: [], packages: [] });
     }
+    // #56 — slash command picker triggers only at the very start of
+    // the input (mid-line slashes are paths / dates, not commands).
+    setSlashToken(extractSlashToken(v));
   }, [extractMentionToken]);
 
   // Debounced fetch for mention candidates.
@@ -965,6 +979,33 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     }, 120);
     return () => clearTimeout(handle);
   }, [mentionToken]);
+
+  // #56 — apply a slash command from the palette. Prompt commands replace
+  // the input with the expanded template (the user can edit before sending);
+  // local commands (only `/help` for now) inject a synthetic assistant
+  // message inline without contacting the AI. In both cases the slash
+  // token state is cleared so the picker hides.
+  const applySlashCommand = useCallback((cmd: SlashCommand) => {
+    setSlashToken(null);
+    if (cmd.kind === 'local' && cmd.name === 'help') {
+      // Render `/help` as a fake user/assistant pair so it shows up in
+      // the conversation thread without burning a real model turn.
+      const userMsg: ChatMessage = { id: crypto.randomUUID(), role: 'user', text: '/help' };
+      const assistantMsg: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', text: buildHelpMessage() };
+      setMessages(prev => [...prev, userMsg, assistantMsg]);
+      setInput('');
+      setTimeout(() => inputRef.current?.focus(), 0);
+      return;
+    }
+    const expanded = expandTemplate(cmd.template, pageContext);
+    setInput(expanded);
+    setTimeout(() => {
+      const el = inputRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(expanded.length, expanded.length);
+    }, 0);
+  }, [pageContext]);
 
   // Replace the partial `@xxx` at the cursor with `@<name>` and close the picker.
   const insertMention = useCallback((name: string) => {
@@ -1962,6 +2003,30 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
 
       {/* Input — IDE style */}
       <form onSubmit={handleSubmit} className="px-3 py-2 border-t border-base-300 bg-base-200/30 relative">
+        {/* #56 slash command palette — anchored above the composer.
+            Mutually exclusive with the mention picker (slash only fires
+            at start of input, mention only after whitespace). */}
+        {slashToken !== null && filterSlashCommands(slashToken).length > 0 && (
+          <div
+            data-testid="ai-slash-picker"
+            className="absolute left-3 right-3 bottom-full mb-1 bg-base-100 border border-base-300 rounded shadow-md z-10 max-h-60 overflow-auto text-xs"
+          >
+            <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-base-content/40 bg-base-200/40">
+              Commands
+            </div>
+            {filterSlashCommands(slashToken).map(cmd => (
+              <button
+                key={cmd.name}
+                type="button"
+                data-testid={`ai-slash-option-${cmd.name}`}
+                className="block w-full text-left px-2 py-1 hover:bg-base-200 font-mono"
+                onMouseDown={ev => { ev.preventDefault(); applySlashCommand(cmd); }}
+              >
+                /{cmd.name} <span className="text-base-content/40 font-sans">— {cmd.description}</span>
+              </button>
+            ))}
+          </div>
+        )}
         {/* #54 mention picker — anchored above the composer */}
         {mentionToken !== null && (mentionResults.entities.length + mentionResults.packages.length) > 0 && (
           <div
@@ -2014,6 +2079,12 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                 e.preventDefault();
                 setMentionToken(null);
                 setMentionResults({ entities: [], packages: [] });
+                return;
+              }
+              // #56 — Escape also dismisses the slash command palette.
+              if (e.key === 'Escape' && slashToken !== null) {
+                e.preventDefault();
+                setSlashToken(null);
                 return;
               }
               handleComposerKeyDown(e);
