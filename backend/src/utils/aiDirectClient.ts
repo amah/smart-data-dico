@@ -39,6 +39,11 @@ export class AbortError extends Error {
   }
 }
 
+export interface DirectClientUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export async function callWithTools(
   config: DirectClientConfig,
   messages: Message[],
@@ -47,7 +52,12 @@ export async function callWithTools(
   maxSteps: number = 10,
   onEvent?: (event: any) => void,
   signal?: AbortSignal,
-): Promise<{ text: string; toolCalls: Array<{ name: string; input: any; output: any }>; aborted?: boolean }> {
+): Promise<{
+  text: string;
+  toolCalls: Array<{ name: string; input: any; output: any }>;
+  aborted?: boolean;
+  usage: DirectClientUsage;
+}> {
   let currentMessages = [...messages];
   const allToolCalls: Array<{ name: string; input: any; output: any }> = [];
   let finalText = '';
@@ -56,10 +66,15 @@ export async function callWithTools(
   // get distinct stream ids — `listEntities:0`, `listEntities:1`, …
   // (#124). The model-supplied tc.id is preferred when present.
   const callSeq: Record<string, number> = {};
+  // Sum upstream `data.usage` across every step (incl. tool-call rounds)
+  // so the chat header can render a running total. OpenAI-compatible
+  // responses include `usage: { prompt_tokens, completion_tokens }` at
+  // the top level of each completion. (#128)
+  const usage: DirectClientUsage = { inputTokens: 0, outputTokens: 0 };
 
   for (let step = 0; step < maxSteps; step++) {
     if (signal?.aborted) {
-      return { text: finalText, toolCalls: allToolCalls, aborted: true };
+      return { text: finalText, toolCalls: allToolCalls, aborted: true, usage };
     }
 
     let response: Response;
@@ -82,7 +97,7 @@ export async function callWithTools(
     } catch (err: any) {
       // fetch throws on abort with name === 'AbortError' (or DOMException)
       if (err?.name === 'AbortError' || signal?.aborted) {
-        return { text: finalText, toolCalls: allToolCalls, aborted: true };
+        return { text: finalText, toolCalls: allToolCalls, aborted: true, usage };
       }
       throw err;
     }
@@ -95,6 +110,21 @@ export async function callWithTools(
     const data: any = await response.json();
     const choice = data.choices?.[0];
     if (!choice) throw new Error('No response from model');
+
+    // Capture per-step usage (#128). OpenAI-compatible providers
+    // return prompt_tokens/completion_tokens; some name them
+    // input_tokens/output_tokens — accept both shapes.
+    if (data.usage) {
+      const u = data.usage;
+      const inTok = typeof u.prompt_tokens === 'number'
+        ? u.prompt_tokens
+        : (typeof u.input_tokens === 'number' ? u.input_tokens : 0);
+      const outTok = typeof u.completion_tokens === 'number'
+        ? u.completion_tokens
+        : (typeof u.output_tokens === 'number' ? u.output_tokens : 0);
+      usage.inputTokens += inTok;
+      usage.outputTokens += outTok;
+    }
 
     const msg = choice.message;
     finalText = msg.content || '';
@@ -116,7 +146,7 @@ export async function callWithTools(
       // Execute each tool call
       for (const tc of msg.tool_calls) {
         if (signal?.aborted) {
-          return { text: finalText, toolCalls: allToolCalls, aborted: true };
+          return { text: finalText, toolCalls: allToolCalls, aborted: true, usage };
         }
 
         const toolName = tc.function.name;
@@ -163,5 +193,5 @@ export async function callWithTools(
     break;
   }
 
-  return { text: finalText, toolCalls: allToolCalls };
+  return { text: finalText, toolCalls: allToolCalls, usage };
 }

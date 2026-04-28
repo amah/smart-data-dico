@@ -80,6 +80,40 @@ interface ChatMessage {
   cancelled?: boolean;
 }
 
+/**
+ * Running token / cost totals for the conversation (#128).
+ *
+ * Updated on every `usage` SSE event (one per turn). `cost` only
+ * appears when the backend has per-model pricing configured under
+ * `dico-app.json.ai.pricing`; the chip just shows the token counts
+ * otherwise.
+ */
+interface UsageMeter {
+  inputTokens: number;
+  outputTokens: number;
+  cost?: number;
+}
+
+/**
+ * Format a token count compactly: 1234 → "1.2k", 1_200_000 → "1.2M".
+ * Below 1000 we render the integer untouched so small chats don't read
+ * "0.3k". Single source of truth for the header chip.
+ */
+function formatTokens(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+  return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+}
+
+/**
+ * Format a USD cost. We show four decimal places when the cost is
+ * below 1¢ so the user can see micro-spend, otherwise three.
+ */
+function formatCost(c: number): string {
+  if (c < 0.01) return `$${c.toFixed(4)}`;
+  return `$${c.toFixed(3)}`;
+}
+
 type PanelView = 'chat' | 'history' | 'raw' | 'tools';
 
 export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
@@ -96,6 +130,10 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string>(crypto.randomUUID());
   const [conversationList, setConversationList] = useState<Array<{ id: string; title: string; messageCount: number; updatedAt: string }>>([]);
+  // Running token / cost meter for the current conversation (#128).
+  // Reset when the user starts or loads a different conversation; the
+  // header chip (`~3.2k in / 1.1k out · $0.012`) is bound to this state.
+  const [usage, setUsage] = useState<UsageMeter | null>(null);
   const [view, setView] = useState<PanelView>('chat');
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
   // Tracks which error-state tool cards have "Show raw" expanded (separate
@@ -192,7 +230,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     }
   }, [open, messages.length]);
 
-  const saveConversation = useCallback((msgs: ChatMessage[]) => {
+  const saveConversation = useCallback((msgs: ChatMessage[], runningUsage: UsageMeter | null) => {
     if (msgs.length === 0) return;
     const conv = {
       id: conversationId,
@@ -200,6 +238,16 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       messages: msgs.map(m => ({ ...m, timestamp: new Date().toISOString() })),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      // Persist running totals so reopening the conversation restores
+      // the meter chip (#128). totalCost is only set when pricing is
+      // configured server-side.
+      ...(runningUsage ? {
+        usage: {
+          inputTokens: runningUsage.inputTokens,
+          outputTokens: runningUsage.outputTokens,
+          ...(runningUsage.cost !== undefined ? { totalCost: runningUsage.cost } : {}),
+        },
+      } : {}),
     };
     fetch('/api/ai/conversations', {
       method: 'POST',
@@ -213,6 +261,18 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       if (d.data) {
         setConversationId(d.data.id);
         setMessages(d.data.messages);
+        // Restore the meter chip from the saved conversation (#128).
+        // Older conversations saved before the meter shipped have no
+        // `usage` key — clear the chip in that case.
+        if (d.data.usage) {
+          setUsage({
+            inputTokens: d.data.usage.inputTokens || 0,
+            outputTokens: d.data.usage.outputTokens || 0,
+            ...(typeof d.data.usage.totalCost === 'number' ? { cost: d.data.usage.totalCost } : {}),
+          });
+        } else {
+          setUsage(null);
+        }
         setView('chat');
       }
     }).catch(() => {});
@@ -221,6 +281,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const startNewConversation = useCallback(() => {
     setConversationId(crypto.randomUUID());
     setMessages([]);
+    setUsage(null);
     setView('chat');
   }, []);
 
@@ -286,6 +347,10 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     let assistantText = '';
     const assistantId = crypto.randomUUID();
     let cancelled = false;
+    // Per-turn usage payload (#128). Backend emits one `usage` SSE
+    // event before `done`; we accumulate it onto the running meter
+    // and persist with the conversation in the finally block.
+    let turnUsage: { inputTokens: number; outputTokens: number; cost?: number } | null = null;
 
     const pushToolUpdate = () => {
       const toolCalls = toolOrder.map(id => toolMap[id]).filter(Boolean);
@@ -375,6 +440,18 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
               cancelled = true;
               sweepInflightTools();
               pushToolUpdate();
+              continue;
+            }
+
+            if (data.type === 'usage') {
+              // Stash the per-turn usage; it's applied to the running
+              // meter in the finally block so we update once per turn
+              // instead of mid-stream. (#128)
+              turnUsage = {
+                inputTokens: Number(data.inputTokens) || 0,
+                outputTokens: Number(data.outputTokens) || 0,
+                ...(typeof data.cost === 'number' ? { cost: data.cost } : {}),
+              };
               continue;
             }
 
@@ -532,7 +609,32 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     } finally {
       if (abortControllerRef.current === ac) abortControllerRef.current = null;
       setIsLoading(false);
-      setMessages(msgs => { saveConversation(msgs); return msgs; });
+      // Aggregate the turn usage onto the running meter and persist it
+      // with the conversation. We capture the new totals synchronously
+      // here so saveConversation gets the post-turn numbers without a
+      // second render cycle. (#128)
+      let nextUsage: UsageMeter | null = null;
+      setUsage(prev => {
+        if (!turnUsage) {
+          nextUsage = prev;
+          return prev;
+        }
+        const merged: UsageMeter = {
+          inputTokens: (prev?.inputTokens || 0) + turnUsage.inputTokens,
+          outputTokens: (prev?.outputTokens || 0) + turnUsage.outputTokens,
+        };
+        // Sum cost only when both sides report it; otherwise preserve
+        // whichever side has a number so an early "no pricing" turn
+        // doesn't clobber a later priced turn.
+        const prevCost = prev?.cost;
+        const turnCost = turnUsage.cost;
+        if (typeof turnCost === 'number' || typeof prevCost === 'number') {
+          merged.cost = (prevCost || 0) + (turnCost || 0);
+        }
+        nextUsage = merged;
+        return merged;
+      });
+      setMessages(msgs => { saveConversation(msgs, nextUsage); return msgs; });
     }
   }, [messages, navigate, saveConversation, policy]);
 
@@ -739,6 +841,26 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
         <div className="flex items-center gap-2">
           <span className="text-primary font-bold text-xs tracking-wide">AI ASSISTANT</span>
           {isLoading && <span className="loading loading-dots loading-xs text-primary"></span>}
+          {/* Cost / token meter (#128). Hidden until at least one turn
+              has reported usage. The cost half is only rendered when
+              the backend has per-model pricing configured. */}
+          {usage && (usage.inputTokens > 0 || usage.outputTokens > 0) && (
+            <span
+              data-testid="ai-usage-meter"
+              className="badge badge-xs badge-ghost font-sans font-normal text-[10px] gap-1"
+              title={`Tokens used this conversation: ${usage.inputTokens} in / ${usage.outputTokens} out${usage.cost !== undefined ? ` — estimated cost ${formatCost(usage.cost)}` : ' (configure ai.pricing in dico-app.json to see cost)'}`}
+            >
+              <span>~{formatTokens(usage.inputTokens)} in</span>
+              <span className="text-base-content/40">/</span>
+              <span>{formatTokens(usage.outputTokens)} out</span>
+              {usage.cost !== undefined && (
+                <>
+                  <span className="text-base-content/40">·</span>
+                  <span data-testid="ai-usage-cost">{formatCost(usage.cost)}</span>
+                </>
+              )}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-0.5">
           <button className={`btn btn-ghost btn-xs ${view === 'chat' ? 'btn-active' : ''}`} onClick={() => setView('chat')} title="Chat">
