@@ -12,7 +12,15 @@ interface ToolCall {
   name: string;
   input: any;
   output: any;
-  status?: 'pending' | 'approved' | 'undone';
+  // status:
+  //  - undefined  = auto-approved (default), terminal state
+  //  - 'starting' = tool-input-start received, args not yet available
+  //  - 'running'  = tool-input-available received, executing
+  //  - 'pending'  = waiting on user review (auto-approve OFF), terminal state
+  //  - 'approved' = user approved, terminal state
+  //  - 'undone'   = user rolled back, terminal state
+  //  - 'cancelled' = stream was aborted while this tool was in flight
+  status?: 'starting' | 'running' | 'pending' | 'approved' | 'undone' | 'cancelled';
 }
 
 interface ChatMessage {
@@ -21,6 +29,9 @@ interface ChatMessage {
   text: string;
   toolCalls?: ToolCall[];
   rawEvents?: any[];
+  // True when the user aborted mid-stream. Persisted in the saved
+  // conversation so reloading shows the cancellation marker. (#61)
+  cancelled?: boolean;
 }
 
 type PanelView = 'chat' | 'history' | 'raw' | 'tools';
@@ -38,12 +49,19 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const [conversationList, setConversationList] = useState<Array<{ id: string; title: string; messageCount: number; updatedAt: string }>>([]);
   const [view, setView] = useState<PanelView>('chat');
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
+  // Tracks which error-state tool cards have "Show raw" expanded (separate
+  // from the per-card expand toggle so the raw-output toggle survives
+  // between user clicks). #61
+  const [rawShownTools, setRawShownTools] = useState<Set<string>>(new Set());
   const [selectedMsgId, setSelectedMsgId] = useState<string | null>(null);
   const [toolDefs, setToolDefs] = useState<Array<{ name: string; description: string; parameters: Array<{ name: string; type: string; required: boolean; description: string }> }>>([]);
   const [autoApprove, setAutoApprove] = useState<boolean>(() => {
     return localStorage.getItem('ai-auto-approve') !== 'false';
   });
   const [, setPendingReview] = useState(false);
+  // AbortController for the in-flight /api/ai/chat fetch so the Stop button
+  // can break out of the agentic loop mid-flight (#61).
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     fetch('/api/ai/status', { cache: 'no-store' })
@@ -115,11 +133,60 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     });
   };
 
+  const toggleRaw = (toolId: string) => {
+    setRawShownTools(prev => {
+      const next = new Set(prev);
+      if (next.has(toolId)) next.delete(toolId); else next.add(toolId);
+      return next;
+    });
+  };
+
   const sendToAI = useCallback(async (text: string) => {
     const userMsg: ChatMessage = { id: crypto.randomUUID(), role: 'user', text };
     setMessages(prev => [...prev, userMsg]);
     setIsLoading(true);
     setError(null);
+
+    // Set up an AbortController so the Stop button (and unmount) can
+    // tear down the in-flight stream and break the agentic loop. (#61)
+    const ac = new AbortController();
+    abortControllerRef.current = ac;
+
+    // Tool tracking: tools enter at `starting`, transition to `running`
+    // when input arrives, and resolve to terminal state on output. We
+    // keep an ordered list (insertion = arrival) plus a lookup map so
+    // ordering across tool-input-start/-available/-output-available is
+    // stable per distinct toolCallId (#131 makes ids real).
+    const toolOrder: string[] = [];
+    const toolMap: Record<string, ToolCall> = {};
+    const rawEvents: any[] = [];
+    let assistantText = '';
+    const assistantId = crypto.randomUUID();
+    let cancelled = false;
+
+    const pushToolUpdate = () => {
+      const toolCalls = toolOrder.map(id => toolMap[id]).filter(Boolean);
+      setMessages(prev => {
+        const existing = prev.find(m => m.id === assistantId);
+        if (existing) {
+          return prev.map(m => m.id === assistantId
+            ? { ...m, text: assistantText, toolCalls: [...toolCalls], rawEvents: [...rawEvents], cancelled }
+            : m);
+        }
+        return [...prev, { id: assistantId, role: 'assistant', text: assistantText, toolCalls: [...toolCalls], rawEvents: [...rawEvents], cancelled }];
+      });
+    };
+
+    // Mark any in-flight tool cards as cancelled so the spinner stops and
+    // the saved conversation isn't corrupted with stuck `running` tools. (#61)
+    const sweepInflightTools = () => {
+      for (const id of toolOrder) {
+        const t = toolMap[id];
+        if (t && (t.status === 'starting' || t.status === 'running')) {
+          toolMap[id] = { ...t, status: 'cancelled' };
+        }
+      }
+    };
 
     try {
       const allMessages = [...messages, userMsg];
@@ -133,6 +200,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: apiMessages }),
+        signal: ac.signal,
       });
 
       if (!response.ok) {
@@ -144,11 +212,6 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       if (!reader) throw new Error('No response body');
 
       const decoder = new TextDecoder();
-      let assistantText = '';
-      const assistantId = crypto.randomUUID();
-      const toolCalls: ToolCall[] = [];
-      const rawEvents: any[] = [];
-      const pendingTools: Record<string, ToolCall> = {};
 
       while (true) {
         const { done, value } = await reader.read();
@@ -162,43 +225,71 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
             const data = JSON.parse(line.slice(6));
             rawEvents.push(data);
 
+            if (data.type === 'cancelled') {
+              cancelled = true;
+              sweepInflightTools();
+              pushToolUpdate();
+              continue;
+            }
+
             if (data.type === 'text-delta' && data.delta) {
               assistantText += data.delta;
-              setMessages(prev => {
-                const existing = prev.find(m => m.id === assistantId);
-                if (existing) {
-                  return prev.map(m => m.id === assistantId ? { ...m, text: assistantText, toolCalls: [...toolCalls], rawEvents: [...rawEvents] } : m);
-                }
-                return [...prev, { id: assistantId, role: 'assistant', text: assistantText, toolCalls: [...toolCalls], rawEvents: [...rawEvents] }];
-              });
+              pushToolUpdate();
             }
 
-            if (data.type === 'tool-input-available') {
-              pendingTools[data.toolCallId] = {
-                id: data.toolCallId,
-                name: data.toolName,
-                input: data.input,
-                output: null,
-              };
-            }
-
-            if (data.type === 'tool-output-available') {
-              if (pendingTools[data.toolCallId]) {
-                pendingTools[data.toolCallId].output = data.output;
-                toolCalls.push(pendingTools[data.toolCallId]);
-                delete pendingTools[data.toolCallId];
-              } else {
-                toolCalls.push({ id: data.toolCallId, name: data.toolCallId, input: null, output: data.output });
+            if (data.type === 'tool-input-start' && data.toolCallId) {
+              if (!toolMap[data.toolCallId]) {
+                toolMap[data.toolCallId] = {
+                  id: data.toolCallId,
+                  name: data.toolName || data.toolCallId,
+                  input: null,
+                  output: null,
+                  status: 'starting',
+                };
+                toolOrder.push(data.toolCallId);
+                pushToolUpdate();
               }
+            }
 
-              // Update message with tool calls
-              setMessages(prev => {
-                const existing = prev.find(m => m.id === assistantId);
-                if (existing) {
-                  return prev.map(m => m.id === assistantId ? { ...m, toolCalls: [...toolCalls], rawEvents: [...rawEvents] } : m);
-                }
-                return [...prev, { id: assistantId, role: 'assistant', text: assistantText, toolCalls: [...toolCalls], rawEvents: [...rawEvents] }];
-              });
+            if (data.type === 'tool-input-available' && data.toolCallId) {
+              if (!toolMap[data.toolCallId]) {
+                toolMap[data.toolCallId] = {
+                  id: data.toolCallId,
+                  name: data.toolName || data.toolCallId,
+                  input: data.input,
+                  output: null,
+                  status: 'running',
+                };
+                toolOrder.push(data.toolCallId);
+              } else {
+                toolMap[data.toolCallId] = {
+                  ...toolMap[data.toolCallId],
+                  name: data.toolName || toolMap[data.toolCallId].name,
+                  input: data.input,
+                  status: 'running',
+                };
+              }
+              pushToolUpdate();
+            }
+
+            if (data.type === 'tool-output-available' && data.toolCallId) {
+              if (!toolMap[data.toolCallId]) {
+                toolMap[data.toolCallId] = {
+                  id: data.toolCallId,
+                  name: data.toolCallId,
+                  input: null,
+                  output: data.output,
+                  status: undefined,
+                };
+                toolOrder.push(data.toolCallId);
+              } else {
+                toolMap[data.toolCallId] = {
+                  ...toolMap[data.toolCallId],
+                  output: data.output,
+                  status: undefined,
+                };
+              }
+              pushToolUpdate();
 
               if (data.output?.navigate) {
                 navigate(data.output.navigate);
@@ -210,19 +301,27 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
         }
       }
 
-      // Ensure message exists
+      const toolCalls = toolOrder.map(id => toolMap[id]).filter(Boolean);
+
+      // Ensure assistant message exists with sensible default text
       if (!assistantText && toolCalls.length > 0) {
         assistantText = toolCalls.map(t => {
+          if (t.output?.success === false && t.output?.error) return `**Error in ${t.name}:** ${t.output.error}`;
           if (t.output?.message) return `- ${t.output.message}`;
           if (t.output?.packages) return `**Packages:** ${t.output.packages.join(', ')}`;
           if (t.output?.entities) return `Found **${t.output.entities.length}** entities`;
           if (t.output?.stereotypes) return t.output.stereotypes.map((s: any) => `- **${s.name}** (${s.appliesTo}): ${s.fields?.join(', ') || ''}`).join('\n');
           return `\`\`\`json\n${JSON.stringify(t.output, null, 2)}\n\`\`\``;
         }).join('\n\n');
-        setMessages(prev => [...prev, { id: assistantId, role: 'assistant', text: assistantText, toolCalls, rawEvents }]);
-      } else if (!assistantText) {
-        setMessages(prev => [...prev, { id: assistantId, role: 'assistant', text: '*(No response)*', rawEvents }]);
+        pushToolUpdate();
+      } else if (!assistantText && !cancelled) {
+        assistantText = '*(No response)*';
+        pushToolUpdate();
+      } else if (cancelled && !assistantText) {
+        assistantText = '*(Cancelled)*';
+        pushToolUpdate();
       }
+
       // If not auto-approve, mark tool calls as pending review
       if (!autoApprove && toolCalls.length > 0) {
         const pendingCalls = toolCalls.map(tc => ({ ...tc, status: 'pending' as const }));
@@ -230,12 +329,29 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
         setPendingReview(true);
       }
     } catch (err: any) {
-      setError(err.message);
+      if (err?.name === 'AbortError' || ac.signal.aborted) {
+        // User cancelled — surface a friendly note rather than an error,
+        // and stop any in-flight tool spinners so the saved conversation
+        // doesn't carry a perpetual `running` card. (#61)
+        cancelled = true;
+        sweepInflightTools();
+        if (!assistantText) {
+          assistantText = '*(Cancelled)*';
+        }
+        pushToolUpdate();
+      } else {
+        setError(err.message);
+      }
     } finally {
+      if (abortControllerRef.current === ac) abortControllerRef.current = null;
       setIsLoading(false);
       setMessages(msgs => { saveConversation(msgs); return msgs; });
     }
   }, [messages, navigate, saveConversation, autoApprove]);
+
+  const stopStream = useCallback(() => {
+    abortControllerRef.current?.abort();
+  }, []);
 
   const refreshApp = useCallback(() => {
     // Trigger sidebar refresh by reloading the page data
@@ -388,6 +504,11 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                   <span className={`text-[10px] font-bold uppercase tracking-wider ${msg.role === 'user' ? 'text-primary' : 'text-success'}`}>
                     {msg.role === 'user' ? 'You' : 'Assistant'}
                   </span>
+                  {msg.cancelled && (
+                    <span data-testid="message-cancelled-badge" className="badge badge-xs badge-ghost font-sans" title="User cancelled this response">
+                      cancelled
+                    </span>
+                  )}
                   {msg.rawEvents && (
                     <button
                       className="opacity-0 group-hover:opacity-60 text-[10px] hover:opacity-100"
@@ -415,26 +536,76 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                 </div>
 
                 {/* Tool calls */}
-                {msg.toolCalls && msg.toolCalls.length > 0 && (
+                {msg.toolCalls && msg.toolCalls.length > 0 && (() => {
+                  const total = msg.toolCalls.length;
+                  // "completed" = anything past the running/starting phase.
+                  // Cancelled cards are terminal and count as complete so the
+                  // progress counter can settle. (#61)
+                  const completed = msg.toolCalls.filter(tc => tc.status !== 'starting' && tc.status !== 'running').length;
+                  const showProgress = total > 1 && completed < total;
+                  return (
                   <div className="mt-1.5 space-y-1">
-                    {msg.toolCalls.map(tc => (
-                      <div key={tc.id} className={`border rounded text-xs ${
-                        tc.status === 'undone' ? 'border-error/30 bg-error/5 opacity-60' :
-                        tc.status === 'pending' ? 'border-warning/50 bg-warning/5' :
-                        'border-base-300/50 bg-base-200/30'
-                      }`}>
+                    {showProgress && (
+                      <div data-testid="tool-progress" className="text-[10px] uppercase tracking-wider text-base-content/50 px-1">
+                        {completed} of {total}
+                      </div>
+                    )}
+                    {msg.toolCalls.map(tc => {
+                      const isRunning = tc.status === 'starting' || tc.status === 'running';
+                      const isCancelled = tc.status === 'cancelled';
+                      const isError = !isRunning && !isCancelled && tc.output && tc.output.success === false;
+                      const cleanName = tc.name.replace('functions.', '').split(':')[0];
+                      // Compact JSON preview of the args, truncated for the
+                      // collapsed header.
+                      const inputPreview = tc.input
+                        ? JSON.stringify(tc.input).slice(0, 80) + (JSON.stringify(tc.input).length > 80 ? '…' : '')
+                        : '';
+                      return (
+                      <div
+                        key={tc.id}
+                        data-testid="tool-card"
+                        data-status={tc.status || (isError ? 'error' : 'ok')}
+                        className={`border rounded text-xs ${
+                          tc.status === 'undone' ? 'border-error/30 bg-error/5 opacity-60' :
+                          tc.status === 'pending' ? 'border-warning/50 bg-warning/5' :
+                          isCancelled ? 'border-base-300/40 bg-base-200/30 opacity-70' :
+                          isError ? 'border-error/60 bg-error/5' :
+                          isRunning ? 'border-info/40 bg-info/5' :
+                          'border-base-300/50 bg-base-200/30'
+                        }`}
+                      >
                         <div className="flex items-center gap-1.5 px-2 py-1">
                           <button className="flex items-center gap-1.5 flex-1 text-left hover:bg-base-200/60" onClick={() => toggleTool(tc.id)}>
-                            <span className={`text-[10px] ${
+                            <span className={`text-[10px] inline-flex items-center justify-center w-3 ${
                               tc.status === 'undone' ? 'text-error' :
                               tc.status === 'pending' ? 'text-warning' :
-                              tc.output?.success === false ? 'text-error' : 'text-success'
+                              isCancelled ? 'text-base-content/40' :
+                              isError ? 'text-error' :
+                              isRunning ? 'text-info' :
+                              'text-success'
                             }`}>
-                              {tc.status === 'undone' ? '↩' : tc.status === 'pending' ? '⏳' : tc.output?.success === false ? '✗' : '✓'}
+                              {tc.status === 'undone' ? '↩' :
+                               tc.status === 'pending' ? '⏳' :
+                               isCancelled ? '⊘' :
+                               isError ? '✗' :
+                               isRunning ? <span className="loading loading-spinner loading-xs"></span> :
+                               '✓'}
                             </span>
-                            <span className="font-mono text-primary/80">{tc.name.replace('functions.', '').split(':')[0]}</span>
+                            <span className="font-mono text-primary/80">
+                              {isRunning ? `Calling ${cleanName}…` : cleanName}
+                            </span>
+                            {isError && (
+                              <span data-testid="tool-error-badge" className="badge badge-xs badge-error font-sans">error</span>
+                            )}
+                            {isCancelled && (
+                              <span data-testid="tool-cancelled-badge" className="badge badge-xs badge-ghost font-sans">cancelled</span>
+                            )}
                             <span className="text-base-content/50 truncate flex-1 font-sans">
-                              {tc.status === 'undone' ? 'Undone' : tc.output?.message || ''}
+                              {tc.status === 'undone' ? 'Undone' :
+                               isCancelled ? 'Cancelled' :
+                               isError ? '' :
+                               isRunning && tc.input ? inputPreview :
+                               tc.output?.message || ''}
                             </span>
                             <span className="text-base-content/30">{expandedTools.has(tc.id) ? '▼' : '▶'}</span>
                           </button>
@@ -444,6 +615,26 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                             </button>
                           )}
                         </div>
+
+                        {/* Inline error message for failed tool calls — visible
+                            even when the card is collapsed. (#61 comment B) */}
+                        {isError && (
+                          <div className="px-2 pb-2 -mt-0.5">
+                            <div className="bg-error/10 border border-error/30 rounded px-2 py-1 text-[11px] text-error font-sans">
+                              {tc.output.error || 'Tool failed'}
+                            </div>
+                            <button
+                              className="text-[10px] text-base-content/50 hover:text-base-content mt-1 underline"
+                              onClick={() => toggleRaw(tc.id)}
+                            >
+                              {rawShownTools.has(tc.id) ? 'Hide raw' : 'Show raw'}
+                            </button>
+                            {rawShownTools.has(tc.id) && (
+                              <pre className="mt-1 bg-base-300/30 rounded p-1.5 overflow-x-auto text-[11px]">{JSON.stringify(tc.output, null, 2)}</pre>
+                            )}
+                          </div>
+                        )}
+
                         {expandedTools.has(tc.id) && (
                           <div className="px-2 pb-2 space-y-1">
                             {tc.input && (
@@ -452,14 +643,20 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                                 <pre className="bg-base-300/30 rounded p-1.5 overflow-x-auto text-[11px]">{JSON.stringify(tc.input, null, 2)}</pre>
                               </div>
                             )}
-                            <div>
-                              <div className="text-[10px] text-base-content/40 uppercase mb-0.5">Output</div>
-                              <pre className="bg-base-300/30 rounded p-1.5 overflow-x-auto text-[11px]">{JSON.stringify(tc.output, null, 2)}</pre>
-                            </div>
+                            {!isError && tc.output !== null && (
+                              <div>
+                                <div className="text-[10px] text-base-content/40 uppercase mb-0.5">Output</div>
+                                <pre className="bg-base-300/30 rounded p-1.5 overflow-x-auto text-[11px]">{JSON.stringify(tc.output, null, 2)}</pre>
+                              </div>
+                            )}
+                            {isRunning && tc.output === null && (
+                              <div className="text-[10px] text-base-content/40 italic">Awaiting result…</div>
+                            )}
                           </div>
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
 
                     {/* Approve all / Undo all bar */}
                     {msg.toolCalls.some(tc => tc.status === 'pending') && (
@@ -472,7 +669,8 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                       </div>
                     )}
                   </div>
-                )}
+                  );
+                })()}
               </div>
             ))}
 
@@ -616,15 +814,31 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
             onChange={(e) => setInput(e.target.value)}
             disabled={!aiAvailable || isLoading}
           />
-          <button
-            type="submit"
-            className="btn btn-xs btn-primary btn-square"
-            disabled={!aiAvailable || isLoading || !input.trim()}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
-            </svg>
-          </button>
+          {isLoading ? (
+            <button
+              type="button"
+              className="btn btn-xs btn-error btn-square"
+              onClick={stopStream}
+              title="Stop"
+              data-testid="ai-stop-button"
+              aria-label="Stop"
+            >
+              {/* Square stop glyph */}
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                <rect x="5" y="5" width="10" height="10" rx="1" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              type="submit"
+              className="btn btn-xs btn-primary btn-square"
+              disabled={!aiAvailable || !input.trim()}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
+              </svg>
+            </button>
+          )}
         </div>
       </form>
     </div>
