@@ -14,10 +14,14 @@ interface SettingsFormData {
   defaultView: string;
 }
 
-const PROVIDER_PRESETS: Record<string, { name: string; baseURL?: string; defaultModel: string }> = {
-  'anthropic': { name: 'Anthropic', defaultModel: 'claude-sonnet-4-5-20250514' },
-  'openai': { name: 'OpenAI', defaultModel: 'gpt-4o' },
-  'openai-compatible': { name: 'OpenAI-Compatible', baseURL: '', defaultModel: 'gpt-4o' },
+// Model defaults are owned by the backend (`getDefaultModel` in
+// aiController.ts) — anthropic/openai resolve a current default when
+// the field is left blank, openai-compatible requires explicit input.
+// Don't pin model strings here; they go stale and the UI rejects on save.
+const PROVIDER_PRESETS: Record<string, { name: string; baseURL?: string; modelHint?: string }> = {
+  'anthropic': { name: 'Anthropic' },
+  'openai': { name: 'OpenAI' },
+  'openai-compatible': { name: 'OpenAI-Compatible', baseURL: '', modelHint: 'required (e.g. openai/gpt-4o-mini)' },
 };
 
 const KNOWN_ENDPOINTS = [
@@ -95,7 +99,10 @@ const Settings = () => {
     try {
       await axios.post('/api/ai/config', {
         provider: aiProvider,
-        model: aiModel || PROVIDER_PRESETS[aiProvider]?.defaultModel,
+        // Send model as-is. Backend applies its own default for
+        // anthropic/openai when blank, and 400s on openai-compatible
+        // without a model — we don't shadow that with a stale UI default.
+        model: aiModel,
         apiKey: aiApiKey,
         baseURL: aiProvider === 'openai-compatible' ? aiBaseURL : undefined,
         name: aiName || undefined,
@@ -365,7 +372,9 @@ const Settings = () => {
                   value={aiProvider}
                   onChange={(e) => {
                     setAiProvider(e.target.value);
-                    setAiModel(PROVIDER_PRESETS[e.target.value]?.defaultModel || '');
+                    // Clear model on provider switch; backend picks a
+                    // current default for anthropic/openai when blank.
+                    setAiModel('');
                     if (e.target.value !== 'openai-compatible') setAiBaseURL('');
                   }}
                 >
@@ -380,7 +389,7 @@ const Settings = () => {
                 <input
                   type="text"
                   className="input input-bordered w-full"
-                  placeholder={PROVIDER_PRESETS[aiProvider]?.defaultModel}
+                  placeholder={PROVIDER_PRESETS[aiProvider]?.modelHint ?? '(uses backend default if blank)'}
                   value={aiModel}
                   onChange={(e) => setAiModel(e.target.value)}
                 />
