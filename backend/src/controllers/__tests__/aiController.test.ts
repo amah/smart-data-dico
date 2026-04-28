@@ -40,6 +40,7 @@ beforeEach(() => {
   delete process.env.AI_PROVIDER;
   delete process.env.AI_MODEL;
   delete process.env.AI_BASE_URL;
+  delete process.env.AI_CONFIG_SOURCE;
   // Reset mock config.
   for (const k of Object.keys(mockConfig)) delete (mockConfig as any)[k];
 });
@@ -97,8 +98,8 @@ describe('aiStatus — openai-compatible without model surfaces a targeted messa
     const body = (res.json as jest.Mock).mock.calls[0][0];
     expect(body.available).toBe(false);
     expect(body.message).toMatch(/model.*required.*openai-compatible/i);
-    // configPath is interpolated from appDir.CONFIG_FILE — no stale ~/.cfg path.
-    expect(body.configPath).toBe('/tmp/test-dico-app.json');
+    // configPath was removed from /api/ai/status (#125) — it leaks layout under home.
+    expect(body).not.toHaveProperty('configPath');
     expect(body.message).not.toMatch(/\.cfg\/ai-config/);
   });
 

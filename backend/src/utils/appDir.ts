@@ -5,7 +5,7 @@
  *
  * Structure:
  *   ~/.dico-app/
- *   ├── dico-app.json                  # App config (AI settings, preferences)
+ *   ├── dico-app.json                  # App config (AI settings, preferences) — written with mode 0600
  *   └── storage/
  *       └── conversations/             # AI chat history (JSON files)
  *           ├── {uuid}.json
@@ -18,6 +18,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { logger } from './logger.js';
 
 export const APP_DIR = path.join(os.homedir(), '.dico-app');
 export const CONFIG_FILE = path.join(APP_DIR, 'dico-app.json');
@@ -27,6 +28,9 @@ export const CONVERSATIONS_DIR = path.join(STORAGE_DIR, 'conversations');
 // Legacy path (for migration)
 const LEGACY_CONFIG = path.join(os.homedir(), '.cfg', 'ai-config.json');
 
+// Track whether we've already warned about loose perms this process
+let loosePermsWarned = false;
+
 /**
  * Ensure the app directory structure exists.
  */
@@ -35,6 +39,43 @@ export function ensureAppDir(): void {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
+  }
+}
+
+/**
+ * Backfill restrictive permissions (0600) if the config file exists with looser perms.
+ * Logs a warning once per process. Skipped on Windows (where mode bits are meaningless).
+ */
+function ensureRestrictivePerms(file: string): void {
+  if (process.platform === 'win32') return;
+  try {
+    const mode = fs.statSync(file).mode & 0o777;
+    if (mode !== 0o600) {
+      fs.chmodSync(file, 0o600);
+      if (!loosePermsWarned) {
+        loosePermsWarned = true;
+        logger.warn(
+          `Config file ${file} had loose permissions (0${mode.toString(8)}); reset to 0600.`,
+        );
+      }
+    }
+  } catch {
+    // best-effort; ignore stat/chmod failures
+  }
+}
+
+/**
+ * Write data to the config file atomically with mode 0600.
+ * Uses temp-file + rename so partial writes can't leave a world-readable file behind.
+ */
+function writeConfigFileAtomic(data: string): void {
+  const tmp = `${CONFIG_FILE}.tmp-${process.pid}-${Date.now()}`;
+  fs.writeFileSync(tmp, data, { mode: 0o600 });
+  fs.renameSync(tmp, CONFIG_FILE);
+  // rename preserves the temp file's mode, but chmod again defensively
+  // in case a pre-existing target file's perms were inherited on some FS.
+  if (process.platform !== 'win32') {
+    try { fs.chmodSync(CONFIG_FILE, 0o600); } catch { /* best-effort */ }
   }
 }
 
@@ -49,7 +90,7 @@ export function readAppConfig(): Record<string, any> {
     try {
       const legacy = JSON.parse(fs.readFileSync(LEGACY_CONFIG, 'utf8'));
       const config = { ai: legacy };
-      fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8');
+      writeConfigFileAtomic(JSON.stringify(config, null, 2));
       // Don't delete legacy — user might have other tools using it
       return config;
     } catch {
@@ -59,6 +100,7 @@ export function readAppConfig(): Record<string, any> {
 
   try {
     if (fs.existsSync(CONFIG_FILE)) {
+      ensureRestrictivePerms(CONFIG_FILE);
       return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
     }
   } catch {
@@ -68,13 +110,13 @@ export function readAppConfig(): Record<string, any> {
 }
 
 /**
- * Write the app config (merges with existing).
+ * Write the app config (merges with existing). Always written with mode 0600.
  */
 export function writeAppConfig(updates: Record<string, any>): void {
   ensureAppDir();
   const existing = readAppConfig();
   const merged = { ...existing, ...updates };
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(merged, null, 2), 'utf8');
+  writeConfigFileAtomic(JSON.stringify(merged, null, 2));
 }
 
 /**
