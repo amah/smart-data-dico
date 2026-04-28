@@ -14,6 +14,11 @@ import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql';
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash';
 import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown';
 import { usePrefs } from '../hooks/usePrefs';
+import {
+  AIToolCategory,
+  loadPolicy,
+  shouldAutoApprove,
+} from '../utils/aiAutoApprovePolicy';
 
 SyntaxHighlighter.registerLanguage('ts', typescript);
 SyntaxHighlighter.registerLanguage('typescript', typescript);
@@ -48,11 +53,16 @@ interface ToolCall {
   name: string;
   input: any;
   output: any;
+  // Category sourced from the backend tool-input-start event (#59).
+  // Drives both the per-card indicator and the per-card auto-approve
+  // decision. Older backends won't send it; we fall back to "review for
+  // safety" when category is missing.
+  category?: AIToolCategory;
   // status:
   //  - undefined  = auto-approved (default), terminal state
   //  - 'starting' = tool-input-start received, args not yet available
   //  - 'running'  = tool-input-available received, executing
-  //  - 'pending'  = waiting on user review (auto-approve OFF), terminal state
+  //  - 'pending'  = waiting on user review (per-category policy), terminal state
   //  - 'approved' = user approved, terminal state
   //  - 'undone'   = user rolled back, terminal state
   //  - 'cancelled' = stream was aborted while this tool was in flight
@@ -94,10 +104,24 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const [rawShownTools, setRawShownTools] = useState<Set<string>>(new Set());
   const [selectedMsgId, setSelectedMsgId] = useState<string | null>(null);
   const [toolDefs, setToolDefs] = useState<Array<{ name: string; description: string; parameters: Array<{ name: string; type: string; required: boolean; description: string }> }>>([]);
-  const [autoApprove, setAutoApprove] = useState<boolean>(() => {
-    return localStorage.getItem('ai-auto-approve') !== 'false';
-  });
+  // Granular per-category auto-approve policy (#59). Loaded once on
+  // mount; the Settings page is the only place that mutates it. The
+  // legacy `ai-auto-approve` boolean is migrated by loadPolicy().
+  const [policy, setPolicy] = useState(() => loadPolicy());
   const [, setPendingReview] = useState(false);
+
+  // If the user updates the policy in Settings (or another tab) while
+  // the panel is open, pick it up so the next tool decision uses the
+  // fresh values.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'ai-auto-approve-policy' || e.key === 'ai-auto-approve') {
+        setPolicy(loadPolicy());
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
   // AbortController for the in-flight /api/ai/chat fetch so the Stop button
   // can break out of the agentic loop mid-flight (#61).
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -371,6 +395,9 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                   input: null,
                   output: null,
                   status: 'starting',
+                  // Backend-emitted category (#59). Used to drive both the
+                  // per-card pill and the auto-approve decision below.
+                  category: data.category as AIToolCategory | undefined,
                 };
                 toolOrder.push(data.toolCallId);
                 pushToolUpdate();
@@ -385,6 +412,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                   input: data.input,
                   output: null,
                   status: 'running',
+                  category: data.category as AIToolCategory | undefined,
                 };
                 toolOrder.push(data.toolCallId);
               } else {
@@ -393,6 +421,10 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                   name: data.toolName || toolMap[data.toolCallId].name,
                   input: data.input,
                   status: 'running',
+                  // Prefer the existing category (set by tool-input-start)
+                  // but accept the available event's value if it's the
+                  // first time we're seeing it.
+                  category: toolMap[data.toolCallId].category ?? (data.category as AIToolCategory | undefined),
                 };
               }
               pushToolUpdate();
@@ -453,11 +485,31 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
         pushToolUpdate();
       }
 
-      // If not auto-approve, mark tool calls as pending review
-      if (!autoApprove && toolCalls.length > 0) {
-        const pendingCalls = toolCalls.map(tc => ({ ...tc, status: 'pending' as const }));
-        setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, toolCalls: pendingCalls } : m));
-        setPendingReview(true);
+      // Apply per-category auto-approve policy (#59). Tools in
+      // categories the user has set to 'review' (or 'off' for delete)
+      // are flipped to status='pending'; tools in 'auto' categories
+      // keep their terminal state. We only override terminal-good
+      // states — error / cancelled / undone tools are left alone.
+      if (toolCalls.length > 0) {
+        let anyPending = false;
+        const adjusted = toolCalls.map(tc => {
+          // Don't second-guess non-terminal-good states.
+          const isTerminalNonOk =
+            tc.status === 'undone' ||
+            tc.status === 'cancelled' ||
+            (tc.output && tc.output.success === false);
+          if (isTerminalNonOk) return tc;
+          if (shouldAutoApprove(policy, tc.category)) return tc;
+          anyPending = true;
+          return { ...tc, status: 'pending' as const };
+        });
+        if (anyPending) {
+          // Update both the snapshot and the message store so the UI
+          // reflects the post-policy state immediately.
+          for (const tc of adjusted) toolMap[tc.id] = tc;
+          setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, toolCalls: adjusted } : m));
+          setPendingReview(true);
+        }
       }
     } catch (err: any) {
       // Flush any buffered deltas so partial assistant text isn't lost
@@ -482,7 +534,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       setIsLoading(false);
       setMessages(msgs => { saveConversation(msgs); return msgs; });
     }
-  }, [messages, navigate, saveConversation, autoApprove]);
+  }, [messages, navigate, saveConversation, policy]);
 
   const stopStream = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -532,11 +584,6 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       return m;
     }));
   }, [messages]);
-
-  const toggleAutoApprove = useCallback((val: boolean) => {
-    setAutoApprove(val);
-    localStorage.setItem('ai-auto-approve', String(val));
-  }, []);
 
   // Load tool definitions
   useEffect(() => {
@@ -715,9 +762,18 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
             </svg>
           </button>
           <div className="w-px h-4 bg-base-300 mx-1"></div>
-          <label className="flex items-center gap-1 cursor-pointer" title={autoApprove ? 'Auto-approve ON — tools execute without confirmation' : 'Auto-approve OFF — review before applying'}>
-            <input type="checkbox" className="toggle toggle-xs toggle-success" checked={autoApprove} onChange={e => toggleAutoApprove(e.target.checked)} />
-          </label>
+          {/* Auto-approve is now per-category (#59). The Settings page
+              owns the controls; the panel only shows where to find them. */}
+          <a
+            href="/settings#ai-auto-approve"
+            className="btn btn-ghost btn-xs"
+            title="Auto-approve policy (Settings)"
+            data-testid="ai-policy-link"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+            </svg>
+          </a>
           <button className="btn btn-ghost btn-xs" onClick={startNewConversation} title="New">+</button>
           <button className="btn btn-ghost btn-xs" onClick={onClose} title="Close">&times;</button>
         </div>
@@ -934,6 +990,25 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                             <span className="font-mono text-primary/80">
                               {isRunning ? `Calling ${cleanName}…` : cleanName}
                             </span>
+                            {/* Per-category indicator (#59) — shows the
+                                user *why* a card is pending vs auto-approved.
+                                Pending cards get a warning-tinted pill so
+                                the reason ("create — review") is obvious; ok
+                                cards get a muted pill for orientation. */}
+                            {tc.category && (
+                              <span
+                                data-testid="tool-category-badge"
+                                data-category={tc.category}
+                                className={`badge badge-xs font-sans uppercase tracking-wider ${
+                                  tc.status === 'pending'
+                                    ? 'badge-warning badge-outline'
+                                    : 'badge-ghost'
+                                }`}
+                                title={`Category: ${tc.category}`}
+                              >
+                                {tc.category}
+                              </span>
+                            )}
                             {isError && (
                               <span data-testid="tool-error-badge" className="badge badge-xs badge-error font-sans">error</span>
                             )}
