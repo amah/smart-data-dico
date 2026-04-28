@@ -120,6 +120,11 @@ interface ChatMessage {
   // True when the user aborted mid-stream. Persisted in the saved
   // conversation so reloading shows the cancellation marker. (#61)
   cancelled?: boolean;
+  // #63 — when present, the backend condensed older history before this
+  // turn was sent. We render a small "Context condensed (N messages)"
+  // pill above the assistant bubble so the user can see why the model
+  // doesn't have full memory of every prior turn.
+  condensed?: { count: number; estimatedTokens?: number };
 }
 
 /**
@@ -482,6 +487,9 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     let assistantText = '';
     const assistantId = crypto.randomUUID();
     let cancelled = false;
+    // #63 — populated when the backend emits a `condensed` SSE event
+    // before the model's response. Rendered as a pill above the bubble.
+    let condensedInfo: { count: number; estimatedTokens?: number } | null = null;
     // Per-turn usage payload (#128). Backend emits one `usage` SSE
     // event before `done`; we accumulate it onto the running meter
     // and persist with the conversation in the finally block.
@@ -493,10 +501,25 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
         const existing = prev.find(m => m.id === assistantId);
         if (existing) {
           return prev.map(m => m.id === assistantId
-            ? { ...m, text: assistantText, toolCalls: [...toolCalls], rawEvents: [...rawEvents], cancelled }
+            ? {
+                ...m,
+                text: assistantText,
+                toolCalls: [...toolCalls],
+                rawEvents: [...rawEvents],
+                cancelled,
+                ...(condensedInfo ? { condensed: condensedInfo } : {}),
+              }
             : m);
         }
-        return [...prev, { id: assistantId, role: 'assistant', text: assistantText, toolCalls: [...toolCalls], rawEvents: [...rawEvents], cancelled }];
+        return [...prev, {
+          id: assistantId,
+          role: 'assistant',
+          text: assistantText,
+          toolCalls: [...toolCalls],
+          rawEvents: [...rawEvents],
+          cancelled,
+          ...(condensedInfo ? { condensed: condensedInfo } : {}),
+        }];
       });
     };
 
@@ -584,6 +607,18 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
             if (data.type === 'cancelled') {
               cancelled = true;
               sweepInflightTools();
+              pushToolUpdate();
+              continue;
+            }
+
+            // #63 — backend signals it summarized older history before
+            // forwarding to the model. Stash the info; the assistant
+            // message will render a pill in its bubble.
+            if (data.type === 'condensed') {
+              condensedInfo = {
+                count: Number(data.condensedCount) || 0,
+                ...(typeof data.estimatedTokens === 'number' ? { estimatedTokens: data.estimatedTokens } : {}),
+              };
               pushToolUpdate();
               continue;
             }
@@ -1326,6 +1361,21 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
 
             {messages.map(msg => (
               <div key={msg.id} className={`group ${msg.role === 'user' ? 'pl-8' : 'pr-4'}`}>
+                {/* #63 — pill rendered above the assistant bubble when the
+                    backend folded older history into a summary before this
+                    turn. Hover for the rough token count behind the
+                    decision so power users can spot threshold issues. */}
+                {msg.condensed && msg.role === 'assistant' && (
+                  <div
+                    data-testid="context-condensed-pill"
+                    className="text-[10px] font-sans text-base-content/50 mb-1 italic"
+                    title={msg.condensed.estimatedTokens
+                      ? `~${msg.condensed.estimatedTokens.toLocaleString()} tokens estimated before condensing`
+                      : 'Earlier conversation history was summarized'}
+                  >
+                    📦 Context condensed — {msg.condensed.count} earlier message{msg.condensed.count === 1 ? '' : 's'} summarized
+                  </div>
+                )}
                 {/* Role label */}
                 <div className="flex items-center gap-1 mb-0.5">
                   <span className={`text-[10px] font-bold uppercase tracking-wider ${msg.role === 'user' ? 'text-primary' : 'text-success'}`}>
