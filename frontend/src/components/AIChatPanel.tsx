@@ -151,6 +151,12 @@ function formatCost(c: number): string {
 
 type PanelView = 'chat' | 'history' | 'raw' | 'tools' | 'prompts';
 
+// #55 — chat modes. Designer = full toolset (default, back-compat).
+// Ask = read-only Q&A. Review = read-only quality review. Stored
+// per-conversation; the frontend sends it on every chat request.
+export type ChatMode = 'designer' | 'ask' | 'review';
+const CHAT_MODES: readonly ChatMode[] = ['designer', 'ask', 'review'] as const;
+
 interface SavedPrompt {
   id: string;
   name: string;
@@ -208,6 +214,11 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const [promptNameDraft, setPromptNameDraft] = useState('');
   const [promptContentDraft, setPromptContentDraft] = useState('');
   const [promptError, setPromptError] = useState<string | null>(null);
+  // #55 — chat mode for the active conversation. Designer (default)
+  // gates nothing; Ask / Review drop write tools server-side and use
+  // mode-specific system-prompt suffixes. Persisted on the conversation
+  // record so the choice survives reload.
+  const [mode, setMode] = useState<ChatMode>('designer');
   // #54 — @entity / @package mention picker. Token is the partial after the
   // most recent `@` at the cursor; null when not actively picking.
   const [mentionToken, setMentionToken] = useState<string | null>(null);
@@ -337,6 +348,9 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       updatedAt: new Date().toISOString(),
       ...(existing?.pinned ? { pinned: true } : {}),
       ...(systemPromptOverride.trim() ? { systemPrompt: systemPromptOverride.trim() } : {}),
+      // #55 — persist chat mode so reopening this conversation restores
+      // the same Designer / Ask / Review framing. Only emit when non-default.
+      ...(mode !== 'designer' ? { mode } : {}),
       // Persist running totals so reopening the conversation restores
       // the meter chip (#128). totalCost is only set when pricing is
       // configured server-side.
@@ -353,7 +367,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(conv),
     }).catch(() => {});
-  }, [conversationId, conversationList, systemPromptOverride]);
+  }, [conversationId, conversationList, systemPromptOverride, mode]);
 
   const loadConversation = useCallback((id: string) => {
     fetch(`/api/ai/conversations/${id}`).then(r => r.json()).then(d => {
@@ -375,6 +389,9 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
         // #127 — restore per-conversation system prompt override.
         setSystemPromptOverride(typeof d.data.systemPrompt === 'string' ? d.data.systemPrompt : '');
         setSystemPromptEditing(false);
+        // #55 — restore chat mode; legacy conversations have no `mode`
+        // field, fall back to Designer.
+        setMode((d.data.mode === 'ask' || d.data.mode === 'review') ? d.data.mode : 'designer');
         setView('chat');
       }
     }).catch(() => {});
@@ -386,6 +403,9 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     setUsage(null);
     setSystemPromptOverride('');
     setSystemPromptEditing(false);
+    // #55 — reset chat mode to Designer so a new conversation doesn't
+    // silently inherit the previous one's Ask / Review framing.
+    setMode('designer');
     setView('chat');
   }, []);
 
@@ -521,6 +541,9 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
           ...(shouldSendContext ? { pageContext } : {}),
           // #127 — per-conversation override of SYSTEM_PROMPT, scoped to this turn.
           ...(trimmedSystemPrompt ? { systemPrompt: trimmedSystemPrompt } : {}),
+          // #55 — only send `mode` when it's not the default; keeps
+          // the request payload identical to pre-#55 for the common case.
+          ...(mode !== 'designer' ? { mode } : {}),
         }),
         signal: ac.signal,
       });
@@ -1109,6 +1132,27 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-base-300 bg-base-200/80">
         <div className="flex items-center gap-2">
           <span className="text-primary font-bold text-xs tracking-wide">AI ASSISTANT</span>
+          {/* #55 — chat mode selector. Designer (full toolset, default),
+              Ask (read-only Q&A), Review (read-only quality review). */}
+          <select
+            data-testid="ai-mode-select"
+            className="select select-xs select-ghost font-sans text-[10px] uppercase tracking-wide"
+            value={mode}
+            onChange={(e) => {
+              const next = e.target.value as ChatMode;
+              if (CHAT_MODES.includes(next)) setMode(next);
+            }}
+            disabled={isLoading}
+            title={
+              mode === 'designer' ? 'Designer — full toolset, can create / modify' :
+              mode === 'ask' ? 'Ask — read-only Q&A, no writes' :
+              'Review — read-only quality review, no writes'
+            }
+          >
+            <option value="designer">Designer</option>
+            <option value="ask">Ask</option>
+            <option value="review">Review</option>
+          </select>
           {isLoading && <span className="loading loading-dots loading-xs text-primary"></span>}
           {/* Cost / token meter (#128). Hidden until at least one turn
               has reported usage. The cost half is only rendered when

@@ -41,6 +41,74 @@ const TOOL_CATEGORY_MAP: Record<string, AIToolCategory> = {
   deleteRelationship: 'delete',
 };
 
+// --- Chat modes (#55) ---
+//
+// Three flavors of AI session that swap the system prompt body and the
+// tool subset the model is allowed to call:
+//
+//   designer  — full toolset (default; preserves pre-#55 behavior).
+//   ask       — read-only tools; no creates / mutations / navigations.
+//               Pure Q&A and explain mode.
+//   review    — read-only tools focused on quality / improvements.
+//               Same tool subset as Ask but a different prompt.
+//
+// The mode is per-conversation; the frontend sends `mode` on every chat
+// request and persists it on the conversation record so the choice
+// survives page reloads.
+export type AIChatMode = 'designer' | 'ask' | 'review';
+
+export const AI_CHAT_MODES: readonly AIChatMode[] = ['designer', 'ask', 'review'] as const;
+
+export function isValidMode(value: unknown): value is AIChatMode {
+  return value === 'designer' || value === 'ask' || value === 'review';
+}
+
+// Tool subsets per mode. Designer keeps the full set; Ask and Review
+// drop everything that mutates state. navigateTo is intentionally
+// excluded from Ask/Review — those modes shouldn't move the user away
+// from the page they are asking about.
+const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
+  'listEntities',
+  'listStereotypes',
+  'getEntityDetails',
+  'listPackages',
+]);
+
+export function isToolAllowedForMode(toolName: string, mode: AIChatMode): boolean {
+  if (mode === 'designer') return true;
+  return READ_ONLY_TOOLS.has(toolName);
+}
+
+const MODE_SYSTEM_SUFFIX: Record<AIChatMode, string> = {
+  designer: '',
+  ask: `\n\nMode: ASK. You are answering questions about the data model. You have read-only tools (listEntities, getEntityDetails, listStereotypes). Do NOT attempt to create, modify, or delete anything — those tools are not available. Explain concepts, summarize structure, and quote the model where helpful. If the user asks for a change, describe what would change but do not perform it.`,
+  review: `\n\nMode: REVIEW. You are reviewing the data model for quality issues. Use read-only tools (listEntities, getEntityDetails, listStereotypes) to inspect the model and surface concerns: missing primary keys, inconsistent naming, undocumented attributes, orphaned entities, overly wide tables, ambiguous types. Group findings by severity (high/medium/low). Recommend specific edits but do not perform them — write tools are not available in this mode.`,
+};
+
+export function getModeSystemSuffix(mode: AIChatMode): string {
+  return MODE_SYSTEM_SUFFIX[mode];
+}
+
+/**
+ * Drop tools the active mode forbids. Designer keeps everything;
+ * Ask / Review keep only the read-only inspection tools so the model
+ * literally cannot emit a write call. Designer is a no-op (returns
+ * the input map unchanged) so the common path stays cheap.
+ */
+export function filterToolsForMode<T extends Record<string, unknown>>(
+  allTools: T,
+  mode: AIChatMode,
+): Partial<T> {
+  if (mode === 'designer') return allTools;
+  const out: Partial<T> = {};
+  for (const [name, def] of Object.entries(allTools)) {
+    if (isToolAllowedForMode(name, mode)) {
+      (out as Record<string, unknown>)[name] = def;
+    }
+  }
+  return out;
+}
+
 export function getToolCategory(toolName: string): AIToolCategory {
   // Strip "functions." prefix (some providers wrap tool names) and any
   // ":n" suffix (the AI SDK appends the call index when a tool runs
@@ -234,25 +302,29 @@ Be concise in your responses. Show a summary of what you created.`;
  * SYSTEM_PROMPT body — and it is sanitized so a malicious or runaway
  * frontend can't inject huge prompts.
  */
-function buildSystemPrompt(pageContext?: string, conversationSystemPrompt?: string): string {
+function buildSystemPrompt(pageContext?: string, conversationSystemPrompt?: string, mode: AIChatMode = 'designer'): string {
   // #127 — per-conversation override replaces the canonical body when set.
   // It still gets the page-context paragraph appended so cross-cutting hints
   // (current entity, package) don't get lost when the user customizes.
   const base = (typeof conversationSystemPrompt === 'string' && conversationSystemPrompt.trim().length > 0)
     ? conversationSystemPrompt.trim().slice(0, 8000)
     : SYSTEM_PROMPT;
+  // #55 — append the mode-specific suffix BEFORE the page-context line so
+  // the page context stays the last paragraph (the model is more likely
+  // to weight late content for "what is the user looking at right now").
+  const withMode = base + getModeSystemSuffix(mode);
   if (typeof pageContext === 'string') {
     const trimmed = pageContext.trim();
     if (trimmed.length > 0) {
       const safe = trimmed.slice(0, 500);
-      return `${base}\n\nPage context: ${safe}`;
+      return `${withMode}\n\nPage context: ${safe}`;
     }
   }
-  return base;
+  return withMode;
 }
 
 // Direct chat handler for OpenAI-compatible providers (bypasses AI SDK)
-async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawMessages: any[], services: any, pageContext?: string, conversationSystemPrompt?: string) {
+async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawMessages: any[], services: any, pageContext?: string, conversationSystemPrompt?: string, mode: AIChatMode = 'designer') {
   const { callWithTools } = await import('../utils/aiDirectClient.js');
   // Wire request lifecycle to an AbortController so a client disconnect
   // (or an explicit /api/ai/chat fetch().abort()) breaks both the in-flight
@@ -264,7 +336,7 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
 
   // Convert UIMessages to OpenAI format
   const messages: any[] = [
-    { role: 'system', content: buildSystemPrompt(pageContext, conversationSystemPrompt) },
+    { role: 'system', content: buildSystemPrompt(pageContext, conversationSystemPrompt, mode) },
   ];
   for (const msg of rawMessages) {
     const text = msg.parts?.find((p: any) => p.type === 'text')?.text || msg.content || '';
@@ -272,13 +344,15 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
   }
 
   // Build tool definitions
-  const toolDefs = [
+  const allToolDefs = [
     { type: 'function' as const, function: { name: 'createEntity', description: 'Create an entity. entityJson is a JSON string with packageName, name, description, stereotype, attributes array.', parameters: { type: 'object', required: ['entityJson'], properties: { entityJson: { type: 'string', description: 'JSON: {"packageName":"pkg","name":"Entity","description":"...","attributes":[{"name":"id","type":"string","required":true,"primaryKey":true}]}' } } } } },
     { type: 'function' as const, function: { name: 'createRelationship', description: 'Create a relationship. JSON string parameter.', parameters: { type: 'object', required: ['relationshipJson'], properties: { relationshipJson: { type: 'string', description: 'JSON: {"packageName":"pkg","sourceEntityName":"A","targetEntityName":"B","sourceCardinality":"one","targetCardinality":"many","description":"..."}' } } } } },
     { type: 'function' as const, function: { name: 'listEntities', description: 'List packages or entities in a package', parameters: { type: 'object', properties: { packageName: { type: 'string', description: 'Package name (omit to list all)' } } } } },
     { type: 'function' as const, function: { name: 'listStereotypes', description: 'List available stereotypes', parameters: { type: 'object', properties: {} } } },
     { type: 'function' as const, function: { name: 'navigateTo', description: 'Navigate user to a page', parameters: { type: 'object', required: ['path', 'reason'], properties: { path: { type: 'string' }, reason: { type: 'string' } } } } },
   ];
+  // #55 — drop write/navigate tools when the active mode forbids them.
+  const toolDefs = allToolDefs.filter(t => isToolAllowedForMode(t.function.name, mode));
 
   // Tool executor
   const executeTool = async (name: string, args: any): Promise<any> => {
@@ -441,10 +515,14 @@ export const aiChat = async (req: Request, res: Response) => {
       });
     }
 
-    const { messages: rawMessages, pageContext, systemPrompt: conversationSystemPrompt } = req.body;
+    const { messages: rawMessages, pageContext, systemPrompt: conversationSystemPrompt, mode: rawMode } = req.body;
     if (!rawMessages || !Array.isArray(rawMessages)) {
       return res.status(400).json({ message: 'messages array required' });
     }
+    // #55 — mode gates which tools are exposed to the model and which
+    // system-prompt suffix it sees. Default to 'designer' for back-compat
+    // with pre-#55 clients that don't send the field.
+    const mode: AIChatMode = isValidMode(rawMode) ? rawMode : 'designer';
 
     const services = await getServices();
 
@@ -456,7 +534,7 @@ export const aiChat = async (req: Request, res: Response) => {
     // For OpenAI-compatible providers, use direct client (AI SDK has tool-calling bugs)
     if (cfg.provider === 'openai-compatible' && cfg.baseURL) {
       const { callWithTools } = await import('../utils/aiDirectClient.js');
-      return await handleDirectChat(req, res, cfg, rawMessages, services, enrichedPageContext, conversationSystemPrompt);
+      return await handleDirectChat(req, res, cfg, rawMessages, services, enrichedPageContext, conversationSystemPrompt, mode);
     }
 
     // For Anthropic/OpenAI, use Vercel AI SDK (works correctly)
@@ -479,7 +557,7 @@ export const aiChat = async (req: Request, res: Response) => {
 
     const result = streamText({
       model,
-      system: buildSystemPrompt(enrichedPageContext, conversationSystemPrompt),
+      system: buildSystemPrompt(enrichedPageContext, conversationSystemPrompt, mode),
       messages,
       abortSignal: ac.signal,
       onFinish: (event) => {
@@ -491,7 +569,7 @@ export const aiChat = async (req: Request, res: Response) => {
           };
         }
       },
-      tools: {
+      tools: filterToolsForMode({
         createEntity: tool({
           description: 'Create a new entity with attributes in a package. The entityJson parameter must be a JSON string with this structure: {"packageName":"pkg","name":"EntityName","description":"...","stereotype":"aggregate-root","attributes":[{"name":"id","type":"string","description":"...","required":true,"primaryKey":true}]}',
           inputSchema: z.object({
@@ -657,7 +735,7 @@ export const aiChat = async (req: Request, res: Response) => {
             return { navigate: params.path, reason: params.reason };
           },
         }),
-      },
+      }, mode),
       stopWhen: stepCountIs(20),
     });
 
@@ -1028,10 +1106,11 @@ export const saveConversation = async (req: Request, res: Response) => {
   }
 };
 
-// #127 — patch user-editable fields (title rename, pinned, per-conversation system prompt).
+// #127 — patch user-editable fields (title rename, pinned, per-conversation
+// system prompt). #55 also lets the client set the chat mode here.
 export const patchConversation = async (req: Request, res: Response) => {
-  const { title, pinned, systemPrompt } = req.body || {};
-  const conv = conversationService.patch(req.params.id, { title, pinned, systemPrompt });
+  const { title, pinned, systemPrompt, mode } = req.body || {};
+  const conv = conversationService.patch(req.params.id, { title, pinned, systemPrompt, mode });
   if (!conv) return res.status(404).json({ message: 'Conversation not found' });
   res.json({ data: conv });
 };

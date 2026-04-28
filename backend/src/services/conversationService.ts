@@ -44,6 +44,9 @@ export interface Conversation {
   // #127 — user-overridable polish
   pinned?: boolean;
   systemPrompt?: string;
+  // #55 — chat mode ('designer' | 'ask' | 'review'). Absent on
+  // legacy conversations; the frontend defaults to 'designer'.
+  mode?: 'designer' | 'ask' | 'review';
 }
 
 export interface ConversationSummary {
@@ -99,7 +102,7 @@ export const conversationService = {
    * Patch a subset of conversation fields. Only `title`, `pinned`, and
    * `systemPrompt` are user-editable; everything else is server-managed.
    */
-  patch(id: string, patch: { title?: string; pinned?: boolean; systemPrompt?: string }): Conversation | null {
+  patch(id: string, patch: { title?: string; pinned?: boolean; systemPrompt?: string; mode?: Conversation['mode'] }): Conversation | null {
     const conv = this.get(id);
     if (!conv) return null;
     if (typeof patch.title === 'string') conv.title = patch.title.slice(0, 200);
@@ -108,6 +111,11 @@ export const conversationService = {
       const trimmed = patch.systemPrompt.trim();
       // Empty clears the override; otherwise cap to keep the system prompt sane.
       conv.systemPrompt = trimmed ? trimmed.slice(0, 8000) : undefined;
+    }
+    // #55 — only accept the three documented modes; ignore anything else
+    // so a stale client can't poison the file with an unknown value.
+    if (patch.mode === 'designer' || patch.mode === 'ask' || patch.mode === 'review') {
+      conv.mode = patch.mode;
     }
     this.save(conv);
     return conv;
