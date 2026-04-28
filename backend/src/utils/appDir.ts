@@ -7,7 +7,10 @@
  *   ~/.dico-app/
  *   ├── dico-app.json                  # App config (AI settings, preferences) — written with mode 0600
  *   └── storage/
- *       └── conversations/             # AI chat history (JSON files)
+ *       ├── conversations/             # AI chat history (JSON files)
+ *       │   ├── {uuid}.json
+ *       │   └── ...
+ *       └── prompts/                   # Saved AI prompts (JSON files, #123)
  *           ├── {uuid}.json
  *           └── ...
  *
@@ -24,6 +27,7 @@ export const APP_DIR = path.join(os.homedir(), '.dico-app');
 export const CONFIG_FILE = path.join(APP_DIR, 'dico-app.json');
 export const STORAGE_DIR = path.join(APP_DIR, 'storage');
 export const CONVERSATIONS_DIR = path.join(STORAGE_DIR, 'conversations');
+export const PROMPTS_DIR = path.join(STORAGE_DIR, 'prompts');
 
 // Legacy path (for migration)
 const LEGACY_CONFIG = path.join(os.homedir(), '.cfg', 'ai-config.json');
@@ -35,7 +39,7 @@ let loosePermsWarned = false;
  * Ensure the app directory structure exists.
  */
 export function ensureAppDir(): void {
-  for (const dir of [APP_DIR, STORAGE_DIR, CONVERSATIONS_DIR]) {
+  for (const dir of [APP_DIR, STORAGE_DIR, CONVERSATIONS_DIR, PROMPTS_DIR]) {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
