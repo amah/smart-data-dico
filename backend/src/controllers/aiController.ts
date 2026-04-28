@@ -226,8 +226,26 @@ When the user asks to create a model:
 
 Be concise in your responses. Show a summary of what you created.`;
 
+/**
+ * Compose the system prompt, optionally weaving in a "Currently viewing …"
+ * sentence supplied by the frontend (issue #58). The page-context line is
+ * appended as a separate paragraph so it does not pollute the canonical
+ * SYSTEM_PROMPT body — and it is sanitized so a malicious or runaway
+ * frontend can't inject huge prompts.
+ */
+function buildSystemPrompt(pageContext?: string): string {
+  if (typeof pageContext === 'string') {
+    const trimmed = pageContext.trim();
+    if (trimmed.length > 0) {
+      const safe = trimmed.slice(0, 500);
+      return `${SYSTEM_PROMPT}\n\nPage context: ${safe}`;
+    }
+  }
+  return SYSTEM_PROMPT;
+}
+
 // Direct chat handler for OpenAI-compatible providers (bypasses AI SDK)
-async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawMessages: any[], services: any) {
+async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawMessages: any[], services: any, pageContext?: string) {
   const { callWithTools } = await import('../utils/aiDirectClient.js');
   // Wire request lifecycle to an AbortController so a client disconnect
   // (or an explicit /api/ai/chat fetch().abort()) breaks both the in-flight
@@ -239,7 +257,7 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
 
   // Convert UIMessages to OpenAI format
   const messages: any[] = [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: buildSystemPrompt(pageContext) },
   ];
   for (const msg of rawMessages) {
     const text = msg.parts?.find((p: any) => p.type === 'text')?.text || msg.content || '';
@@ -416,7 +434,7 @@ export const aiChat = async (req: Request, res: Response) => {
       });
     }
 
-    const { messages: rawMessages } = req.body;
+    const { messages: rawMessages, pageContext } = req.body;
     if (!rawMessages || !Array.isArray(rawMessages)) {
       return res.status(400).json({ message: 'messages array required' });
     }
@@ -426,7 +444,7 @@ export const aiChat = async (req: Request, res: Response) => {
     // For OpenAI-compatible providers, use direct client (AI SDK has tool-calling bugs)
     if (cfg.provider === 'openai-compatible' && cfg.baseURL) {
       const { callWithTools } = await import('../utils/aiDirectClient.js');
-      return await handleDirectChat(req, res, cfg, rawMessages, services);
+      return await handleDirectChat(req, res, cfg, rawMessages, services, pageContext);
     }
 
     // For Anthropic/OpenAI, use Vercel AI SDK (works correctly)
@@ -449,7 +467,7 @@ export const aiChat = async (req: Request, res: Response) => {
 
     const result = streamText({
       model,
-      system: SYSTEM_PROMPT,
+      system: buildSystemPrompt(pageContext),
       messages,
       abortSignal: ac.signal,
       onFinish: (event) => {
