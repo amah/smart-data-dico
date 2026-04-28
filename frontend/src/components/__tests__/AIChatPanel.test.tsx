@@ -193,4 +193,51 @@ describe('AIChatPanel — tool progress & error rendering (#61)', () => {
     // Cleanup: close the stream so no async tasks dangle.
     await act(async () => { close(); });
   });
+
+  it('marks an in-flight tool card as cancelled when the user clicks Stop mid-stream', async () => {
+    // Cancel-mid-loop must (a) stop the spinner on any running tool card and
+    // (b) flag the assistant message so the saved conversation reflects the
+    // cancellation rather than carrying a perpetual `running` card. (#61)
+    const { stream, push, error } = makeStream();
+
+    restoreFetch = withMockChatStream(({ signal }) => {
+      // Wire the signal so a Stop click errors the underlying stream with
+      // an AbortError — mirroring what real fetch+ReadableStream does. The
+      // test mock owns the ReadableStream lifecycle so we have to plumb it
+      // explicitly.
+      signal.addEventListener('abort', () => {
+        const abortErr = Object.assign(new Error('aborted'), { name: 'AbortError' });
+        try { error(abortErr); } catch { /* already closed */ }
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    });
+
+    mountPanel();
+    const input = await screen.findByPlaceholderText('Ask about your data model...');
+    await waitFor(() => expect(input).not.toBeDisabled());
+    await userEvent.type(input, 'go{Enter}');
+
+    // Drive a tool-input-start so a card enters the `starting` (running) state.
+    await act(async () => {
+      push({ type: 'tool-input-start', toolCallId: 'listEntities:0', toolName: 'listEntities' });
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('tool-card')).toHaveAttribute('data-status', 'starting');
+    });
+
+    // User clicks Stop — fetch aborts, our catch handler sweeps in-flight
+    // tools to `cancelled` and stamps the message with cancelled: true.
+    const stopBtn = await screen.findByTestId('ai-stop-button');
+    await userEvent.click(stopBtn);
+
+    await waitFor(() => {
+      const card = screen.getByTestId('tool-card');
+      expect(card).toHaveAttribute('data-status', 'cancelled');
+    });
+    expect(screen.getByTestId('tool-cancelled-badge')).toBeInTheDocument();
+    expect(screen.getByTestId('message-cancelled-badge')).toBeInTheDocument();
+  });
 });

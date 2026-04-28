@@ -13,13 +13,14 @@ interface ToolCall {
   input: any;
   output: any;
   // status:
-  //  - undefined = auto-approved (default), terminal state
+  //  - undefined  = auto-approved (default), terminal state
   //  - 'starting' = tool-input-start received, args not yet available
   //  - 'running'  = tool-input-available received, executing
   //  - 'pending'  = waiting on user review (auto-approve OFF), terminal state
   //  - 'approved' = user approved, terminal state
   //  - 'undone'   = user rolled back, terminal state
-  status?: 'starting' | 'running' | 'pending' | 'approved' | 'undone';
+  //  - 'cancelled' = stream was aborted while this tool was in flight
+  status?: 'starting' | 'running' | 'pending' | 'approved' | 'undone' | 'cancelled';
 }
 
 interface ChatMessage {
@@ -28,6 +29,9 @@ interface ChatMessage {
   text: string;
   toolCalls?: ToolCall[];
   rawEvents?: any[];
+  // True when the user aborted mid-stream. Persisted in the saved
+  // conversation so reloading shows the cancellation marker. (#61)
+  cancelled?: boolean;
 }
 
 type PanelView = 'chat' | 'history' | 'raw' | 'tools';
@@ -166,11 +170,22 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
         const existing = prev.find(m => m.id === assistantId);
         if (existing) {
           return prev.map(m => m.id === assistantId
-            ? { ...m, text: assistantText, toolCalls: [...toolCalls], rawEvents: [...rawEvents] }
+            ? { ...m, text: assistantText, toolCalls: [...toolCalls], rawEvents: [...rawEvents], cancelled }
             : m);
         }
-        return [...prev, { id: assistantId, role: 'assistant', text: assistantText, toolCalls: [...toolCalls], rawEvents: [...rawEvents] }];
+        return [...prev, { id: assistantId, role: 'assistant', text: assistantText, toolCalls: [...toolCalls], rawEvents: [...rawEvents], cancelled }];
       });
+    };
+
+    // Mark any in-flight tool cards as cancelled so the spinner stops and
+    // the saved conversation isn't corrupted with stuck `running` tools. (#61)
+    const sweepInflightTools = () => {
+      for (const id of toolOrder) {
+        const t = toolMap[id];
+        if (t && (t.status === 'starting' || t.status === 'running')) {
+          toolMap[id] = { ...t, status: 'cancelled' };
+        }
+      }
     };
 
     try {
@@ -212,6 +227,8 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
 
             if (data.type === 'cancelled') {
               cancelled = true;
+              sweepInflightTools();
+              pushToolUpdate();
               continue;
             }
 
@@ -313,11 +330,15 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       }
     } catch (err: any) {
       if (err?.name === 'AbortError' || ac.signal.aborted) {
-        // User cancelled — surface a friendly note rather than an error.
+        // User cancelled — surface a friendly note rather than an error,
+        // and stop any in-flight tool spinners so the saved conversation
+        // doesn't carry a perpetual `running` card. (#61)
+        cancelled = true;
+        sweepInflightTools();
         if (!assistantText) {
           assistantText = '*(Cancelled)*';
-          pushToolUpdate();
         }
+        pushToolUpdate();
       } else {
         setError(err.message);
       }
@@ -483,6 +504,11 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                   <span className={`text-[10px] font-bold uppercase tracking-wider ${msg.role === 'user' ? 'text-primary' : 'text-success'}`}>
                     {msg.role === 'user' ? 'You' : 'Assistant'}
                   </span>
+                  {msg.cancelled && (
+                    <span data-testid="message-cancelled-badge" className="badge badge-xs badge-ghost font-sans" title="User cancelled this response">
+                      cancelled
+                    </span>
+                  )}
                   {msg.rawEvents && (
                     <button
                       className="opacity-0 group-hover:opacity-60 text-[10px] hover:opacity-100"
@@ -513,6 +539,8 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                 {msg.toolCalls && msg.toolCalls.length > 0 && (() => {
                   const total = msg.toolCalls.length;
                   // "completed" = anything past the running/starting phase.
+                  // Cancelled cards are terminal and count as complete so the
+                  // progress counter can settle. (#61)
                   const completed = msg.toolCalls.filter(tc => tc.status !== 'starting' && tc.status !== 'running').length;
                   const showProgress = total > 1 && completed < total;
                   return (
@@ -524,7 +552,8 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                     )}
                     {msg.toolCalls.map(tc => {
                       const isRunning = tc.status === 'starting' || tc.status === 'running';
-                      const isError = !isRunning && tc.output && tc.output.success === false;
+                      const isCancelled = tc.status === 'cancelled';
+                      const isError = !isRunning && !isCancelled && tc.output && tc.output.success === false;
                       const cleanName = tc.name.replace('functions.', '').split(':')[0];
                       // Compact JSON preview of the args, truncated for the
                       // collapsed header.
@@ -539,6 +568,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                         className={`border rounded text-xs ${
                           tc.status === 'undone' ? 'border-error/30 bg-error/5 opacity-60' :
                           tc.status === 'pending' ? 'border-warning/50 bg-warning/5' :
+                          isCancelled ? 'border-base-300/40 bg-base-200/30 opacity-70' :
                           isError ? 'border-error/60 bg-error/5' :
                           isRunning ? 'border-info/40 bg-info/5' :
                           'border-base-300/50 bg-base-200/30'
@@ -549,12 +579,14 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                             <span className={`text-[10px] inline-flex items-center justify-center w-3 ${
                               tc.status === 'undone' ? 'text-error' :
                               tc.status === 'pending' ? 'text-warning' :
+                              isCancelled ? 'text-base-content/40' :
                               isError ? 'text-error' :
                               isRunning ? 'text-info' :
                               'text-success'
                             }`}>
                               {tc.status === 'undone' ? '↩' :
                                tc.status === 'pending' ? '⏳' :
+                               isCancelled ? '⊘' :
                                isError ? '✗' :
                                isRunning ? <span className="loading loading-spinner loading-xs"></span> :
                                '✓'}
@@ -565,8 +597,12 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                             {isError && (
                               <span data-testid="tool-error-badge" className="badge badge-xs badge-error font-sans">error</span>
                             )}
+                            {isCancelled && (
+                              <span data-testid="tool-cancelled-badge" className="badge badge-xs badge-ghost font-sans">cancelled</span>
+                            )}
                             <span className="text-base-content/50 truncate flex-1 font-sans">
                               {tc.status === 'undone' ? 'Undone' :
+                               isCancelled ? 'Cancelled' :
                                isError ? '' :
                                isRunning && tc.input ? inputPreview :
                                tc.output?.message || ''}
