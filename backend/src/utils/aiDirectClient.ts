@@ -32,6 +32,13 @@ interface DirectClientConfig {
   model: string;
 }
 
+export class AbortError extends Error {
+  constructor(message: string = 'Aborted') {
+    super(message);
+    this.name = 'AbortError';
+  }
+}
+
 export async function callWithTools(
   config: DirectClientConfig,
   messages: Message[],
@@ -39,7 +46,8 @@ export async function callWithTools(
   executeToolFn: (name: string, args: any) => Promise<any>,
   maxSteps: number = 10,
   onEvent?: (event: any) => void,
-): Promise<{ text: string; toolCalls: Array<{ name: string; input: any; output: any }> }> {
+  signal?: AbortSignal,
+): Promise<{ text: string; toolCalls: Array<{ name: string; input: any; output: any }>; aborted?: boolean }> {
   let currentMessages = [...messages];
   const allToolCalls: Array<{ name: string; input: any; output: any }> = [];
   let finalText = '';
@@ -50,27 +58,41 @@ export async function callWithTools(
   const callSeq: Record<string, number> = {};
 
   for (let step = 0; step < maxSteps; step++) {
-    const response = await fetch(`${config.baseURL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: config.model,
-        messages: currentMessages,
-        tools: tools.length > 0 ? tools : undefined,
-        tool_choice: tools.length > 0 ? 'auto' : undefined,
-        max_tokens: 4096,
-      }),
-    });
+    if (signal?.aborted) {
+      return { text: finalText, toolCalls: allToolCalls, aborted: true };
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(`${config.baseURL}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${config.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: config.model,
+          messages: currentMessages,
+          tools: tools.length > 0 ? tools : undefined,
+          tool_choice: tools.length > 0 ? 'auto' : undefined,
+          max_tokens: 4096,
+        }),
+        signal,
+      });
+    } catch (err: any) {
+      // fetch throws on abort with name === 'AbortError' (or DOMException)
+      if (err?.name === 'AbortError' || signal?.aborted) {
+        return { text: finalText, toolCalls: allToolCalls, aborted: true };
+      }
+      throw err;
+    }
 
     if (!response.ok) {
       const errText = await response.text();
       throw new Error(`API error ${response.status}: ${errText}`);
     }
 
-    const data = await response.json();
+    const data: any = await response.json();
     const choice = data.choices?.[0];
     if (!choice) throw new Error('No response from model');
 
@@ -93,6 +115,10 @@ export async function callWithTools(
 
       // Execute each tool call
       for (const tc of msg.tool_calls) {
+        if (signal?.aborted) {
+          return { text: finalText, toolCalls: allToolCalls, aborted: true };
+        }
+
         const toolName = tc.function.name;
         let toolArgs: any = {};
         try {

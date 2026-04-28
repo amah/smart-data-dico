@@ -150,6 +150,13 @@ Be concise in your responses. Show a summary of what you created.`;
 // Direct chat handler for OpenAI-compatible providers (bypasses AI SDK)
 async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawMessages: any[], services: any) {
   const { callWithTools } = await import('../utils/aiDirectClient.js');
+  // Wire request lifecycle to an AbortController so a client disconnect
+  // (or an explicit /api/ai/chat fetch().abort()) breaks both the in-flight
+  // fetch to the upstream provider and the surrounding tool-call loop.
+  const ac = new AbortController();
+  const onAbort = () => ac.abort();
+  req.on('close', onAbort);
+  req.on('aborted', onAbort);
 
   // Convert UIMessages to OpenAI format
   const messages: any[] = [
@@ -270,20 +277,32 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
           sendEvent({ type: 'tool-output-available', toolCallId: event.toolCallId, output: event.output });
         }
       },
+      ac.signal,
     );
 
-    // If there's final text after tool calls
-    if (result.text && result.toolCalls.length > 0) {
-      const id = crypto.randomUUID();
-      sendEvent({ type: 'text-start', id });
-      for (const word of result.text.split(' ')) {
-        sendEvent({ type: 'text-delta', id, delta: word + ' ' });
+    if (result.aborted) {
+      sendEvent({ type: 'cancelled' });
+    } else {
+      // If there's final text after tool calls
+      if (result.text && result.toolCalls.length > 0) {
+        const id = crypto.randomUUID();
+        sendEvent({ type: 'text-start', id });
+        for (const word of result.text.split(' ')) {
+          sendEvent({ type: 'text-delta', id, delta: word + ' ' });
+        }
       }
-    }
 
-    sendEvent({ type: 'finish', finishReason: 'stop' });
+      sendEvent({ type: 'finish', finishReason: 'stop' });
+    }
   } catch (err: any) {
-    sendEvent({ type: 'error', errorText: err.message });
+    if (ac.signal.aborted || err?.name === 'AbortError') {
+      sendEvent({ type: 'cancelled' });
+    } else {
+      sendEvent({ type: 'error', errorText: err.message });
+    }
+  } finally {
+    req.off('close', onAbort);
+    req.off('aborted', onAbort);
   }
 
   sendEvent({ type: 'done' });
@@ -317,10 +336,19 @@ export const aiChat = async (req: Request, res: Response) => {
     const messages = await convertToModelMessages(rawMessages);
     const model = await getModel();
 
+    // Wire request lifecycle to an AbortController so client disconnect
+    // (Stop button, browser close) propagates into streamText and breaks
+    // the agentic loop before the next tool call runs.
+    const ac = new AbortController();
+    const onAbort = () => ac.abort();
+    req.on('close', onAbort);
+    req.on('aborted', onAbort);
+
     const result = streamText({
       model,
       system: SYSTEM_PROMPT,
       messages,
+      abortSignal: ac.signal,
       tools: {
         createEntity: tool({
           description: 'Create a new entity with attributes in a package. The entityJson parameter must be a JSON string with this structure: {"packageName":"pkg","name":"EntityName","description":"...","stereotype":"aggregate-root","attributes":[{"name":"id","type":"string","description":"...","required":true,"primaryKey":true}]}',
@@ -505,10 +533,35 @@ export const aiChat = async (req: Request, res: Response) => {
       const decoder = new TextDecoder();
       const seenTextParts = new Set<string>();
 
+      const cleanup = () => {
+        req.off('close', onAbort);
+        req.off('aborted', onAbort);
+      };
+
       const pump = async () => {
         while (true) {
-          const { done, value } = await reader.read();
-          if (done) { res.end(); break; }
+          if (ac.signal.aborted) {
+            // Emit final cancelled event before closing.
+            try { res.write(`data: ${JSON.stringify({ type: 'cancelled' })}\n\n`); } catch { /* ok */ }
+            try { reader.cancel(); } catch { /* ok */ }
+            res.end();
+            cleanup();
+            break;
+          }
+          let chunk: { done: boolean; value?: Uint8Array };
+          try {
+            chunk = await reader.read();
+          } catch (err: any) {
+            if (ac.signal.aborted || err?.name === 'AbortError') {
+              try { res.write(`data: ${JSON.stringify({ type: 'cancelled' })}\n\n`); } catch { /* ok */ }
+              res.end();
+              cleanup();
+              break;
+            }
+            throw err;
+          }
+          const { done, value } = chunk;
+          if (done) { res.end(); cleanup(); break; }
 
           const text = decoder.decode(value, { stream: true });
 
@@ -542,9 +595,12 @@ export const aiChat = async (req: Request, res: Response) => {
 
       pump().catch((err) => {
         logger.error(`AI stream error: ${err}`);
+        cleanup();
         res.end();
       });
     } else {
+      req.off('close', onAbort);
+      req.off('aborted', onAbort);
       res.end();
     }
 
