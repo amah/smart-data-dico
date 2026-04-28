@@ -41,6 +41,9 @@ export interface Conversation {
   createdAt: string;
   updatedAt: string;
   usage?: ConversationUsage;
+  // #127 — user-overridable polish
+  pinned?: boolean;
+  systemPrompt?: string;
 }
 
 export interface ConversationSummary {
@@ -49,6 +52,7 @@ export interface ConversationSummary {
   messageCount: number;
   createdAt: string;
   updatedAt: string;
+  pinned?: boolean;
 }
 
 function convPath(id: string): string {
@@ -56,28 +60,57 @@ function convPath(id: string): string {
 }
 
 export const conversationService = {
-  list(): ConversationSummary[] {
+  list(query?: string): ConversationSummary[] {
     ensureAppDir();
     if (!fs.existsSync(CONVERSATIONS_DIR)) return [];
 
-    return fs.readdirSync(CONVERSATIONS_DIR)
+    const q = query?.trim().toLowerCase() || '';
+    const all = fs.readdirSync(CONVERSATIONS_DIR)
       .filter(f => f.endsWith('.json'))
       .map(f => {
         try {
           const data = JSON.parse(fs.readFileSync(path.join(CONVERSATIONS_DIR, f), 'utf8')) as Conversation;
+          // #127 search: title + every message text
+          if (q) {
+            const haystack = (data.title + ' ' + data.messages.map(m => m.text).join(' ')).toLowerCase();
+            if (!haystack.includes(q)) return null;
+          }
           return {
             id: data.id,
             title: data.title,
             messageCount: data.messages.length,
             createdAt: data.createdAt,
             updatedAt: data.updatedAt,
+            pinned: data.pinned ?? false,
           };
         } catch {
           return null;
         }
       })
-      .filter(Boolean)
-      .sort((a, b) => b!.updatedAt.localeCompare(a!.updatedAt)) as ConversationSummary[];
+      .filter(Boolean) as ConversationSummary[];
+    // Pinned first, then most recent. Stable across reloads.
+    return all.sort((a, b) => {
+      if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+      return b.updatedAt.localeCompare(a.updatedAt);
+    });
+  },
+
+  /**
+   * Patch a subset of conversation fields. Only `title`, `pinned`, and
+   * `systemPrompt` are user-editable; everything else is server-managed.
+   */
+  patch(id: string, patch: { title?: string; pinned?: boolean; systemPrompt?: string }): Conversation | null {
+    const conv = this.get(id);
+    if (!conv) return null;
+    if (typeof patch.title === 'string') conv.title = patch.title.slice(0, 200);
+    if (typeof patch.pinned === 'boolean') conv.pinned = patch.pinned;
+    if (typeof patch.systemPrompt === 'string') {
+      const trimmed = patch.systemPrompt.trim();
+      // Empty clears the override; otherwise cap to keep the system prompt sane.
+      conv.systemPrompt = trimmed ? trimmed.slice(0, 8000) : undefined;
+    }
+    this.save(conv);
+    return conv;
   },
 
   get(id: string): Conversation | null {
