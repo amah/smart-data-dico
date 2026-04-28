@@ -344,7 +344,7 @@ router.delete('/api/diagrams/:id', authorizeJwt([UserRole.ADMIN]), diagramContro
 // the import finishes simply 404 until then.
 (async () => {
   try {
-    const { aiChat, aiStatus, aiGetConfig, aiSaveConfig, aiTools, listConversations, getConversation, saveConversation, deleteConversation } = await import('../controllers/aiController.js');
+    const { aiChat, aiStatus, aiGetConfig, aiSaveConfig, aiTools, listConversations, getConversation, saveConversation, deleteConversation, listPrompts, getPrompt, createPrompt, updatePrompt, deletePrompt } = await import('../controllers/aiController.js');
     router.post('/api/ai/chat', aiChat);
     router.get('/api/ai/status', aiStatus);
     router.get('/api/ai/config', aiGetConfig);
@@ -356,6 +356,12 @@ router.delete('/api/diagrams/:id', authorizeJwt([UserRole.ADMIN]), diagramContro
     router.get('/api/ai/conversations/:id', getConversation);
     router.post('/api/ai/conversations', saveConversation);
     router.delete('/api/ai/conversations/:id', deleteConversation);
+    // Saved prompts (#123)
+    router.get('/api/ai/prompts', listPrompts);
+    router.get('/api/ai/prompts/:id', getPrompt);
+    router.post('/api/ai/prompts', createPrompt);
+    router.put('/api/ai/prompts/:id', updatePrompt);
+    router.delete('/api/ai/prompts/:id', deletePrompt);
   } catch {
     // AI dependencies not available (optional feature)
   }

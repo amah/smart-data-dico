@@ -5,6 +5,7 @@ import { logger } from '../utils/logger.js';
 import { config } from '../kernel/config.js';
 import { getConfigSection, setConfigSection, CONFIG_FILE } from '../utils/appDir.js';
 import { conversationService } from '../services/conversationService.js';
+import { promptService } from '../services/promptService.js';
 import { EntityStatus } from '../models/EntitySchema.js';
 
 // --- Tool categories (#59) ---
@@ -945,4 +946,49 @@ export const saveConversation = async (req: Request, res: Response) => {
 export const deleteConversation = async (req: Request, res: Response) => {
   conversationService.delete(req.params.id);
   res.json({ message: 'Conversation deleted' });
+};
+
+// --- Saved prompts endpoints (#123) ---
+
+export const listPrompts = async (_req: Request, res: Response) => {
+  res.json({ data: promptService.list() });
+};
+
+export const getPrompt = async (req: Request, res: Response) => {
+  const prompt = promptService.get(req.params.id);
+  if (!prompt) return res.status(404).json({ message: 'Prompt not found' });
+  res.json({ data: prompt });
+};
+
+export const createPrompt = async (req: Request, res: Response) => {
+  try {
+    const { name, content } = req.body || {};
+    if (typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ message: 'name is required' });
+    }
+    if (typeof content !== 'string') {
+      return res.status(400).json({ message: 'content is required' });
+    }
+    const prompt = promptService.create({ name, content });
+    res.status(201).json({ data: prompt });
+  } catch (err: any) {
+    res.status(500).json({ message: 'Failed to create prompt', error: err.message });
+  }
+};
+
+export const updatePrompt = async (req: Request, res: Response) => {
+  try {
+    const { name, content } = req.body || {};
+    const updated = promptService.update(req.params.id, { name, content });
+    if (!updated) return res.status(404).json({ message: 'Prompt not found' });
+    res.json({ data: updated });
+  } catch (err: any) {
+    res.status(500).json({ message: 'Failed to update prompt', error: err.message });
+  }
+};
+
+export const deletePrompt = async (req: Request, res: Response) => {
+  const ok = promptService.delete(req.params.id);
+  if (!ok) return res.status(404).json({ message: 'Prompt not found' });
+  res.json({ message: 'Prompt deleted' });
 };

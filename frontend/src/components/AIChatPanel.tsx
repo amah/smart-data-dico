@@ -148,7 +148,15 @@ function formatCost(c: number): string {
   return `$${c.toFixed(3)}`;
 }
 
-type PanelView = 'chat' | 'history' | 'raw' | 'tools';
+type PanelView = 'chat' | 'history' | 'raw' | 'tools' | 'prompts';
+
+interface SavedPrompt {
+  id: string;
+  name: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const navigate = useNavigate();
@@ -187,6 +195,12 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const [includePageContext, setIncludePageContext] = useState<boolean>(() => {
     return localStorage.getItem('ai-include-page-context') !== 'false';
   });
+  // Saved prompts (#123) — isolated state, kept out of chat/history/raw/tools logic
+  const [prompts, setPrompts] = useState<SavedPrompt[]>([]);
+  const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
+  const [promptNameDraft, setPromptNameDraft] = useState('');
+  const [promptContentDraft, setPromptContentDraft] = useState('');
+  const [promptError, setPromptError] = useState<string | null>(null);
   const [, setPendingReview] = useState(false);
 
   // If the user updates the policy in Settings (or another tab) while
@@ -745,6 +759,91 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     }
   }, [view]);
 
+  // --- Saved prompts (#123) ---
+  const refreshPrompts = useCallback(() => {
+    fetch('/api/ai/prompts')
+      .then(r => r.json())
+      .then(d => setPrompts(d.data || []))
+      .catch(() => {});
+  }, []);
+
+  // Lazy-load prompts the first time the user opens the prompts view.
+  useEffect(() => {
+    if (view === 'prompts') refreshPrompts();
+  }, [view, refreshPrompts]);
+
+  const startNewPromptDraft = useCallback((seed: string = '') => {
+    setEditingPromptId(null);
+    setPromptNameDraft('');
+    setPromptContentDraft(seed);
+    setPromptError(null);
+  }, []);
+
+  const startEditPrompt = useCallback((p: SavedPrompt) => {
+    setEditingPromptId(p.id);
+    setPromptNameDraft(p.name);
+    setPromptContentDraft(p.content);
+    setPromptError(null);
+  }, []);
+
+  const cancelPromptDraft = useCallback(() => {
+    setEditingPromptId(null);
+    setPromptNameDraft('');
+    setPromptContentDraft('');
+    setPromptError(null);
+  }, []);
+
+  const savePromptDraft = useCallback(async () => {
+    const name = promptNameDraft.trim();
+    if (!name) {
+      setPromptError('Name is required');
+      return;
+    }
+    if (!promptContentDraft.trim()) {
+      setPromptError('Content is required');
+      return;
+    }
+    try {
+      const isUpdate = editingPromptId !== null;
+      const url = isUpdate ? `/api/ai/prompts/${editingPromptId}` : '/api/ai/prompts';
+      const res = await fetch(url, {
+        method: isUpdate ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, content: promptContentDraft }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || 'Save failed');
+      }
+      cancelPromptDraft();
+      refreshPrompts();
+    } catch (e: any) {
+      setPromptError(e.message || 'Save failed');
+    }
+  }, [editingPromptId, promptNameDraft, promptContentDraft, cancelPromptDraft, refreshPrompts]);
+
+  const deletePrompt = useCallback(async (id: string) => {
+    try {
+      await fetch(`/api/ai/prompts/${id}`, { method: 'DELETE' });
+      if (editingPromptId === id) cancelPromptDraft();
+      refreshPrompts();
+    } catch {
+      // Ignore — list will refresh on next view
+    }
+  }, [editingPromptId, cancelPromptDraft, refreshPrompts]);
+
+  const insertPromptIntoComposer = useCallback((p: SavedPrompt) => {
+    setInput(p.content);
+    setView('chat');
+    setTimeout(() => inputRef.current?.focus(), 50);
+  }, []);
+
+  const saveCurrentInputAsPrompt = useCallback(() => {
+    const seed = input;
+    setView('prompts');
+    startNewPromptDraft(seed);
+  }, [input, startNewPromptDraft]);
+
   // Auto-scroll lock (#126):
   // - When the user is at the bottom (within SCROLL_LOCK_THRESHOLD_PX),
   //   auto-scroll on every message update.
@@ -932,6 +1031,11 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
           <button className={`btn btn-ghost btn-xs ${view === 'tools' ? 'btn-active' : ''}`} onClick={() => setView('tools')} title="Tools">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
+            </svg>
+          </button>
+          <button className={`btn btn-ghost btn-xs ${view === 'prompts' ? 'btn-active' : ''}`} onClick={() => setView('prompts')} title="Saved prompts">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M9 4.804A7.968 7.968 0 005.5 4c-1.255 0-2.443.29-3.5.804v10A7.969 7.969 0 015.5 14c1.669 0 3.218.51 4.5 1.385A7.962 7.962 0 0114.5 14c1.255 0 2.443.29 3.5.804v-10A7.968 7.968 0 0014.5 4c-1.255 0-2.443.29-3.5.804V12a1 1 0 11-2 0V4.804z" />
             </svg>
           </button>
           <div className="w-px h-4 bg-base-300 mx-1"></div>
@@ -1428,6 +1532,98 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
             ))}
           </div>
         )}
+
+        {/* === PROMPTS VIEW (#123) === */}
+        {view === 'prompts' && (
+          <div className="p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-base-content/50">
+                Saved Prompts ({prompts.length})
+              </div>
+              {editingPromptId === null && promptNameDraft === '' && promptContentDraft === '' && (
+                <button
+                  className="btn btn-xs btn-primary"
+                  onClick={() => startNewPromptDraft('')}
+                  title="Create a new prompt"
+                >
+                  + New
+                </button>
+              )}
+            </div>
+
+            {/* Editor — shown when creating or editing */}
+            {(editingPromptId !== null || promptNameDraft !== '' || promptContentDraft !== '') && (
+              <div className="border border-primary/30 rounded bg-primary/5 p-2 space-y-2">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-primary">
+                  {editingPromptId !== null ? 'Edit prompt' : 'New prompt'}
+                </div>
+                <input
+                  type="text"
+                  className="input input-xs input-bordered w-full font-sans"
+                  placeholder="Name (e.g. Summarize entity)"
+                  value={promptNameDraft}
+                  onChange={(e) => setPromptNameDraft(e.target.value)}
+                />
+                <textarea
+                  className="textarea textarea-xs textarea-bordered w-full font-sans text-xs"
+                  rows={5}
+                  placeholder="Prompt content"
+                  value={promptContentDraft}
+                  onChange={(e) => setPromptContentDraft(e.target.value)}
+                />
+                {promptError && (
+                  <div className="text-[11px] text-error">{promptError}</div>
+                )}
+                <div className="flex items-center gap-2 justify-end">
+                  <button className="btn btn-xs btn-ghost" onClick={cancelPromptDraft}>Cancel</button>
+                  <button className="btn btn-xs btn-primary" onClick={savePromptDraft}>
+                    {editingPromptId !== null ? 'Save' : 'Create'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* List */}
+            {prompts.length === 0 && editingPromptId === null && (
+              <div className="text-xs text-base-content/30 text-center mt-8 font-sans">
+                No saved prompts yet. Click <strong>+ New</strong> to create one,
+                or use <em>Save as prompt</em> below the composer.
+              </div>
+            )}
+
+            {prompts.map(p => (
+              <div key={p.id} className="border border-base-300/50 rounded bg-base-200/20">
+                <div className="px-3 py-2">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-mono text-primary font-bold text-xs truncate flex-1">{p.name}</span>
+                    <button
+                      className="btn btn-xs btn-ghost"
+                      onClick={() => insertPromptIntoComposer(p)}
+                      title="Insert into composer"
+                    >
+                      Insert
+                    </button>
+                    <button
+                      className="btn btn-xs btn-ghost"
+                      onClick={() => startEditPrompt(p)}
+                      title="Edit"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className="btn btn-xs btn-ghost text-error"
+                      onClick={() => deletePrompt(p.id)}
+                      title="Delete"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                  <p className="text-xs text-base-content/60 font-sans whitespace-pre-wrap line-clamp-3">{p.content}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Page-context pill — sits above the composer */}
@@ -1508,6 +1704,18 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
               </svg>
             </button>
           )}
+        </div>
+        {/* Save current input as prompt (#123) */}
+        <div className="mt-1 flex justify-end">
+          <button
+            type="button"
+            className="text-[10px] text-base-content/50 hover:text-primary disabled:opacity-40 disabled:hover:text-base-content/50 font-sans"
+            onClick={saveCurrentInputAsPrompt}
+            disabled={!input.trim()}
+            title="Save the current composer text as a reusable prompt"
+          >
+            Save as prompt…
+          </button>
         </div>
       </form>
     </div>
