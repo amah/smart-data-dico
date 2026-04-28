@@ -19,6 +19,7 @@ import {
   loadPolicy,
   shouldAutoApprove,
 } from '../utils/aiAutoApprovePolicy';
+import { processMentions } from './EntityMention';
 
 SyntaxHighlighter.registerLanguage('ts', typescript);
 SyntaxHighlighter.registerLanguage('typescript', typescript);
@@ -1354,6 +1355,18 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                               </div>
                             );
                           },
+                          // #60 — linkify @EntityName tokens inside text-bearing
+                          // elements. Skips code blocks (handled above) so a
+                          // literal `@Foo` in a fenced block stays literal.
+                          p: ({ children, ...rest }: any) => <p {...rest}>{processMentions(children)}</p>,
+                          li: ({ children, ...rest }: any) => <li {...rest}>{processMentions(children)}</li>,
+                          td: ({ children, ...rest }: any) => <td {...rest}>{processMentions(children)}</td>,
+                          th: ({ children, ...rest }: any) => <th {...rest}>{processMentions(children)}</th>,
+                          h1: ({ children, ...rest }: any) => <h1 {...rest}>{processMentions(children)}</h1>,
+                          h2: ({ children, ...rest }: any) => <h2 {...rest}>{processMentions(children)}</h2>,
+                          h3: ({ children, ...rest }: any) => <h3 {...rest}>{processMentions(children)}</h3>,
+                          strong: ({ children, ...rest }: any) => <strong {...rest}>{processMentions(children)}</strong>,
+                          em: ({ children, ...rest }: any) => <em {...rest}>{processMentions(children)}</em>,
                         }}
                       >{msg.text}</Markdown>
                     </div>
