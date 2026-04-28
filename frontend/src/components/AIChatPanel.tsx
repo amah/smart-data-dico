@@ -1,6 +1,35 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Markdown from 'react-markdown';
+import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
+import oneDark from 'react-syntax-highlighter/dist/esm/styles/prism/one-dark';
+import oneLight from 'react-syntax-highlighter/dist/esm/styles/prism/one-light';
+import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript';
+import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx';
+import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript';
+import jsx from 'react-syntax-highlighter/dist/esm/languages/prism/jsx';
+import json from 'react-syntax-highlighter/dist/esm/languages/prism/json';
+import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml';
+import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql';
+import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash';
+import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown';
+import { usePrefs } from '../hooks/usePrefs';
+
+SyntaxHighlighter.registerLanguage('ts', typescript);
+SyntaxHighlighter.registerLanguage('typescript', typescript);
+SyntaxHighlighter.registerLanguage('tsx', tsx);
+SyntaxHighlighter.registerLanguage('js', javascript);
+SyntaxHighlighter.registerLanguage('javascript', javascript);
+SyntaxHighlighter.registerLanguage('jsx', jsx);
+SyntaxHighlighter.registerLanguage('json', json);
+SyntaxHighlighter.registerLanguage('yaml', yaml);
+SyntaxHighlighter.registerLanguage('yml', yaml);
+SyntaxHighlighter.registerLanguage('sql', sql);
+SyntaxHighlighter.registerLanguage('bash', bash);
+SyntaxHighlighter.registerLanguage('sh', bash);
+SyntaxHighlighter.registerLanguage('shell', bash);
+SyntaxHighlighter.registerLanguage('markdown', markdown);
+SyntaxHighlighter.registerLanguage('md', markdown);
 
 interface AIChatPanelProps {
   open: boolean;
@@ -45,6 +74,8 @@ type PanelView = 'chat' | 'history' | 'raw' | 'tools';
 
 export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const navigate = useNavigate();
+  const { theme } = usePrefs();
+  const isDark = theme === 'dark';
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -88,6 +119,31 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   // timer to keep one setState per window instead of per token.
   const deltaBufferRef = useRef<string>('');
   const deltaFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Tracks transient "Copied!" / "Copy failed" feedback per code block,
+  // keyed by the code text so we don't need ids on every block. (#129)
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [copyFailedKey, setCopyFailedKey] = useState<string | null>(null);
+
+  const handleCopy = useCallback(async (text: string) => {
+    try {
+      // navigator.clipboard.writeText requires a secure context (HTTPS or
+      // localhost). On insecure contexts the call rejects; surface a
+      // visible "Copy failed" so the user isn't left wondering.
+      await navigator.clipboard.writeText(text);
+      setCopyFailedKey(null);
+      setCopiedKey(text);
+      setTimeout(() => {
+        setCopiedKey(prev => (prev === text ? null : prev));
+      }, 1500);
+    } catch {
+      setCopiedKey(null);
+      setCopyFailedKey(text);
+      setTimeout(() => {
+        setCopyFailedKey(prev => (prev === text ? null : prev));
+      }, 1500);
+    }
+  }, []);
 
   useEffect(() => {
     fetch('/api/ai/status', { cache: 'no-store' })
@@ -777,7 +833,44 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                     )
                   ) : (
                     <div className="prose prose-sm max-w-none [&_p]:my-1 [&_ul]:my-1 [&_li]:my-0 [&_pre]:my-1 [&_code]:text-xs [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm">
-                      <Markdown>{msg.text}</Markdown>
+                      <Markdown
+                        components={{
+                          code({ inline, className, children, ...rest }: any) {
+                            const lang = /language-(\w+)/.exec(className || '')?.[1];
+                            if (inline || !lang) {
+                              return <code className={className} {...rest}>{children}</code>;
+                            }
+                            const code = String(children).replace(/\n$/, '');
+                            const isCopied = copiedKey === code;
+                            const isCopyFailed = copyFailedKey === code;
+                            return (
+                              <div className="relative group/code">
+                                <button
+                                  type="button"
+                                  className={`btn btn-xs btn-ghost absolute right-1 top-1 transition-opacity ${
+                                    isCopied || isCopyFailed
+                                      ? 'opacity-100'
+                                      : 'opacity-0 group-hover/code:opacity-100'
+                                  }`}
+                                  onClick={() => handleCopy(code)}
+                                  title={isCopyFailed ? 'Copy failed (clipboard unavailable)' : 'Copy'}
+                                  data-testid="copy-code-button"
+                                >
+                                  {isCopied ? 'Copied!' : isCopyFailed ? 'Copy failed' : 'Copy'}
+                                </button>
+                                <SyntaxHighlighter
+                                  language={lang}
+                                  style={isDark ? oneDark : oneLight}
+                                  PreTag="div"
+                                  customStyle={{ margin: 0, fontSize: '11px', borderRadius: '4px' }}
+                                >
+                                  {code}
+                                </SyntaxHighlighter>
+                              </div>
+                            );
+                          },
+                        }}
+                      >{msg.text}</Markdown>
                     </div>
                   )}
                 </div>
