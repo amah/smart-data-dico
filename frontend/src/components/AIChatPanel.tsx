@@ -125,6 +125,9 @@ interface ChatMessage {
   // pill above the assistant bubble so the user can see why the model
   // doesn't have full memory of every prior turn.
   condensed?: { count: number; estimatedTokens?: number };
+  // #64 — true when the turn was started in background autonomous
+  // mode. Drives the post-run summary footer (Review / Undo all).
+  autonomous?: boolean;
 }
 
 /**
@@ -231,6 +234,22 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   // mode-specific system-prompt suffixes. Persisted on the conversation
   // record so the choice survives reload.
   const [mode, setMode] = useState<ChatMode>('designer');
+  // #64 — background autonomous mode. When on, every tool category
+  // except `delete` is treated as auto-approve regardless of the
+  // per-category policy (#59), so the agent runs end-to-end without
+  // pausing for review. Persisted as a session preference (not per
+  // conversation) since it's about how the user wants to work, not
+  // about a particular chat.
+  const [autonomous, setAutonomous] = useState<boolean>(() => {
+    return localStorage.getItem('ai-autonomous') === 'true';
+  });
+  const toggleAutonomous = useCallback(() => {
+    setAutonomous(prev => {
+      const next = !prev;
+      localStorage.setItem('ai-autonomous', String(next));
+      return next;
+    });
+  }, []);
   // #54 — @entity / @package mention picker. Token is the partial after the
   // most recent `@` at the cursor; null when not actively picking.
   const [mentionToken, setMentionToken] = useState<string | null>(null);
@@ -495,6 +514,10 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     // and persist with the conversation in the finally block.
     let turnUsage: { inputTokens: number; outputTokens: number; cost?: number } | null = null;
 
+    // #64 — capture autonomous-mode at the start of the stream so a mid-
+    // run toggle doesn't retroactively change which past turns are
+    // marked autonomous.
+    const turnAutonomous = autonomous;
     const pushToolUpdate = () => {
       const toolCalls = toolOrder.map(id => toolMap[id]).filter(Boolean);
       setMessages(prev => {
@@ -508,6 +531,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                 rawEvents: [...rawEvents],
                 cancelled,
                 ...(condensedInfo ? { condensed: condensedInfo } : {}),
+                ...(turnAutonomous ? { autonomous: true } : {}),
               }
             : m);
         }
@@ -519,6 +543,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
           rawEvents: [...rawEvents],
           cancelled,
           ...(condensedInfo ? { condensed: condensedInfo } : {}),
+          ...(turnAutonomous ? { autonomous: true } : {}),
         }];
       });
     };
@@ -756,6 +781,10 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
             tc.status === 'cancelled' ||
             (tc.output && tc.output.success === false);
           if (isTerminalNonOk) return tc;
+          // #64 — autonomous mode bypasses the per-category review gate
+          // for everything except `delete` (which can never be auto-approved
+          // by design — see getEffectivePolicy).
+          if (autonomous && tc.category !== 'delete') return tc;
           if (shouldAutoApprove(policy, tc.category)) return tc;
           anyPending = true;
           return { ...tc, status: 'pending' as const };
@@ -816,7 +845,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       });
       setMessages(msgs => { saveConversation(msgs, nextUsage); return msgs; });
     }
-  }, [messages, navigate, saveConversation, policy, includePageContext, pageContext]);
+  }, [messages, navigate, saveConversation, policy, includePageContext, pageContext, autonomous, mode]);
 
   const stopStream = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -1229,6 +1258,21 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
             <option value="ask">Ask</option>
             <option value="review">Review</option>
           </select>
+          {/* #64 — background autonomous mode toggle. When active, every
+              tool category except delete auto-approves and the assistant
+              bubble grows a Review / Undo all footer when the run lands. */}
+          <button
+            type="button"
+            data-testid="ai-autonomous-toggle"
+            data-active={autonomous ? 'true' : 'false'}
+            className={`btn btn-xs btn-ghost font-sans text-[10px] uppercase tracking-wide ${autonomous ? 'text-warning' : 'text-base-content/50'}`}
+            onClick={toggleAutonomous}
+            title={autonomous
+              ? 'Autonomous: ON — agent will run end-to-end without per-step approval (delete still pauses)'
+              : 'Autonomous: OFF — per-category review policy applies'}
+          >
+            {autonomous ? '● auto' : '○ auto'}
+          </button>
           {isLoading && <span className="loading loading-dots loading-xs text-primary"></span>}
           {/* Cost / token meter (#128). Hidden until at least one turn
               has reported usage. The cost half is only rendered when
@@ -1710,6 +1754,64 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                         }}>Undo All</button>
                       </div>
                     )}
+                    {/* #64 — autonomous-run summary footer. Only shows
+                        once the stream is no longer in flight (no tools
+                        in 'starting' or 'running' state) AND the turn
+                        was started in autonomous mode. */}
+                    {msg.autonomous && (() => {
+                      const stillRunning = msg.toolCalls?.some(tc => tc.status === 'starting' || tc.status === 'running');
+                      const undoable = (msg.toolCalls || []).filter(tc =>
+                        tc.status !== 'undone' &&
+                        tc.status !== 'cancelled' &&
+                        tc.output?.success !== false &&
+                        typeof tc.output?.navigate === 'string' &&
+                        /\/packages\/[^/]+\/entities\/[^/]+/.test(tc.output.navigate));
+                      if (stillRunning) {
+                        return (
+                          <div
+                            data-testid="autonomous-progress"
+                            className="flex items-center gap-2 mt-2 p-2 bg-info/10 border border-info/30 rounded text-[10px] font-sans"
+                          >
+                            <span className="loading loading-spinner loading-xs"></span>
+                            <span className="flex-1">Autonomous run — {msg.toolCalls?.length || 0} step{(msg.toolCalls?.length || 0) === 1 ? '' : 's'} so far</span>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div
+                          data-testid="autonomous-summary"
+                          className="flex items-center gap-2 mt-2 p-2 bg-success/10 border border-success/30 rounded text-[10px] font-sans"
+                        >
+                          <span className="flex-1">
+                            ✓ Autonomous run complete — {msg.toolCalls?.length || 0} tool{(msg.toolCalls?.length || 0) === 1 ? '' : 's'} executed
+                          </span>
+                          <button
+                            type="button"
+                            data-testid="autonomous-review-btn"
+                            className="btn btn-xs btn-ghost"
+                            onClick={() => setExpandedTools(prev => {
+                              const next = new Set(prev);
+                              msg.toolCalls?.forEach(tc => next.add(tc.id));
+                              return next;
+                            })}
+                            title="Expand every tool card so you can audit the run"
+                          >
+                            Review
+                          </button>
+                          {undoable.length > 0 && (
+                            <button
+                              type="button"
+                              data-testid="autonomous-undo-all-btn"
+                              className="btn btn-xs btn-error btn-outline"
+                              onClick={() => undoable.forEach(tc => undoToolCall(msg.id, tc.id))}
+                              title={`Roll back ${undoable.length} action${undoable.length === 1 ? '' : 's'} (deletes created entities)`}
+                            >
+                              Undo all
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                   );
                 })()}
