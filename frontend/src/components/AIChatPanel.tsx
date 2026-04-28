@@ -120,6 +120,31 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const deltaBufferRef = useRef<string>('');
   const deltaFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Tracks transient "Copied!" / "Copy failed" feedback per code block,
+  // keyed by the code text so we don't need ids on every block. (#129)
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [copyFailedKey, setCopyFailedKey] = useState<string | null>(null);
+
+  const handleCopy = useCallback(async (text: string) => {
+    try {
+      // navigator.clipboard.writeText requires a secure context (HTTPS or
+      // localhost). On insecure contexts the call rejects; surface a
+      // visible "Copy failed" so the user isn't left wondering.
+      await navigator.clipboard.writeText(text);
+      setCopyFailedKey(null);
+      setCopiedKey(text);
+      setTimeout(() => {
+        setCopiedKey(prev => (prev === text ? null : prev));
+      }, 1500);
+    } catch {
+      setCopiedKey(null);
+      setCopyFailedKey(text);
+      setTimeout(() => {
+        setCopyFailedKey(prev => (prev === text ? null : prev));
+      }, 1500);
+    }
+  }, []);
+
   useEffect(() => {
     fetch('/api/ai/status', { cache: 'no-store' })
       .then(r => r.json())
@@ -816,15 +841,22 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                               return <code className={className} {...rest}>{children}</code>;
                             }
                             const code = String(children).replace(/\n$/, '');
+                            const isCopied = copiedKey === code;
+                            const isCopyFailed = copyFailedKey === code;
                             return (
                               <div className="relative group/code">
                                 <button
                                   type="button"
-                                  className="btn btn-xs btn-ghost absolute right-1 top-1 opacity-0 group-hover/code:opacity-100 transition-opacity"
-                                  onClick={() => navigator.clipboard.writeText(code)}
-                                  title="Copy"
+                                  className={`btn btn-xs btn-ghost absolute right-1 top-1 transition-opacity ${
+                                    isCopied || isCopyFailed
+                                      ? 'opacity-100'
+                                      : 'opacity-0 group-hover/code:opacity-100'
+                                  }`}
+                                  onClick={() => handleCopy(code)}
+                                  title={isCopyFailed ? 'Copy failed (clipboard unavailable)' : 'Copy'}
+                                  data-testid="copy-code-button"
                                 >
-                                  Copy
+                                  {isCopied ? 'Copied!' : isCopyFailed ? 'Copy failed' : 'Copy'}
                                 </button>
                                 <SyntaxHighlighter
                                   language={lang}
