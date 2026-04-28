@@ -234,19 +234,25 @@ Be concise in your responses. Show a summary of what you created.`;
  * SYSTEM_PROMPT body — and it is sanitized so a malicious or runaway
  * frontend can't inject huge prompts.
  */
-function buildSystemPrompt(pageContext?: string): string {
+function buildSystemPrompt(pageContext?: string, conversationSystemPrompt?: string): string {
+  // #127 — per-conversation override replaces the canonical body when set.
+  // It still gets the page-context paragraph appended so cross-cutting hints
+  // (current entity, package) don't get lost when the user customizes.
+  const base = (typeof conversationSystemPrompt === 'string' && conversationSystemPrompt.trim().length > 0)
+    ? conversationSystemPrompt.trim().slice(0, 8000)
+    : SYSTEM_PROMPT;
   if (typeof pageContext === 'string') {
     const trimmed = pageContext.trim();
     if (trimmed.length > 0) {
       const safe = trimmed.slice(0, 500);
-      return `${SYSTEM_PROMPT}\n\nPage context: ${safe}`;
+      return `${base}\n\nPage context: ${safe}`;
     }
   }
-  return SYSTEM_PROMPT;
+  return base;
 }
 
 // Direct chat handler for OpenAI-compatible providers (bypasses AI SDK)
-async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawMessages: any[], services: any, pageContext?: string) {
+async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawMessages: any[], services: any, pageContext?: string, conversationSystemPrompt?: string) {
   const { callWithTools } = await import('../utils/aiDirectClient.js');
   // Wire request lifecycle to an AbortController so a client disconnect
   // (or an explicit /api/ai/chat fetch().abort()) breaks both the in-flight
@@ -258,7 +264,7 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
 
   // Convert UIMessages to OpenAI format
   const messages: any[] = [
-    { role: 'system', content: buildSystemPrompt(pageContext) },
+    { role: 'system', content: buildSystemPrompt(pageContext, conversationSystemPrompt) },
   ];
   for (const msg of rawMessages) {
     const text = msg.parts?.find((p: any) => p.type === 'text')?.text || msg.content || '';
@@ -435,7 +441,7 @@ export const aiChat = async (req: Request, res: Response) => {
       });
     }
 
-    const { messages: rawMessages, pageContext } = req.body;
+    const { messages: rawMessages, pageContext, systemPrompt: conversationSystemPrompt } = req.body;
     if (!rawMessages || !Array.isArray(rawMessages)) {
       return res.status(400).json({ message: 'messages array required' });
     }
@@ -445,7 +451,7 @@ export const aiChat = async (req: Request, res: Response) => {
     // For OpenAI-compatible providers, use direct client (AI SDK has tool-calling bugs)
     if (cfg.provider === 'openai-compatible' && cfg.baseURL) {
       const { callWithTools } = await import('../utils/aiDirectClient.js');
-      return await handleDirectChat(req, res, cfg, rawMessages, services, pageContext);
+      return await handleDirectChat(req, res, cfg, rawMessages, services, pageContext, conversationSystemPrompt);
     }
 
     // For Anthropic/OpenAI, use Vercel AI SDK (works correctly)
@@ -468,7 +474,7 @@ export const aiChat = async (req: Request, res: Response) => {
 
     const result = streamText({
       model,
-      system: buildSystemPrompt(pageContext),
+      system: buildSystemPrompt(pageContext, conversationSystemPrompt),
       messages,
       abortSignal: ac.signal,
       onFinish: (event) => {
@@ -924,8 +930,9 @@ export const aiTools = async (_req: Request, res: Response) => {
 
 // --- Conversation persistence endpoints ---
 
-export const listConversations = async (_req: Request, res: Response) => {
-  res.json({ data: conversationService.list() });
+export const listConversations = async (req: Request, res: Response) => {
+  const q = typeof req.query.q === 'string' ? req.query.q : undefined;
+  res.json({ data: conversationService.list(q) });
 };
 
 export const getConversation = async (req: Request, res: Response) => {
@@ -941,6 +948,14 @@ export const saveConversation = async (req: Request, res: Response) => {
   } catch (err: any) {
     res.status(500).json({ message: 'Failed to save', error: err.message });
   }
+};
+
+// #127 — patch user-editable fields (title rename, pinned, per-conversation system prompt).
+export const patchConversation = async (req: Request, res: Response) => {
+  const { title, pinned, systemPrompt } = req.body || {};
+  const conv = conversationService.patch(req.params.id, { title, pinned, systemPrompt });
+  if (!conv) return res.status(404).json({ message: 'Conversation not found' });
+  res.json({ data: conv });
 };
 
 export const deleteConversation = async (req: Request, res: Response) => {

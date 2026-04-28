@@ -173,7 +173,13 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string>(crypto.randomUUID());
-  const [conversationList, setConversationList] = useState<Array<{ id: string; title: string; messageCount: number; updatedAt: string }>>([]);
+  const [conversationList, setConversationList] = useState<Array<{ id: string; title: string; messageCount: number; updatedAt: string; pinned?: boolean }>>([]);
+  // #127 — history view: search query, inline rename buffer, per-conversation system prompt override.
+  const [conversationQuery, setConversationQuery] = useState('');
+  const [renamingConvId, setRenamingConvId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [systemPromptOverride, setSystemPromptOverride] = useState<string>('');
+  const [systemPromptEditing, setSystemPromptEditing] = useState(false);
   // Running token / cost meter for the current conversation (#128).
   // Reset when the user starts or loads a different conversation; the
   // header chip (`~3.2k in / 1.1k out · $0.012`) is bound to this state.
@@ -273,26 +279,55 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const hasAutoLoaded = useRef(false);
   useEffect(() => {
     if (open) {
-      fetch('/api/ai/conversations').then(r => r.json()).then(d => {
+      const url = conversationQuery.trim()
+        ? `/api/ai/conversations?q=${encodeURIComponent(conversationQuery.trim())}`
+        : '/api/ai/conversations';
+      fetch(url).then(r => r.json()).then(d => {
         const list = d.data || [];
         setConversationList(list);
         // Auto-load the most recent conversation on first open if no messages yet
-        if (!hasAutoLoaded.current && messages.length === 0 && list.length > 0) {
+        if (!hasAutoLoaded.current && messages.length === 0 && list.length > 0 && !conversationQuery) {
           hasAutoLoaded.current = true;
           loadConversation(list[0].id);
         }
       }).catch(() => {});
     }
-  }, [open, messages.length]);
+  }, [open, messages.length, conversationQuery]);
+
+  // #127 — patch a conversation field (rename, pinned, systemPrompt) and refresh list.
+  const patchConversationFields = useCallback(async (
+    id: string,
+    patch: { title?: string; pinned?: boolean; systemPrompt?: string },
+  ) => {
+    try {
+      const res = await fetch(`/api/ai/conversations/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) return;
+      const url = conversationQuery.trim()
+        ? `/api/ai/conversations?q=${encodeURIComponent(conversationQuery.trim())}`
+        : '/api/ai/conversations';
+      fetch(url).then(r => r.json()).then(d => setConversationList(d.data || [])).catch(() => {});
+    } catch {
+      /* swallow — list will refresh on next open */
+    }
+  }, [conversationQuery]);
 
   const saveConversation = useCallback((msgs: ChatMessage[], runningUsage: UsageMeter | null) => {
     if (msgs.length === 0) return;
+    // Preserve title/pinned/systemPrompt from the existing list entry so
+    // saving a turn doesn't clobber a user-set rename or pin (#127).
+    const existing = conversationList.find(c => c.id === conversationId);
     const conv = {
       id: conversationId,
-      title: msgs.find(m => m.role === 'user')?.text.slice(0, 60) || 'New conversation',
+      title: existing?.title || msgs.find(m => m.role === 'user')?.text.slice(0, 60) || 'New conversation',
       messages: msgs.map(m => ({ ...m, timestamp: new Date().toISOString() })),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      ...(existing?.pinned ? { pinned: true } : {}),
+      ...(systemPromptOverride.trim() ? { systemPrompt: systemPromptOverride.trim() } : {}),
       // Persist running totals so reopening the conversation restores
       // the meter chip (#128). totalCost is only set when pricing is
       // configured server-side.
@@ -309,7 +344,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(conv),
     }).catch(() => {});
-  }, [conversationId]);
+  }, [conversationId, conversationList, systemPromptOverride]);
 
   const loadConversation = useCallback((id: string) => {
     fetch(`/api/ai/conversations/${id}`).then(r => r.json()).then(d => {
@@ -328,6 +363,9 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
         } else {
           setUsage(null);
         }
+        // #127 — restore per-conversation system prompt override.
+        setSystemPromptOverride(typeof d.data.systemPrompt === 'string' ? d.data.systemPrompt : '');
+        setSystemPromptEditing(false);
         setView('chat');
       }
     }).catch(() => {});
@@ -337,6 +375,8 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     setConversationId(crypto.randomUUID());
     setMessages([]);
     setUsage(null);
+    setSystemPromptOverride('');
+    setSystemPromptEditing(false);
     setView('chat');
   }, []);
 
@@ -463,12 +503,15 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       }));
 
       const shouldSendContext = includePageContext && pageContext.length > 0;
+      const trimmedSystemPrompt = systemPromptOverride.trim();
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: apiMessages,
           ...(shouldSendContext ? { pageContext } : {}),
+          // #127 — per-conversation override of SYSTEM_PROMPT, scoped to this turn.
+          ...(trimmedSystemPrompt ? { systemPrompt: trimmedSystemPrompt } : {}),
         }),
         signal: ac.signal,
       });
@@ -1067,6 +1110,40 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
               </div>
             )}
 
+            {/* #127 — per-conversation system prompt override */}
+            {systemPromptEditing ? (
+              <div className="border border-base-300/40 rounded p-2 space-y-2 bg-base-200/30">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-base-content/50">System prompt (this conversation)</div>
+                <textarea
+                  className="textarea textarea-bordered textarea-xs w-full"
+                  rows={4}
+                  value={systemPromptOverride}
+                  onChange={e => setSystemPromptOverride(e.target.value)}
+                  placeholder="Leave empty to use the default."
+                  data-testid="ai-system-prompt-editor"
+                />
+                <div className="flex gap-1">
+                  <button
+                    className="btn btn-xs btn-primary"
+                    onClick={async () => {
+                      await patchConversationFields(conversationId, { systemPrompt: systemPromptOverride });
+                      setSystemPromptEditing(false);
+                    }}
+                  >Save</button>
+                  <button className="btn btn-xs btn-ghost" onClick={() => setSystemPromptEditing(false)}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <button
+                className="btn btn-xs btn-ghost text-base-content/50 hover:text-base-content/80 normal-case justify-start"
+                onClick={() => setSystemPromptEditing(true)}
+                data-testid="ai-system-prompt-toggle"
+                title="Override the system prompt for this conversation only"
+              >
+                {systemPromptOverride.trim() ? 'System prompt: customized' : '+ Custom system prompt'}
+              </button>
+            )}
+
             {messages.length === 0 && aiAvailable && (
               <div className="text-center text-base-content/40 mt-10 space-y-4">
                 <div className="text-2xl">&#x2728;</div>
@@ -1426,19 +1503,57 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
 
         {/* === HISTORY VIEW === */}
         {view === 'history' && (
-          <div className="p-3 space-y-1">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-base-content/50 mb-2">Conversations</div>
+          <div className="p-3 space-y-2">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-base-content/50">Conversations</div>
+            <input
+              type="search"
+              placeholder="Search conversations…"
+              value={conversationQuery}
+              onChange={e => setConversationQuery(e.target.value)}
+              data-testid="ai-conversation-search"
+              className="input input-bordered input-xs w-full"
+            />
             {conversationList.length === 0 ? (
-              <div className="text-xs text-base-content/30 text-center mt-8">No saved conversations</div>
+              <div className="text-xs text-base-content/30 text-center mt-8">
+                {conversationQuery ? 'No matches' : 'No saved conversations'}
+              </div>
             ) : conversationList.map(conv => (
               <div key={conv.id} className="flex items-center gap-1 group">
                 <button
-                  className={`btn btn-xs btn-block justify-start text-left font-sans font-normal flex-1 ${conv.id === conversationId ? 'btn-primary btn-outline' : 'btn-ghost'}`}
-                  onClick={() => loadConversation(conv.id)}
-                >
-                  <span className="truncate flex-1">{conv.title}</span>
-                  <span className="badge badge-xs badge-ghost">{conv.messageCount}</span>
-                </button>
+                  className={`btn btn-xs btn-ghost px-1 ${conv.pinned ? 'text-warning' : 'opacity-50 hover:opacity-100'}`}
+                  title={conv.pinned ? 'Unpin' : 'Pin'}
+                  data-testid={`ai-pin-${conv.id}`}
+                  onClick={() => patchConversationFields(conv.id, { pinned: !conv.pinned })}
+                >★</button>
+                {renamingConvId === conv.id ? (
+                  <input
+                    autoFocus
+                    className="input input-xs input-bordered flex-1"
+                    value={renameDraft}
+                    onChange={e => setRenameDraft(e.target.value)}
+                    onKeyDown={async (e) => {
+                      if (e.key === 'Enter') {
+                        const t = renameDraft.trim();
+                        if (t) await patchConversationFields(conv.id, { title: t });
+                        setRenamingConvId(null);
+                      } else if (e.key === 'Escape') {
+                        setRenamingConvId(null);
+                      }
+                    }}
+                    onBlur={() => setRenamingConvId(null)}
+                    data-testid="ai-rename-input"
+                  />
+                ) : (
+                  <button
+                    className={`btn btn-xs btn-block justify-start text-left font-sans font-normal flex-1 ${conv.id === conversationId ? 'btn-primary btn-outline' : 'btn-ghost'}`}
+                    onClick={() => loadConversation(conv.id)}
+                    onDoubleClick={() => { setRenamingConvId(conv.id); setRenameDraft(conv.title); }}
+                    title="Double-click to rename"
+                  >
+                    <span className="truncate flex-1">{conv.title}</span>
+                    <span className="badge badge-xs badge-ghost">{conv.messageCount}</span>
+                  </button>
+                )}
                 <button className="btn btn-xs btn-ghost text-error opacity-0 group-hover:opacity-100" onClick={() => deleteConversation(conv.id)}>&times;</button>
               </div>
             ))}
