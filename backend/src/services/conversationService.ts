@@ -19,12 +19,28 @@ export interface ConversationMessage {
   timestamp: string;
 }
 
+/**
+ * Running token totals for a conversation (#128).
+ *
+ * Aggregated server-side (and resent on resume) so the chat header can
+ * surface a "~3.2k in / 1.1k out · $0.012" meter without re-reading
+ * every saved message. `totalCost` is only present when the user has
+ * configured per-model pricing under `dico-app.json.ai.pricing`; the
+ * meter must remain useful (token counts only) without it.
+ */
+export interface ConversationUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalCost?: number;
+}
+
 export interface Conversation {
   id: string;
   title: string;
   messages: ConversationMessage[];
   createdAt: string;
   updatedAt: string;
+  usage?: ConversationUsage;
 }
 
 export interface ConversationSummary {
