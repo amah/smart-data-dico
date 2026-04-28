@@ -63,6 +63,39 @@ interface AIConfig {
   name?: string;
 }
 
+/**
+ * Per-model pricing for the cost meter (#128). Keyed by model id.
+ * Both fields are optional; when absent we emit token counts only and
+ * the frontend hides the cost portion of the chip.
+ */
+interface AIPricingEntry {
+  inputPerMillion?: number;
+  outputPerMillion?: number;
+}
+
+/**
+ * Look up `ai.pricing[<model>]` in dico-app.json. Returns undefined when
+ * pricing is not configured — the cost meter is opt-in.
+ */
+function loadPricing(model: string): AIPricingEntry | undefined {
+  const ai = getConfigSection<{ pricing?: Record<string, AIPricingEntry> }>('ai');
+  return ai?.pricing?.[model];
+}
+
+function computeCost(
+  inputTokens: number,
+  outputTokens: number,
+  pricing: AIPricingEntry | undefined,
+): number | undefined {
+  if (!pricing) return undefined;
+  const inRate = pricing.inputPerMillion;
+  const outRate = pricing.outputPerMillion;
+  if (typeof inRate !== 'number' && typeof outRate !== 'number') return undefined;
+  const inCost = typeof inRate === 'number' ? (inputTokens / 1_000_000) * inRate : 0;
+  const outCost = typeof outRate === 'number' ? (outputTokens / 1_000_000) * outRate : 0;
+  return inCost + outCost;
+}
+
 // AI_CONFIG_SOURCE=env forces env-only mode: skip the on-disk config entirely
 // (for deployments that keep the key in a secret store and never touch ~/.dico-app).
 // Audited (#125): cfg.apiKey is never logged or echoed to a response — only used
@@ -341,6 +374,21 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
         }
       }
 
+      // Emit usage meter event (#128) before `done` so the frontend
+      // header can update before the stream closes. callWithTools sums
+      // usage across every step (incl. tool-call rounds).
+      if (result.usage && (result.usage.inputTokens > 0 || result.usage.outputTokens > 0)) {
+        const cost = computeCost(result.usage.inputTokens, result.usage.outputTokens, loadPricing(cfg.model));
+        sendEvent({
+          type: 'usage',
+          inputTokens: result.usage.inputTokens,
+          outputTokens: result.usage.outputTokens,
+          model: cfg.model,
+          provider: cfg.provider,
+          ...(cost !== undefined ? { cost } : {}),
+        });
+      }
+
       sendEvent({ type: 'finish', finishReason: 'stop' });
     }
   } catch (err: any) {
@@ -393,11 +441,26 @@ export const aiChat = async (req: Request, res: Response) => {
     req.on('close', onAbort);
     req.on('aborted', onAbort);
 
+    // Captured by the onFinish callback below and emitted as a `usage`
+    // SSE event before [DONE] so the chat header meter can update
+    // (#128). The AI SDK exposes `totalUsage` aggregated across all
+    // steps, including intermediate tool-call rounds.
+    let aggregatedUsage: { inputTokens: number; outputTokens: number } | null = null;
+
     const result = streamText({
       model,
       system: SYSTEM_PROMPT,
       messages,
       abortSignal: ac.signal,
+      onFinish: (event) => {
+        const tu = event.totalUsage;
+        if (tu) {
+          aggregatedUsage = {
+            inputTokens: tu.inputTokens ?? 0,
+            outputTokens: tu.outputTokens ?? 0,
+          };
+        }
+      },
       tools: {
         createEntity: tool({
           description: 'Create a new entity with attributes in a package. The entityJson parameter must be a JSON string with this structure: {"packageName":"pkg","name":"EntityName","description":"...","stereotype":"aggregate-root","attributes":[{"name":"id","type":"string","description":"...","required":true,"primaryKey":true}]}',
@@ -610,7 +673,33 @@ export const aiChat = async (req: Request, res: Response) => {
             throw err;
           }
           const { done, value } = chunk;
-          if (done) { res.end(); cleanup(); break; }
+          if (done) {
+            // Emit usage meter event (#128) right before closing the
+            // stream, after the AI SDK's `finish` chunk so the frontend
+            // sees it as the last meaningful payload. onFinish has
+            // already run by this point; aggregatedUsage is populated
+            // when the upstream provider returned a usage block.
+            if (aggregatedUsage && (aggregatedUsage.inputTokens > 0 || aggregatedUsage.outputTokens > 0)) {
+              const cost = computeCost(
+                aggregatedUsage.inputTokens,
+                aggregatedUsage.outputTokens,
+                loadPricing(cfg.model),
+              );
+              try {
+                res.write(`data: ${JSON.stringify({
+                  type: 'usage',
+                  inputTokens: aggregatedUsage.inputTokens,
+                  outputTokens: aggregatedUsage.outputTokens,
+                  model: cfg.model,
+                  provider: cfg.provider,
+                  ...(cost !== undefined ? { cost } : {}),
+                })}\n\n`);
+              } catch { /* response already closed */ }
+            }
+            res.end();
+            cleanup();
+            break;
+          }
 
           const text = decoder.decode(value, { stream: true });
 

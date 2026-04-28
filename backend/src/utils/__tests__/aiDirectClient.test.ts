@@ -85,6 +85,91 @@ describe('callWithTools — toolCallId uniqueness (#124)', () => {
     }
   });
 
+  it('aggregates usage across all upstream completions (#128)', async () => {
+    // Three upstream calls:
+    //  1. assistant → tool_call (consumes 100/20 tokens)
+    //  2. assistant → tool_call (consumes 80/15 tokens, after seeing tool result)
+    //  3. assistant → final text (consumes 60/10 tokens)
+    // Sum: 240 in / 45 out — must be the returned `usage`.
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({
+        choices: [{
+          message: {
+            content: '',
+            tool_calls: [
+              { id: 'call_1', function: { name: 'listEntities', arguments: '{}' } },
+            ],
+          },
+        }],
+        usage: { prompt_tokens: 100, completion_tokens: 20 },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        choices: [{
+          message: {
+            content: '',
+            tool_calls: [
+              { id: 'call_2', function: { name: 'listEntities', arguments: '{"packageName":"order-service"}' } },
+            ],
+          },
+        }],
+        usage: { prompt_tokens: 80, completion_tokens: 15 },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        choices: [{ message: { content: 'all done', tool_calls: [] } }],
+        usage: { prompt_tokens: 60, completion_tokens: 10 },
+      }));
+
+    const result = await callWithTools(
+      { apiKey: 'k', baseURL: 'https://example.test/v1', model: 'm' },
+      [{ role: 'user', content: 'list everything' }],
+      [],
+      jest.fn().mockResolvedValue({ entities: [] }),
+      5,
+    );
+
+    expect(result.usage).toEqual({ inputTokens: 240, outputTokens: 45 });
+    expect(result.text).toBe('all done');
+  });
+
+  it('returns zero usage when upstream omits the usage block', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      choices: [{ message: { content: 'hi', tool_calls: [] } }],
+      // No usage field — older / non-conforming providers.
+    }));
+
+    const result = await callWithTools(
+      { apiKey: 'k', baseURL: 'https://example.test/v1', model: 'm' },
+      [{ role: 'user', content: 'hi' }],
+      [],
+      jest.fn(),
+      5,
+    );
+
+    expect(result.usage).toEqual({ inputTokens: 0, outputTokens: 0 });
+  });
+
+  it('accepts both prompt_tokens/completion_tokens and input_tokens/output_tokens shapes', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({
+        choices: [{ message: { content: '', tool_calls: [{ id: 'c1', function: { name: 'noop', arguments: '{}' } }] } }],
+        usage: { input_tokens: 50, output_tokens: 5 },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        choices: [{ message: { content: 'done', tool_calls: [] } }],
+        usage: { prompt_tokens: 70, completion_tokens: 8 },
+      }));
+
+    const result = await callWithTools(
+      { apiKey: 'k', baseURL: 'https://example.test/v1', model: 'm' },
+      [{ role: 'user', content: 'go' }],
+      [],
+      jest.fn().mockResolvedValue({ ok: true }),
+      5,
+    );
+
+    expect(result.usage).toEqual({ inputTokens: 120, outputTokens: 13 });
+  });
+
   it('prefers the provider-supplied tool_call id when present', async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({
