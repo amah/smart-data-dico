@@ -5,6 +5,13 @@ import { User, MetadataEntry, Stereotype } from '../types';
 import { useKeyboardShortcutsEnabled } from '../hooks/useKeyboardShortcuts';
 import MetadataEditor from '../components/MetadataEditor';
 import axios from 'axios';
+import {
+  AIToolCategory,
+  AIPolicyDecision,
+  loadPolicy,
+  savePolicy,
+  DEFAULT_AI_AUTO_APPROVE_POLICY,
+} from '../utils/aiAutoApprovePolicy';
 
 interface SettingsFormData {
   theme: string;
@@ -88,6 +95,28 @@ const Settings = () => {
       setAiConfigPath(data.configPath || '');
     }).catch(() => {});
   }, []);
+
+  // Per-category auto-approve policy (#59). Loaded from localStorage on
+  // mount; saved synchronously on every radio change so the AIChatPanel
+  // (in the same window or another tab via the storage event) picks it
+  // up immediately.
+  const [autoApprovePolicy, setAutoApprovePolicy] = useState(() => loadPolicy());
+
+  const updatePolicyDecision = (category: AIToolCategory, decision: AIPolicyDecision) => {
+    setAutoApprovePolicy(prev => {
+      const next = { ...prev, [category]: decision };
+      savePolicy(next);
+      return next;
+    });
+  };
+
+  const resetPolicyDefaults = () => {
+    setAutoApprovePolicy(() => {
+      const next = { ...DEFAULT_AI_AUTO_APPROVE_POLICY };
+      savePolicy(next);
+      return next;
+    });
+  };
 
   const handleAiSave = async () => {
     if (!aiApiKey && !aiApiKey.trim()) {
@@ -451,6 +480,100 @@ const Settings = () => {
                     {aiMessage.text}
                   </span>
                 )}
+              </div>
+
+              {/* AI Auto-approve policy (#59) */}
+              <div className="md:col-span-2" id="ai-auto-approve">
+                <h3 className="text-lg font-bold mb-2 mt-4">Auto-approve policy</h3>
+                <p className="text-sm opacity-70 mb-3">
+                  Choose which tool categories run without confirmation. Reads and navigation are
+                  safe to auto-approve; writes default to review so you see what the assistant
+                  is about to change. Delete operations always require review.
+                </p>
+                <div className="overflow-x-auto" data-testid="ai-policy-table">
+                  <table className="table table-sm">
+                    <thead>
+                      <tr>
+                        <th>Category</th>
+                        <th>Tools</th>
+                        <th className="text-center">Auto</th>
+                        <th className="text-center">Review</th>
+                        <th className="text-center">Off</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {([
+                        { category: 'read' as AIToolCategory, label: 'Read', tools: 'listEntities, listStereotypes, getEntityDetails, listPackages', allowAuto: true },
+                        { category: 'navigate' as AIToolCategory, label: 'Navigate', tools: 'navigateTo', allowAuto: true },
+                        { category: 'create' as AIToolCategory, label: 'Create', tools: 'createEntity, createRelationship', allowAuto: true },
+                        { category: 'modify' as AIToolCategory, label: 'Modify', tools: 'updateEntity, updateRelationship (future)', allowAuto: true },
+                        { category: 'delete' as AIToolCategory, label: 'Delete', tools: 'deleteEntity (future)', allowAuto: false },
+                      ]).map(row => {
+                        const current = autoApprovePolicy[row.category];
+                        return (
+                          <tr key={row.category} data-testid={`ai-policy-row-${row.category}`}>
+                            <td className="font-medium">{row.label}</td>
+                            <td className="text-xs opacity-70">{row.tools}</td>
+                            <td className="text-center">
+                              {row.allowAuto ? (
+                                <input
+                                  type="radio"
+                                  className="radio radio-sm radio-success"
+                                  name={`policy-${row.category}`}
+                                  data-testid={`ai-policy-${row.category}-auto`}
+                                  checked={current === 'auto'}
+                                  onChange={() => updatePolicyDecision(row.category, 'auto')}
+                                />
+                              ) : (
+                                <span className="text-xs opacity-30" title="Delete operations may not be auto-approved">n/a</span>
+                              )}
+                            </td>
+                            <td className="text-center">
+                              <input
+                                type="radio"
+                                className="radio radio-sm radio-warning"
+                                name={`policy-${row.category}`}
+                                data-testid={`ai-policy-${row.category}-review`}
+                                checked={
+                                  // For the delete row, treat both 'review' and 'off' as
+                                  // selecting Review at runtime; we pick the visible
+                                  // bullet based on the stored value to preserve any
+                                  // hand-written 'off' state.
+                                  row.allowAuto ? current === 'review' : current === 'review'
+                                }
+                                onChange={() => updatePolicyDecision(row.category, 'review')}
+                              />
+                            </td>
+                            <td className="text-center">
+                              {row.allowAuto ? (
+                                <span className="text-xs opacity-30" title="Use Review to disable auto-approve while still letting the assistant queue actions">—</span>
+                              ) : (
+                                <input
+                                  type="radio"
+                                  className="radio radio-sm"
+                                  name={`policy-${row.category}`}
+                                  data-testid={`ai-policy-${row.category}-off`}
+                                  checked={current === 'off'}
+                                  onChange={() => updatePolicyDecision(row.category, 'off')}
+                                  title="Same effect as Review for delete; reserved for a future hard block"
+                                />
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-xs"
+                    onClick={resetPolicyDefaults}
+                  >
+                    Reset to defaults
+                  </button>
+                </div>
               </div>
 
               {/* Keyboard Shortcuts */}

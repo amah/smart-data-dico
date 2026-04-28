@@ -7,6 +7,52 @@ import { getConfigSection, setConfigSection, CONFIG_FILE } from '../utils/appDir
 import { conversationService } from '../services/conversationService.js';
 import { EntityStatus } from '../models/EntitySchema.js';
 
+// --- Tool categories (#59) ---
+//
+// Granular auto-approve groups tools by side-effect class so the user can
+// say "auto-approve reads, review writes" rather than flipping a single
+// global switch. The category is emitted on tool-input-start so the
+// frontend doesn't keep its own duplicate switch.
+//
+//   read     — pure inspection (listEntities, listStereotypes, getEntityDetails, listPackages)
+//   navigate — UI-only side effect (navigateTo)
+//   create   — produces new entities/relationships (createEntity, createRelationship)
+//   modify   — mutates existing data (future: updateEntity, updateRelationship)
+//   delete   — destructive (future: deleteEntity) — UI never offers auto-approve here
+export type AIToolCategory = 'read' | 'navigate' | 'create' | 'modify' | 'delete';
+
+const TOOL_CATEGORY_MAP: Record<string, AIToolCategory> = {
+  // read
+  listEntities: 'read',
+  listStereotypes: 'read',
+  getEntityDetails: 'read',
+  listPackages: 'read',
+  // navigate
+  navigateTo: 'navigate',
+  // create
+  createEntity: 'create',
+  createRelationship: 'create',
+  // modify (reserved for future tools)
+  updateEntity: 'modify',
+  updateRelationship: 'modify',
+  // delete (reserved for future tools)
+  deleteEntity: 'delete',
+  deleteRelationship: 'delete',
+};
+
+export function getToolCategory(toolName: string): AIToolCategory {
+  // Strip "functions." prefix (some providers wrap tool names) and any
+  // ":n" suffix (the AI SDK appends the call index when a tool runs
+  // multiple times in one stream).
+  const clean = toolName.replace(/^functions\./, '').split(':')[0];
+  const category = TOOL_CATEGORY_MAP[clean];
+  if (category) return category;
+  // Unknown tools default to `modify` — the most cautious non-destructive
+  // bucket. Better to prompt for review than auto-approve a side effect we
+  // didn't plan for.
+  return 'modify';
+}
+
 // --- AI Configuration ---
 
 interface AIConfig {
@@ -270,8 +316,11 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
           }
         }
         if (event.type === 'tool-start') {
-          sendEvent({ type: 'tool-input-start', toolCallId: event.toolCallId, toolName: event.name });
-          sendEvent({ type: 'tool-input-available', toolCallId: event.toolCallId, toolName: event.name, input: event.input });
+          // Emit tool category so the frontend can apply per-category
+          // auto-approve policy without duplicating the switch (#59).
+          const category = getToolCategory(event.name);
+          sendEvent({ type: 'tool-input-start', toolCallId: event.toolCallId, toolName: event.name, category });
+          sendEvent({ type: 'tool-input-available', toolCallId: event.toolCallId, toolName: event.name, input: event.input, category });
         }
         if (event.type === 'tool-end') {
           sendEvent({ type: 'tool-output-available', toolCallId: event.toolCallId, output: event.output });
@@ -581,6 +630,18 @@ export const aiChat = async (req: Request, res: Response) => {
                   // Inject text-start before first text-delta for this part
                   seenTextParts.add(data.id);
                   output.push(`data: ${JSON.stringify({ type: 'text-start', id: data.id })}`);
+                }
+                // Inject tool category on tool-input events so the frontend
+                // can drive per-category auto-approve without keeping its
+                // own copy of the switch (#59).
+                if (
+                  (data.type === 'tool-input-start' || data.type === 'tool-input-available') &&
+                  data.toolName &&
+                  data.category === undefined
+                ) {
+                  const enriched = { ...data, category: getToolCategory(data.toolName) };
+                  output.push(`data: ${JSON.stringify(enriched)}`);
+                  continue;
                 }
               } catch {
                 // Not JSON, pass through
