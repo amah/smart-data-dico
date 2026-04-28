@@ -538,8 +538,38 @@ export const aiChat = async (req: Request, res: Response) => {
     }
 
     // For Anthropic/OpenAI, use Vercel AI SDK (works correctly)
-    const messages = await convertToModelMessages(rawMessages);
     const model = await getModel();
+
+    // #63 — context condensing. When the rolling input estimate crosses
+    // the configured threshold, summarize the older portion of history
+    // into a single synthetic turn before sending. Recent turns stay
+    // verbatim so tool-call quality is preserved. The on-disk
+    // conversation file is unaffected — we only rewrite the per-request
+    // payload here.
+    let condenseInfo: { condensedCount: number; estimatedTokens: number } | null = null;
+    let effectiveRawMessages = rawMessages;
+    try {
+      const condenseCfg = getConfigSection<{ condensing?: { threshold?: number; enabled?: boolean } }>('ai');
+      const enabled = condenseCfg?.condensing?.enabled !== false;
+      const threshold = typeof condenseCfg?.condensing?.threshold === 'number'
+        ? condenseCfg.condensing.threshold
+        : undefined;
+      if (enabled) {
+        const { maybeCondense } = await import('../utils/contextCondensing.js');
+        const result = await maybeCondense(rawMessages, model, threshold);
+        if (result) {
+          effectiveRawMessages = result.messages;
+          condenseInfo = { condensedCount: result.condensedCount, estimatedTokens: result.estimatedTokens };
+          logger.info(`AI context condensed: ${result.condensedCount} messages folded (~${result.estimatedTokens} tokens estimated)`);
+        }
+      }
+    } catch (err: any) {
+      // Condensing failure shouldn't block the chat — fall back to the
+      // original messages and let the model handle (or fail on) the
+      // overflow naturally.
+      logger.warn(`AI context condensing failed; sending raw history. ${err?.message}`);
+    }
+    const messages = await convertToModelMessages(effectiveRawMessages);
 
     // Wire request lifecycle to an AbortController so client disconnect
     // (Stop button, browser close) propagates into streamText and breaks
@@ -747,6 +777,20 @@ export const aiChat = async (req: Request, res: Response) => {
     response.headers.forEach((value: string, key: string) => {
       res.setHeader(key, value);
     });
+
+    // #63 — emit a `condensed` event before any model output so the
+    // frontend can render the "Context condensed" pill above the
+    // assistant's response. Done lazily here (not earlier) because
+    // headers must be flushed first; res.write before headers throws.
+    if (condenseInfo) {
+      try {
+        res.write(`data: ${JSON.stringify({
+          type: 'condensed',
+          condensedCount: condenseInfo.condensedCount,
+          estimatedTokens: condenseInfo.estimatedTokens,
+        })}\n\n`);
+      } catch { /* response may have closed already */ }
+    }
 
     if (response.body) {
       const reader = response.body.getReader();
