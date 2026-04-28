@@ -43,6 +43,11 @@ export async function callWithTools(
   let currentMessages = [...messages];
   const allToolCalls: Array<{ name: string; input: any; output: any }> = [];
   let finalText = '';
+  // Per-tool-name counter so concurrent invocations of the same tool in a
+  // single assistant turn (e.g. listEntities() then listEntities({pkg}))
+  // get distinct stream ids — `listEntities:0`, `listEntities:1`, …
+  // (#124). The model-supplied tc.id is preferred when present.
+  const callSeq: Record<string, number> = {};
 
   for (let step = 0; step < maxSteps; step++) {
     const response = await fetch(`${config.baseURL}/chat/completions`, {
@@ -96,17 +101,24 @@ export async function callWithTools(
           toolArgs = {};
         }
 
+        // Distinct id per invocation. Prefer the provider-supplied id when
+        // available; otherwise build `${name}:${seq}` so the same tool
+        // called twice in one turn yields two cards on the frontend.
+        const seq = callSeq[toolName] ?? 0;
+        callSeq[toolName] = seq + 1;
+        const toolCallId = tc.id || `${toolName}:${seq}`;
+
         logger.info(`AI tool call: ${toolName}(${JSON.stringify(toolArgs).slice(0, 100)})`);
 
         if (onEvent) {
-          onEvent({ type: 'tool-start', name: toolName, input: toolArgs });
+          onEvent({ type: 'tool-start', name: toolName, toolCallId, input: toolArgs });
         }
 
         const result = await executeToolFn(toolName, toolArgs);
         allToolCalls.push({ name: toolName, input: toolArgs, output: result });
 
         if (onEvent) {
-          onEvent({ type: 'tool-end', name: toolName, input: toolArgs, output: result });
+          onEvent({ type: 'tool-end', name: toolName, toolCallId, input: toolArgs, output: result });
         }
 
         // Add tool result to context
