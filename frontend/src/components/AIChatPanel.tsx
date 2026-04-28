@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import Markdown from 'react-markdown';
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import oneDark from 'react-syntax-highlighter/dist/esm/styles/prism/one-dark';
@@ -47,6 +47,40 @@ const SCROLL_LOCK_THRESHOLD_PX = 50;
 // Delta coalescing window: text-delta events arrive token-by-token,
 // we batch them and flush at ~50ms to cut DOM thrash. (#126)
 const DELTA_FLUSH_INTERVAL_MS = 50;
+
+/**
+ * Map the current router pathname to a short "what the user is currently
+ * looking at" sentence the AI can prepend to the system prompt.
+ *
+ * Returns an empty string for routes that have no useful page context.
+ * Exported so it can be unit-tested without rendering the panel. (#58)
+ */
+export function getPageContext(pathname: string): string {
+  if (!pathname) return '';
+
+  // /packages/<pkg>/entities/<name>
+  const entityMatch = pathname.match(/^\/packages\/([^/]+)\/entities\/([^/]+)\/?$/);
+  if (entityMatch) {
+    const [, pkg, name] = entityMatch;
+    return `Currently viewing entity ${decodeURIComponent(name)} in package ${decodeURIComponent(pkg)}.`;
+  }
+
+  // /packages/<pkg>/perspectives/<name>
+  const perspectiveMatch = pathname.match(/^\/packages\/([^/]+)\/perspectives\/([^/]+)\/?$/);
+  if (perspectiveMatch) {
+    const [, pkg, name] = perspectiveMatch;
+    return `Currently viewing perspective ${decodeURIComponent(name)} in package ${decodeURIComponent(pkg)}.`;
+  }
+
+  // /packages/<pkg>
+  const packageMatch = pathname.match(/^\/packages\/([^/]+)\/?$/);
+  if (packageMatch) {
+    const [, pkg] = packageMatch;
+    return `Currently viewing package ${decodeURIComponent(pkg)}.`;
+  }
+
+  return '';
+}
 
 interface ToolCall {
   id: string;
@@ -120,6 +154,8 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const navigate = useNavigate();
   const { theme } = usePrefs();
   const isDark = theme === 'dark';
+  const location = useLocation();
+  const pageContext = useMemo(() => getPageContext(location.pathname), [location.pathname]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -146,6 +182,11 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   // mount; the Settings page is the only place that mutates it. The
   // legacy `ai-auto-approve` boolean is migrated by loadPolicy().
   const [policy, setPolicy] = useState(() => loadPolicy());
+  // Auto-inject current page context into the chat request (#58). Default ON;
+  // disabled cleanly when the current path has no useful context.
+  const [includePageContext, setIncludePageContext] = useState<boolean>(() => {
+    return localStorage.getItem('ai-include-page-context') !== 'false';
+  });
   const [, setPendingReview] = useState(false);
 
   // If the user updates the policy in Settings (or another tab) while
@@ -407,10 +448,14 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
         parts: [{ type: 'text', text: m.text }],
       }));
 
+      const shouldSendContext = includePageContext && pageContext.length > 0;
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: apiMessages }),
+        body: JSON.stringify({
+          messages: apiMessages,
+          ...(shouldSendContext ? { pageContext } : {}),
+        }),
         signal: ac.signal,
       });
 
@@ -636,7 +681,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       });
       setMessages(msgs => { saveConversation(msgs, nextUsage); return msgs; });
     }
-  }, [messages, navigate, saveConversation, policy]);
+  }, [messages, navigate, saveConversation, policy, includePageContext, pageContext]);
 
   const stopStream = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -686,6 +731,12 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       return m;
     }));
   }, [messages]);
+
+  const toggleIncludePageContext = useCallback((val: boolean) => {
+    setIncludePageContext(val);
+    localStorage.setItem('ai-include-page-context', String(val));
+  }, []);
+
 
   // Load tool definitions
   useEffect(() => {
@@ -1378,6 +1429,43 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
           </div>
         )}
       </div>
+
+      {/* Page-context pill — sits above the composer */}
+      {view === 'chat' && (
+        <div className="px-3 pt-2 pb-0 border-t border-base-300 bg-base-200/30">
+          <button
+            type="button"
+            onClick={() => pageContext && toggleIncludePageContext(!includePageContext)}
+            disabled={!pageContext}
+            title={
+              pageContext
+                ? (includePageContext
+                    ? `Page context will be sent to the AI: "${pageContext}"`
+                    : 'Page context is currently disabled. Click to include it.')
+                : 'No page context available for this route.'
+            }
+            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-sans transition ${
+              !pageContext
+                ? 'border-base-300/50 bg-base-200/40 text-base-content/30 cursor-not-allowed'
+                : includePageContext
+                  ? 'border-primary/40 bg-primary/10 text-primary hover:bg-primary/15'
+                  : 'border-base-300 bg-base-100 text-base-content/50 hover:bg-base-200'
+            }`}
+          >
+            <span aria-hidden>📍</span>
+            <span>
+              {pageContext
+                ? (includePageContext ? 'Including page context' : 'Page context off')
+                : 'No page context'}
+            </span>
+          </button>
+          {pageContext && includePageContext && (
+            <div className="mt-1 text-[10px] text-base-content/50 truncate font-sans" title={pageContext}>
+              {pageContext}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Input — IDE style */}
       <form onSubmit={handleSubmit} className="px-3 py-2 border-t border-base-300 bg-base-200/30">
