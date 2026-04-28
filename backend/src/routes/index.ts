@@ -344,12 +344,14 @@ router.delete('/api/diagrams/:id', authorizeJwt([UserRole.ADMIN]), diagramContro
 // the import finishes simply 404 until then.
 (async () => {
   try {
-    const { aiChat, aiStatus, aiGetConfig, aiSaveConfig, aiTools, listConversations, getConversation, saveConversation, patchConversation, deleteConversation, listPrompts, getPrompt, createPrompt, updatePrompt, deletePrompt } = await import('../controllers/aiController.js');
+    const { aiChat, aiStatus, aiGetConfig, aiSaveConfig, aiTools, aiMentionsSearch, listConversations, getConversation, saveConversation, patchConversation, deleteConversation, listPrompts, getPrompt, createPrompt, updatePrompt, deletePrompt } = await import('../controllers/aiController.js');
     router.post('/api/ai/chat', aiChat);
     router.get('/api/ai/status', aiStatus);
     router.get('/api/ai/config', aiGetConfig);
     router.post('/api/ai/config', aiSaveConfig);
     router.get('/api/ai/tools', aiTools);
+    // Mentions picker (#54)
+    router.get('/api/ai/mentions/search', aiMentionsSearch);
     const { aiTestTools } = await import('../controllers/aiController.js');
     router.post('/api/ai/test-tools', aiTestTools);
     router.get('/api/ai/conversations', listConversations);
