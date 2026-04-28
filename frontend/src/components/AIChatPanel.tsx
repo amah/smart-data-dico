@@ -211,6 +211,10 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   // most recent `@` at the cursor; null when not actively picking.
   const [mentionToken, setMentionToken] = useState<string | null>(null);
   const [mentionResults, setMentionResults] = useState<{ entities: Array<{ name: string; packageName: string }>; packages: Array<{ name: string }> }>({ entities: [], packages: [] });
+  // #57 — diff preview for createEntity-on-existing. Keyed by toolCallId.
+  // Loaded on demand when the user clicks "Show diff" on a failing
+  // createEntity card. Value: { existing, proposed } | 'loading' | 'error'.
+  const [entityDiffs, setEntityDiffs] = useState<Record<string, { existing: any; proposed: any } | 'loading' | 'error'>>({});
   const [, setPendingReview] = useState(false);
 
   // If the user updates the policy in Settings (or another tab) while
@@ -891,6 +895,21 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     startNewPromptDraft(seed);
   }, [input, startNewPromptDraft]);
 
+  // #57 — fetch the existing entity for a `createEntity` tool call that
+  // failed because the entity already exists. Stores both sides so the
+  // diff renderer can show added / removed / modified attributes.
+  const loadEntityDiff = useCallback(async (toolCallId: string, packageName: string, entityName: string, proposed: any) => {
+    setEntityDiffs(prev => ({ ...prev, [toolCallId]: 'loading' }));
+    try {
+      const res = await fetch(`/api/services/${encodeURIComponent(packageName)}/entities/${encodeURIComponent(entityName)}`);
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      const existing = await res.json();
+      setEntityDiffs(prev => ({ ...prev, [toolCallId]: { existing, proposed } }));
+    } catch {
+      setEntityDiffs(prev => ({ ...prev, [toolCallId]: 'error' }));
+    }
+  }, []);
+
   // #54 — extract the partial @-token at the cursor (or null if none).
   // Token rules: starts with `@`, followed by a word char, no whitespace,
   // 0..29 chars after the `@` (matching the backend's name regex).
@@ -1443,22 +1462,72 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
 
                         {/* Inline error message for failed tool calls — visible
                             even when the card is collapsed. (#61 comment B) */}
-                        {isError && (
-                          <div className="px-2 pb-2 -mt-0.5">
-                            <div className="bg-error/10 border border-error/30 rounded px-2 py-1 text-[11px] text-error font-sans">
-                              {tc.output.error || 'Tool failed'}
+                        {isError && (() => {
+                          // #57 — diff preview path: createEntity on an existing entity.
+                          // Detect from the tool name + the error string and surface a
+                          // "Show diff" button that pulls the existing entity and
+                          // renders a structured diff against the proposed JSON.
+                          const isCreateEntityCollision = tc.name === 'createEntity'
+                            && typeof tc.output?.error === 'string'
+                            && /already exists/i.test(tc.output.error);
+                          let proposed: any = null;
+                          let pkgName: string | null = null;
+                          let entityName: string | null = null;
+                          if (isCreateEntityCollision) {
+                            try {
+                              const raw = (tc.input?.entityJson as string) || '';
+                              proposed = raw ? JSON.parse(raw) : null;
+                              pkgName = proposed?.packageName || null;
+                              entityName = proposed?.name || null;
+                            } catch {
+                              proposed = null;
+                            }
+                          }
+                          const diffState = entityDiffs[tc.id];
+                          return (
+                            <div className="px-2 pb-2 -mt-0.5">
+                              <div className="bg-error/10 border border-error/30 rounded px-2 py-1 text-[11px] text-error font-sans">
+                                {tc.output.error || 'Tool failed'}
+                              </div>
+                              <div className="flex gap-3 mt-1">
+                                <button
+                                  className="text-[10px] text-base-content/50 hover:text-base-content underline"
+                                  onClick={() => toggleRaw(tc.id)}
+                                >
+                                  {rawShownTools.has(tc.id) ? 'Hide raw' : 'Show raw'}
+                                </button>
+                                {isCreateEntityCollision && proposed && pkgName && entityName && (
+                                  <button
+                                    className="text-[10px] text-primary hover:underline"
+                                    data-testid={`ai-show-diff-${tc.id}`}
+                                    onClick={() => {
+                                      if (diffState && diffState !== 'loading' && diffState !== 'error') {
+                                        // Toggle off — clear so the next click reloads.
+                                        setEntityDiffs(prev => { const n = { ...prev }; delete n[tc.id]; return n; });
+                                      } else {
+                                        loadEntityDiff(tc.id, pkgName!, entityName!, proposed);
+                                      }
+                                    }}
+                                  >
+                                    {(diffState && diffState !== 'loading' && diffState !== 'error') ? 'Hide diff' : 'Show diff'}
+                                  </button>
+                                )}
+                              </div>
+                              {rawShownTools.has(tc.id) && (
+                                <pre className="mt-1 bg-base-300/30 rounded p-1.5 overflow-x-auto text-[11px]">{JSON.stringify(tc.output, null, 2)}</pre>
+                              )}
+                              {diffState === 'loading' && (
+                                <div className="mt-1 text-[10px] text-base-content/40 italic">Loading diff…</div>
+                              )}
+                              {diffState === 'error' && (
+                                <div className="mt-1 text-[10px] text-error">Could not load existing entity.</div>
+                              )}
+                              {diffState && diffState !== 'loading' && diffState !== 'error' && (
+                                <EntityDiff existing={diffState.existing} proposed={diffState.proposed} />
+                              )}
                             </div>
-                            <button
-                              className="text-[10px] text-base-content/50 hover:text-base-content mt-1 underline"
-                              onClick={() => toggleRaw(tc.id)}
-                            >
-                              {rawShownTools.has(tc.id) ? 'Hide raw' : 'Show raw'}
-                            </button>
-                            {rawShownTools.has(tc.id) && (
-                              <pre className="mt-1 bg-base-300/30 rounded p-1.5 overflow-x-auto text-[11px]">{JSON.stringify(tc.output, null, 2)}</pre>
-                            )}
-                          </div>
-                        )}
+                          );
+                        })()}
 
                         {expandedTools.has(tc.id) && (
                           <div className="px-2 pb-2 space-y-1">
@@ -1935,6 +2004,100 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+/**
+ * #57 — render a structured diff between an existing entity and a proposed
+ * one. Top-level fields (description, stereotype, status) plus per-attribute
+ * adds / removals / modifications. We diff by attribute *name* — uuid drift
+ * is intentionally ignored because the AI doesn't know existing uuids.
+ */
+export function EntityDiff({ existing, proposed }: { existing: any; proposed: any }) {
+  const fields: Array<{ key: string; label: string }> = [
+    { key: 'description', label: 'description' },
+    { key: 'stereotype', label: 'stereotype' },
+    { key: 'status', label: 'status' },
+  ];
+  const fieldRows = fields.map(f => {
+    const a = existing?.[f.key];
+    const b = proposed?.[f.key];
+    if ((a ?? '') === (b ?? '')) return null;
+    return { label: f.label, a, b };
+  }).filter(Boolean) as Array<{ label: string; a: any; b: any }>;
+
+  const existingAttrs: any[] = Array.isArray(existing?.attributes) ? existing.attributes : [];
+  const proposedAttrs: any[] = Array.isArray(proposed?.attributes) ? proposed.attributes : [];
+  const byName = new Map<string, { a?: any; b?: any }>();
+  for (const x of existingAttrs) if (x?.name) byName.set(x.name, { ...byName.get(x.name), a: x });
+  for (const y of proposedAttrs) if (y?.name) byName.set(y.name, { ...byName.get(y.name), b: y });
+
+  const added: any[] = [];
+  const removed: any[] = [];
+  const modified: Array<{ name: string; a: any; b: any }> = [];
+  for (const [name, { a, b }] of byName) {
+    if (!a && b) added.push(b);
+    else if (a && !b) removed.push(a);
+    else if (a && b) {
+      // Compare type / required / description / primaryKey — fields the AI
+      // can plausibly change. We don't compare validation here to keep the
+      // diff readable; users can still expand the raw output.
+      const sameish = a.type === b.type && !!a.required === !!b.required && (a.description || '') === (b.description || '') && !!a.primaryKey === !!b.primaryKey;
+      if (!sameish) modified.push({ name, a, b });
+    }
+  }
+
+  if (fieldRows.length === 0 && added.length === 0 && removed.length === 0 && modified.length === 0) {
+    return <div className="mt-1 text-[10px] text-base-content/40">No diff — existing and proposed look identical.</div>;
+  }
+
+  return (
+    <div className="mt-2 border border-base-300/60 rounded p-2 bg-base-100 text-[11px]" data-testid="ai-entity-diff">
+      <div className="text-[10px] font-bold uppercase tracking-wider text-base-content/50 mb-1">Diff: existing → proposed</div>
+      {fieldRows.length > 0 && (
+        <table className="w-full font-mono">
+          <tbody>
+            {fieldRows.map(r => (
+              <tr key={r.label}>
+                <td className="text-base-content/40 pr-2 align-top">{r.label}</td>
+                <td className="text-error/80 line-through align-top pr-2">{String(r.a ?? '∅')}</td>
+                <td className="text-base-content/40">→</td>
+                <td className="text-success align-top pl-2">{String(r.b ?? '∅')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {added.length > 0 && (
+        <div className="mt-1">
+          <div className="text-success text-[10px]">+ Added attributes ({added.length})</div>
+          <ul className="font-mono text-success ml-2">
+            {added.map(a => <li key={`add-${a.name}`}>+ {a.name}: {a.type || 'string'}{a.required ? ' (required)' : ''}{a.primaryKey ? ' (PK)' : ''}</li>)}
+          </ul>
+        </div>
+      )}
+      {removed.length > 0 && (
+        <div className="mt-1">
+          <div className="text-error text-[10px]">− Removed attributes ({removed.length})</div>
+          <ul className="font-mono text-error ml-2">
+            {removed.map(a => <li key={`rem-${a.name}`}>− {a.name}: {a.type || 'string'}</li>)}
+          </ul>
+        </div>
+      )}
+      {modified.length > 0 && (
+        <div className="mt-1">
+          <div className="text-warning text-[10px]">~ Modified attributes ({modified.length})</div>
+          <ul className="font-mono text-warning ml-2">
+            {modified.map(m => (
+              <li key={`mod-${m.name}`}>
+                ~ {m.name}: <span className="line-through opacity-70">{m.a.type}{m.a.required ? '!' : ''}</span>
+                {' → '}{m.b.type}{m.b.required ? '!' : ''}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
