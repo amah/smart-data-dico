@@ -207,6 +207,10 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const [promptNameDraft, setPromptNameDraft] = useState('');
   const [promptContentDraft, setPromptContentDraft] = useState('');
   const [promptError, setPromptError] = useState<string | null>(null);
+  // #54 — @entity / @package mention picker. Token is the partial after the
+  // most recent `@` at the cursor; null when not actively picking.
+  const [mentionToken, setMentionToken] = useState<string | null>(null);
+  const [mentionResults, setMentionResults] = useState<{ entities: Array<{ name: string; packageName: string }>; packages: Array<{ name: string }> }>({ entities: [], packages: [] });
   const [, setPendingReview] = useState(false);
 
   // If the user updates the policy in Settings (or another tab) while
@@ -886,6 +890,58 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     setView('prompts');
     startNewPromptDraft(seed);
   }, [input, startNewPromptDraft]);
+
+  // #54 — extract the partial @-token at the cursor (or null if none).
+  // Token rules: starts with `@`, followed by a word char, no whitespace,
+  // 0..29 chars after the `@` (matching the backend's name regex).
+  const extractMentionToken = useCallback((value: string, cursor: number): string | null => {
+    const before = value.slice(0, cursor);
+    const m = before.match(/(?:^|\s)@([A-Za-z][\w-]{0,29})$/);
+    return m ? m[1] : null;
+  }, []);
+
+  const handleComposerChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const v = e.target.value;
+    setInput(v);
+    const cursor = e.target.selectionStart ?? v.length;
+    const token = extractMentionToken(v, cursor);
+    setMentionToken(token);
+    if (token === null) {
+      setMentionResults({ entities: [], packages: [] });
+    }
+  }, [extractMentionToken]);
+
+  // Debounced fetch for mention candidates.
+  useEffect(() => {
+    if (mentionToken === null || mentionToken.length === 0) return;
+    const handle = setTimeout(() => {
+      fetch(`/api/ai/mentions/search?q=${encodeURIComponent(mentionToken)}`)
+        .then(r => r.json())
+        .then(d => setMentionResults(d.data || { entities: [], packages: [] }))
+        .catch(() => {});
+    }, 120);
+    return () => clearTimeout(handle);
+  }, [mentionToken]);
+
+  // Replace the partial `@xxx` at the cursor with `@<name>` and close the picker.
+  const insertMention = useCallback((name: string) => {
+    const el = inputRef.current;
+    if (!el) return;
+    const cursor = el.selectionStart ?? input.length;
+    const before = input.slice(0, cursor);
+    const after = input.slice(cursor);
+    const replaced = before.replace(/(^|\s)@([A-Za-z][\w-]{0,29})$/, (_m, lead) => `${lead}@${name} `);
+    const next = replaced + after;
+    setInput(next);
+    setMentionToken(null);
+    setMentionResults({ entities: [], packages: [] });
+    // Restore focus and place cursor right after the inserted mention.
+    setTimeout(() => {
+      el.focus();
+      const pos = replaced.length;
+      el.setSelectionRange(pos, pos);
+    }, 0);
+  }, [input]);
 
   // Auto-scroll lock (#126):
   // - When the user is at the bottom (within SCROLL_LOCK_THRESHOLD_PX),
@@ -1779,20 +1835,66 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       )}
 
       {/* Input — IDE style */}
-      <form onSubmit={handleSubmit} className="px-3 py-2 border-t border-base-300 bg-base-200/30">
+      <form onSubmit={handleSubmit} className="px-3 py-2 border-t border-base-300 bg-base-200/30 relative">
+        {/* #54 mention picker — anchored above the composer */}
+        {mentionToken !== null && (mentionResults.entities.length + mentionResults.packages.length) > 0 && (
+          <div
+            data-testid="ai-mention-picker"
+            className="absolute left-3 right-3 bottom-full mb-1 bg-base-100 border border-base-300 rounded shadow-md z-10 max-h-60 overflow-auto text-xs"
+          >
+            {mentionResults.entities.length > 0 && (
+              <div>
+                <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-base-content/40 bg-base-200/40">Entities</div>
+                {mentionResults.entities.map(e => (
+                  <button
+                    key={`e-${e.packageName}-${e.name}`}
+                    type="button"
+                    className="block w-full text-left px-2 py-1 hover:bg-base-200 font-mono"
+                    onMouseDown={ev => { ev.preventDefault(); insertMention(e.name); }}
+                  >
+                    @{e.name} <span className="text-base-content/40 font-sans">in {e.packageName}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {mentionResults.packages.length > 0 && (
+              <div>
+                <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-base-content/40 bg-base-200/40">Packages</div>
+                {mentionResults.packages.map(p => (
+                  <button
+                    key={`p-${p.name}`}
+                    type="button"
+                    className="block w-full text-left px-2 py-1 hover:bg-base-200 font-mono"
+                    onMouseDown={ev => { ev.preventDefault(); insertMention(p.name); }}
+                  >
+                    @{p.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         <div className="flex gap-1.5 items-end">
           <span className="text-primary text-xs pb-1">&gt;</span>
           <textarea
             ref={inputRef}
             rows={1}
             className="textarea textarea-ghost textarea-xs flex-1 font-mono focus:outline-none bg-transparent pl-0 resize-none min-h-[1.5rem] py-1"
-            placeholder={aiAvailable ? "Ask about your data model... (⌘↵ send · ⇧↵ newline)" : "AI not configured"}
+            placeholder={aiAvailable ? "Ask about your data model... (⌘↵ send · ⇧↵ newline · @entity, @package)" : "AI not configured"}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleComposerKeyDown}
+            onChange={handleComposerChange}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && mentionToken !== null) {
+                e.preventDefault();
+                setMentionToken(null);
+                setMentionResults({ entities: [], packages: [] });
+                return;
+              }
+              handleComposerKeyDown(e);
+            }}
             disabled={!aiAvailable || isLoading}
             data-testid="ai-composer-input"
-            title="⌘↵ / Ctrl↵ send · ⇧↵ newline · ⌘K focus chat"
+            title="⌘↵ / Ctrl↵ send · ⇧↵ newline · ⌘K focus chat · @ to mention"
           />
           {isLoading ? (
             <button

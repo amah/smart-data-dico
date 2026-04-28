@@ -448,10 +448,15 @@ export const aiChat = async (req: Request, res: Response) => {
 
     const services = await getServices();
 
+    // #54 — resolve @entity / @package mentions in the latest user turn into a
+    // short "Mentions: …" paragraph appended to whatever pageContext we have.
+    const mentionsContext = await buildMentionsContext(rawMessages);
+    const enrichedPageContext = (pageContext || '') + mentionsContext;
+
     // For OpenAI-compatible providers, use direct client (AI SDK has tool-calling bugs)
     if (cfg.provider === 'openai-compatible' && cfg.baseURL) {
       const { callWithTools } = await import('../utils/aiDirectClient.js');
-      return await handleDirectChat(req, res, cfg, rawMessages, services, pageContext, conversationSystemPrompt);
+      return await handleDirectChat(req, res, cfg, rawMessages, services, enrichedPageContext, conversationSystemPrompt);
     }
 
     // For Anthropic/OpenAI, use Vercel AI SDK (works correctly)
@@ -474,7 +479,7 @@ export const aiChat = async (req: Request, res: Response) => {
 
     const result = streamText({
       model,
-      system: buildSystemPrompt(pageContext, conversationSystemPrompt),
+      system: buildSystemPrompt(enrichedPageContext, conversationSystemPrompt),
       messages,
       abortSignal: ac.signal,
       onFinish: (event) => {
@@ -927,6 +932,79 @@ export const aiTools = async (_req: Request, res: Response) => {
     ],
   });
 };
+
+// --- Mentions (#54) ---
+//
+// Composer types `@foo` and the frontend hits this endpoint to populate a
+// picker. Returns up to 8 entity matches + 8 package matches, ranked by
+// case-insensitive prefix-then-substring on the name.
+export const aiMentionsSearch = async (req: Request, res: Response) => {
+  const q = String(req.query.q ?? '').trim().toLowerCase();
+  if (!q) return res.json({ data: { entities: [], packages: [] } });
+  try {
+    const { listPackages, listAllEntities } = await import('../utils/fileOperations.js');
+    const [packages, entities] = await Promise.all([listPackages(), listAllEntities()]);
+
+    const rank = (name: string): number => {
+      const n = name.toLowerCase();
+      if (n === q) return 0;
+      if (n.startsWith(q)) return 1;
+      if (n.includes(q)) return 2;
+      return 99;
+    };
+
+    const matchedPackages = packages
+      .map(p => ({ name: p, rank: rank(p) }))
+      .filter(p => p.rank < 99)
+      .sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name))
+      .slice(0, 8)
+      .map(p => ({ name: p.name }));
+
+    const matchedEntities = entities
+      .map(e => ({ name: e.name, packageName: e.microservice, rank: rank(e.name) }))
+      .filter(e => e.rank < 99)
+      .sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name))
+      .slice(0, 8)
+      .map(({ name, packageName }) => ({ name, packageName }));
+
+    res.json({ data: { entities: matchedEntities, packages: matchedPackages } });
+  } catch (err: any) {
+    logger.warn(`/api/ai/mentions/search failed: ${err?.message}`);
+    res.json({ data: { entities: [], packages: [] } });
+  }
+};
+
+/**
+ * Scan the most recent user turn for @<word> tokens and resolve them to
+ * known entities/packages. Returns a short "Mentions: …" paragraph the
+ * caller can append to the system prompt for the current turn.
+ *
+ * Cap at 6 unique mentions to keep the system prompt bounded.
+ */
+async function buildMentionsContext(rawMessages: any[]): Promise<string> {
+  const lastUser = [...rawMessages].reverse().find(m => m.role === 'user');
+  if (!lastUser) return '';
+  const text: string = lastUser.parts?.find((p: any) => p.type === 'text')?.text || lastUser.content || '';
+  const tokens = Array.from(new Set((text.match(/@[A-Za-z][\w-]*/g) || []).map(t => t.slice(1)))).slice(0, 6);
+  if (tokens.length === 0) return '';
+
+  try {
+    const { listPackages, listAllEntities } = await import('../utils/fileOperations.js');
+    const [packages, entities] = await Promise.all([listPackages(), listAllEntities()]);
+    const lines: string[] = [];
+    for (const t of tokens) {
+      const tl = t.toLowerCase();
+      const ent = entities.find(e => e.name.toLowerCase() === tl);
+      if (ent) { lines.push(`@${t} → entity ${ent.name} in package ${ent.microservice}`); continue; }
+      const pkg = packages.find(p => p.toLowerCase() === tl);
+      if (pkg) { lines.push(`@${t} → package ${pkg}`); continue; }
+      // Unknown @-token: don't fabricate; quietly skip so we don't mislead the model.
+    }
+    return lines.length ? `\n\nMentions:\n${lines.join('\n')}` : '';
+  } catch {
+    return '';
+  }
+}
 
 // --- Conversation persistence endpoints ---
 
