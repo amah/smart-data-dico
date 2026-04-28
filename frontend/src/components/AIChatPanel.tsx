@@ -7,6 +7,13 @@ interface AIChatPanelProps {
   onClose: () => void;
 }
 
+// Auto-scroll lock threshold: how many pixels from the bottom counts
+// as "still pinned" so streaming deltas continue to scroll. (#126)
+const SCROLL_LOCK_THRESHOLD_PX = 50;
+// Delta coalescing window: text-delta events arrive token-by-token,
+// we batch them and flush at ~50ms to cut DOM thrash. (#126)
+const DELTA_FLUSH_INTERVAL_MS = 50;
+
 interface ToolCall {
   id: string;
   name: string;
@@ -39,7 +46,8 @@ type PanelView = 'chat' | 'history' | 'raw' | 'tools';
 export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const navigate = useNavigate();
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const [input, setInput] = useState('');
   const [aiAvailable, setAiAvailable] = useState<boolean | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -62,6 +70,24 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   // AbortController for the in-flight /api/ai/chat fetch so the Stop button
   // can break out of the agentic loop mid-flight (#61).
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // === #126 ergonomics state ===
+  // Editing a previous user message: id of the message currently in
+  // edit mode plus the in-flight draft text. On save we truncate
+  // history *after* this message and re-send.
+  const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState('');
+  // Auto-scroll lock: when true the user has scrolled up from the
+  // bottom and we should not yank the viewport on incoming deltas.
+  // Resets to false on next user send.
+  const [scrollLocked, setScrollLocked] = useState(false);
+  // Toggled by the scroll-lock pill so we can announce "new messages
+  // arrived while you were scrolled up".
+  const [hasUnseenDeltas, setHasUnseenDeltas] = useState(false);
+  // Buffer for coalesced text-delta events; flushed on a ~50ms
+  // timer to keep one setState per window instead of per token.
+  const deltaBufferRef = useRef<string>('');
+  const deltaFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     fetch('/api/ai/status', { cache: 'no-store' })
@@ -141,11 +167,28 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     });
   };
 
-  const sendToAI = useCallback(async (text: string) => {
-    const userMsg: ChatMessage = { id: crypto.randomUUID(), role: 'user', text };
-    setMessages(prev => [...prev, userMsg]);
+  // sendToAI accepts either a string (new user message appended to
+  // the current history) or a pre-built history array (for retry /
+  // edit-resend, where the caller has already truncated). The optional
+  // `priorHistory` arg lets edit-resend pass its truncated history
+  // synchronously instead of racing the setMessages updater. (#126)
+  const sendToAI = useCallback(async (
+    text: string,
+    options?: { priorHistory?: ChatMessage[]; reuseUserMsgId?: string },
+  ) => {
+    const userMsg: ChatMessage = {
+      id: options?.reuseUserMsgId ?? crypto.randomUUID(),
+      role: 'user',
+      text,
+    };
+    const baseHistory = options?.priorHistory ?? messages;
+    setMessages([...baseHistory, userMsg]);
     setIsLoading(true);
     setError(null);
+    // New user send unlocks auto-scroll: we want the viewport to
+    // follow the response. (#126)
+    setScrollLocked(false);
+    setHasUnseenDeltas(false);
 
     // Set up an AbortController so the Stop button (and unmount) can
     // tear down the in-flight stream and break the agentic loop. (#61)
@@ -188,8 +231,31 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       }
     };
 
+    // Delta coalescing: text-delta events arrive token-by-token.
+    // We append into a buffer and flush on a ~50ms timer rather than
+    // calling setState per token. (#126)
+    const flushDeltas = () => {
+      if (!deltaBufferRef.current) return;
+      assistantText += deltaBufferRef.current;
+      deltaBufferRef.current = '';
+      pushToolUpdate();
+    };
+    const scheduleDeltaFlush = () => {
+      if (deltaFlushTimerRef.current != null) return;
+      deltaFlushTimerRef.current = setTimeout(() => {
+        deltaFlushTimerRef.current = null;
+        flushDeltas();
+      }, DELTA_FLUSH_INTERVAL_MS);
+    };
+    const cancelDeltaFlush = () => {
+      if (deltaFlushTimerRef.current != null) {
+        clearTimeout(deltaFlushTimerRef.current);
+        deltaFlushTimerRef.current = null;
+      }
+    };
+
     try {
-      const allMessages = [...messages, userMsg];
+      const allMessages = [...baseHistory, userMsg];
       const apiMessages = allMessages.map(m => ({
         id: m.id,
         role: m.role,
@@ -233,11 +299,15 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
             }
 
             if (data.type === 'text-delta' && data.delta) {
-              assistantText += data.delta;
-              pushToolUpdate();
+              deltaBufferRef.current += data.delta;
+              scheduleDeltaFlush();
             }
 
             if (data.type === 'tool-input-start' && data.toolCallId) {
+              // Tool events represent a structural change; flush any
+              // pending text first so ordering is preserved. (#126)
+              cancelDeltaFlush();
+              flushDeltas();
               if (!toolMap[data.toolCallId]) {
                 toolMap[data.toolCallId] = {
                   id: data.toolCallId,
@@ -301,6 +371,11 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
         }
       }
 
+      // Stream complete: flush any remaining buffered deltas before we
+      // synthesize fallback text or save the conversation. (#126)
+      cancelDeltaFlush();
+      flushDeltas();
+
       const toolCalls = toolOrder.map(id => toolMap[id]).filter(Boolean);
 
       // Ensure assistant message exists with sensible default text
@@ -329,6 +404,10 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
         setPendingReview(true);
       }
     } catch (err: any) {
+      // Flush any buffered deltas so partial assistant text isn't lost
+      // when the stream errors or is aborted. (#126)
+      cancelDeltaFlush();
+      flushDeltas();
       if (err?.name === 'AbortError' || ac.signal.aborted) {
         // User cancelled — surface a friendly note rather than an error,
         // and stop any in-flight tool spinners so the saved conversation
@@ -410,15 +489,136 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     }
   }, [view]);
 
+  // Auto-scroll lock (#126):
+  // - When the user is at the bottom (within SCROLL_LOCK_THRESHOLD_PX),
+  //   auto-scroll on every message update.
+  // - When they've scrolled up, do NOT yank the viewport on incoming
+  //   text-delta events; instead surface a "↓ New messages" pill so
+  //   they can choose to jump back.
   useEffect(() => {
+    if (scrollLocked) {
+      // User is reading earlier content; mark that new content has
+      // arrived so we can render the pill, but don't scroll.
+      if (isLoading) setHasUnseenDeltas(true);
+      return;
+    }
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, scrollLocked, isLoading]);
+
+  // Watch the messages container for scroll position to flip the
+  // scroll-lock state. We use a ref handler rather than React onScroll
+  // so unit tests can fire scroll events on the DOM node directly.
+  useEffect(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      const atBottom = distanceFromBottom <= SCROLL_LOCK_THRESHOLD_PX;
+      setScrollLocked(prev => {
+        // Going from locked → unlocked clears the unseen-deltas badge.
+        if (prev && atBottom) setHasUnseenDeltas(false);
+        return !atBottom;
+      });
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [open, view]);
+
+  const jumpToBottom = useCallback(() => {
+    setScrollLocked(false);
+    setHasUnseenDeltas(false);
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, []);
 
   useEffect(() => {
     if (open && inputRef.current) setTimeout(() => inputRef.current?.focus(), 100);
   }, [open]);
 
   const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || isLoading) return;
+    sendToAI(input.trim());
+    setInput('');
+  };
+
+  // === #126 retry / edit handlers ===
+
+  // Retry the last user message: trim everything from the last user
+  // turn onward and re-issue the request. Useful after a failed
+  // request or a cancelled run.
+  const retryLast = useCallback(() => {
+    if (isLoading) return;
+    // Find the most recent user message.
+    let lastUserIdx = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') { lastUserIdx = i; break; }
+    }
+    if (lastUserIdx === -1) return;
+    const lastUserMsg = messages[lastUserIdx];
+    const priorHistory = messages.slice(0, lastUserIdx);
+    setError(null);
+    sendToAI(lastUserMsg.text, { priorHistory, reuseUserMsgId: lastUserMsg.id });
+  }, [messages, isLoading, sendToAI]);
+
+  const beginEdit = useCallback((msgId: string) => {
+    if (isLoading) return;
+    const msg = messages.find(m => m.id === msgId);
+    if (!msg || msg.role !== 'user') return;
+    setEditingMsgId(msgId);
+    setEditDraft(msg.text);
+  }, [messages, isLoading]);
+
+  const cancelEdit = useCallback(() => {
+    setEditingMsgId(null);
+    setEditDraft('');
+  }, []);
+
+  // Save an edited user message: truncate everything *after* it,
+  // replace its text with the draft, then re-issue. Persistence
+  // reflects the truncation because saveConversation runs in the
+  // sendToAI finally block with the new (shorter) message list.
+  const saveEditAndResend = useCallback(() => {
+    if (!editingMsgId) return;
+    const text = editDraft.trim();
+    if (!text || isLoading) return;
+    const idx = messages.findIndex(m => m.id === editingMsgId);
+    if (idx === -1) return;
+    const priorHistory = messages.slice(0, idx);
+    const reuseUserMsgId = messages[idx].id;
+    setEditingMsgId(null);
+    setEditDraft('');
+    setError(null);
+    sendToAI(text, { priorHistory, reuseUserMsgId });
+  }, [editingMsgId, editDraft, messages, isLoading, sendToAI]);
+
+  // Global ⌘K / Ctrl-K — open the panel (delegated to parent via
+  // onClose-toggle isn't possible since we're a child, so we focus
+  // the composer when already open and emit a custom event the shell
+  // can listen for to toggle open state). The shell already wires a
+  // window event for `app:data-changed`; we use a similar pattern.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const isCmd = e.metaKey || e.ctrlKey;
+      if (!isCmd) return;
+      if (e.key !== 'k' && e.key !== 'K') return;
+      // Don't hijack browser-native combinations.
+      if (e.altKey || e.shiftKey) return;
+      e.preventDefault();
+      if (open) {
+        inputRef.current?.focus();
+      } else {
+        window.dispatchEvent(new CustomEvent('ai-chat:open'));
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [open]);
+
+  const handleComposerKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // ⌘↵ / Ctrl↵ → send. ⇧↵ → newline (default textarea behaviour).
+    // Plain ↵ also sends — matches typical chat UI.
+    if (e.key !== 'Enter') return;
+    if (e.shiftKey) return;
     e.preventDefault();
     if (!input.trim() || isLoading) return;
     sendToAI(input.trim());
@@ -468,7 +668,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       </div>
 
       {/* Content area */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto relative">
         {/* === CHAT VIEW === */}
         {view === 'chat' && (
           <div className="p-3 space-y-3">
@@ -527,7 +727,54 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                     : 'bg-base-200/50 border border-base-300/50'
                 }`}>
                   {msg.role === 'user' ? (
-                    <span>{msg.text}</span>
+                    editingMsgId === msg.id ? (
+                      <div className="space-y-2" data-testid="edit-user-msg">
+                        <textarea
+                          className="textarea textarea-bordered w-full text-sm font-sans"
+                          rows={Math.max(2, Math.min(6, editDraft.split('\n').length))}
+                          value={editDraft}
+                          onChange={(e) => setEditDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              saveEditAndResend();
+                            } else if (e.key === 'Escape') {
+                              e.preventDefault();
+                              cancelEdit();
+                            }
+                          }}
+                          autoFocus
+                        />
+                        <div className="flex gap-1 justify-end">
+                          <button
+                            type="button"
+                            className="btn btn-xs btn-ghost"
+                            onClick={cancelEdit}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-xs btn-primary"
+                            data-testid="edit-save-button"
+                            onClick={saveEditAndResend}
+                            disabled={!editDraft.trim() || isLoading}
+                          >
+                            Save &amp; resend
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className="text-left w-full hover:opacity-80 cursor-text"
+                        title="Click to edit and resend"
+                        data-testid="user-msg-text"
+                        onClick={() => beginEdit(msg.id)}
+                      >
+                        {msg.text}
+                      </button>
+                    )
                   ) : (
                     <div className="prose prose-sm max-w-none [&_p]:my-1 [&_ul]:my-1 [&_li]:my-0 [&_pre]:my-1 [&_code]:text-xs [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm">
                       <Markdown>{msg.text}</Markdown>
@@ -684,11 +931,52 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
             )}
 
             {error && (
-              <div className="bg-error/10 border border-error/30 rounded px-3 py-2 text-xs text-error">{error}</div>
+              <div className="bg-error/10 border border-error/30 rounded px-3 py-2 text-xs text-error flex items-center gap-2">
+                <span className="flex-1">{error}</span>
+                <button
+                  type="button"
+                  className="btn btn-xs btn-error btn-outline"
+                  data-testid="ai-retry-button"
+                  onClick={retryLast}
+                  disabled={isLoading}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {/* Always-available retry trigger when there's a prior user
+                message and we're idle. Hidden behind error to keep the
+                UI quiet during streaming. (#126) */}
+            {!error && !isLoading && messages.some(m => m.role === 'user') && (
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  className="btn btn-xs btn-ghost text-base-content/40 hover:text-base-content"
+                  data-testid="ai-retry-button-idle"
+                  onClick={retryLast}
+                  title="Retry last message"
+                >
+                  ↻ Retry last
+                </button>
+              </div>
             )}
 
             <div ref={messagesEndRef} />
           </div>
+        )}
+
+        {/* "↓ New messages" pill when scroll is locked and deltas
+            arrive while the user is reading earlier content. (#126) */}
+        {view === 'chat' && scrollLocked && hasUnseenDeltas && (
+          <button
+            type="button"
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 btn btn-xs btn-primary shadow-lg z-10"
+            data-testid="ai-new-messages-pill"
+            onClick={jumpToBottom}
+          >
+            ↓ New messages
+          </button>
         )}
 
         {/* === HISTORY VIEW === */}
@@ -803,16 +1091,19 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
 
       {/* Input — IDE style */}
       <form onSubmit={handleSubmit} className="px-3 py-2 border-t border-base-300 bg-base-200/30">
-        <div className="flex gap-1.5">
-          <span className="text-primary self-center text-xs">&gt;</span>
-          <input
+        <div className="flex gap-1.5 items-end">
+          <span className="text-primary text-xs pb-1">&gt;</span>
+          <textarea
             ref={inputRef}
-            type="text"
-            className="input input-xs input-ghost flex-1 font-mono focus:outline-none bg-transparent pl-0"
-            placeholder={aiAvailable ? "Ask about your data model..." : "AI not configured"}
+            rows={1}
+            className="textarea textarea-ghost textarea-xs flex-1 font-mono focus:outline-none bg-transparent pl-0 resize-none min-h-[1.5rem] py-1"
+            placeholder={aiAvailable ? "Ask about your data model... (⌘↵ send · ⇧↵ newline)" : "AI not configured"}
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleComposerKeyDown}
             disabled={!aiAvailable || isLoading}
+            data-testid="ai-composer-input"
+            title="⌘↵ / Ctrl↵ send · ⇧↵ newline · ⌘K focus chat"
           />
           {isLoading ? (
             <button

@@ -89,7 +89,7 @@ describe('AIChatPanel — tool progress & error rendering (#61)', () => {
     mountPanel();
 
     // Wait for the AI status fetch to settle so the input is enabled.
-    const input = await screen.findByPlaceholderText('Ask about your data model...');
+    const input = await screen.findByPlaceholderText(/Ask about your data model/);
     await waitFor(() => expect(input).not.toBeDisabled());
     await userEvent.type(input, 'do the thing{Enter}');
 
@@ -136,7 +136,7 @@ describe('AIChatPanel — tool progress & error rendering (#61)', () => {
 
     mountPanel();
 
-    const input = await screen.findByPlaceholderText('Ask about your data model...');
+    const input = await screen.findByPlaceholderText(/Ask about your data model/);
     await waitFor(() => expect(input).not.toBeDisabled());
     await userEvent.type(input, 'list{Enter}');
 
@@ -178,7 +178,7 @@ describe('AIChatPanel — tool progress & error rendering (#61)', () => {
     });
 
     mountPanel();
-    const input = await screen.findByPlaceholderText('Ask about your data model...');
+    const input = await screen.findByPlaceholderText(/Ask about your data model/);
     await waitFor(() => expect(input).not.toBeDisabled());
     await userEvent.type(input, 'go{Enter}');
 
@@ -216,7 +216,7 @@ describe('AIChatPanel — tool progress & error rendering (#61)', () => {
     });
 
     mountPanel();
-    const input = await screen.findByPlaceholderText('Ask about your data model...');
+    const input = await screen.findByPlaceholderText(/Ask about your data model/);
     await waitFor(() => expect(input).not.toBeDisabled());
     await userEvent.type(input, 'go{Enter}');
 

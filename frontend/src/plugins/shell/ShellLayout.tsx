@@ -5,7 +5,7 @@
  * Renders existing Navbar, Sidebar, Breadcrumbs, Footer as slot content.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import Navbar from '../../components/Navbar';
 import Sidebar from '../../components/Sidebar';
@@ -26,6 +26,16 @@ const ShellLayout: React.FC = () => {
 
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
   const toggleCollapse = () => setSidebarCollapsed(!sidebarCollapsed);
+
+  // ⌘K / Ctrl-K — global shortcut to open the AI chat composer. The
+  // panel itself handles focus when already open; here we just open
+  // it. Dispatched via window event so the panel doesn't need a
+  // backref to the shell. (#126)
+  useEffect(() => {
+    const onOpenChat = () => setChatOpen(true);
+    window.addEventListener('ai-chat:open', onOpenChat);
+    return () => window.removeEventListener('ai-chat:open', onOpenChat);
+  }, []);
 
   return (
     <div className="min-h-screen flex flex-col bg-base-200">
