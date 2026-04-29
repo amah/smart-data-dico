@@ -33,9 +33,20 @@ await build({
   minify: false,          // keep readable for debugging
   keepNames: true,        // preserve function/class names
 
-  // All dependencies are bundled — no external packages needed at runtime.
+  // All dependencies are bundled — no external packages needed at runtime
+  // EXCEPT the database drivers below. Drivers are loaded via dynamic
+  // `import()` inside try/catch in services/{oracle,mysql,postgres,mssql}Introspect.ts
+  // and are declared as optional peer deps so installs that don't need
+  // physical-DB introspection skip ~8MB of driver source.
   // swagger-ui-express is bundled too; its static assets won't exist in
   // production, but setupSwagger is inside a try-catch so it's harmless.
+  external: [
+    'oracledb',
+    'mysql2',
+    'mysql2/promise',
+    'pg',
+    'mssql',
+  ],
 
   // Shim import.meta.url so path resolution still works in the bundle
   define: {},
