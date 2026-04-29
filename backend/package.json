@@ -29,16 +29,22 @@
     "express": "^4.18.2",
     "jsonschema": "^1.4.1",
     "jsonwebtoken": "^9.0.2",
-    "oracledb": "^6.10.0",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
     "yaml": "^2.3.1",
     "zod": "^4.3.6"
   },
-  "optionalDependencies": {
+  "peerDependencies": {
     "mssql": "^11.0.0",
     "mysql2": "^3.11.0",
+    "oracledb": "^6.10.0",
     "pg": "^8.13.0"
+  },
+  "peerDependenciesMeta": {
+    "mssql": { "optional": true },
+    "mysql2": { "optional": true },
+    "oracledb": { "optional": true },
+    "pg": { "optional": true }
   },
   "devDependencies": {
     "@jest/globals": "^30.3.0",
