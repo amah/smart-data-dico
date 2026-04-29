@@ -65,5 +65,17 @@
   },
   "dependencies": {
     "react-markdown": "^10.1.0"
+  },
+  "peerDependencies": {
+    "mssql": "^11.0.0",
+    "mysql2": "^3.11.0",
+    "oracledb": "^6.10.0",
+    "pg": "^8.13.0"
+  },
+  "peerDependenciesMeta": {
+    "mssql": { "optional": true },
+    "mysql2": { "optional": true },
+    "oracledb": { "optional": true },
+    "pg": { "optional": true }
   }
 }
