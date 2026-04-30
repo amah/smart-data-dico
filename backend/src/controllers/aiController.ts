@@ -109,6 +109,57 @@ export function filterToolsForMode<T extends Record<string, unknown>>(
   return out;
 }
 
+/**
+ * Pull a human-readable provider message out of an AI SDK or
+ * OpenAI-compatible error envelope so the frontend can render the
+ * actionable line ("requires more credits, visit …") instead of the
+ * raw `API error 402: {…}` blob. Pure helper — exported for tests.
+ *
+ * Recognized shapes:
+ *   - `errorText` is a JSON string with `{error: {message, code}}`
+ *   - `errorText` matches `API error <status>: <json>`
+ *   - anything else: pass through as-is
+ */
+export function enrichErrorEvent(data: { type: 'error'; errorText: string;[k: string]: unknown }) {
+  let providerMessage: string | undefined;
+  let providerCode: string | number | undefined;
+  let providerHelpUrl: string | undefined;
+  let upstreamStatus: number | undefined;
+  let providerRaw: string | undefined = data.errorText;
+
+  // The legacy direct-client message format embeds the upstream JSON
+  // inside the wrapper string. Split it back apart.
+  const wrapped = /^Upstream provider returned (\d+):\s*(.*)$|^API error (\d+):\s*(.*)$/s.exec(data.errorText);
+  let body = data.errorText;
+  if (wrapped) {
+    upstreamStatus = Number(wrapped[1] ?? wrapped[3]);
+    body = (wrapped[2] ?? wrapped[4] ?? '').trim();
+  }
+
+  try {
+    const parsed = JSON.parse(body);
+    const e = parsed?.error || parsed;
+    if (typeof e?.message === 'string') providerMessage = e.message;
+    if (e?.code !== undefined) providerCode = e.code;
+    providerRaw = body;
+  } catch { /* not JSON */ }
+
+  if (typeof providerMessage === 'string') {
+    const urlMatch = providerMessage.match(/https?:\/\/\S+/);
+    if (urlMatch) providerHelpUrl = urlMatch[0];
+  }
+
+  return {
+    type: 'error' as const,
+    errorText: providerMessage || data.errorText,
+    ...(upstreamStatus !== undefined ? { upstreamStatus } : {}),
+    ...(providerMessage ? { providerMessage } : {}),
+    ...(providerCode !== undefined ? { providerCode } : {}),
+    ...(providerHelpUrl ? { providerHelpUrl } : {}),
+    ...(providerRaw ? { providerRaw } : {}),
+  };
+}
+
 export function getToolCategory(toolName: string): AIToolCategory {
   // Strip "functions." prefix (some providers wrap tool names) and any
   // ":n" suffix (the AI SDK appends the call index when a tool runs
@@ -494,7 +545,18 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
     if (ac.signal.aborted || err?.name === 'AbortError') {
       sendEvent({ type: 'cancelled' });
     } else {
-      sendEvent({ type: 'error', errorText: err.message });
+      // Forward structured upstream-error fields when the direct client
+      // attached them (#150) so the frontend can render a polished
+      // explanation instead of `API error 402: {raw blob}`.
+      sendEvent({
+        type: 'error',
+        errorText: err.message,
+        ...(err.upstreamStatus ? { upstreamStatus: err.upstreamStatus } : {}),
+        ...(err.providerMessage ? { providerMessage: err.providerMessage } : {}),
+        ...(err.providerCode !== undefined ? { providerCode: err.providerCode } : {}),
+        ...(err.providerHelpUrl ? { providerHelpUrl: err.providerHelpUrl } : {}),
+        ...(err.providerRaw ? { providerRaw: err.providerRaw } : {}),
+      });
     }
   } finally {
     req.off('close', onAbort);
@@ -865,6 +927,19 @@ export const aiChat = async (req: Request, res: Response) => {
                 const data = JSON.parse(line.slice(6));
                 // Filter out "text part not found" errors from the stream
                 if (data.type === 'error' && data.errorText?.includes('not found')) {
+                  continue;
+                }
+                // Enrich AI-SDK error events with structured upstream
+                // fields when the errorText embeds a JSON body — same
+                // treatment the openai-compatible direct path gets, so
+                // the frontend can render a single polished card.
+                if (
+                  data.type === 'error' &&
+                  typeof data.errorText === 'string' &&
+                  data.providerMessage === undefined
+                ) {
+                  const enriched = enrichErrorEvent(data);
+                  output.push(`data: ${JSON.stringify(enriched)}`);
                   continue;
                 }
                 if (data.type === 'text-delta' && data.id && !seenTextParts.has(data.id)) {
