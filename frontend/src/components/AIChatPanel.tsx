@@ -194,6 +194,15 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Structured upstream error fields (provider message, status, help URL).
+  // Populated when the SSE stream emits a `type: 'error'` event with the
+  // backend-enriched shape. Cleared alongside `error` on retry / send.
+  const [errorDetails, setErrorDetails] = useState<{
+    upstreamStatus?: number;
+    providerMessage?: string;
+    providerCode?: string | number;
+    providerHelpUrl?: string;
+  } | null>(null);
   const [conversationId, setConversationId] = useState<string>(crypto.randomUUID());
   const [conversationList, setConversationList] = useState<Array<{ id: string; title: string; messageCount: number; updatedAt: string; pinned?: boolean }>>([]);
   // #127 — history view: search query, inline rename buffer, per-conversation system prompt override.
@@ -484,7 +493,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     const baseHistory = options?.priorHistory ?? messages;
     setMessages([...baseHistory, userMsg]);
     setIsLoading(true);
-    setError(null);
+    setError(null); setErrorDetails(null);
     // New user send unlocks auto-scroll: we want the viewport to
     // follow the response. (#126)
     setScrollLocked(false);
@@ -633,6 +642,24 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
               cancelled = true;
               sweepInflightTools();
               pushToolUpdate();
+              continue;
+            }
+
+            // Backend forwards upstream provider errors with structured
+            // fields (#150 follow-up). Surface the human message in the
+            // error banner; raw upstream JSON stays in rawEvents for
+            // power users.
+            if (data.type === 'error') {
+              const friendly = (typeof data.providerMessage === 'string' && data.providerMessage)
+                || (typeof data.errorText === 'string' && data.errorText)
+                || 'AI request failed';
+              setError(friendly);
+              setErrorDetails({
+                upstreamStatus: typeof data.upstreamStatus === 'number' ? data.upstreamStatus : undefined,
+                providerMessage: typeof data.providerMessage === 'string' ? data.providerMessage : undefined,
+                providerCode: data.providerCode,
+                providerHelpUrl: typeof data.providerHelpUrl === 'string' ? data.providerHelpUrl : undefined,
+              });
               continue;
             }
 
@@ -1158,7 +1185,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     if (lastUserIdx === -1) return;
     const lastUserMsg = messages[lastUserIdx];
     const priorHistory = messages.slice(0, lastUserIdx);
-    setError(null);
+    setError(null); setErrorDetails(null);
     sendToAI(lastUserMsg.text, { priorHistory, reuseUserMsgId: lastUserMsg.id });
   }, [messages, isLoading, sendToAI]);
 
@@ -1189,7 +1216,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     const reuseUserMsgId = messages[idx].id;
     setEditingMsgId(null);
     setEditDraft('');
-    setError(null);
+    setError(null); setErrorDetails(null);
     sendToAI(text, { priorHistory, reuseUserMsgId });
   }, [editingMsgId, editDraft, messages, isLoading, sendToAI]);
 
@@ -1828,17 +1855,60 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
             )}
 
             {error && (
-              <div className="bg-error/10 border border-error/30 rounded px-3 py-2 text-xs text-error flex items-center gap-2">
-                <span className="flex-1">{error}</span>
-                <button
-                  type="button"
-                  className="btn btn-xs btn-error btn-outline"
-                  data-testid="ai-retry-button"
-                  onClick={retryLast}
-                  disabled={isLoading}
-                >
-                  Retry
-                </button>
+              <div
+                data-testid="ai-error-banner"
+                className="bg-error/10 border border-error/30 rounded px-3 py-2 text-xs text-error font-sans space-y-1"
+              >
+                <div className="flex items-start gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold flex items-center gap-2">
+                      <span>AI request failed</span>
+                      {errorDetails?.upstreamStatus !== undefined && (
+                        <span className="badge badge-xs badge-error">
+                          {errorDetails.upstreamStatus}
+                          {errorDetails.providerCode !== undefined && errorDetails.providerCode !== errorDetails.upstreamStatus
+                            ? ` · ${errorDetails.providerCode}` : ''}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-0.5 text-error/90 whitespace-pre-wrap break-words">{error}</div>
+                    {errorDetails?.providerHelpUrl && (
+                      <a
+                        href={errorDetails.providerHelpUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="link link-error mt-1 inline-block"
+                        data-testid="ai-error-help-link"
+                      >
+                        Open help link →
+                      </a>
+                    )}
+                    {errorDetails?.upstreamStatus === 402 && (
+                      <div className="mt-1 text-base-content/60 italic">
+                        Tip: top up your provider account, lower <code>max_tokens</code>, or switch to a free model in <a href="/settings#ai" className="link">Settings</a>.
+                      </div>
+                    )}
+                    {errorDetails?.upstreamStatus === 401 && (
+                      <div className="mt-1 text-base-content/60 italic">
+                        Tip: your API key was rejected — check it in <a href="/settings#ai" className="link">Settings</a>.
+                      </div>
+                    )}
+                    {errorDetails?.upstreamStatus === 429 && (
+                      <div className="mt-1 text-base-content/60 italic">
+                        Tip: rate-limited by the provider — wait a moment and retry, or switch model.
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-xs btn-error btn-outline shrink-0"
+                    data-testid="ai-retry-button"
+                    onClick={retryLast}
+                    disabled={isLoading}
+                  >
+                    Retry
+                  </button>
+                </div>
               </div>
             )}
 
