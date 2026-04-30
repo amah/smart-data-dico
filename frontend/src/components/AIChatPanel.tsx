@@ -1261,9 +1261,9 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   return (
     <div className="fixed right-0 top-10 bottom-0 w-[420px] bg-base-100 border-l border-base-300 shadow-xl z-40 flex flex-col font-mono text-[13px]">
       {/* Header — IDE style */}
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-base-300 bg-base-200/80">
-        <div className="flex items-center gap-2">
-          <span className="text-primary font-bold text-xs tracking-wide">AI ASSISTANT</span>
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-base-300 bg-base-200/80 gap-2">
+        <div className="flex items-center gap-2 min-w-0 overflow-hidden">
+          <span className="text-primary font-bold text-xs tracking-wide hidden sm:inline">AI</span>
           {/* #55 — chat mode selector. Designer (full toolset, default),
               Ask (read-only Q&A), Review (read-only quality review). */}
           <select
@@ -1322,7 +1322,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-0.5 shrink-0">
           <button className={`btn btn-ghost btn-xs ${view === 'chat' ? 'btn-active' : ''}`} onClick={() => setView('chat')} title="Chat">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7z" clipRule="evenodd" />
