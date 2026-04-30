@@ -104,7 +104,36 @@ export async function callWithTools(
 
     if (!response.ok) {
       const errText = await response.text();
-      throw new Error(`API error ${response.status}: ${errText}`);
+      // Upstream OpenAI-compatible providers return their error as
+      // structured JSON (e.g. OpenRouter's quota/credits errors). Unwrap
+      // it so the user sees the human-readable message instead of the
+      // wrapper noise. The full body still lands in raw events.
+      let providerMessage: string | undefined;
+      let providerCode: string | number | undefined;
+      let providerHelpUrl: string | undefined;
+      try {
+        const parsed = JSON.parse(errText);
+        const e = parsed?.error || parsed;
+        if (typeof e?.message === 'string') providerMessage = e.message;
+        if (e?.code !== undefined) providerCode = e.code;
+        // Heuristic: pull a help URL out of the message if the provider
+        // includes one inline (OpenRouter does for billing errors).
+        const urlMatch = typeof providerMessage === 'string'
+          ? providerMessage.match(/https?:\/\/\S+/)
+          : null;
+        if (urlMatch) providerHelpUrl = urlMatch[0];
+      } catch { /* not JSON — fall through to the raw text */ }
+      const err = new Error(providerMessage || `Upstream provider returned ${response.status}: ${errText.slice(0, 200)}`);
+      // Stash structured fields so the controller can forward them on
+      // the SSE error event without re-parsing.
+      Object.assign(err, {
+        upstreamStatus: response.status,
+        providerMessage,
+        providerCode,
+        providerHelpUrl,
+        providerRaw: errText,
+      });
+      throw err;
     }
 
     const data: any = await response.json();
