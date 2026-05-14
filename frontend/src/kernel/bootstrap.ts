@@ -7,7 +7,7 @@
 
 import { Host } from '@hamak/microkernel-impl';
 import { STORE_MANAGER_TOKEN, REDUCER_REGISTRY_TOKEN } from '@hamak/ui-store-api';
-import { createAppStorePlugin } from '../plugins/store';
+import { createAppStorePlugin, createAppStoreFsPlugin } from '../plugins/store';
 import { createAppShellPlugin } from '../plugins/shell/shellPlugin';
 import { createAuthPlugin } from '../plugins/auth/authPlugin';
 import { createDataDictionaryPlugin } from '../plugins/data-dictionary/dataDictionaryPlugin';
@@ -102,10 +102,10 @@ export function registerPlugins() {
     createAuthPlugin()
   );
 
-  // Feature plugins (depends on: store, auth)
+  // Feature plugins (depends on: store, auth, store-fs)
   host.registerPlugin(
     'data-dictionary',
-    { name: 'data-dictionary', version: '1.0.0', entry: '', dependsOn: ['store', 'auth'] },
+    { name: 'data-dictionary', version: '1.0.0', entry: '', dependsOn: ['store', 'auth', 'store-fs'] },
     createDataDictionaryPlugin()
   );
 
@@ -132,6 +132,15 @@ export function registerPlugins() {
     'remote-fs',
     { name: 'remote-fs', version: '1.0.0', entry: '', dependsOn: ['store'] },
     createAppRemoteFsPlugin()
+  );
+
+  // Store FS plugin — provides STORE_FS_TOKEN over the 'dictionaries' workspace.
+  // Depends on: store (STORE_EXTENSIONS_TOKEN, STORE_MANAGER_TOKEN),
+  //             remote-fs (PATH_TRANSLATOR_TOKEN).
+  host.registerPlugin(
+    'store-fs',
+    { name: 'store-fs', version: '1.0.0', entry: '', dependsOn: ['store', 'remote-fs'] },
+    createAppStoreFsPlugin()
   );
 
   // Remote Git plugin (depends on: store, remote-fs)
