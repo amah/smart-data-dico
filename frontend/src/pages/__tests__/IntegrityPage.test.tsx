@@ -1,30 +1,34 @@
 /**
- * Tests for the Integrity page (#85 R5 / rollout 4.3).
+ * Tests for the Integrity page (#85 R5 / rollout 4.3) — #155 pilot rewrite.
  *
- * Mocks the integrityApi so the page renders against fixed three-list
- * payloads. Verifies:
- *   - Tab switching shows the right per-category counts in the header
- *   - The "All" tab renders all three categories with a Category column
- *   - The Validation/Constraints/Rules tabs render only their own rows
- *   - The search box filters across the union
- *   - The "Needs attention" preset filters passing rows out
+ * Post-#155 the page resolves its data source via
+ * `useService(INTEGRITY_SERVICE_TOKEN)` from the bootstrapped kernel host,
+ * so the legacy `vi.mock('../../services/api', ...)` harness no longer
+ * applies (the legacy axios sub-API was deleted by the pilot).
+ *
+ * New harness — covers spec acceptance criterion #10:
+ *   - `beforeAll` calls the production `bootstrapApplication()` once so
+ *     `useService(INTEGRITY_SERVICE_TOKEN)` resolves the real service.
+ *   - `beforeEach` re-installs the `/api/integrity` MSW handler (the
+ *     suite-wide `src/test/setup.ts` runs `server.resetHandlers()` in
+ *     afterEach, so beforeAll registration would not survive).
+ *   - The page is rendered inside the production `<Provider store={getStore()}>`.
+ *   - Existing assertion intent is preserved: tab counts, all-tab unified
+ *     view, Validation/Constraints/Rules tab filtering, search filtering
+ *     across categories, search-driven count updates, Needs-attention
+ *     preset behavior, and the error-state surface.
  */
+
+import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { http, HttpResponse } from 'msw';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
+import { Provider } from 'react-redux';
+import React from 'react';
+
+import { bootstrapApplication, getStore } from '../../kernel/bootstrap';
 import IntegrityPage from '../IntegrityPage';
-
-vi.mock('../../services/api', () => ({
-  integrityApi: {
-    getReport: vi.fn(),
-  },
-}));
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import { integrityApi } from '../../services/api';
-
-const mockedApi = integrityApi as unknown as {
-  getReport: ReturnType<typeof vi.fn>;
-};
+import { server } from '../../test/setup';
 
 const sampleReport = {
   validation: [
@@ -75,27 +79,52 @@ const sampleReport = {
   ],
 };
 
-const renderPage = () =>
-  render(
-    <MemoryRouter>
-      <IntegrityPage />
-    </MemoryRouter>,
-  );
+// Flag toggled by the per-test beforeEach so individual cases can opt into
+// an error response without redefining the whole MSW handler.
+let failFetch = false;
 
-beforeEach(() => {
-  mockedApi.getReport.mockReset();
+beforeAll(async () => {
+  await bootstrapApplication();
 });
 
+beforeEach(() => {
+  failFetch = false;
+  server.use(
+    http.get('/api/integrity', () => {
+      if (failFetch) {
+        return new HttpResponse(null, { status: 500 });
+      }
+      return HttpResponse.json({ data: sampleReport });
+    }),
+  );
+});
+
+const renderPage = () => {
+  const store = getStore();
+  return render(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    React.createElement(
+      Provider as any,
+      { store },
+      React.createElement(
+        MemoryRouter,
+        null,
+        React.createElement(IntegrityPage),
+      ),
+    ),
+  );
+};
+
 describe('IntegrityPage — initial render', () => {
-  it('renders the page header and fetches the report on mount', async () => {
-    mockedApi.getReport.mockResolvedValue(sampleReport);
+  it('renders the page header and surfaces the fetched report on mount', async () => {
     renderPage();
     expect(screen.getByRole('heading', { name: /Integrity/i })).toBeInTheDocument();
-    await waitFor(() => expect(mockedApi.getReport).toHaveBeenCalledTimes(1));
+    // The fixture's `username` validation row landing in the DOM is the
+    // observable signal that the mount-effect fetch completed.
+    await screen.findByText('username');
   });
 
   it('shows tab counts derived from the loaded payload', async () => {
-    mockedApi.getReport.mockResolvedValue(sampleReport);
     renderPage();
     await screen.findByText('username');
     // Tab counts: All=5, Validation=2, Constraints=2, Rules=1
@@ -110,7 +139,6 @@ describe('IntegrityPage — initial render', () => {
   });
 
   it('renders all three categories on the All tab', async () => {
-    mockedApi.getReport.mockResolvedValue(sampleReport);
     renderPage();
     await screen.findByText('username');
     expect(screen.getByText('website')).toBeInTheDocument();
@@ -122,7 +150,6 @@ describe('IntegrityPage — initial render', () => {
 
 describe('IntegrityPage — tab switching', () => {
   it('Validation tab hides constraint and rule rows', async () => {
-    mockedApi.getReport.mockResolvedValue(sampleReport);
     renderPage();
     await screen.findByText('username');
 
@@ -135,7 +162,6 @@ describe('IntegrityPage — tab switching', () => {
   });
 
   it('Constraints tab hides validation and rule rows', async () => {
-    mockedApi.getReport.mockResolvedValue(sampleReport);
     renderPage();
     await screen.findByText('username');
 
@@ -148,7 +174,6 @@ describe('IntegrityPage — tab switching', () => {
   });
 
   it('Rules tab hides validation and constraint rows', async () => {
-    mockedApi.getReport.mockResolvedValue(sampleReport);
     renderPage();
     await screen.findByText('username');
 
@@ -162,7 +187,6 @@ describe('IntegrityPage — tab switching', () => {
 
 describe('IntegrityPage — search', () => {
   it('filters across all three categories simultaneously', async () => {
-    mockedApi.getReport.mockResolvedValue(sampleReport);
     renderPage();
     await screen.findByText('username');
 
@@ -176,7 +200,6 @@ describe('IntegrityPage — search', () => {
   });
 
   it('search updates the per-category counts in the tab labels', async () => {
-    mockedApi.getReport.mockResolvedValue(sampleReport);
     renderPage();
     await screen.findByText('username');
 
@@ -194,7 +217,6 @@ describe('IntegrityPage — search', () => {
 
 describe('IntegrityPage — Needs attention preset', () => {
   it('toggling the preset keeps error-severity rows and hides passing ones', async () => {
-    mockedApi.getReport.mockResolvedValue(sampleReport);
     renderPage();
     await screen.findByText('username');
 
@@ -215,10 +237,12 @@ describe('IntegrityPage — Needs attention preset', () => {
 
 describe('IntegrityPage — error state', () => {
   it('shows an error message when the report fetch fails', async () => {
-    mockedApi.getReport.mockRejectedValue(new Error('boom'));
+    failFetch = true;
     renderPage();
     await waitFor(() =>
-      expect(screen.getByText(/Failed to load the Integrity report/i)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/Failed to load the Integrity report/i),
+      ).toBeInTheDocument(),
     );
   });
 });

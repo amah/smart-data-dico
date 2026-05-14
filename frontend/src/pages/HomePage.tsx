@@ -12,7 +12,7 @@
  *
  * KPI data sources:
  *   - Quality      → importExportApi.getQualityReport() → overall %
- *   - Integrity    → integrityApi.getReport() → count of severity=error
+ *   - Integrity    → IntegrityService.getReport() → count of severity=error
  *   - Open diff    → gitApi.getStatus() → uncommitted file count
  *   - Physical sync → placeholder (— "not run") until the Phase 6
  *     drift job is wired up
@@ -24,9 +24,11 @@ import {
   servicesApi,
   packageApi,
   gitApi,
-  integrityApi,
   importExportApi,
 } from '../services/api';
+import { useService } from '../kernel/useService';
+import { INTEGRITY_SERVICE_TOKEN } from '../kernel/tokens';
+import type { IntegrityService } from '../plugins/data-dictionary/services/IntegrityService';
 import { getRecentPackages } from '../hooks/useRecentPackages';
 import {
   Button,
@@ -74,6 +76,9 @@ const HomePage = () => {
     openDiff: null,
     physicalSync: 'not-run',
   });
+
+  // Pattern B integrity service — resolved once per render via the kernel.
+  const integrity = useService<IntegrityService>(INTEGRITY_SERVICE_TOKEN);
 
   // Load packages + per-package quality breakdown in parallel.
   useEffect(() => {
@@ -138,7 +143,7 @@ const HomePage = () => {
   // Integrity + git-status KPIs — independent fetches; best-effort.
   useEffect(() => {
     let cancelled = false;
-    integrityApi.getReport()
+    integrity.getReport()
       .then((report) => {
         if (cancelled) return;
         const errors = (report.rules || []).filter((r: any) => r.severity === 'error').length;
@@ -160,7 +165,7 @@ const HomePage = () => {
       .catch(() => { /* best effort */ });
 
     return () => { cancelled = true; };
-  }, []);
+  }, [integrity]);
 
   const totalEntities = packages.reduce((sum, pkg) => sum + pkg.entityCount, 0);
   const totalRels = packages.reduce((sum, pkg) => sum + pkg.relationshipCount, 0);
