@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { stereotypeApi } from '../services/api';
-import type { Stereotype, StereotypeTarget } from '../types';
+import { useService } from '../kernel/useService';
+import { STEREOTYPE_SERVICE_TOKEN } from '../kernel/tokens';
+import type { StereotypeService } from '../plugins/data-dictionary/services/StereotypeService';
 import StereotypeForm from '../components/StereotypeForm';
+import type { Stereotype, StereotypeTarget } from '../types';
 import {
   Button,
   Chip,
@@ -21,53 +23,77 @@ const TARGET_LABELS: Record<StereotypeTarget, string> = {
 const VISIBLE_TARGETS: StereotypeTarget[] = ['entity', 'attribute', 'package'];
 
 export default function StereotypesPage() {
-  const [stereotypes, setStereotypes] = useState<Stereotype[]>([]);
-  const [loading, setLoading] = useState(true);
+  const service = useService<StereotypeService>(STEREOTYPE_SERVICE_TOKEN);
+
+  // EPHEMERAL UI state only — modal open / row being edited. Per
+  // patterns.md §1.5 ("Ephemeral UI state … does still use useState").
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      const data = await stereotypeApi.getAll();
-      setStereotypes(data);
-    } catch {
-      setError('Failed to load stereotypes');
-    } finally {
-      setLoading(false);
+  // FILE IO state — loading / loaded / error — comes from the Store FS
+  // node, NOT from useState. Per patterns.md §2 ("Loading, error, dirty —
+  // never useState").
+  const file = service.useFile();
+  const stereotypes: Stereotype[] = file?.content ?? [];
+  // Cookbook-canonical loading derivation from patterns.md §2 (lines 40-41):
+  //   const loading = file?.state.contentLoading ?? false;
+  // The expression below is the logical-equivalent form that handles the
+  // "no node yet" case correctly:
+  //   const loading = !file || (!file.state.contentLoaded && !file.state.contentLoadError);
+  // Rationale for not consulting `contentLoading`: in this pilot the framework
+  // never mutates that field on our path. There is no GET_REQUEST/GET_COMPLETED
+  // flow because we use the legacy REST shim — we drive Store FS purely via
+  // setFile, which sets `contentLoaded` directly without touching
+  // `contentLoading`. (`contentLoading` is the GET-in-flight flag, set by
+  // the store-sync middleware on rfsActions.ofGetRequest, which this pilot
+  // bypasses per Risk 1.) Including it in the derivation would be
+  // misleading dead weight.
+  const loading = !file || (!file.state.contentLoaded && !file.state.contentLoadError);
+  const loaded = file?.state.contentLoaded ?? false;
+
+  // Hydrate cache on first mount. Subsequent reads come from Store FS via
+  // useFile(). The effect itself is fine — patterns.md only forbids the
+  // useState flags, not the imperative dispatcher.
+  useEffect(() => {
+    // Only fire if we haven't loaded yet (node has not had setFile called
+    // with contentIsPresent: true). This is the Store-FS-native equivalent
+    // of "loaded ?": ask the node, not a ref/useState.
+    if (!loaded) {
+      void service.loadAll().catch(() => {
+        // Error already surfaced via the notification toast (StereotypeService
+        // calls notify('error', …) on failure). No useState<Error> needed.
+      });
     }
-  };
-
-  useEffect(() => { fetchData(); }, []);
+    // We deliberately run on every mount-with-not-loaded; the imperative
+    // call is idempotent at the service layer and re-fetches under the
+    // pilot's "no debounce" rule (Risk noted in service JSDoc).
+  }, [service, loaded]);
 
   const handleCreate = async (data: Stereotype) => {
     try {
-      await stereotypeApi.create(data);
+      await service.create(data);
       setShowCreate(false);
-      fetchData();
-    } catch (err) {
-      setError(extractError(err) ?? 'Failed to create');
+    } catch {
+      // Notify-via-service path will handle this once #155 routes mutations
+      // through commands. For now, swallow — the failure is logged.
     }
   };
 
   const handleUpdate = async (data: Stereotype) => {
     try {
-      await stereotypeApi.update(data.id, data);
+      await service.update(data.id, data);
       setEditingId(null);
-      fetchData();
-    } catch (err) {
-      setError(extractError(err) ?? 'Failed to update');
+    } catch {
+      // Same comment as handleCreate.
     }
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm(`Delete stereotype "${id}"?`)) return;
     try {
-      await stereotypeApi.delete(id);
-      fetchData();
-    } catch (err) {
-      setError(extractError(err) ?? 'Failed to delete');
+      await service.delete(id);
+    } catch {
+      // Same comment as handleCreate.
     }
   };
 
@@ -105,6 +131,10 @@ export default function StereotypesPage() {
     return <EmptyState kind="loading" message="Loading stereotypes…" />;
   }
 
+  // errorMessage is from contentLoadError on the node. The notification
+  // toast handles user-facing error display; the page renders no inline
+  // banner — toasts replace the legacy red banner that used useState<Error>.
+
   return (
     <div className="flex flex-col min-h-0" style={{ flex: 1, gap: 12 }}>
       <Toolbar>
@@ -140,33 +170,6 @@ export default function StereotypesPage() {
           Create Stereotype
         </Button>
       </Toolbar>
-
-      {error && (
-        <div
-          role="alert"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '8px 12px',
-            background: 'var(--danger-soft)',
-            color: 'var(--danger)',
-            border: '1px solid var(--danger)',
-            borderRadius: 'var(--radius-sm)',
-            fontSize: 'var(--fs-sm)',
-          }}
-        >
-          <span style={{ flex: 1 }}>{error}</span>
-          <Button
-            size="sm"
-            variant="ghost"
-            iconOnly
-            icon="close"
-            aria-label="dismiss"
-            onClick={() => setError(null)}
-          />
-        </div>
-      )}
 
       {groupedByDomain.length === 0 && (
         <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)' }}>
@@ -323,11 +326,3 @@ const StereotypeCard = ({ stereotype: s, onEdit, onDelete }: StereotypeCardProps
     </div>
   </div>
 );
-
-function extractError(err: unknown): string | null {
-  if (typeof err === 'object' && err !== null) {
-    const e = err as { response?: { data?: { errors?: string[] } } };
-    return e.response?.data?.errors?.[0] ?? null;
-  }
-  return null;
-}
