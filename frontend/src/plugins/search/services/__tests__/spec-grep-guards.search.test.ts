@@ -126,17 +126,17 @@ describe('#155-search criterion #10 — DI registration in initialize with useVa
 // -----------------------------------------------------------------------
 // Criterion #12 — SearchComponent consumer migration
 // -----------------------------------------------------------------------
-describe('#155-search criterion #12 — SearchComponent consumer migration', () => {
-  it('SearchComponent.tsx imports useService from ../kernel/useService', () => {
+// #163: SearchComponent migrated from useService(SEARCH_SERVICE_TOKEN) to
+// commands.run('search.search', ...) via useCommand().
+describe('#155-search criterion #12 — SearchComponent consumer migration (#163 update)', () => {
+  it('SearchComponent.tsx imports useCommand from ../kernel/useCommand', () => {
     const content = read(SEARCH_COMPONENT);
-    expect(content).toMatch(/from\s+['"]\.\.\/kernel\/useService['"]/);
+    expect(content).toMatch(/from\s+['"]\.\.\/kernel\/useCommand['"]/);
   });
 
-  it('SearchComponent.tsx calls useService<SearchService>(SEARCH_SERVICE_TOKEN)', () => {
+  it('SearchComponent.tsx calls commands.run for search.search', () => {
     const content = read(SEARCH_COMPONENT);
-    expect(content).toMatch(
-      /useService\s*<\s*SearchService\s*>\s*\(\s*SEARCH_SERVICE_TOKEN\s*\)/,
-    );
+    expect(content).toMatch(/['"]search\.search['"]/);
   });
 
   it('SearchComponent.tsx contains no servicesApi.searchEntities reference', () => {
@@ -148,23 +148,18 @@ describe('#155-search criterion #12 — SearchComponent consumer migration', () 
 // -----------------------------------------------------------------------
 // Criterion #13 — searchSlice thunk migration
 // -----------------------------------------------------------------------
-describe('#155-search criterion #13 — searchSlice thunk migration', () => {
+// #163: searchSlice thunk migrated from useService(SEARCH_SERVICE_TOKEN).searchEntities
+// to ctx.commands.run('search.search', { query }) via the host's rootActivationCtx.
+describe('#155-search criterion #13 — searchSlice thunk migration (#163 update)', () => {
   it('searchSlice.ts does not import from ../../services/api', () => {
     const content = read(SEARCH_SLICE);
     expect(content).not.toMatch(/from\s+['"][^'"]*services\/api['"]/);
   });
 
-  it('searchSlice.ts thunk body calls useService<SearchService>(SEARCH_SERVICE_TOKEN)', () => {
+  it('searchSlice.ts thunk body calls commands.run via host.rootActivationCtx', () => {
     const content = read(SEARCH_SLICE);
-    // The call site may span multiple lines; check both the useService call
-    // and SEARCH_SERVICE_TOKEN presence in the file.
-    expect(content).toMatch(/useService\s*</);
-    expect(content).toMatch(/SEARCH_SERVICE_TOKEN/);
-  });
-
-  it('searchSlice.ts thunk body calls .searchEntities(query)', () => {
-    const content = read(SEARCH_SLICE);
-    expect(content).toMatch(/\.searchEntities\s*\(/);
+    expect(content).toMatch(/ctx\.commands\.run/);
+    expect(content).toMatch(/['"]search\.search['"]/);
   });
 });
 

@@ -8,6 +8,7 @@
 import type { PluginModule } from '@hamak/microkernel-spi';
 import { SEARCH_SERVICE_TOKEN } from '../../kernel/tokens';
 import { SearchService } from './services/SearchService';
+import type { SearchFilters } from './services/SearchService';
 
 export function createSearchPlugin(): PluginModule {
   return {
@@ -27,6 +28,12 @@ export function createSearchPlugin(): PluginModule {
         provide: SEARCH_SERVICE_TOKEN,
         useValue: new SearchService(),
       });
+
+      // #163: register search.search command.
+      const search = ctx.resolve<SearchService>(SEARCH_SERVICE_TOKEN);
+      ctx.commands.register('search.search', ({ query, filters }: { query: string; filters?: SearchFilters }) =>
+        search.searchEntities(query, filters),
+      );
     },
 
     async activate(_ctx) {

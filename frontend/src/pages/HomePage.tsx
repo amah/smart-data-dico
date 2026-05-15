@@ -11,8 +11,8 @@
  *     useRecentPackages store.
  *
  * KPI data sources:
- *   - Quality      → importExport.getQualityReport() → overall %
- *   - Integrity    → IntegrityService.getReport() → count of severity=error
+ *   - Quality      → commands.run('data-dictionary.quality.getReport') → overall %
+ *   - Integrity    → commands.run('data-dictionary.integrity.getReport') → count of severity=error
  *   - Open diff    → gitApi.getStatus() → uncommitted file count
  *   - Physical sync → placeholder (— "not run") until the Phase 6
  *     drift job is wired up
@@ -25,10 +25,7 @@ import {
   packageApi,
   gitApi,
 } from '../services/api';
-import { useService } from '../kernel/useService';
-import { INTEGRITY_SERVICE_TOKEN, IMPORT_EXPORT_SERVICE_TOKEN } from '../kernel/tokens';
-import type { IntegrityService } from '../plugins/data-dictionary/services/IntegrityService';
-import type { ImportExportService } from '../plugins/data-dictionary/services/ImportExportService';
+import { useCommand } from '../kernel/useCommand';
 import { getRecentPackages } from '../hooks/useRecentPackages';
 import {
   Button,
@@ -77,9 +74,7 @@ const HomePage = () => {
     physicalSync: 'not-run',
   });
 
-  // Pattern B integrity service — resolved once per render via the kernel.
-  const integrity = useService<IntegrityService>(INTEGRITY_SERVICE_TOKEN);
-  const importExport = useService<ImportExportService>(IMPORT_EXPORT_SERVICE_TOKEN);
+  const run = useCommand();
 
   // Load packages + per-package quality breakdown in parallel.
   useEffect(() => {
@@ -111,7 +106,7 @@ const HomePage = () => {
               return { name, entityCount: 0, attributeCount: 0, relationshipCount: 0 };
             }
           })),
-          importExport.getQualityReport().catch(() => null),
+          run('data-dictionary.quality.getReport', { service: undefined }).catch(() => null),
         ]);
 
         if (cancelled) return;
@@ -139,12 +134,12 @@ const HomePage = () => {
     };
     load();
     return () => { cancelled = true; };
-  }, [importExport]);
+  }, [run]);
 
   // Integrity + git-status KPIs — independent fetches; best-effort.
   useEffect(() => {
     let cancelled = false;
-    integrity.getReport()
+    run('data-dictionary.integrity.getReport')
       .then((report) => {
         if (cancelled) return;
         const errors = (report.rules || []).filter((r: any) => r.severity === 'error').length;
@@ -166,7 +161,7 @@ const HomePage = () => {
       .catch(() => { /* best effort */ });
 
     return () => { cancelled = true; };
-  }, [integrity]);
+  }, [run]);
 
   const totalEntities = packages.reduce((sum, pkg) => sum + pkg.entityCount, 0);
   const totalRels = packages.reduce((sum, pkg) => sum + pkg.relationshipCount, 0);

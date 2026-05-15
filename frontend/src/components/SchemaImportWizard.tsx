@@ -26,9 +26,7 @@
  * attributes — see schemaDiff.ts for the invariants.
  */
 import { useState } from 'react';
-import { useService } from '../kernel/useService';
-import { IMPORT_EXPORT_SERVICE_TOKEN } from '../kernel/tokens';
-import type { ImportExportService } from '../plugins/data-dictionary/services/ImportExportService';
+import { useCommand } from '../kernel/useCommand';
 import type { Entity, EntityDiff } from '../types';
 
 type SourceKind = 'sql' | 'db';
@@ -94,7 +92,7 @@ interface Props {
 }
 
 export default function SchemaImportWizard({ services, onComplete }: Props) {
-  const importExport = useService<ImportExportService>(IMPORT_EXPORT_SERVICE_TOKEN);
+  const run = useCommand();
   const [step, setStep] = useState<WizardStep>('source');
   const [sourceKind, setSourceKind] = useState<SourceKind>('sql');
   const [targetService, setTargetService] = useState('');
@@ -190,8 +188,8 @@ export default function SchemaImportWizard({ services, onComplete }: Props) {
       // Parse the source into entities
       const previewRes =
         sourceKind === 'sql'
-          ? await importExport.previewSqlDdl(sqlText, buildOptions())
-          : await importExport.previewDbSchema(dialect, buildConnectionPayload(), buildOptions());
+          ? await run('data-dictionary.import-export.previewSqlDdl', { sql: sqlText, options: buildOptions() })
+          : await run('data-dictionary.import-export.previewDbSchema', { dialect, connection: buildConnectionPayload(), options: buildOptions() });
 
       const parsedEntities = (previewRes.data?.entities || []) as Entity[];
       const previewErrors = (previewRes.data?.errors || []) as string[];
@@ -202,7 +200,7 @@ export default function SchemaImportWizard({ services, onComplete }: Props) {
       }
 
       // Compute diff against the chosen service
-      const diffRes = await importExport.diffSqlDdl(parsedEntities, targetService);
+      const diffRes = await run('data-dictionary.import-export.diffSqlDdl', { parsed: parsedEntities, targetService });
       const diffList = (diffRes.data?.diffs || []) as EntityDiff[];
 
       setParsed(parsedEntities);
@@ -221,7 +219,7 @@ export default function SchemaImportWizard({ services, onComplete }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const res = await importExport.commitSqlDdl(parsed, targetService);
+      const res = await run('data-dictionary.import-export.commitSqlDdl', { parsed, targetService });
       const data = res.data as CommitResult;
       setCommitResult(data);
       setStep('result');

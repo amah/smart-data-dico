@@ -11,10 +11,6 @@ export function createRulesPlugin(): PluginModule {
       ctx.views.register('routes.rules', () => ({
         routes: ['/rules', '/rules/**'],
       }));
-
-      ctx.commands.register('rules.refresh', async () => {
-        ctx.hooks.emit('rules:refresh-requested');
-      });
     },
 
     async activate() {

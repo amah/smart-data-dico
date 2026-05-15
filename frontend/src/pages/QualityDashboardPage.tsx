@@ -17,9 +17,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useService } from '../kernel/useService';
-import { IMPORT_EXPORT_SERVICE_TOKEN } from '../kernel/tokens';
-import type { ImportExportService } from '../plugins/data-dictionary/services/ImportExportService';
+import { useCommand } from '../kernel/useCommand';
 import {
   Button,
   Chip,
@@ -71,7 +69,7 @@ const METRICS: Array<{ key: keyof PackageQuality; label: string; tooltip: string
 ];
 
 export default function QualityDashboardPage() {
-  const importExport = useService<ImportExportService>(IMPORT_EXPORT_SERVICE_TOKEN);
+  const run = useCommand();
   const [report, setReport] = useState<QualityReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -79,11 +77,11 @@ export default function QualityDashboardPage() {
   const [search, setSearch] = useState('');
 
   useEffect(() => {
-    importExport.getQualityReport()
+    run('data-dictionary.quality.getReport', { service: undefined })
       .then((r) => setReport(r))
       .catch(() => setError('Failed to load quality report.'))
       .finally(() => setLoading(false));
-  }, [importExport]);
+  }, [run]);
 
   const filteredPackages = useMemo(() => {
     if (!report) return [];

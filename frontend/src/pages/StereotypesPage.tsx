@@ -4,6 +4,7 @@ import { STEREOTYPE_SERVICE_TOKEN } from '../kernel/tokens';
 import type { StereotypeService } from '../plugins/data-dictionary/services/StereotypeService';
 import StereotypeForm from '../components/StereotypeForm';
 import type { Stereotype, StereotypeTarget } from '../types';
+import { useCommand } from '../kernel/useCommand';
 import {
   Button,
   Chip,
@@ -24,6 +25,7 @@ const VISIBLE_TARGETS: StereotypeTarget[] = ['entity', 'attribute', 'package'];
 
 export default function StereotypesPage() {
   const service = useService<StereotypeService>(STEREOTYPE_SERVICE_TOKEN);
+  const run = useCommand();
 
   // EPHEMERAL UI state only — modal open / row being edited. Per
   // patterns.md §1.5 ("Ephemeral UI state … does still use useState").
@@ -59,7 +61,7 @@ export default function StereotypesPage() {
     // with contentIsPresent: true). This is the Store-FS-native equivalent
     // of "loaded ?": ask the node, not a ref/useState.
     if (!loaded) {
-      void service.loadAll().catch(() => {
+      void run('data-dictionary.stereotype.loadAll').catch(() => {
         // Error already surfaced via the notification toast (StereotypeService
         // calls notify('error', …) on failure). No useState<Error> needed.
       });
@@ -67,21 +69,20 @@ export default function StereotypesPage() {
     // We deliberately run on every mount-with-not-loaded; the imperative
     // call is idempotent at the service layer and re-fetches under the
     // pilot's "no debounce" rule (Risk noted in service JSDoc).
-  }, [service, loaded]);
+  }, [run, loaded]);
 
   const handleCreate = async (data: Stereotype) => {
     try {
-      await service.create(data);
+      await run('data-dictionary.stereotype.create', { data });
       setShowCreate(false);
     } catch {
-      // Notify-via-service path will handle this once #155 routes mutations
-      // through commands. For now, swallow — the failure is logged.
+      // Notify-via-service path handles this via the command handler.
     }
   };
 
   const handleUpdate = async (data: Stereotype) => {
     try {
-      await service.update(data.id, data);
+      await run('data-dictionary.stereotype.update', { id: data.id, data });
       setEditingId(null);
     } catch {
       // Same comment as handleCreate.
@@ -91,7 +92,7 @@ export default function StereotypesPage() {
   const handleDelete = async (id: string) => {
     if (!confirm(`Delete stereotype "${id}"?`)) return;
     try {
-      await service.delete(id);
+      await run('data-dictionary.stereotype.delete', { id });
     } catch {
       // Same comment as handleCreate.
     }

@@ -125,11 +125,13 @@ describe('#155 acceptance #3 — DI registration in initialize with useValue', (
   });
 });
 
-describe('#155 acceptance #4 — IntegrityPage consumes via useService', () => {
-  it('IntegrityPage.tsx imports useService and calls useService(INTEGRITY_SERVICE_TOKEN)', () => {
+describe('#155 acceptance #4 — IntegrityPage consumes via command bus (#163 migration)', () => {
+  // #163: IntegrityPage migrated from useService(INTEGRITY_SERVICE_TOKEN)
+  // to commands.run('data-dictionary.integrity.getReport') via useCommand().
+  it('IntegrityPage.tsx imports useCommand and calls commands.run for integrity.getReport', () => {
     const content = read(INTEGRITY_PAGE);
-    expect(content).toMatch(/from\s+['"]\.\.\/kernel\/useService['"]/);
-    expect(content).toMatch(/useService\s*<[^>]+>\s*\(\s*INTEGRITY_SERVICE_TOKEN\s*\)/);
+    expect(content).toMatch(/from\s+['"]\.\.\/kernel\/useCommand['"]/);
+    expect(content).toMatch(/['"]data-dictionary\.integrity\.getReport['"]/);
   });
 
   it('IntegrityPage.tsx contains no `integrityApi` references', () => {
@@ -138,11 +140,13 @@ describe('#155 acceptance #4 — IntegrityPage consumes via useService', () => {
   });
 });
 
-describe('#155 acceptance #5 — HomePage migrated', () => {
-  it('HomePage.tsx imports useService and calls useService(INTEGRITY_SERVICE_TOKEN)', () => {
+describe('#155 acceptance #5 — HomePage migrated via command bus (#163)', () => {
+  // #163: HomePage migrated from useService(INTEGRITY_SERVICE_TOKEN)
+  // to commands.run('data-dictionary.integrity.getReport') via useCommand().
+  it('HomePage.tsx imports useCommand and calls commands.run for integrity.getReport', () => {
     const content = read(HOME_PAGE);
-    expect(content).toMatch(/from\s+['"]\.\.\/kernel\/useService['"]/);
-    expect(content).toMatch(/useService\s*<[^>]+>\s*\(\s*INTEGRITY_SERVICE_TOKEN\s*\)/);
+    expect(content).toMatch(/from\s+['"]\.\.\/kernel\/useCommand['"]/);
+    expect(content).toMatch(/['"]data-dictionary\.integrity\.getReport['"]/);
   });
 
   it('HomePage.tsx contains no `integrityApi` references', () => {

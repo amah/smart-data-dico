@@ -19,7 +19,10 @@ import {
 import { StereotypeService, type NotifyFn } from './services/StereotypeService';
 import { IntegrityService } from './services/IntegrityService';
 import { DiffService } from './services/DiffService';
+import type { LogicalDiffOperand, PhysicalDiffSource } from './services/DiffService';
 import { ImportExportService } from './services/ImportExportService';
+import type { SchemaImportOptions, DbDialect } from './services/ImportExportService';
+import type { Stereotype } from '../../types';
 import type { RootState } from '../../kernel/bootstrap';
 
 // Module-scope mutable notify slot. `initialize` constructs the service with a
@@ -45,11 +48,6 @@ export function createDataDictionaryPlugin(): PluginModule {
           '/create',
         ],
       }));
-
-      // Register plugin commands
-      ctx.commands.register('data-dictionary.refresh', async () => {
-        ctx.hooks.emit('data-dictionary:refresh-requested');
-      });
 
       // #166 pilot: register StereotypeService.
       // dependsOn in bootstrap.ts MUST include 'store-fs' so STORE_FS_TOKEN
@@ -98,6 +96,101 @@ export function createDataDictionaryPlugin(): PluginModule {
         provide: IMPORT_EXPORT_SERVICE_TOKEN,
         useValue: new ImportExportService(),
       });
+
+      // ── #163 command registrations ────────────────────────────────────────
+      // Resolve the four services this plugin already provided above.
+      const stereotype = ctx.resolve<StereotypeService>(STEREOTYPE_SERVICE_TOKEN);
+      const integrity  = ctx.resolve<IntegrityService>(INTEGRITY_SERVICE_TOKEN);
+      const diff       = ctx.resolve<DiffService>(DIFF_SERVICE_TOKEN);
+      const ie         = ctx.resolve<ImportExportService>(IMPORT_EXPORT_SERVICE_TOKEN);
+
+      // Stereotype commands — each handler awaits the service method, emits an
+      // event for cross-plugin observation, and returns the service result.
+      ctx.commands.register('data-dictionary.stereotype.loadAll', () =>
+        stereotype.loadAll(),
+      );
+      ctx.commands.register('data-dictionary.stereotype.create', async ({ data }: { data: Stereotype }) => {
+        const created = await stereotype.create(data);
+        ctx.hooks.emit('stereotype.changed', { id: created.id, op: 'create' });
+        return created;
+      });
+      ctx.commands.register('data-dictionary.stereotype.update', async ({ id, data }: { id: string; data: Partial<Stereotype> }) => {
+        const updated = await stereotype.update(id, data);
+        ctx.hooks.emit('stereotype.changed', { id, op: 'update' });
+        return updated;
+      });
+      ctx.commands.register('data-dictionary.stereotype.delete', async ({ id }: { id: string }) => {
+        await stereotype.delete(id);
+        ctx.hooks.emit('stereotype.changed', { id, op: 'delete' });
+      });
+
+      // Integrity — single read.
+      ctx.commands.register('data-dictionary.integrity.getReport', () => integrity.getReport());
+
+      // Diff — four reads.
+      ctx.commands.register('data-dictionary.diff.getLogical', ({ left, right }: { left: LogicalDiffOperand; right: LogicalDiffOperand }) =>
+        diff.getLogical(left, right),
+      );
+      ctx.commands.register('data-dictionary.diff.getPhysicalConfig', ({ service }: { service: string }) =>
+        diff.getPhysicalConfig(service),
+      );
+      ctx.commands.register('data-dictionary.diff.getPhysicalForService', ({ service, source }: { service: string; source: PhysicalDiffSource }) =>
+        diff.getPhysicalForService(service, source),
+      );
+      ctx.commands.register('data-dictionary.diff.getPhysicalAll', ({ sources, services }: { sources: Record<string, PhysicalDiffSource>; services?: string[] }) =>
+        diff.getPhysicalAll(sources, services),
+      );
+
+      // Import / Export — eight calls. The commit handler emits an event.
+      ctx.commands.register('data-dictionary.import-export.importJsonSchema', ({ schema, service }: { schema: unknown; service: string }) =>
+        ie.importJsonSchema(schema, service),
+      );
+      ctx.commands.register('data-dictionary.import-export.importSqlDdl', ({ sql, service }: { sql: string; service: string }) =>
+        ie.importSqlDdl(sql, service),
+      );
+      ctx.commands.register('data-dictionary.import-export.previewSqlDdl', ({ sql, options }: { sql: string; options?: SchemaImportOptions }) =>
+        ie.previewSqlDdl(sql, options),
+      );
+      ctx.commands.register('data-dictionary.import-export.previewDbSchema', ({ dialect, connection, options }: { dialect: DbDialect; connection: Record<string, unknown>; options?: SchemaImportOptions }) =>
+        ie.previewDbSchema(dialect, connection, options),
+      );
+      ctx.commands.register('data-dictionary.import-export.diffSqlDdl', ({ parsed, targetService }: { parsed: unknown[]; targetService: string }) =>
+        ie.diffSqlDdl(parsed, targetService),
+      );
+      ctx.commands.register('data-dictionary.import-export.commitSqlDdl', async ({ parsed, targetService }: { parsed: unknown[]; targetService: string }) => {
+        const res = await ie.commitSqlDdl(parsed, targetService);
+        if (res?.data) {
+          ctx.hooks.emit('import-export.committed', {
+            service: targetService,
+            added: res.data.added,
+            merged: res.data.merged,
+            unchanged: res.data.unchanged,
+            removedInSource: res.data.removedInSource,
+            written: res.data.written,
+          });
+        }
+        return res;
+      });
+      ctx.commands.register('data-dictionary.import-export.exportJsonSchema', ({ service }: { service: string }) =>
+        ie.exportJsonSchema(service),
+      );
+      ctx.commands.register('data-dictionary.import-export.exportMarkdown', ({ service }: { service: string }) =>
+        ie.exportMarkdown(service),
+      );
+
+      // Quality — single read; emits an event so the HomePage widget can refresh
+      // without cross-importing the service.
+      ctx.commands.register('data-dictionary.quality.getReport', async ({ service }: { service?: string }) => {
+        const report = await ie.getQualityReport(service);
+        ctx.hooks.emit('quality.report.refreshed', { service, overall: report.overall });
+        return report;
+      });
+
+      // Route ownership for the commands debug page.
+      // (Route declared here because data-dictionary owns broad dev-tooling surfaces.)
+      ctx.views.register('routes.commands-debug', () => ({
+        routes: ['/commands'],
+      }));
     },
 
     async activate(ctx) {

@@ -136,11 +136,13 @@ describe('#155-import-export acceptance #3 — DI registration in initialize wit
 
 // ── Acceptance #4a — ImportExportPage migrated ────────────────────────────
 
-describe('#155-import-export acceptance #4a — ImportExportPage consumes via useService', () => {
-  it('ImportExportPage.tsx imports useService and calls useService<...>(IMPORT_EXPORT_SERVICE_TOKEN)', () => {
+// #163: ImportExportPage migrated from useService(IMPORT_EXPORT_SERVICE_TOKEN)
+// to commands.run('data-dictionary.import-export.*', ...) via useCommand().
+describe('#155-import-export acceptance #4a — ImportExportPage consumes via command bus (#163)', () => {
+  it('ImportExportPage.tsx imports useCommand and calls commands.run for import-export commands', () => {
     const content = read(IMPORT_EXPORT_PAGE);
-    expect(content).toMatch(/from\s+['"]\.\.\/kernel\/useService['"]/);
-    expect(content).toMatch(/useService\s*<[^>]+>\s*\(\s*IMPORT_EXPORT_SERVICE_TOKEN\s*\)/);
+    expect(content).toMatch(/from\s+['"]\.\.\/kernel\/useCommand['"]/);
+    expect(content).toMatch(/['"]data-dictionary\.import-export\.importJsonSchema['"]/);
   });
 
   it('ImportExportPage.tsx contains no `importExportApi` references', () => {
@@ -151,11 +153,12 @@ describe('#155-import-export acceptance #4a — ImportExportPage consumes via us
 
 // ── Acceptance #4b — QualityDashboardPage migrated ────────────────────────
 
-describe('#155-import-export acceptance #4b — QualityDashboardPage consumes via useService', () => {
-  it('QualityDashboardPage.tsx imports useService and calls useService<...>(IMPORT_EXPORT_SERVICE_TOKEN)', () => {
+// #163: QualityDashboardPage migrated to commands.run('data-dictionary.quality.getReport').
+describe('#155-import-export acceptance #4b — QualityDashboardPage consumes via command bus (#163)', () => {
+  it('QualityDashboardPage.tsx imports useCommand and calls commands.run for quality.getReport', () => {
     const content = read(QUALITY_DASHBOARD_PAGE);
-    expect(content).toMatch(/from\s+['"]\.\.\/kernel\/useService['"]/);
-    expect(content).toMatch(/useService\s*<[^>]+>\s*\(\s*IMPORT_EXPORT_SERVICE_TOKEN\s*\)/);
+    expect(content).toMatch(/from\s+['"]\.\.\/kernel\/useCommand['"]/);
+    expect(content).toMatch(/['"]data-dictionary\.quality\.getReport['"]/);
   });
 
   it('QualityDashboardPage.tsx contains no `importExportApi` references', () => {
@@ -166,31 +169,31 @@ describe('#155-import-export acceptance #4b — QualityDashboardPage consumes vi
 
 // ── Acceptance #4c — HomePage migrated ────────────────────────────────────
 
-describe('#155-import-export acceptance #4c — HomePage consumes via useService', () => {
-  it('HomePage.tsx imports useService and calls useService<...>(IMPORT_EXPORT_SERVICE_TOKEN)', () => {
+// #163: HomePage migrated to commands.run for both quality.getReport and
+// integrity.getReport. IMPORT_EXPORT_SERVICE_TOKEN and INTEGRITY_SERVICE_TOKEN
+// no longer imported directly.
+describe('#155-import-export acceptance #4c — HomePage consumes via command bus (#163)', () => {
+  it('HomePage.tsx imports useCommand and calls commands.run for quality and integrity', () => {
     const content = read(HOME_PAGE);
-    expect(content).toMatch(/from\s+['"]\.\.\/kernel\/useService['"]/);
-    expect(content).toMatch(/useService\s*<[^>]+>\s*\(\s*IMPORT_EXPORT_SERVICE_TOKEN\s*\)/);
+    expect(content).toMatch(/from\s+['"]\.\.\/kernel\/useCommand['"]/);
+    expect(content).toMatch(/['"]data-dictionary\.quality\.getReport['"]/);
+    expect(content).toMatch(/['"]data-dictionary\.integrity\.getReport['"]/);
   });
 
   it('HomePage.tsx contains no `importExportApi` references (including prose comments)', () => {
     const content = read(HOME_PAGE);
     expect(content).not.toMatch(/\bimportExportApi\b/);
   });
-
-  it('HomePage.tsx still retains the INTEGRITY_SERVICE_TOKEN usage from PR #173', () => {
-    const content = read(HOME_PAGE);
-    expect(content).toMatch(/INTEGRITY_SERVICE_TOKEN/);
-  });
 });
 
 // ── Acceptance #4d — SchemaImportWizard.tsx migrated ─────────────────────
 
-describe('#155-import-export acceptance #4d — SchemaImportWizard.tsx consumes via useService', () => {
-  it('SchemaImportWizard.tsx imports useService and calls useService<...>(IMPORT_EXPORT_SERVICE_TOKEN)', () => {
+// #163: SchemaImportWizard migrated to commands.run for all four calls.
+describe('#155-import-export acceptance #4d — SchemaImportWizard.tsx consumes via command bus (#163)', () => {
+  it('SchemaImportWizard.tsx imports useCommand and calls commands.run for import-export commands', () => {
     const content = read(SCHEMA_IMPORT_WIZARD);
-    expect(content).toMatch(/from\s+['"]\.\.\/kernel\/useService['"]/);
-    expect(content).toMatch(/useService\s*<[^>]+>\s*\(\s*IMPORT_EXPORT_SERVICE_TOKEN\s*\)/);
+    expect(content).toMatch(/from\s+['"]\.\.\/kernel\/useCommand['"]/);
+    expect(content).toMatch(/['"]data-dictionary\.import-export\.previewSqlDdl['"]/);
   });
 
   it('SchemaImportWizard.tsx contains no `importExportApi` references', () => {

@@ -15,10 +15,6 @@ export function createVersionControlPlugin(): PluginModule {
           '/version/**',
         ],
       }));
-
-      ctx.commands.register('version.commit', async (message: string) => {
-        ctx.hooks.emit('version:commit-requested', { message });
-      });
     },
 
     async activate(_ctx) {

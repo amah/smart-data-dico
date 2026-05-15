@@ -1,7 +1,5 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import { useService } from '../../kernel/useService';
-import { SEARCH_SERVICE_TOKEN } from '../../kernel/tokens';
-import type { SearchService } from '../../plugins/search/services/SearchService';
+import { host } from '../../kernel/bootstrap';
 import type { SearchResult } from '../../types';
 // TODO(#154): when the search plugin grows its slices/ folder, move this file
 // to frontend/src/plugins/search/slices/searchSlice.ts along with the
@@ -24,19 +22,19 @@ const initialState: SearchState = {
 export const searchEntities = createAsyncThunk(
   'search/searchEntities',
   async (query: string) => {
-    // Resolve at call time (after bootstrap). `useService` is just a
-    // kernel-resolve wrapper; despite the `use*` name it has no React
-    // hooks contract and is safe to call inside thunks.
+    // Resolve at call time (after bootstrap) via the command bus.
     // Bootstrap always completes before any thunk fires — the store itself
     // comes from the kernel, so dispatch cannot precede bootstrap. If this
-    // thunk somehow fires pre-bootstrap, `useService` throws a clear error
-    // rather than silently returning undefined (see #155-search Risk #1).
+    // thunk somehow fires pre-bootstrap, the ctx guard throws a clear error.
     // Pre-existing reducer bug: state.results is SearchResult[] but action.payload
     // is SearchResponse (envelope). The bug is invisible today — no component
     // reads state.search.results (the slice is dead code). #154 owners will
     // clean up when rehoming the slice to plugins/search/slices/.
-    const service = useService<SearchService>(SEARCH_SERVICE_TOKEN);
-    return await service.searchEntities(query);
+    const ctx = host.rootActivationCtx;
+    if (!ctx) {
+      throw new Error('searchEntities thunk fired before bootstrap completed');
+    }
+    return await ctx.commands.run('search.search', { query });
   },
 );
 
