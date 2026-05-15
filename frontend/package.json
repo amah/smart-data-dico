@@ -16,6 +16,7 @@
     "@ai-sdk/react": "^3.0.145",
     "@auth0/auth0-react": "^2.3.0",
     "@hamak/event-channel": "^0.5.3",
+    "@hamak/logging": "^0.5.2",
     "@hamak/microkernel-api": "^0.5.2",
     "@hamak/microkernel-impl": "^0.5.2",
     "@hamak/microkernel-spi": "^0.5.2",

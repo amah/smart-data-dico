@@ -34,6 +34,16 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     css: true,
+    server: {
+      deps: {
+        // Defensive guard: force @hamak/* packages through Vite's transform
+        // pipeline. No-op against @hamak/* >= 0.5.5 (which ships `.js`
+        // extensions on its relative re-exports — see amah/app-framework#11),
+        // but kept so future versions that regress to extensionless ESM
+        // don't silently break Vitest with ERR_MODULE_NOT_FOUND.
+        inline: [/^@hamak\//],
+      },
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

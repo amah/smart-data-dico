@@ -17,6 +17,7 @@ import { createVersionControlPlugin } from '../plugins/version-control/versionCo
 import { createAppRemoteFsPlugin } from '../plugins/remote-fs/remoteFsPlugin';
 import { createAppRemoteGitPlugin } from '../plugins/remote-fs/remoteGitPlugin';
 import { createNotificationPlugin } from '../plugins/notification/notificationPlugin';
+import { createLoggingPlugin } from '../plugins/logging/loggingPlugin';
 import { createCasePlugin } from '../plugins/case/casePlugin';
 import { createRulesPlugin } from '../plugins/rules/rulesPlugin';
 import type { IStoreManager } from '@hamak/ui-store-api';
@@ -140,10 +141,17 @@ export function registerPlugins() {
     createAppRemoteGitPlugin()
   );
 
-  // Notification plugin (depends on: store)
+  // Logging plugin (no dependencies; must be registered before notification)
+  host.registerPlugin(
+    'logging',
+    { name: 'logging', version: '1.0.0', entry: '' },
+    createLoggingPlugin()
+  );
+
+  // Notification plugin (depends on: store, logging)
   host.registerPlugin(
     'notification',
-    { name: 'notification', version: '1.0.0', entry: '', dependsOn: ['store'] },
+    { name: 'notification', version: '1.0.0', entry: '', dependsOn: ['store', 'logging'] },
     createNotificationPlugin()
   );
 
