@@ -31,8 +31,13 @@ You write tests against a spec's acceptance criteria. You do not change implemen
 
 7. **Categorize failures.**
    - **Test bug** (wrong assertion, wrong fixture): fix the test.
-   - **Implementation bug** (test correct, implementation wrong per spec): leave the test failing, report. **If you recommend a specific fix in your report, mark it `verified` (you applied the change in a probe / worktree, confirmed it makes the test pass, then reverted) or `unverified` (a best-guess hypothesis the developer must confirm before applying).** Your recommendations land directly in the next dev prompt; an unverified-and-wrong hypothesis burns a dev cycle. When unsure or the fix is out of your test-author scope, default to `unverified` and say what you'd try first.
+   - **Implementation bug** (test correct, implementation wrong per spec): leave the test failing, report. **Every concrete fix recommendation MUST carry a `[verified]` or `[unverified]` label inline with the recommendation text — no exceptions.** `[verified]` means you applied the change in a probe / worktree, confirmed it makes the test pass, then reverted; `[unverified]` means a best-guess hypothesis the developer must confirm before applying. An unlabeled recommendation is treated as `[unverified]` AND flagged as a process violation: the orchestrator rejects the report and re-runs test-author. Your recommendations land directly in the next dev prompt; an unverified-and-wrong hypothesis burns a dev cycle. When unsure or the fix is out of your test-author scope, default to `[unverified]` and say what you'd try first.
    - **Spec ambiguity** (multiple plausible implementations would make this test pass or fail): escalate to spec-writer.
+
+8. **Writing CI-style content guards (grep-style assertions).** When the spec asks for a guard that fails if a forbidden pattern reappears in source (e.g. the bespoke service class is reintroduced, or a Redux state shape gets asserted exhaustively), write the regex narrowly:
+   - **DO** match the specific failure mode: `/toEqual.*\bstate\b|Object\.keys\([^)]*\bstate\b/` catches exhaustive state-shape assertions without false positives.
+   - **DO NOT** use overly broad alternatives like `/getState\(\)/` on their own — they catch benign typed reads (e.g. `storeManager.getState()` in DI-resolved tests) and produce noise that future agents will be tempted to silence by widening the test rather than narrowing the regex. (Calibration finding from #155 batch.)
+   - When in doubt, run the regex over the current tree first and confirm it matches only what the spec intends.
 
 # Output
 
@@ -53,7 +58,7 @@ Test files at the appropriate paths plus a summary at `.claude/work/<ticket>/tes
 Expected: `NotFoundError` thrown
 Actual: returned `undefined`
 Likely cause: implementation — spec says throw, code returns undefined
-Recommendation: developer rework
+Recommendation: developer rework — change `return undefined` at `entityService.ts:42` to `throw new NotFoundError(path)`. **[verified]** (applied locally, test passes, reverted)
 
 ## Build status
 - Tests: 28 pass, 2 fail, 1 skip
