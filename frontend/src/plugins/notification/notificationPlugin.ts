@@ -1,68 +1,52 @@
-/**
- * Notification Plugin
- *
- * Lightweight notification service for success/error feedback.
- * Uses microkernel hooks for cross-plugin notification support.
- */
+// frontend/src/plugins/notification/notificationPlugin.ts
+//
+// Thin adapter onto @hamak/notification. This plugin owns no notification
+// state of its own — it delegates the whole concern to the framework
+// factory and only fixes app-level configuration here.
 
+import { createNotificationPlugin as createFrameworkNotificationPlugin } from '@hamak/notification';
 import type { PluginModule } from '@hamak/microkernel-spi';
+import type { NotificationPluginConfig } from '@hamak/notification/spi';
 
-export type NotificationType = 'success' | 'error' | 'warning' | 'info';
+/**
+ * App-level configuration for the notification plugin.
+ *
+ * Tuned for smart-data-dico's UI: top-right placement, 5s default
+ * auto-dismiss, no localStorage persistence (notifications are
+ * session-scoped feedback for save/commit/import flows).
+ *
+ * `maxNotifications` is intentionally omitted: setting it to any value
+ * triggers a welcome notification on activate (framework behavior at
+ * `frontend/node_modules/@hamak/notification/dist/impl/plugin/
+ * notification-plugin-factory.js` lines 103-109 —
+ * `if (config.maxNotifications !== undefined) { service.info(
+ *   'Notification system ready', 'System', { duration: 3000, … }); }`).
+ * We don't want that surfaced when the toast renderer lands in a
+ * follow-up ticket. Framework default for `maxNotifications` is 50
+ * (`spi/plugin/plugin-config.d.ts:17`), which is what we want anyway.
+ */
+const APP_NOTIFICATION_CONFIG: NotificationPluginConfig = {
+  defaultDuration: 5000,
+  position: 'top-right',
+  enablePersistence: false,
+};
 
-export interface Notification {
-  id: string;
-  type: NotificationType;
-  message: string;
-  duration?: number;
-}
-
-const NOTIFICATION_TOKEN = Symbol('NotificationService');
-
-class SimpleNotificationService {
-  private listeners: Array<(notification: Notification) => void> = [];
-  private counter = 0;
-
-  notify(type: NotificationType, message: string, duration = 5000): void {
-    const notification: Notification = {
-      id: `notif-${++this.counter}`,
-      type,
-      message,
-      duration,
-    };
-    this.listeners.forEach((fn) => fn(notification));
-  }
-
-  subscribe(listener: (notification: Notification) => void): () => void {
-    this.listeners.push(listener);
-    return () => {
-      this.listeners = this.listeners.filter((fn) => fn !== listener);
-    };
-  }
-
-  success(message: string) { this.notify('success', message); }
-  error(message: string) { this.notify('error', message); }
-  warning(message: string) { this.notify('warning', message); }
-  info(message: string) { this.notify('info', message); }
-}
-
+/**
+ * Factory used by `frontend/src/kernel/bootstrap.ts`.
+ *
+ * The returned `PluginModule` will, on `initialize`:
+ *   1. `ctx.resolve(LOG_MANAGER_TOKEN)` — REQUIRES the logging plugin to
+ *      have initialized first (see `bootstrap.ts` registration order).
+ *   2. Provide `NOTIFICATION_SERVICE_TOKEN` via DI.
+ *   3. Best-effort register `notificationReducer` under `state.notifications`
+ *      via `Symbol.for('@hamak/ui-store:StoreExtensionsRegistry')` (which
+ *      ui-store does provide — the slice WILL appear in `RootState`).
+ *   4. Register the framework's seven `notification.*` commands with
+ *      `(args: object)` signatures (NOT the legacy `(message: string)` form).
+ *
+ * On `activate`: emits `notification:ready` hook; does NOT emit a welcome
+ * notification (suppressed by omitting `maxNotifications` above).
+ */
 export function createNotificationPlugin(): PluginModule {
-  const service = new SimpleNotificationService();
-
-  return {
-    async initialize(ctx) {
-      ctx.provide({ provide: NOTIFICATION_TOKEN, useValue: service });
-
-      // Register notification commands
-      ctx.commands.register('notification.success', (message: string) => service.success(message));
-      ctx.commands.register('notification.error', (message: string) => service.error(message));
-      ctx.commands.register('notification.warning', (message: string) => service.warning(message));
-      ctx.commands.register('notification.info', (message: string) => service.info(message));
-    },
-
-    async activate() {
-      console.log('[notification] Plugin activated');
-    },
-  };
+  return createFrameworkNotificationPlugin(APP_NOTIFICATION_CONFIG);
 }
-
-export { NOTIFICATION_TOKEN, SimpleNotificationService };

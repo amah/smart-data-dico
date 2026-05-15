@@ -118,7 +118,8 @@ These three words are kept strictly separate. **Do not collapse them.**
 - `@hamak/ui-remote-git-fs-impl` — Remote git client (frontend)
 - `@hamak/ui-remote-git-fs-backend` — Git service + routes (backend)
 - `@hamak/filesystem-server-api`, `@hamak/filesystem-server-impl` — Filesystem server with workspace management (backend)
-- `@hamak/notification-api`, `@hamak/notification-impl` — Notification system
+- `@hamak/notification` — Notification system (subpath exports: ., /api, /spi)
+- `@hamak/logging` — Pluggable logging system (subpath exports: ., /api, /spi)
 
 ### API docs
 Swagger UI available at `/api-docs` when backend is running.
