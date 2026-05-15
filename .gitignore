@@ -49,3 +49,6 @@ coverage/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 .claude/worktrees/
+
+# Local diagrams in sample projects (user-generated layouts)
+samples/*/.dico/diagrams/
