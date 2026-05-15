@@ -163,10 +163,17 @@ describe('#156 acceptance — content guards', () => {
     // exhaustive-shape assertions, the slice could break it; the spec asks
     // for explicit triage. The walker already skips this guard file, so
     // its literal regex source won't self-match.
+    //
+    // Regex tightened post-#155 batch: the original `getState\(\)` alternative
+    // was too broad — it caught benign typed reads (e.g.
+    // `storeManager.getState()` in DI-resolved tests) which do not assert
+    // exhaustive shape. The remaining alternatives still catch the actual
+    // failure modes: `toEqual(state)`-style exhaustive assertions and
+    // `Object.keys(state)` enumeration.
     const hits = searchFiles(
       FRONTEND_SRC,
       isTestFile,
-      /getState\(\)|toEqual.*\bstate\b|Object\.keys\([^)]*\bstate\b/
+      /toEqual.*\bstate\b|Object\.keys\([^)]*\bstate\b/
     );
     expect(hits, JSON.stringify(hits, null, 2)).toEqual([]);
   });

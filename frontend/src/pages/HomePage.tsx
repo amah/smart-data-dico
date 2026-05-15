@@ -11,7 +11,7 @@
  *     useRecentPackages store.
  *
  * KPI data sources:
- *   - Quality      → importExportApi.getQualityReport() → overall %
+ *   - Quality      → importExport.getQualityReport() → overall %
  *   - Integrity    → IntegrityService.getReport() → count of severity=error
  *   - Open diff    → gitApi.getStatus() → uncommitted file count
  *   - Physical sync → placeholder (— "not run") until the Phase 6
@@ -24,11 +24,11 @@ import {
   servicesApi,
   packageApi,
   gitApi,
-  importExportApi,
 } from '../services/api';
 import { useService } from '../kernel/useService';
-import { INTEGRITY_SERVICE_TOKEN } from '../kernel/tokens';
+import { INTEGRITY_SERVICE_TOKEN, IMPORT_EXPORT_SERVICE_TOKEN } from '../kernel/tokens';
 import type { IntegrityService } from '../plugins/data-dictionary/services/IntegrityService';
+import type { ImportExportService } from '../plugins/data-dictionary/services/ImportExportService';
 import { getRecentPackages } from '../hooks/useRecentPackages';
 import {
   Button,
@@ -79,6 +79,7 @@ const HomePage = () => {
 
   // Pattern B integrity service — resolved once per render via the kernel.
   const integrity = useService<IntegrityService>(INTEGRITY_SERVICE_TOKEN);
+  const importExport = useService<ImportExportService>(IMPORT_EXPORT_SERVICE_TOKEN);
 
   // Load packages + per-package quality breakdown in parallel.
   useEffect(() => {
@@ -110,7 +111,7 @@ const HomePage = () => {
               return { name, entityCount: 0, attributeCount: 0, relationshipCount: 0 };
             }
           })),
-          importExportApi.getQualityReport().catch(() => null),
+          importExport.getQualityReport().catch(() => null),
         ]);
 
         if (cancelled) return;
@@ -138,7 +139,7 @@ const HomePage = () => {
     };
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [importExport]);
 
   // Integrity + git-status KPIs — independent fetches; best-effort.
   useEffect(() => {

@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { servicesApi, stereotypeApi } from '../services/api';
+import { useService } from '../kernel/useService';
+import { SEARCH_SERVICE_TOKEN } from '../kernel/tokens';
+import type { SearchService, SearchFilters } from '../plugins/search/services/SearchService';
 import type { SearchResult, Stereotype } from '../types';
 
 const TYPE_BADGES: Record<string, string> = {
@@ -15,6 +18,7 @@ const SearchComponent = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialQuery = searchParams.get('q') || '';
+  const search = useService<SearchService>(SEARCH_SERVICE_TOKEN);
 
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -45,13 +49,13 @@ const SearchComponent = () => {
     try {
       setLoading(true);
       setError(null);
-      const backendFilters: any = {};
+      const backendFilters: SearchFilters = {};
       if (filters.type !== 'all') backendFilters.type = filters.type;
       if (filters.service !== 'all') backendFilters.service = filters.service;
       if (filters.stereotype !== 'all') backendFilters.stereotype = filters.stereotype;
       if (filters.hasMetadata) backendFilters.hasMetadata = filters.hasMetadata;
 
-      const response = await servicesApi.searchEntities(
+      const response = await search.searchEntities(
         searchQuery,
         Object.keys(backendFilters).length > 0 ? backendFilters : undefined,
       );
