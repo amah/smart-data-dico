@@ -9,9 +9,8 @@
 
 import { useState, useCallback, useEffect, type ReactNode } from 'react';
 import { servicesApi } from '../services/api';
-import { useService } from '../kernel/useService';
-import { DIFF_SERVICE_TOKEN } from '../kernel/tokens';
-import type { DiffService, PhysicalConfig } from '../plugins/data-dictionary/services/DiffService';
+import { useCommand } from '../kernel/useCommand';
+import type { PhysicalConfig } from '../plugins/data-dictionary/services/DiffService';
 import {
   Button,
   Chip,
@@ -77,7 +76,7 @@ const STATUS_META: Record<AttrStatus, { label: string; tone: 'success' | 'warnin
 const ALL = '__all__';
 
 export default function PhysicalDiffPage() {
-  const diffSvc = useService<DiffService>(DIFF_SERVICE_TOKEN);
+  const run = useCommand();
   const [services, setServices] = useState<string[]>([]);
   const [service, setService] = useState('');
   const [sql, setSql] = useState('');
@@ -100,7 +99,7 @@ export default function PhysicalDiffPage() {
     Promise.all(
       services.map(async svc => {
         try {
-          const cfg = await diffSvc.getPhysicalConfig(svc);
+          const cfg = await run('data-dictionary.diff.getPhysicalConfig', { service: svc });
           if (cfg) configs[svc] = cfg;
           seed[svc] = { type: cfg ? 'live' : 'ddl' };
         } catch {
@@ -111,7 +110,7 @@ export default function PhysicalDiffPage() {
       setPhysicalConfigs(configs);
       setPerService(seed);
     });
-  }, [service, services, diffSvc]);
+  }, [service, services, run]);
 
   const runDiff = useCallback(async () => {
     if (service === ALL) {
@@ -136,7 +135,7 @@ export default function PhysicalDiffPage() {
           setLoading(false);
           return;
         }
-        const result = await diffSvc.getPhysicalAll(sources, Object.keys(sources));
+        const result = await run('data-dictionary.diff.getPhysicalAll', { sources, services: Object.keys(sources) });
         const allDiff = result as AllPhysicalDiff;
         setAllDiff(allDiff);
         const exp = new Set<string>();
@@ -161,7 +160,7 @@ export default function PhysicalDiffPage() {
     setError(null);
     setAllDiff(null);
     try {
-      const result = await diffSvc.getPhysicalForService(service, { type: 'ddl', sql });
+      const result = await run('data-dictionary.diff.getPhysicalForService', { service, source: { type: 'ddl', sql } });
       const data = result as PhysicalDiff;
       setDiff(data);
       const exp = new Set<string>();
@@ -174,7 +173,7 @@ export default function PhysicalDiffPage() {
     } finally {
       setLoading(false);
     }
-  }, [service, sql, services, perService, diffSvc]);
+  }, [service, sql, services, perService, run]);
 
   const toggle = useCallback((key: string) => {
     setExpanded(prev => {
