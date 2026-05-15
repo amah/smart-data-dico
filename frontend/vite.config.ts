@@ -36,12 +36,30 @@ export default defineConfig({
     css: true,
     server: {
       deps: {
-        // Defensive guard: force @hamak/* packages through Vite's transform
-        // pipeline. No-op against @hamak/* >= 0.5.5 (which ships `.js`
-        // extensions on its relative re-exports — see amah/app-framework#11),
-        // but kept so future versions that regress to extensionless ESM
-        // don't silently break Vitest with ERR_MODULE_NOT_FOUND.
-        inline: [/^@hamak\//],
+        // Force @hamak/* through Vite's transform pipeline. Two concerns:
+        // (a) extensionless ESM imports (amah/app-framework#11) — fixed in
+        //     most packages at 0.5.5; the inline guard catches future
+        //     regressions and packages that haven't republished yet.
+        // (b) directory-style imports like `export * from './core'` in
+        //     @hamak/ui-store-impl@0.5.0 — Node strict rejects with
+        //     ERR_UNSUPPORTED_DIR_IMPORT. Explicit list because the regex
+        //     form `[/^@hamak\//]` didn't fully cover this case in Vitest
+        //     1.6 (verified by probe during the #166 stereotype-slice pilot).
+        inline: [
+          '@hamak/microkernel-impl',
+          '@hamak/microkernel-api',
+          '@hamak/microkernel-spi',
+          '@hamak/ui-store-impl',
+          '@hamak/ui-store-api',
+          '@hamak/ui-store',
+          '@hamak/ui-remote-fs',
+          '@hamak/ui-remote-git-fs',
+          '@hamak/ui-shell',
+          '@hamak/ui-navigation',
+          '@hamak/shared-utils',
+          '@hamak/event-channel',
+          '@hamak/notification',
+        ],
       },
     },
     coverage: {
