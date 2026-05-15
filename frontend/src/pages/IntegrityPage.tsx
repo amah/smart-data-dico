@@ -20,7 +20,9 @@
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { integrityApi } from '../services/api';
+import { useService } from '../kernel/useService';
+import { INTEGRITY_SERVICE_TOKEN } from '../kernel/tokens';
+import type { IntegrityService } from '../plugins/data-dictionary/services/IntegrityService';
 import type { PhysicalConstraint, Rule, RuleSeverityValue } from '../types';
 import {
   Button,
@@ -165,9 +167,17 @@ function severityToValue(s: RuleSeverityValue): StatusValue {
 
 const IntegrityPage = () => {
   const navigate = useNavigate();
+  // Pattern B service — resolved once per render; safe because the kernel
+  // returns the same singleton instance registered in dataDictionaryPlugin.
+  const integrity = useService<IntegrityService>(INTEGRITY_SERVICE_TOKEN);
   const [validation, setValidation] = useState<ValidationRow[]>([]);
   const [constraints, setConstraints] = useState<ConstraintRow[]>([]);
   const [rules, setRules] = useState<Rule[]>([]);
+  // TODO(#155-followup): cookbook §2 prescribes file-state-driven loading
+  // flags, but the Pattern B integrity endpoint has no Store FS node to
+  // hang state on. The §1.5 ephemeral-UI carve-out covers the one-shot
+  // fetch flags below until the cookbook publishes a Pattern B worked
+  // example for loading state.
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -184,7 +194,7 @@ const IntegrityPage = () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await integrityApi.getReport();
+      const data = await integrity.getReport();
       setValidation(data.validation as ValidationRow[]);
       setConstraints(data.constraints as ConstraintRow[]);
       setRules(data.rules);
@@ -193,7 +203,7 @@ const IntegrityPage = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [integrity]);
 
   useEffect(() => {
     fetchReport();
