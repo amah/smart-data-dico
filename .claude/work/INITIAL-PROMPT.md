@@ -68,6 +68,11 @@ WORKING RULES
 - Never push or merge without my explicit say-so. Tags, branches, PRs
   are fine to create locally; remote-state-changing operations need
   confirmation.
+- Parallel agent batches MUST pass `isolation: "worktree"` to the
+  Agent tool. Spawning two or more agents concurrently without this
+  flag causes them to share one git worktree, so their edits
+  intermingle across branches. (Calibration finding from the #155
+  Pattern B batch — recovered by consolidating, do not repeat.)
 - Never commit the .claude/ directory or frontend/docs/patterns.md
   without my explicit say-so. These are pre-work artifacts; I want to
   decide when they land in main.
