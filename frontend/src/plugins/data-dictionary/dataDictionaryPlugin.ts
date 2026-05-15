@@ -12,8 +12,10 @@ import type { StoreFileSystemFacade } from '@hamak/ui-store-impl';
 import {
   STORE_FS_TOKEN,
   STEREOTYPE_SERVICE_TOKEN,
+  INTEGRITY_SERVICE_TOKEN,
 } from '../../kernel/tokens';
 import { StereotypeService, type NotifyFn } from './services/StereotypeService';
+import { IntegrityService } from './services/IntegrityService';
 import type { RootState } from '../../kernel/bootstrap';
 
 // Module-scope mutable notify slot. `initialize` constructs the service with a
@@ -73,6 +75,12 @@ export function createDataDictionaryPlugin(): PluginModule {
       ctx.provide({
         provide: STEREOTYPE_SERVICE_TOKEN,
         useValue: service,
+      });
+
+      // Pattern B (#155): no kernel deps — register a self-contained axios wrapper.
+      ctx.provide({
+        provide: INTEGRITY_SERVICE_TOKEN,
+        useValue: new IntegrityService(),
       });
     },
 

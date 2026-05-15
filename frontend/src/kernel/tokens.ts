@@ -39,3 +39,14 @@ export const STORE_FS_TOKEN = Symbol('StoreFs');
  * JSON-vs-YAML round-trip gap (Risk 1) is unresolved.
  */
 export const STEREOTYPE_SERVICE_TOKEN = Symbol('StereotypeService');
+
+/**
+ * DI token for the IntegrityService.
+ *
+ * Pattern B per #155 catalog: a REST wrapper around the computed
+ * `GET /api/integrity` endpoint (validation + constraints + rules — see
+ * CLAUDE.md "Validation / Constraint / Rule" trinity). Owned by the
+ * `data-dictionary` plugin; constructed and provided in
+ * `dataDictionaryPlugin.initialize`.
+ */
+export const INTEGRITY_SERVICE_TOKEN = Symbol('IntegrityService');
