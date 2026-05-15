@@ -32,6 +32,9 @@ Smart Data Dictionary Management System — a full-stack app for creating, editi
 - **`frontend/`** — React 18 + Vite + TypeScript (ESM). Styled with Tailwind CSS + DaisyUI. Uses @hamak/app-framework microkernel with Redux store, Cytoscape.js for visualization.
 
 ### Backend layers
+
+Backend is a plain Express app; the framework provides only the FS and git route mounts.
+
 - **Routes** (`src/routes/index.ts`): All API endpoints (~90 routes) defined in one file
 - **Controllers** (`src/controllers/`): Request handlers for auth, dictionaries, services, versions, diagrams, stereotypes, perspectives, import/export
 - **Services** (`src/services/`): Business logic — `serviceService.ts` (entities, search, impact), `dictionaryService.ts` (packages), `stereotypeService.ts`, `perspectiveService.ts` (BFS resolution), `importService.ts`, `exportService.ts`, `qualityService.ts`
