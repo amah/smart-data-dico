@@ -2,7 +2,7 @@
 
 The canonical patterns for smart-data-dico's frontend. Every plugin, page, component, service, command, and event follows them. New code is reviewed against this document.
 
-> **Status**: OUTLINE — five worked examples are TODO. Fill them in once #166 lands its first proof (likely the stereotypes slice). Each TODO is a real example pulled from the actually-implemented code, not invented.
+> **Status**: §2 and §3 filled (May 2026, post #166 stereotype-slice and #155-integrity pilots — PRs #172 and #173). §1, §4, §5 are still TODO and await tickets that exercise those patterns directly. Each filled example is real code pulled from merged source, not invented.
 
 ---
 
@@ -46,9 +46,42 @@ const dirty   = file?.state.memo?.modified ?? false;
 
 Ephemeral UI state (`isExpanded`, `hoveredRow`) does still use `useState`. The rule is: state about *a file's IO* lives on Store FS; state about *a component's local UI* lives in `useState`.
 
-### TODO — Worked example #2: a list page that shows per-row loading
+### Worked example #2 — `StereotypesPage` (Pattern A consumer)
 
-> Fill in. Use `PackageDetailPage` listing entities. Each row is a smart `EntityCard path={p}` — its own loading state, independent of siblings.
+From `frontend/src/pages/StereotypesPage.tsx` (merged in #166's stereotype-slice proof, PR #172):
+
+```tsx
+export default function StereotypesPage() {
+  const service = useService<StereotypeService>(STEREOTYPE_SERVICE_TOKEN);
+
+  // EPHEMERAL UI state only — modal open / row being edited. §1.5
+  // explicitly carves these out.
+  const [showCreate, setShowCreate] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  // FILE IO state — loading / loaded / error — comes from the Store FS
+  // node, NOT from useState.
+  const file = service.useFile();
+  const stereotypes: Stereotype[] = file?.content ?? [];
+
+  // Canonical loading derivation (cookbook-equivalent of
+  // `file?.state.contentLoading ?? false`, with the no-node-yet case
+  // handled explicitly):
+  const loading = !file || (!file.state.contentLoaded && !file.state.contentLoadError);
+  const error   = file?.state.contentLoadError;
+
+  // … render <Toolbar /> + grouped stereotype lists + <Modal /> for editing
+}
+```
+
+Two things to notice:
+
+1. **`useState` only appears for ephemeral UI** (`showCreate`, `editingId`). Both have the `boolean | string-id` shape that the §1.5 carve-out explicitly permits — they are about *this component's* open/closed state, not about whether a file has loaded.
+2. **`loading` is derived, not stored.** The same path opened twice (e.g., the user navigates away and back) shares the Store FS node, which means `contentLoaded` is already `true` the second time and the page paints synchronously without re-fetching. The framework's store-sync middleware owns the lifecycle; the page just selects.
+
+The `loading = !file || (!file.state.contentLoaded && !file.state.contentLoadError)` form is the "no-node-yet" handler — `file` is `undefined` on first render until the selector returns a value. Once any code dispatches `setFile(...)` for that path, the node exists and `contentLoaded === true` (verified at `@hamak/shared-utils/dist/core-utils-filesystem.js`).
+
+**Pattern B note.** When the service is a REST wrapper (no Store FS node to read state from), the page falls back to `useState<loading|error>` per the §1.5 ephemeral-UI exception — see `IntegrityPage.tsx` and the §3b worked example. The two patterns are not symmetric here; ban Pattern B `useState` only when a Store FS-backed alternative exists.
 
 ---
 
@@ -68,9 +101,130 @@ Services come in two patterns:
 
 Mixing patterns within one service is fine when the surface genuinely splits — `AIService` has Pattern A for prompts/conversations (files) and Pattern B for chat (streaming).
 
-### TODO — Worked example #3: `DictionaryService` skeleton
+### Worked example #3a — Pattern A: `StereotypeService` (Store FS facade)
 
-> Fill in. Show the constructor taking `storeFs`, `dispatch`, `getState`. Show one Pattern A method (`useEntity(path)`) and one Pattern B method (`searchEntities(query)`). Plugin registration via `ctx.provide`.
+From `frontend/src/plugins/data-dictionary/services/StereotypeService.ts` (merged in #166's stereotype-slice proof, PR #172):
+
+```ts
+export class StereotypeService {
+  constructor(
+    private readonly storeFs: StoreFileSystemFacade<RootState>,
+    private readonly dispatch: Dispatch<Action>,
+    private readonly getState: () => RootState,
+    private readonly notify: NotifyFn = () => {},
+  ) {}
+
+  /** Hook — returns the Store FS file node. Page reads loading/error
+   *  from `node.state.contentLoaded` / `contentLoadError` per §2. */
+  useFile(): FileNode<Stereotype[]> | undefined {
+    const selector = this.storeFs.createFileSelector([...STEREOTYPES_PATH]);
+    return useSelector(selector) as FileNode<Stereotype[]> | undefined;
+  }
+
+  useAll(): Stereotype[] | undefined { return this.useFile()?.content; }
+
+  /** Mutation — dispatches Store FS edits; framework writes upstream. */
+  async save(s: Stereotype): Promise<void> {
+    // …read-modify-write of the multi-kind file; dispatch setFile(...)
+  }
+}
+```
+
+Registration in the plugin's `initialize` lifecycle, from `frontend/src/plugins/data-dictionary/dataDictionaryPlugin.ts`:
+
+```ts
+async initialize(ctx) {
+  // Resolve cross-plugin dependencies via DI tokens.
+  const storeFs   = ctx.resolve(STORE_FS_TOKEN);       // from store-fs plugin
+  const storeMgr  = ctx.resolve(STORE_MANAGER_TOKEN);  // from store plugin
+
+  const service = new StereotypeService(
+    storeFs,
+    storeMgr.getStore().dispatch,
+    storeMgr.getStore().getState,
+    (level, message) => notifyImpl(level, message),    // closure forwarder
+  );
+
+  ctx.provide({ provide: STEREOTYPE_SERVICE_TOKEN, useValue: service });
+}
+```
+
+Consumer (a smart component) just resolves the token via the `useService` hook from `frontend/src/kernel/useService.ts` and addresses by path:
+
+```tsx
+// frontend/src/pages/StereotypesPage.tsx
+export default function StereotypesPage() {
+  const service = useService<StereotypeService>(STEREOTYPE_SERVICE_TOKEN);
+  const file = service.useFile();
+  const stereotypes = file?.content ?? [];
+  const loading = !file || (!file.state.contentLoaded && !file.state.contentLoadError);
+  const error = file?.state.contentLoadError;
+  // … rendering
+}
+```
+
+### Worked example #3b — Pattern B: `IntegrityService` (REST wrapper)
+
+From `frontend/src/plugins/data-dictionary/services/IntegrityService.ts` (merged in #155-integrity, PR #173):
+
+```ts
+export class IntegrityService {
+  private readonly http: AxiosInstance;
+
+  constructor(http?: AxiosInstance) {
+    // Optional injection lets unit tests pass a stub; production gets
+    // a default instance with the auth interceptor baked in.
+    this.http = http ?? IntegrityService.createDefaultHttp();
+  }
+
+  async getReport(): Promise<IntegrityReport> {
+    const response = await this.http.get<{ data: IntegrityReport }>('/integrity');
+    return response.data.data;
+  }
+
+  private static createDefaultHttp(): AxiosInstance {
+    const instance = axios.create({ baseURL: '/api', headers: { 'Content-Type': 'application/json' } });
+    instance.interceptors.request.use((config) => {
+      const token = localStorage.getItem('auth_token') || 'mock-token-for-testing';
+      if (token) config.headers.Authorization = `Bearer ${token}`;
+      return config;
+    });
+    return instance;
+  }
+}
+```
+
+Pattern B registers with an **eager `useValue`** — no store-activation dependency, no Proxy placeholder needed (in contrast to Pattern A which must defer facade construction to `activate`):
+
+```ts
+// dataDictionaryPlugin.ts (initialize)
+ctx.provide({
+  provide: INTEGRITY_SERVICE_TOKEN,
+  useValue: new IntegrityService(),
+});
+```
+
+Consumer is identical-shape to Pattern A — `useService(TOKEN)` then call the method:
+
+```tsx
+// frontend/src/pages/IntegrityPage.tsx
+const service = useService<IntegrityService>(INTEGRITY_SERVICE_TOKEN);
+useEffect(() => {
+  service.getReport().then(setReport).catch(setError);
+}, [service]);
+```
+
+### When to use which
+
+- File-shaped data (one logical address per object, cached, reactive) → **Pattern A**.
+- Computed / derived results (no file shape, server aggregates over many files) → **Pattern B**.
+- A service may mix both — `AIService` is Pattern A for prompts/conversations on disk and Pattern B for chat streaming. Split methods cleanly within the same class.
+
+### Anti-patterns specific to services
+
+- ❌ Importing from `@/services/api` inside `plugins/*/services/*.ts` (the service should own its own axios for Pattern B, or dispatch Redux for Pattern A).
+- ❌ Storing fetched data in `useState` inside the page — Pattern B's loading/error live in the page (§1.5 ephemeral-UI carve-out applies *only* because there is no Store FS node to attach them to), but the **data itself** is the service's return value, not page state.
+- ❌ Holding a reference to the service in `useState` or `useRef`. `useService(TOKEN)` returns the same singleton every render (DI cache).
 
 ---
 
