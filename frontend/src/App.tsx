@@ -39,6 +39,7 @@ import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import DerivedTypesPage from './pages/DerivedTypesPage';
 import DesignSystemPage from './pages/DesignSystemPage';
+import CommandsDebugPage from './pages/CommandsDebugPage';
 
 // Package Navigation
 import PackageRouter from './components/PackageRouter';
@@ -131,6 +132,9 @@ function App() {
         {/* Model Diff (#86) — logical model comparison */}
         <Route path="diff/logical" element={<LogicalDiffPage />} />
         <Route path="diff/physical" element={<PhysicalDiffPage />} />
+
+        {/* Commands Debug (#163 Phase 6) */}
+        <Route path="commands" element={<CommandsDebugPage />} />
 
         {/* Version Control */}
         <Route path="version">

@@ -6,10 +6,6 @@ export function createCasePlugin(): PluginModule {
       ctx.views.register('routes.case', () => ({
         routes: ['/cases/**'],
       }));
-
-      ctx.commands.register('case.refresh', async () => {
-        ctx.hooks.emit('case:refresh-requested');
-      });
     },
 
     async activate() {

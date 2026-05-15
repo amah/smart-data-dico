@@ -146,11 +146,13 @@ describe('#155-diff acceptance #5 — DI registration in initialize with useValu
   });
 });
 
-describe('#155-diff acceptance #6 — LogicalDiffPage consumes via useService', () => {
-  it('LogicalDiffPage.tsx imports useService and calls useService<...>(DIFF_SERVICE_TOKEN)', () => {
+describe('#155-diff acceptance #6 — LogicalDiffPage consumes via command bus (#163 migration)', () => {
+  // #163: LogicalDiffPage migrated from useService(DIFF_SERVICE_TOKEN) to
+  // commands.run('data-dictionary.diff.getLogical', ...) via useCommand().
+  it('LogicalDiffPage.tsx imports useCommand and calls commands.run for diff.getLogical', () => {
     const content = read(LOGICAL_DIFF_PAGE);
-    expect(content).toMatch(/from\s+['"]\.\.\/kernel\/useService['"]/);
-    expect(content).toMatch(/useService\s*<[^>]+>\s*\(\s*DIFF_SERVICE_TOKEN\s*\)/);
+    expect(content).toMatch(/from\s+['"]\.\.\/kernel\/useCommand['"]/);
+    expect(content).toMatch(/['"]data-dictionary\.diff\.getLogical['"]/);
   });
 
   it('LogicalDiffPage.tsx contains no `diffApi` references', () => {
@@ -159,11 +161,13 @@ describe('#155-diff acceptance #6 — LogicalDiffPage consumes via useService', 
   });
 });
 
-describe('#155-diff acceptance #7 — PhysicalDiffPage consumes via useService', () => {
-  it('PhysicalDiffPage.tsx imports useService and calls useService<...>(DIFF_SERVICE_TOKEN)', () => {
+describe('#155-diff acceptance #7 — PhysicalDiffPage consumes via command bus (#163 migration)', () => {
+  // #163: PhysicalDiffPage migrated from useService(DIFF_SERVICE_TOKEN) to
+  // commands.run('data-dictionary.diff.*', ...) via useCommand().
+  it('PhysicalDiffPage.tsx imports useCommand and calls commands.run for diff commands', () => {
     const content = read(PHYSICAL_DIFF_PAGE);
-    expect(content).toMatch(/from\s+['"]\.\.\/kernel\/useService['"]/);
-    expect(content).toMatch(/useService\s*<[^>]+>\s*\(\s*DIFF_SERVICE_TOKEN\s*\)/);
+    expect(content).toMatch(/from\s+['"]\.\.\/kernel\/useCommand['"]/);
+    expect(content).toMatch(/['"]data-dictionary\.diff\.getPhysicalConfig['"]/);
   });
 
   it('PhysicalDiffPage.tsx contains no `diffApi` references', () => {

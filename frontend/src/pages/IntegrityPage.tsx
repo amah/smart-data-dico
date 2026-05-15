@@ -20,9 +20,7 @@
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useService } from '../kernel/useService';
-import { INTEGRITY_SERVICE_TOKEN } from '../kernel/tokens';
-import type { IntegrityService } from '../plugins/data-dictionary/services/IntegrityService';
+import { useCommand } from '../kernel/useCommand';
 import type { PhysicalConstraint, Rule, RuleSeverityValue } from '../types';
 import {
   Button,
@@ -167,9 +165,7 @@ function severityToValue(s: RuleSeverityValue): StatusValue {
 
 const IntegrityPage = () => {
   const navigate = useNavigate();
-  // Pattern B service — resolved once per render; safe because the kernel
-  // returns the same singleton instance registered in dataDictionaryPlugin.
-  const integrity = useService<IntegrityService>(INTEGRITY_SERVICE_TOKEN);
+  const run = useCommand();
   const [validation, setValidation] = useState<ValidationRow[]>([]);
   const [constraints, setConstraints] = useState<ConstraintRow[]>([]);
   const [rules, setRules] = useState<Rule[]>([]);
@@ -194,7 +190,7 @@ const IntegrityPage = () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await integrity.getReport();
+      const data = await run('data-dictionary.integrity.getReport');
       setValidation(data.validation as ValidationRow[]);
       setConstraints(data.constraints as ConstraintRow[]);
       setRules(data.rules);
@@ -203,7 +199,7 @@ const IntegrityPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [integrity]);
+  }, [run]);
 
   useEffect(() => {
     fetchReport();
