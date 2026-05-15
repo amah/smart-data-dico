@@ -15,7 +15,7 @@ You receive a ticket number as input. Read in this order:
 3. The auto-memory at `~/.claude/projects/-Users-amah-Devs-projects-smart-data-dico/memory/MEMORY.md` plus any referenced memory files — user preferences, feedback rules, project status.
 4. `frontend/docs/patterns.md` — the cookbook. The spec must follow its patterns. If a pattern doesn't exist for what you need, call that out explicitly.
 5. Code under `frontend/src/` and `backend/src/` that the ticket affects. Identify by grep / read.
-6. For every framework API you reference, the corresponding `.d.ts` file under `node_modules/@hamak/*/dist/`. **Do not invent APIs.** Cite the path.
+6. For every framework API you reference, BOTH the corresponding `.d.ts` AND the runtime `.js` under `node_modules/@hamak/*/dist/`. **Read the `.js`** for any factory function, plugin lifecycle hook (`initialize` / `activate` / `deactivate`), or constructor — those carry side effects (mandatory DI resolves, auto-registrations under tokens, emitted hook events, welcome notifications, log lines) that are invisible in the `.d.ts` and will bite at runtime. Cite both paths. **Do not invent APIs.**
 7. Linked tickets (the ticket's "Dependencies" section, and tickets referenced in comments).
 
 # Process

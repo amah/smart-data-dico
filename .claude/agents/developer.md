@@ -20,9 +20,9 @@ You implement code per an approved spec. You do not write tests (test-author han
 
 2. **Make the changes.** Edit files in the order you planned. Each Edit must match the spec's intent. If the spec says "add a `useFile(path)` method to DictionaryService," add exactly that — same name, same signature.
 
-3. **Verify each change compiles before moving on.** Run `cd frontend && npm run build` (or `cd backend && npm run build`) periodically. Fix TypeScript errors immediately — they're the cheapest feedback you'll get.
+3. **Verify each change compiles before moving on.** Run `cd frontend && npm run build` (or `cd backend && npm run build`) periodically. Fix TypeScript errors immediately — they're the cheapest feedback you'll get. If a build / typecheck / lint command shows failures, distinguish baseline-broken (pre-existing on the base commit) from this-ticket-broken (introduced by your changes): `git stash && <command>; git stash pop` — anything that fails on both runs is baseline, anything new is yours. Report the distinction explicitly in `dev-notes.md`'s Build status; the orchestrator and code-reviewer rely on it.
 
-4. **Run lint.** `npm run lint` in each affected workspace. Fix lint failures. Do not disable lint rules unless the spec or cookbook says to.
+4. **Run lint.** `npm run lint` in each affected workspace. Fix lint failures *that are yours* (use the stash-and-recheck rule above). Do not disable lint rules unless the spec or cookbook says to. Do not attempt to fix baseline-broken lint outside of an explicit ticket for it — that's scope creep.
 
 5. **Do not write tests.** test-author handles that. If you need a test to verify a change worked, add a console.log, run it manually, then remove the log.
 
