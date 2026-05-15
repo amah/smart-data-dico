@@ -15,13 +15,16 @@
  *       ◎  meta
  *   - Before/after rendered as aligned two-line diffs, not raw JSON.
  *
- * All backend data paths (diffApi.logical, versionApi.getCommitHistory,
+ * All backend data paths (diff.getLogical, versionApi.getCommitHistory,
  * servicesApi.getAllServices) are preserved verbatim.
  */
 
 import { useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { diffApi, servicesApi, versionApi } from '../services/api';
+import { servicesApi, versionApi } from '../services/api';
+import { useService } from '../kernel/useService';
+import { DIFF_SERVICE_TOKEN } from '../kernel/tokens';
+import type { DiffService } from '../plugins/data-dictionary/services/DiffService';
 import {
   Button,
   Chip,
@@ -233,6 +236,7 @@ function buildChangeRows(diff: LogicalDiff): ChangeRow[] {
 // ──────────────── Component ────────────────
 
 export default function LogicalDiffPage() {
+  const diffSvc = useService<DiffService>(DIFF_SERVICE_TOKEN);
   const [searchParams, setSearchParams] = useSearchParams();
   const [services, setServices] = useState<string[]>([]);
   const [commits, setCommits] = useState<any[]>([]);
@@ -263,15 +267,16 @@ export default function LogicalDiffPage() {
         ? rightRef && rightRef !== 'HEAD' ? { type: 'git-ref' as const, ref: rightRef } : { type: 'all-services' as const }
         : rightRef && rightRef !== 'HEAD' ? { type: 'git-ref' as const, ref: rightRef, service } : { type: 'service' as const, name: service };
 
-      const result = await diffApi.logical(left, right);
-      setDiff(result);
+      const result = await diffSvc.getLogical(left, right);
+      // Service contract is intentionally opaque (`unknown`) — page narrows.
+      setDiff(result as LogicalDiff);
       setSearchParams({ service, left: leftRef, right: rightRef });
     } catch (e: any) {
       setError(e.message || 'Failed to compute diff');
     } finally {
       setLoading(false);
     }
-  }, [service, leftRef, rightRef, setSearchParams]);
+  }, [service, leftRef, rightRef, setSearchParams, diffSvc]);
 
   const allRows = useMemo<ChangeRow[]>(() => diff ? buildChangeRows(diff) : [], [diff]);
 

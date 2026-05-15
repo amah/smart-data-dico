@@ -8,21 +8,16 @@
  */
 
 import { useState, useCallback, useEffect, type ReactNode } from 'react';
-import { servicesApi, diffApi } from '../services/api';
-import axios from 'axios';
+import { servicesApi } from '../services/api';
+import { useService } from '../kernel/useService';
+import { DIFF_SERVICE_TOKEN } from '../kernel/tokens';
+import type { DiffService, PhysicalConfig } from '../plugins/data-dictionary/services/DiffService';
 import {
   Button,
   Chip,
   Icon,
   Toolbar,
 } from '../components/ui';
-
-const api = axios.create({ baseURL: '/api', headers: { 'Content-Type': 'application/json' } });
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('auth_token') || 'mock-token-for-testing';
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
 
 type AttrStatus = 'matched' | 'modelOnly' | 'orphaned' | 'dbOnly' | 'drifted';
 
@@ -82,12 +77,13 @@ const STATUS_META: Record<AttrStatus, { label: string; tone: 'success' | 'warnin
 const ALL = '__all__';
 
 export default function PhysicalDiffPage() {
+  const diffSvc = useService<DiffService>(DIFF_SERVICE_TOKEN);
   const [services, setServices] = useState<string[]>([]);
   const [service, setService] = useState('');
   const [sql, setSql] = useState('');
   const [diff, setDiff] = useState<PhysicalDiff | null>(null);
   const [perService, setPerService] = useState<Record<string, PerServiceSourceState>>({});
-  const [physicalConfigs, setPhysicalConfigs] = useState<Record<string, any>>({});
+  const [physicalConfigs, setPhysicalConfigs] = useState<Record<string, PhysicalConfig>>({});
   const [allDiff, setAllDiff] = useState<AllPhysicalDiff | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,11 +96,11 @@ export default function PhysicalDiffPage() {
   useEffect(() => {
     if (service !== ALL || services.length === 0) return;
     const seed: Record<string, PerServiceSourceState> = {};
-    const configs: Record<string, any> = {};
+    const configs: Record<string, PhysicalConfig> = {};
     Promise.all(
       services.map(async svc => {
         try {
-          const cfg = await diffApi.getPhysicalConfig(svc);
+          const cfg = await diffSvc.getPhysicalConfig(svc);
           if (cfg) configs[svc] = cfg;
           seed[svc] = { type: cfg ? 'live' : 'ddl' };
         } catch {
@@ -115,7 +111,7 @@ export default function PhysicalDiffPage() {
       setPhysicalConfigs(configs);
       setPerService(seed);
     });
-  }, [service, services]);
+  }, [service, services, diffSvc]);
 
   const runDiff = useCallback(async () => {
     if (service === ALL) {
@@ -140,10 +136,11 @@ export default function PhysicalDiffPage() {
           setLoading(false);
           return;
         }
-        const result = await diffApi.physicalAll(sources, Object.keys(sources));
-        setAllDiff(result as AllPhysicalDiff);
+        const result = await diffSvc.getPhysicalAll(sources, Object.keys(sources));
+        const allDiff = result as AllPhysicalDiff;
+        setAllDiff(allDiff);
         const exp = new Set<string>();
-        for (const [svc, r] of Object.entries(result.byService) as [string, any][]) {
+        for (const [svc, r] of Object.entries(allDiff.byService) as [string, any][]) {
           if (r.status === 'ok') {
             for (const e of r.diff.entities) {
               if (e.attributes.some((a: AttrDiff) => a.status !== 'matched')) exp.add(`${svc}:${e.physicalTableName}`);
@@ -164,13 +161,11 @@ export default function PhysicalDiffPage() {
     setError(null);
     setAllDiff(null);
     try {
-      const response = await api.post('/diff/physical', {
-        service,
-        source: { type: 'ddl', sql },
-      });
-      setDiff(response.data.data);
+      const result = await diffSvc.getPhysicalForService(service, { type: 'ddl', sql });
+      const data = result as PhysicalDiff;
+      setDiff(data);
       const exp = new Set<string>();
-      for (const e of response.data.data.entities) {
+      for (const e of data.entities) {
         if (e.attributes.some((a: AttrDiff) => a.status !== 'matched')) exp.add(e.physicalTableName);
       }
       setExpanded(exp);
@@ -179,7 +174,7 @@ export default function PhysicalDiffPage() {
     } finally {
       setLoading(false);
     }
-  }, [service, sql, services, perService]);
+  }, [service, sql, services, perService, diffSvc]);
 
   const toggle = useCallback((key: string) => {
     setExpanded(prev => {

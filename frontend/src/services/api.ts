@@ -69,17 +69,6 @@ export const servicesApi = {
     return response.data;
   },
 
-  // Search for entities and attributes
-  searchEntities: async (query: string, filters?: { type?: string; service?: string; stereotype?: string; hasMetadata?: string }) => {
-    const params = new URLSearchParams({ q: query });
-    if (filters?.type) params.append('type', filters.type);
-    if (filters?.service) params.append('service', filters.service);
-    if (filters?.stereotype) params.append('stereotype', filters.stereotype);
-    if (filters?.hasMetadata) params.append('hasMetadata', filters.hasMetadata);
-    const response = await api.get(`/search?${params.toString()}`);
-    return response.data;
-  },
-
   // Lineage
   getLineage: async (uuid: string): Promise<LineageResult> => {
     const response = await api.get(`/entities/${uuid}/lineage`);
@@ -315,63 +304,6 @@ export const entityApi = {
   },
 };
 
-// Import/Export API
-export const importExportApi = {
-  importJsonSchema: async (schema: any, service: string) => {
-    const response = await api.post('/import/json-schema', { schema, service });
-    return response.data;
-  },
-  importSqlDdl: async (sql: string, service: string) => {
-    const response = await api.post('/import/sql-ddl', { sql, service });
-    return response.data;
-  },
-  // Schema Import Wizard (#69 C4) — non-destructive preview, diff, commit
-  previewSqlDdl: async (
-    sql: string,
-    options?: { stripPrefixes?: string[]; stripSuffixes?: string[]; schema?: string },
-  ) => {
-    const response = await api.post('/import/sql-ddl/preview', { sql, options });
-    return response.data;
-  },
-  previewOracleSchema: async (
-    connection: { user: string; password: string; connectString: string; owner?: string },
-    options?: { stripPrefixes?: string[]; stripSuffixes?: string[]; schema?: string },
-  ) => {
-    const response = await api.post('/import/oracle/preview', { connection, options });
-    return response.data;
-  },
-  // Unified DB introspection (#79/#80/#81) — dialect: oracle | postgres | mysql | mssql
-  previewDbSchema: async (
-    dialect: 'oracle' | 'postgres' | 'mysql' | 'mssql',
-    connection: Record<string, unknown>,
-    options?: { stripPrefixes?: string[]; stripSuffixes?: string[]; schema?: string },
-  ) => {
-    const response = await api.post('/import/db/preview', { dialect, connection, options });
-    return response.data;
-  },
-  diffSqlDdl: async (parsed: unknown[], targetService: string) => {
-    const response = await api.post('/import/sql-ddl/diff', { parsed, targetService });
-    return response.data;
-  },
-  commitSqlDdl: async (parsed: unknown[], targetService: string) => {
-    const response = await api.post('/import/sql-ddl/commit', { parsed, targetService });
-    return response.data;
-  },
-  exportJsonSchema: async (service: string) => {
-    const response = await api.get(`/export/json-schema/${service}`);
-    return response.data;
-  },
-  exportMarkdown: async (service: string) => {
-    const response = await api.get(`/export/markdown/${service}`, { responseType: 'text' as any });
-    return response.data;
-  },
-  getQualityReport: async (service?: string) => {
-    const params = service ? `?service=${service}` : '';
-    const response = await api.get(`/quality/report${params}`);
-    return response.data.data;
-  },
-};
-
 // Diff API (#86)
 // Project management (#95)
 export const filesystemApi = {
@@ -418,39 +350,6 @@ export const modelApi = {
   },
   putMetadata: async (metadata: any[]) => {
     const response = await api.put('/model/metadata', { metadata });
-    return response.data.data;
-  },
-};
-
-export const diffApi = {
-  logical: async (left: any, right: any) => {
-    const response = await api.post('/diff/logical', { left, right });
-    return response.data.data;
-  },
-  // Whole-model (all-services) endpoints — each takes a per-service `sources`
-  // map so the caller can mix DDL paste and live introspection.
-  physicalAll: async (
-    sources: Record<string, any>,
-    services?: string[],
-  ) => {
-    const response = await api.post('/diff/physical/all', { sources, services });
-    return response.data.data;
-  },
-  impactAll: async (
-    sources: Record<string, any>,
-    services?: string[],
-    dialect?: string,
-  ) => {
-    const response = await api.post('/diff/impact/all', { sources, services, dialect });
-    return response.data.data;
-  },
-  // Per-service physical config CRUD
-  getPhysicalConfig: async (service: string) => {
-    const response = await api.get(`/services/${service}/physical-config`);
-    return response.data.data;
-  },
-  putPhysicalConfig: async (service: string, config: any) => {
-    const response = await api.put(`/services/${service}/physical-config`, config);
     return response.data.data;
   },
 };
