@@ -50,3 +50,32 @@ export const STEREOTYPE_SERVICE_TOKEN = Symbol('StereotypeService');
  * `dataDictionaryPlugin.initialize`.
  */
 export const INTEGRITY_SERVICE_TOKEN = Symbol('IntegrityService');
+
+/**
+ * DI token for the DiffService.
+ *
+ * Pattern B per #155 catalog: REST wrapper around the computed
+ * `/api/diff/logical`, `/api/diff/physical`, `/api/diff/physical/all`, and
+ * `/api/services/:svc/physical-config` endpoints. Owned by the
+ * `data-dictionary` plugin; constructed and provided eagerly in
+ * `dataDictionaryPlugin.initialize` (no kernel dependencies — same shape
+ * as INTEGRITY_SERVICE_TOKEN).
+ */
+export const DIFF_SERVICE_TOKEN = Symbol('DiffService');
+
+/**
+ * DI token for the ImportExportService.
+ *
+ * Pattern B per #155 catalog: a REST wrapper around the import / export /
+ * quality computed endpoints (`/api/import/**`, `/api/export/**`,
+ * `/api/quality/report`). The #155 row reads: *"Wraps user input + writes —
+ * REST is correct"*. Owned by the `data-dictionary` plugin; constructed
+ * and provided in `dataDictionaryPlugin.initialize` as an eager `useValue`
+ * (same shape as `INTEGRITY_SERVICE_TOKEN`).
+ *
+ * Note: `getQualityReport` lives on this service even though it
+ * semantically belongs to "quality." Future extraction into a dedicated
+ * `QUALITY_SERVICE_TOKEN` is OUT OF SCOPE for this slice — see
+ * `.claude/work/155-import-export/spec.md` "Out of scope."
+ */
+export const IMPORT_EXPORT_SERVICE_TOKEN = Symbol('ImportExportService');

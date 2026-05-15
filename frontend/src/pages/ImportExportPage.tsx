@@ -1,10 +1,14 @@
 import { useState, useEffect } from 'react';
-import { servicesApi, importExportApi } from '../services/api';
+import { servicesApi } from '../services/api';
+import { useService } from '../kernel/useService';
+import { IMPORT_EXPORT_SERVICE_TOKEN } from '../kernel/tokens';
+import type { ImportExportService } from '../plugins/data-dictionary/services/ImportExportService';
 import SchemaImportWizard from '../components/SchemaImportWizard';
 import Breadcrumbs from '../components/Breadcrumbs';
 import { PageHeader } from '../components/ui';
 
 export default function ImportExportPage() {
+  const importExport = useService<ImportExportService>(IMPORT_EXPORT_SERVICE_TOKEN);
   const [activeTab, setActiveTab] = useState<'wizard' | 'import' | 'export'>('wizard');
   const [services, setServices] = useState<string[]>([]);
   const [selectedService, setSelectedService] = useState('');
@@ -26,9 +30,9 @@ export default function ImportExportPage() {
       let res;
       if (importFormat === 'json-schema') {
         const schema = JSON.parse(importText);
-        res = await importExportApi.importJsonSchema(schema, selectedService);
+        res = await importExport.importJsonSchema(schema, selectedService);
       } else {
-        res = await importExportApi.importSqlDdl(importText, selectedService);
+        res = await importExport.importSqlDdl(importText, selectedService);
       }
       const count = res.data?.entities?.length || 0;
       const errors = res.data?.errors || [];
@@ -49,11 +53,11 @@ export default function ImportExportPage() {
     setResult(null);
     try {
       if (exportFormat === 'json-schema') {
-        const schema = await importExportApi.exportJsonSchema(selectedService);
+        const schema = await importExport.exportJsonSchema(selectedService);
         const blob = new Blob([JSON.stringify(schema, null, 2)], { type: 'application/json' });
         downloadBlob(blob, `${selectedService}-schema.json`);
       } else {
-        const md = await importExportApi.exportMarkdown(selectedService);
+        const md = await importExport.exportMarkdown(selectedService);
         const blob = new Blob([md], { type: 'text/markdown' });
         downloadBlob(blob, `${selectedService}-data-dictionary.md`);
       }

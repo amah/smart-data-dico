@@ -26,7 +26,9 @@
  * attributes — see schemaDiff.ts for the invariants.
  */
 import { useState } from 'react';
-import { importExportApi } from '../services/api';
+import { useService } from '../kernel/useService';
+import { IMPORT_EXPORT_SERVICE_TOKEN } from '../kernel/tokens';
+import type { ImportExportService } from '../plugins/data-dictionary/services/ImportExportService';
 import type { Entity, EntityDiff } from '../types';
 
 type SourceKind = 'sql' | 'db';
@@ -92,6 +94,7 @@ interface Props {
 }
 
 export default function SchemaImportWizard({ services, onComplete }: Props) {
+  const importExport = useService<ImportExportService>(IMPORT_EXPORT_SERVICE_TOKEN);
   const [step, setStep] = useState<WizardStep>('source');
   const [sourceKind, setSourceKind] = useState<SourceKind>('sql');
   const [targetService, setTargetService] = useState('');
@@ -187,8 +190,8 @@ export default function SchemaImportWizard({ services, onComplete }: Props) {
       // Parse the source into entities
       const previewRes =
         sourceKind === 'sql'
-          ? await importExportApi.previewSqlDdl(sqlText, buildOptions())
-          : await importExportApi.previewDbSchema(dialect, buildConnectionPayload(), buildOptions());
+          ? await importExport.previewSqlDdl(sqlText, buildOptions())
+          : await importExport.previewDbSchema(dialect, buildConnectionPayload(), buildOptions());
 
       const parsedEntities = (previewRes.data?.entities || []) as Entity[];
       const previewErrors = (previewRes.data?.errors || []) as string[];
@@ -199,7 +202,7 @@ export default function SchemaImportWizard({ services, onComplete }: Props) {
       }
 
       // Compute diff against the chosen service
-      const diffRes = await importExportApi.diffSqlDdl(parsedEntities, targetService);
+      const diffRes = await importExport.diffSqlDdl(parsedEntities, targetService);
       const diffList = (diffRes.data?.diffs || []) as EntityDiff[];
 
       setParsed(parsedEntities);
@@ -218,7 +221,7 @@ export default function SchemaImportWizard({ services, onComplete }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const res = await importExportApi.commitSqlDdl(parsed, targetService);
+      const res = await importExport.commitSqlDdl(parsed, targetService);
       const data = res.data as CommitResult;
       setCommitResult(data);
       setStep('result');

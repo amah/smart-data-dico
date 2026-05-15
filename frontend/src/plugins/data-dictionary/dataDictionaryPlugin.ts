@@ -13,9 +13,13 @@ import {
   STORE_FS_TOKEN,
   STEREOTYPE_SERVICE_TOKEN,
   INTEGRITY_SERVICE_TOKEN,
+  DIFF_SERVICE_TOKEN,
+  IMPORT_EXPORT_SERVICE_TOKEN,
 } from '../../kernel/tokens';
 import { StereotypeService, type NotifyFn } from './services/StereotypeService';
 import { IntegrityService } from './services/IntegrityService';
+import { DiffService } from './services/DiffService';
+import { ImportExportService } from './services/ImportExportService';
 import type { RootState } from '../../kernel/bootstrap';
 
 // Module-scope mutable notify slot. `initialize` constructs the service with a
@@ -81,6 +85,18 @@ export function createDataDictionaryPlugin(): PluginModule {
       ctx.provide({
         provide: INTEGRITY_SERVICE_TOKEN,
         useValue: new IntegrityService(),
+      });
+
+      // Pattern B (#155-diff): no kernel deps — register DiffService.
+      ctx.provide({
+        provide: DIFF_SERVICE_TOKEN,
+        useValue: new DiffService(),
+      });
+
+      // Pattern B (#155): no kernel deps — register a self-contained axios wrapper.
+      ctx.provide({
+        provide: IMPORT_EXPORT_SERVICE_TOKEN,
+        useValue: new ImportExportService(),
       });
     },
 
