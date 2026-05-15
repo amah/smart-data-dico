@@ -147,3 +147,31 @@ describe('API Integration Tests', () => {
     });
   });
 });
+
+describe('Route ordering after split', () => {
+  it('GET /api/entities/flat resolves to getFlatEntitiesAndAttributes (search.routes.ts), not any :param shape', async () => {
+    const response = await request(app).get('/api/entities/flat');
+    expect(response.status).not.toBe(404);
+  });
+
+  it('GET /api/packages/all resolves to listAllPackagesAndEntities (package.routes.ts), not /:rootPackage/path/*', async () => {
+    const response = await request(app).get('/api/packages/all');
+    expect(response.status).not.toBe(404);
+  });
+
+  it('GET /api/packages/hierarchy/X resolves to getPackageHierarchy, not shadowed by /:rootPackage/path/*', async () => {
+    const response = await request(app).get('/api/packages/hierarchy/X');
+    expect(response.status).not.toBe(404);
+  });
+
+  it('GET /api/config/types resolves to getDerivedTypes (dico-config.routes.ts)', async () => {
+    const response = await request(app).get('/api/config/types');
+    expect(response.status).not.toBe(404);
+  });
+
+  it('GET /api/perspectives/foo responds with 308 redirect to /api/cases/foo', async () => {
+    const response = await request(app).get('/api/perspectives/foo').redirects(0);
+    expect(response.status).toBe(308);
+    expect(response.headers.location).toBe('/api/cases/foo');
+  });
+});
