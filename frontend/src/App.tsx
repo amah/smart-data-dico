@@ -9,14 +9,14 @@ import WorkspacesPage from './pages/WorkspacesPage';
 import MergePage from './pages/MergePage';
 import ImportExportPage from './pages/ImportExportPage';
 import QualityDashboardPage from './pages/QualityDashboardPage';
-import RuleBrowserPage from './pages/RuleBrowserPage';
+import RuleBrowserPage from './plugins/data-dictionary/pages/rules/RuleBrowserPage';
 import IntegrityPage from './pages/IntegrityPage';
 import LogicalDiffPage from './pages/LogicalDiffPage';
 import PhysicalDiffPage from './pages/PhysicalDiffPage';
 import VisualizationPage from './pages/VisualizationPage';
-import CaseListPage from './pages/CaseListPage';
-import CaseDetailPage from './pages/CaseDetailPage';
-import CaseCreatePage from './pages/CaseCreatePage';
+import CaseListPage from './plugins/data-dictionary/pages/cases/CaseListPage';
+import CaseDetailPage from './plugins/data-dictionary/pages/cases/CaseDetailPage';
+import CaseCreatePage from './plugins/data-dictionary/pages/cases/CaseCreatePage';
 
 // Service and Entity Components
 import ServiceList from './components/ServiceList';

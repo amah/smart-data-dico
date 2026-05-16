@@ -18,8 +18,8 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import CaseTreeTable from '../CaseTreeTable';
-import type { ResolvedNode } from '../../types';
-import { Cardinality } from '../../types';
+import type { ResolvedNode } from '../../../../../types';
+import { Cardinality } from '../../../../../types';
 
 const wrap = (ui: React.ReactElement) => <MemoryRouter>{ui}</MemoryRouter>;
 

@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
 import Markdown from 'react-markdown';
-import type { Rule, RuleSeverityValue, RuleEnforcement } from '../types';
+import type { Rule, RuleSeverityValue, RuleEnforcement } from '../../../../types';
 import RuleEditor from './RuleEditor';
-import { formatRuleName } from '../utils/formatRuleName';
+import { formatRuleName } from '../../../../utils/formatRuleName';
 
 interface RulesSidePanelProps {
   /** Title shown in the panel header — e.g. "Rules for Customer.email". */

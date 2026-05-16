@@ -1,11 +1,14 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { caseApi } from '../services/api';
-import CaseEntityPicker from '../components/CaseEntityPicker';
-import MetadataEditor from '../components/MetadataEditor';
-import type { MetadataEntry } from '../types';
+import { useService } from '../../../../kernel/useService';
+import { CASE_SERVICE_TOKEN } from '../../../../kernel/tokens';
+import type { CaseService } from '../../services/CaseService';
+import CaseEntityPicker from '../../components/cases/CaseEntityPicker';
+import MetadataEditor from '../../../../components/MetadataEditor';
+import type { MetadataEntry } from '../../../../types';
 
 export default function CaseCreatePage() {
+  const caseService = useService<CaseService>(CASE_SERVICE_TOKEN);
   const navigate = useNavigate();
   const { id } = useParams();
   const isEdit = !!id;
@@ -21,7 +24,7 @@ export default function CaseCreatePage() {
 
   // Load existing case for edit mode
   if (isEdit && !loaded) {
-    caseApi.getById(id).then((c) => {
+    caseService.getById(id).then((c) => {
       setName(c.name);
       setDescription(c.description || '');
       setRootEntities(c.rootEntities);
@@ -42,10 +45,10 @@ export default function CaseCreatePage() {
     setError(null);
     try {
       if (isEdit) {
-        await caseApi.update(id, { name, description, rootEntities, maxDepth, metadata });
+        await caseService.update(id, { name, description, rootEntities, maxDepth, metadata });
         navigate(`/cases/${id}`);
       } else {
-        const result = await caseApi.create({ name, description, rootEntities, maxDepth, metadata });
+        const result = await caseService.create({ name, description, rootEntities, maxDepth, metadata });
         navigate(`/cases/${result.data.uuid}`);
       }
     } catch (err: any) {

@@ -54,15 +54,30 @@ const ALL_DD_COMMAND_NAMES = [
   'data-dictionary.import-export.exportJsonSchema',
   'data-dictionary.import-export.exportMarkdown',
   'data-dictionary.quality.getReport',
+  // #161 — Case commands (7)
+  'data-dictionary.case.list',
+  'data-dictionary.case.getById',
+  'data-dictionary.case.resolve',
+  'data-dictionary.case.getGraphData',
+  'data-dictionary.case.create',
+  'data-dictionary.case.update',
+  'data-dictionary.case.delete',
+  // #161 — Rule commands (6)
+  'data-dictionary.rule.list',
+  'data-dictionary.rule.get',
+  'data-dictionary.rule.getRulesForEntity',
+  'data-dictionary.rule.create',
+  'data-dictionary.rule.update',
+  'data-dictionary.rule.delete',
 ] as const;
 
 beforeAll(async () => {
   await bootstrapApplication();
 });
 
-// ── Acceptance #18 — all 18 data-dictionary commands registered ───────────
+// ── Acceptance #18 — all data-dictionary commands registered (18 pre-#161 + 13 #161) ──
 
-describe('dataDictionaryPlugin — #163 acceptance #18 — all 18 commands registered', () => {
+describe('dataDictionaryPlugin — #163/#161 acceptance — all 31 commands registered', () => {
   it('bootstrapApplication() populates host.rootActivationCtx', () => {
     expect(host.rootActivationCtx).toBeDefined();
   });
@@ -78,9 +93,71 @@ describe('dataDictionaryPlugin — #163 acceptance #18 — all 18 commands regis
 // ── Acceptance #19 — event emission verified ─────────────────────────────
 
 describe('dataDictionaryPlugin — #163 acceptance #19 — event emission', () => {
-  // Install MSW handlers needed for the three event-emitting command handlers.
+  // Install MSW handlers needed for the event-emitting command handlers.
   beforeEach(() => {
     server.use(
+      // POST /api/cases → case create endpoint
+      http.post('/api/cases', () => {
+        return HttpResponse.json({
+          data: {
+            uuid: 'c-1',
+            name: 'Test Case',
+            rootEntities: [],
+          },
+        });
+      }),
+
+      // PUT /api/cases/:id → case update endpoint
+      http.put('/api/cases/:id', () => {
+        return HttpResponse.json({
+          data: {
+            uuid: 'c-1',
+            name: 'Updated Case',
+            rootEntities: [],
+          },
+        });
+      }),
+
+      // DELETE /api/cases/:id → case delete endpoint
+      http.delete('/api/cases/:id', () => {
+        return new HttpResponse(null, { status: 204 });
+      }),
+
+      // POST /api/rules → rule create endpoint
+      http.post('/api/rules', () => {
+        return HttpResponse.json({
+          data: {
+            uuid: 'r-1',
+            name: 'test-rule',
+            description: 'A test rule',
+            severity: 'warning',
+            enforcement: 'advisory',
+            scope: 'package',
+            targets: [],
+          },
+        });
+      }),
+
+      // PUT /api/rules/:uuid → rule update endpoint
+      http.put('/api/rules/:uuid', () => {
+        return HttpResponse.json({
+          data: {
+            uuid: 'r-1',
+            name: 'updated-rule',
+            description: 'Updated rule',
+            severity: 'warning',
+            enforcement: 'advisory',
+            scope: 'package',
+            targets: [],
+          },
+        });
+      }),
+
+      // DELETE /api/rules/:uuid → rule delete endpoint
+      http.delete('/api/rules/:uuid', () => {
+        return new HttpResponse(null, { status: 204 });
+      }),
+
       // POST /api/stereotypes → stereotype create endpoint
       http.post('/api/stereotypes', () => {
         return HttpResponse.json({
@@ -253,5 +330,86 @@ describe('dataDictionaryPlugin — #163 acceptance #19 — event emission', () =
     expect(received.length).toBeGreaterThanOrEqual(1);
     const last = received[received.length - 1] as Record<string, unknown>;
     expect(last.overall).toBe(82);
+  });
+
+  it('case.create command emits "case.changed" with { uuid, op: "create" }', async () => {
+    const ctx = host.rootActivationCtx!;
+    const received: Array<{ uuid: string; op: string }> = [];
+
+    const listener = (payload: { uuid: string; op: string }) => {
+      received.push(payload);
+    };
+    ctx.hooks.on('case.changed', listener);
+
+    await ctx.commands.run('data-dictionary.case.create', {
+      data: { name: 'Test Case', rootEntities: [] },
+    });
+
+    ctx.hooks.off('case.changed', listener);
+
+    expect(received.length).toBeGreaterThanOrEqual(1);
+    const last = received[received.length - 1];
+    expect(last.uuid).toBe('c-1');
+    expect(last.op).toBe('create');
+  });
+
+  it('case.delete command emits "case.changed" with { uuid, op: "delete" }', async () => {
+    const ctx = host.rootActivationCtx!;
+    const received: Array<{ uuid: string; op: string }> = [];
+
+    const listener = (payload: { uuid: string; op: string }) => {
+      received.push(payload);
+    };
+    ctx.hooks.on('case.changed', listener);
+
+    await ctx.commands.run('data-dictionary.case.delete', { id: 'c-to-delete' });
+
+    ctx.hooks.off('case.changed', listener);
+
+    expect(received.length).toBeGreaterThanOrEqual(1);
+    const last = received[received.length - 1];
+    expect(last.uuid).toBe('c-to-delete');
+    expect(last.op).toBe('delete');
+  });
+
+  it('rule.update command emits "rule.changed" with { uuid, op: "update" }', async () => {
+    const ctx = host.rootActivationCtx!;
+    const received: Array<{ uuid: string; op: string }> = [];
+
+    const listener = (payload: { uuid: string; op: string }) => {
+      received.push(payload);
+    };
+    ctx.hooks.on('rule.changed', listener);
+
+    await ctx.commands.run('data-dictionary.rule.update', {
+      uuid: 'r-1',
+      data: { name: 'updated-rule' },
+    });
+
+    ctx.hooks.off('rule.changed', listener);
+
+    expect(received.length).toBeGreaterThanOrEqual(1);
+    const last = received[received.length - 1];
+    expect(last.uuid).toBe('r-1');
+    expect(last.op).toBe('update');
+  });
+
+  it('rule.delete command emits "rule.changed" with { uuid, op: "delete" }', async () => {
+    const ctx = host.rootActivationCtx!;
+    const received: Array<{ uuid: string; op: string }> = [];
+
+    const listener = (payload: { uuid: string; op: string }) => {
+      received.push(payload);
+    };
+    ctx.hooks.on('rule.changed', listener);
+
+    await ctx.commands.run('data-dictionary.rule.delete', { uuid: 'r-to-delete' });
+
+    ctx.hooks.off('rule.changed', listener);
+
+    expect(received.length).toBeGreaterThanOrEqual(1);
+    const last = received[received.length - 1];
+    expect(last.uuid).toBe('r-to-delete');
+    expect(last.op).toBe('delete');
   });
 });

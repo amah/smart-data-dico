@@ -49,6 +49,20 @@ export interface EventMap {
    * the kind of bootstrap-coordination signal future plugins may need.
    */
   'store-fs:ready': { workspace: string };
+
+  /**
+   * Emitted after a case create / update / delete succeeds. Carries the
+   * case uuid and the operation kind so cross-plugin listeners can
+   * re-fetch without importing the CaseService directly.
+   */
+  'case.changed': { uuid: string; op: 'create' | 'update' | 'delete' };
+
+  /**
+   * Emitted after a rule create / update / delete succeeds. Carries the
+   * rule uuid and the operation kind so cross-plugin listeners can
+   * re-fetch without importing the RuleService directly.
+   */
+  'rule.changed': { uuid: string; op: 'create' | 'update' | 'delete' };
 }
 
 export type EventName = keyof EventMap;

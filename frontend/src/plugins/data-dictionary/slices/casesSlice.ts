@@ -1,6 +1,6 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import { caseApi } from '../../services/api';
-import type { Case, ResolvedCase } from '../../types';
+import { CaseService } from '../services/CaseService';
+import type { Case, ResolvedCase } from '../../../types';
 
 interface CasesState {
   cases: Case[];
@@ -17,17 +17,17 @@ const initialState: CasesState = {
 };
 
 export const fetchCases = createAsyncThunk('cases/fetchAll', async () => {
-  return await caseApi.getAll();
+  return await new CaseService().getAll();
 });
 
 export const resolveCase = createAsyncThunk('cases/resolve', async (id: string) => {
-  return await caseApi.resolve(id);
+  return await new CaseService().resolve(id);
 });
 
 export const createCaseAction = createAsyncThunk(
   'cases/create',
   async (data: Partial<Case>) => {
-    const result = await caseApi.create(data);
+    const result = await new CaseService().create(data);
     return result.data;
   },
 );
@@ -35,13 +35,13 @@ export const createCaseAction = createAsyncThunk(
 export const updateCaseAction = createAsyncThunk(
   'cases/update',
   async ({ id, data }: { id: string; data: Partial<Case> }) => {
-    const result = await caseApi.update(id, data);
+    const result = await new CaseService().update(id, data);
     return result.data;
   },
 );
 
 export const deleteCaseAction = createAsyncThunk('cases/delete', async (id: string) => {
-  await caseApi.delete(id);
+  await new CaseService().delete(id);
   return id;
 });
 

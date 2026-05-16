@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { entityApi } from '../services/api';
-import type { Package } from '../types';
+import { entityApi } from '../../../../services/api';
+import type { Package } from '../../../../types';
 
 interface CaseEntityPickerProps {
   selected: string[];

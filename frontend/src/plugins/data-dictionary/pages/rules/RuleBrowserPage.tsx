@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Markdown from 'react-markdown';
-import { ruleApi } from '../services/api';
-import type { Rule, RuleScope, RuleSeverityValue, RuleEnforcement } from '../types';
-import RuleEditor from '../components/RuleEditor';
+import { useService } from '../../../../kernel/useService';
+import { RULE_SERVICE_TOKEN } from '../../../../kernel/tokens';
+import type { RuleService } from '../../services/RuleService';
+import type { Rule, RuleScope, RuleSeverityValue, RuleEnforcement } from '../../../../types';
+import RuleEditor from '../../components/rules/RuleEditor';
 import {
   Button,
   Chip,
@@ -11,8 +13,8 @@ import {
   Icon,
   Input,
   Toolbar,
-} from '../components/ui';
-import type { ColumnDef } from '../components/ui';
+} from '../../../../components/ui';
+import type { ColumnDef } from '../../../../components/ui';
 
 /**
  * Rule browser page (#74).
@@ -41,6 +43,7 @@ const SCOPE_TONE: Record<RuleScope, 'accent' | 'meta' | 'warning' | 'neutral'> =
 };
 
 const RuleBrowserPage = () => {
+  const ruleService = useService<RuleService>(RULE_SERVICE_TOKEN);
   const [rules, setRules] = useState<Rule[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,7 +58,7 @@ const RuleBrowserPage = () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await ruleApi.list({
+      const data = await ruleService.list({
         scope: scopeFilter === 'all' ? undefined : scopeFilter,
         severity: severityFilter === 'all' ? undefined : severityFilter,
         enforcement: enforcementFilter === 'all' ? undefined : enforcementFilter,
@@ -66,7 +69,7 @@ const RuleBrowserPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [scopeFilter, severityFilter, enforcementFilter]);
+  }, [ruleService, scopeFilter, severityFilter, enforcementFilter]);
 
   useEffect(() => { fetchRules(); }, [fetchRules]);
 

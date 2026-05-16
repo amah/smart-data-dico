@@ -18,6 +18,8 @@ import {
   METADATA_TYPE_REGISTRY_TOKEN,
   GIT_SERVICE_TOKEN,
   PUBLISH_SERVICE_TOKEN,
+  CASE_SERVICE_TOKEN,
+  RULE_SERVICE_TOKEN,
 } from '../../kernel/tokens';
 import { StereotypeService, type NotifyFn } from './services/StereotypeService';
 import { IntegrityService } from './services/IntegrityService';
@@ -27,7 +29,10 @@ import { ImportExportService } from './services/ImportExportService';
 import type { SchemaImportOptions, DbDialect } from './services/ImportExportService';
 import { PublishService } from './services/PublishService';
 import type { GitService } from '../git/services/GitService';
-import type { Stereotype } from '../../types';
+import { CaseService } from './services/CaseService';
+import { RuleService } from './services/RuleService';
+import type { RuleListFilters } from './services/RuleService';
+import type { Stereotype, Case, Rule } from '../../types';
 import type { RootState } from '../../kernel/bootstrap';
 import { createMetadataTypeRegistry } from './metadata/MetadataTypeRegistry';
 import { registerBuiltinContributions } from './metadata/builtinContributions';
@@ -54,6 +59,9 @@ export function createDataDictionaryPlugin(): PluginModule {
           '/services/**',
           '/dictionaries/**',
           '/create',
+          '/cases/**',
+          '/rules',
+          '/rules/**',
         ],
       }));
 
@@ -115,12 +123,26 @@ export function createDataDictionaryPlugin(): PluginModule {
         useValue: new ImportExportService(),
       });
 
+      // Pattern B (#161): no kernel deps — register CaseService.
+      ctx.provide({
+        provide: CASE_SERVICE_TOKEN,
+        useValue: new CaseService(),
+      });
+
+      // Pattern B (#161): no kernel deps — register RuleService.
+      ctx.provide({
+        provide: RULE_SERVICE_TOKEN,
+        useValue: new RuleService(),
+      });
+
       // ── #163 command registrations ────────────────────────────────────────
-      // Resolve the four services this plugin already provided above.
+      // Resolve the services this plugin has provided above.
       const stereotype = ctx.resolve<StereotypeService>(STEREOTYPE_SERVICE_TOKEN);
       const integrity  = ctx.resolve<IntegrityService>(INTEGRITY_SERVICE_TOKEN);
       const diff       = ctx.resolve<DiffService>(DIFF_SERVICE_TOKEN);
       const ie         = ctx.resolve<ImportExportService>(IMPORT_EXPORT_SERVICE_TOKEN);
+      const cs         = ctx.resolve<CaseService>(CASE_SERVICE_TOKEN);
+      const rs         = ctx.resolve<RuleService>(RULE_SERVICE_TOKEN);
 
       // Stereotype commands — each handler awaits the service method, emits an
       // event for cross-plugin observation, and returns the service result.
@@ -205,12 +227,7 @@ export function createDataDictionaryPlugin(): PluginModule {
       });
 
       // ── #160 Git + Publish command registrations ──────────────────────────
-      // Resolve GitService (provided by gitPlugin.initialize — guaranteed by
-      // dependsOn: ['git'] in bootstrap.ts).
-      // Guard: the git plugin is not bootstrapped in lightweight test harnesses
-      // that only include [store, remote-fs, store-fs, data-dictionary].
-      // We resolve best-effort; if GIT_SERVICE_TOKEN is absent we skip the
-      // command registrations gracefully (StereotypeService tests are unaffected).
+      // Resolve GitService best-effort (absent in lightweight test harnesses).
       let git: GitService | null = null;
       try {
         git = ctx.resolve<GitService>(GIT_SERVICE_TOKEN);
@@ -235,6 +252,45 @@ export function createDataDictionaryPlugin(): PluginModule {
         ctx.commands.register('data-dictionary.publish.sync',    ({ remote }: { remote?: string }) => publish.sync(remote));
         ctx.commands.register('data-dictionary.publish.revert',  ({ commitHash }: { commitHash: string }) => publish.revert(commitHash));
       }
+
+      // ── #161 Case commands ────────────────────────────────────────────────
+      ctx.commands.register('data-dictionary.case.list', () => cs.getAll());
+      ctx.commands.register('data-dictionary.case.getById', ({ id }: { id: string }) => cs.getById(id));
+      ctx.commands.register('data-dictionary.case.resolve', ({ id }: { id: string }) => cs.resolve(id));
+      ctx.commands.register('data-dictionary.case.getGraphData', ({ id }: { id: string }) => cs.getGraphData(id));
+      ctx.commands.register('data-dictionary.case.create', async ({ data }: { data: Partial<Case> }) => {
+        const res = await cs.create(data);
+        ctx.hooks.emit('case.changed', { uuid: res.data.uuid, op: 'create' });
+        return res;
+      });
+      ctx.commands.register('data-dictionary.case.update', async ({ id, data }: { id: string; data: Partial<Case> }) => {
+        const res = await cs.update(id, data);
+        ctx.hooks.emit('case.changed', { uuid: id, op: 'update' });
+        return res;
+      });
+      ctx.commands.register('data-dictionary.case.delete', async ({ id }: { id: string }) => {
+        await cs.delete(id);
+        ctx.hooks.emit('case.changed', { uuid: id, op: 'delete' });
+      });
+
+      // ── #161 Rule commands ────────────────────────────────────────────────
+      ctx.commands.register('data-dictionary.rule.list', ({ filters }: { filters?: RuleListFilters }) => rs.list(filters));
+      ctx.commands.register('data-dictionary.rule.get', ({ uuid }: { uuid: string }) => rs.get(uuid));
+      ctx.commands.register('data-dictionary.rule.getRulesForEntity', ({ entityUuid }: { entityUuid: string }) => rs.getRulesForEntity(entityUuid));
+      ctx.commands.register('data-dictionary.rule.create', async ({ data }: { data: Partial<Rule> }) => {
+        const created = await rs.create(data);
+        ctx.hooks.emit('rule.changed', { uuid: created.uuid, op: 'create' });
+        return created;
+      });
+      ctx.commands.register('data-dictionary.rule.update', async ({ uuid, data }: { uuid: string; data: Partial<Rule> }) => {
+        const updated = await rs.update(uuid, data);
+        ctx.hooks.emit('rule.changed', { uuid, op: 'update' });
+        return updated;
+      });
+      ctx.commands.register('data-dictionary.rule.delete', async ({ uuid }: { uuid: string }) => {
+        await rs.delete(uuid);
+        ctx.hooks.emit('rule.changed', { uuid, op: 'delete' });
+      });
 
       // Route ownership for the commands debug page.
       // (Route declared here because data-dictionary owns broad dev-tooling surfaces.)

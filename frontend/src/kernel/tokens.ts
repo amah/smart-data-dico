@@ -129,3 +129,23 @@ export const METADATA_TYPE_REGISTRY_TOKEN = Symbol('MetadataTypeRegistry');
  * yet. See spec #162 Risk 1.
  */
 export const AI_SERVICE_TOKEN = Symbol('AIService');
+
+/**
+ * DI token for the CaseService.
+ *
+ * Pattern B per #161: a REST wrapper around the `/api/cases/**` endpoints.
+ * Owned by the `data-dictionary` plugin; constructed and provided in
+ * `dataDictionaryPlugin.initialize` as an eager `useValue` (same shape as
+ * `INTEGRITY_SERVICE_TOKEN`).
+ */
+export const CASE_SERVICE_TOKEN = Symbol('CaseService');
+
+/**
+ * DI token for the RuleService.
+ *
+ * Pattern B per #161: a REST wrapper around the `/api/rules/**` and
+ * `/api/entities/:uuid/rules` endpoints. Owned by the `data-dictionary`
+ * plugin; constructed and provided in `dataDictionaryPlugin.initialize` as
+ * an eager `useValue` (same shape as `INTEGRITY_SERVICE_TOKEN`).
+ */
+export const RULE_SERVICE_TOKEN = Symbol('RuleService');

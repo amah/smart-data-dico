@@ -6,9 +6,12 @@ import {
   setMetadataValue,
 } from '../hooks/useStereotypeMetadata';
 import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
-import RulesSidePanel from './RulesSidePanel';
+import RulesSidePanel from '../plugins/data-dictionary/components/rules/RulesSidePanel';
 import AttributeSidePanel from './AttributeSidePanel';
-import { servicesApi, ruleApi } from '../services/api';
+import { servicesApi } from '../services/api';
+import { useService } from '../kernel/useService';
+import { RULE_SERVICE_TOKEN } from '../kernel/tokens';
+import type { RuleService } from '../plugins/data-dictionary/services/RuleService';
 import {
   BatchActionBar,
   Button,
@@ -99,6 +102,7 @@ const AttributeList = ({
   serviceName,
   onAttributeUpdated,
 }: AttributeListProps) => {
+  const ruleService = useService<RuleService>(RULE_SERVICE_TOKEN);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<AttributeType | 'all'>('all');
   const { allColumns } = useStereotypeMetadata('attribute');
@@ -142,13 +146,13 @@ const AttributeList = ({
   const fetchEntityRules = useCallback(async () => {
     if (!entityUuid) return;
     try {
-      const rules = await ruleApi.getRulesForEntity(entityUuid);
+      const rules = await ruleService.getRulesForEntity(entityUuid);
       setEntityRules(rules);
     } catch (err) {
       console.error('Failed to fetch entity rules:', err);
       setEntityRules([]);
     }
-  }, [entityUuid]);
+  }, [entityUuid, ruleService]);
 
   useEffect(() => {
     fetchEntityRules();

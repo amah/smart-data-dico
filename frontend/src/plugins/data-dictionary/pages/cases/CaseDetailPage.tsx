@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { caseApi } from '../services/api';
-import type { ResolvedCase } from '../types';
-import CaseTreeTable from '../components/CaseTreeTable';
-import Breadcrumbs from '../components/Breadcrumbs';
-import { Button, PageHeader } from '../components/ui';
+import { useService } from '../../../../kernel/useService';
+import { CASE_SERVICE_TOKEN } from '../../../../kernel/tokens';
+import type { CaseService } from '../../services/CaseService';
+import type { ResolvedCase } from '../../../../types';
+import CaseTreeTable from '../../components/cases/CaseTreeTable';
+import Breadcrumbs from '../../../../components/Breadcrumbs';
+import { Button, PageHeader } from '../../../../components/ui';
 
 export default function CaseDetailPage() {
+  const caseService = useService<CaseService>(CASE_SERVICE_TOKEN);
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [resolved, setResolved] = useState<ResolvedCase | null>(null);
@@ -17,16 +20,16 @@ export default function CaseDetailPage() {
   useEffect(() => {
     if (!id) return;
     setLoading(true);
-    caseApi.resolve(id)
+    caseService.resolve(id)
       .then(setResolved)
       .catch(() => setError('Failed to load case'))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, caseService]);
 
   const handleDelete = async () => {
     if (!id || !confirm('Delete this case?')) return;
     try {
-      await caseApi.delete(id);
+      await caseService.delete(id);
       navigate('/cases');
     } catch {
       setError('Failed to delete');
@@ -118,7 +121,7 @@ export default function CaseDetailPage() {
             <CaseTreeTable
               nodes={resolved.resolvedNodes}
               onMetadataUpdated={() => {
-                if (id) caseApi.resolve(id).then(setResolved).catch(() => {});
+                if (id) caseService.resolve(id).then(setResolved).catch(() => {});
               }}
             />
           )}
