@@ -1,14 +1,18 @@
-import fs from 'fs';
 import path from 'path';
 import YAML from 'yaml';
 
 import { Dictionary, Package } from '../models/Dictionary.js';
 import { Entity, Relationship } from '../models/EntitySchema.js';
-import { ensureDirectoryStructure, listAllDictionaries, listAllEntities, listMicroserviceEntities, listMicroservices, loadPackage, readEntityFile, readRelationshipsFile, writeDictionaryMetadata, normalizeEntityMetadata } from '../utils/fileOperations.js';
+import { listAllDictionaries, listMicroserviceEntities, listMicroservices, loadPackage, readEntityFile, readRelationshipsFile, writeDictionaryMetadata } from '../utils/fileOperations.js';
 import { logger } from '../utils/logger.js';
 import { config } from '../kernel/config.js';
+import { storageRegistry } from '../storage/contract/StorageBackendToken.js';
+import type { IStorageBackend } from '../storage/contract/IStorageBackend.js';
+import { wsId, pathOf, type WorkspaceId, type Path, type Stat } from '../storage/contract/types.js';
 
 // Dynamic: reads current config.dataDir so project switching (#95) works.
+// Kept only for the getEntityHierarchy bridge that passes an absolute fs path
+// to readRelationshipsFile() (fileOperations.ts still on direct fs).
 const getDataDir = () => config.dataDir;
 
 /**
@@ -16,6 +20,49 @@ const getDataDir = () => config.dataDir;
  * Provides functionality for managing data dictionaries
  */
 export class DictionaryService {
+  private _storage?: IStorageBackend;
+  private get storage(): IStorageBackend {
+    if (!this._storage) this._storage = storageRegistry.getBackend();
+    return this._storage;
+  }
+
+  constructor(
+    storage?: IStorageBackend,
+    private readonly ws: WorkspaceId = wsId('dictionaries'),
+  ) {
+    this._storage = storage;
+  }
+
+  // ── Helpers ─────────────────────────────────────────────────────────
+
+  /**
+   * Returns Stat for the given workspace-relative path, or null if not found.
+   * Duck-types the error code rather than using instanceof to remain
+   * implementation-agnostic.
+   */
+  private async statOrNull(p: Path): Promise<Stat | null> {
+    try {
+      return await this.storage.stat(this.ws, p);
+    } catch (e) {
+      if ((e as { code?: string }).code === 'not-found') return null;
+      throw e;
+    }
+  }
+
+  /**
+   * Build the workspace-relative Path for a package directory.
+   * e.g. ('e-commerce', ['Customer']) → pathOf('e-commerce/Customer')
+   */
+  private packagePath(rootPackageName: string, pkgPath: string[]): Path {
+    return pathOf([rootPackageName, ...pkgPath].filter(Boolean).join('/'));
+  }
+
+  /**
+   * Build a child Path by appending path segments to a parent Path.
+   */
+  private childPath(parent: Path, ...segs: string[]): Path {
+    return pathOf([String(parent), ...segs].filter(Boolean).join('/'));
+  }
 
   /**
    * Create a new package (subpackage) at the given path.
@@ -33,17 +80,19 @@ export class DictionaryService {
       const nameError = this.validatePackageName(nameToValidate);
       if (nameError) return { success: false, errors: [nameError] };
 
-      const baseDir = path.join(getDataDir(), rootPackageName, ...packagePath);
-      if (!fs.existsSync(baseDir)) {
-        fs.mkdirSync(baseDir, { recursive: true });
-      } else {
+      const baseDirPath = this.packagePath(rootPackageName, packagePath);
+      const existing = await this.statOrNull(baseDirPath);
+      if (existing !== null) {
         return { success: false, errors: ['Package directory already exists'] };
       }
+
+      await this.storage.mkdir(this.ws, baseDirPath, true);
+
       // `package.yaml` is the #105 package marker that `listPackages()` uses
       // to distinguish a package folder from a plain subdirectory — see
       // fileOperations.ts. Writing `metadata.yaml` here (the pre-#105 name)
       // hid newly created sub-packages from the tree.
-      const markerPath = path.join(baseDir, 'package.yaml');
+      const markerPath = this.childPath(baseDirPath, 'package.yaml');
       const markerContent = YAML.stringify({
         id: packageData.id || packagePath[packagePath.length - 1],
         name: packageData.name || packagePath[packagePath.length - 1],
@@ -51,7 +100,8 @@ export class DictionaryService {
         type: packageData.type,
         metadata: packageData.metadata || [],
       });
-      fs.writeFileSync(markerPath, markerContent, 'utf8');
+      await this.storage.write(this.ws, markerPath, markerContent, { createParents: true });
+
       return {
         success: true,
         package: {
@@ -76,19 +126,25 @@ export class DictionaryService {
    */
   public async updatePackageAtPath(rootPackageName: string, packagePath: string[], packageData: Partial<Package>): Promise<{ success: boolean; errors?: string[]; package?: Package }> {
     try {
-      const baseDir = path.join(getDataDir(), rootPackageName, ...packagePath);
-      if (!fs.existsSync(baseDir)) {
+      const baseDirPath = this.packagePath(rootPackageName, packagePath);
+      if (await this.statOrNull(baseDirPath) === null) {
         return { success: false, errors: ['Package directory does not exist'] };
       }
+
       // Read the #105 marker, falling back to the legacy name so existing
       // packages on disk still update cleanly.
-      const markerPath = path.join(baseDir, 'package.yaml');
-      const legacyPath = path.join(baseDir, 'metadata.yaml');
-      const readPath = fs.existsSync(markerPath) ? markerPath : fs.existsSync(legacyPath) ? legacyPath : null;
+      const markerPath = this.childPath(baseDirPath, 'package.yaml');
+      const legacyPath = this.childPath(baseDirPath, 'metadata.yaml');
+
+      const markerStat = await this.statOrNull(markerPath);
+      const legacyStat = markerStat === null ? await this.statOrNull(legacyPath) : null;
+
+      const readPath = markerStat !== null ? markerPath : legacyStat !== null ? legacyPath : null;
       if (!readPath) {
         return { success: false, errors: ['package.yaml does not exist'] };
       }
-      const oldMeta = YAML.parse(fs.readFileSync(readPath, 'utf8')) || {};
+
+      const oldMeta = YAML.parse(await this.storage.read(this.ws, readPath)) || {};
       const newMeta = {
         ...oldMeta,
         ...packageData,
@@ -98,10 +154,14 @@ export class DictionaryService {
         type: packageData.type ?? oldMeta.type,
         metadata: packageData.metadata ?? oldMeta.metadata,
       };
+
       // Always write the canonical #105 marker. If we migrated from a
       // legacy metadata.yaml, delete it to avoid two-source-of-truth drift.
-      fs.writeFileSync(markerPath, YAML.stringify(newMeta), 'utf8');
-      if (readPath === legacyPath) fs.unlinkSync(legacyPath);
+      await this.storage.write(this.ws, markerPath, YAML.stringify(newMeta), { createParents: true });
+      if (readPath === legacyPath) {
+        await this.storage.delete(this.ws, legacyPath);
+      }
+
       return {
         success: true,
         package: {
@@ -126,8 +186,8 @@ export class DictionaryService {
    */
   public async deletePackageAtPath(rootPackageName: string, packagePath: string[], force = false): Promise<{ success: boolean; errors?: string[] }> {
     try {
-      const baseDir = path.join(getDataDir(), rootPackageName, ...packagePath);
-      if (!fs.existsSync(baseDir)) {
+      const baseDirPath = this.packagePath(rootPackageName, packagePath);
+      if (await this.statOrNull(baseDirPath) === null) {
         return { success: false, errors: ['Package directory does not exist'] };
       }
 
@@ -135,19 +195,22 @@ export class DictionaryService {
       // post-#105 package marker (`package.yaml`) and the legacy
       // `metadata.yaml` (still present in some older packages).
       if (!force) {
-        const entries = fs.readdirSync(baseDir);
+        const entries = await this.storage.list(this.ws, baseDirPath);
         const hasEntities = entries.some(e =>
-          e.endsWith('.yaml') &&
-          e !== 'package.yaml' &&
-          e !== 'metadata.yaml'
+          !e.isDirectory &&
+          e.name.endsWith('.yaml') &&
+          e.name !== 'package.yaml' &&
+          e.name !== 'metadata.yaml'
         );
-        const hasSubPackages = entries.some(e => fs.statSync(path.join(baseDir, e)).isDirectory());
+        // DirectoryEntry.isDirectory covers subpackage detection — no second call needed
+        const hasSubPackages = entries.some(e => e.isDirectory);
         if (hasEntities || hasSubPackages) {
           return { success: false, errors: ['Package is not empty. Delete its entities and sub-packages first, or use force=true.'] };
         }
       }
 
-      fs.rmSync(baseDir, { recursive: true, force: true });
+      // storage.delete() is recursive (verified: wm.deleteFile → fs.rm({recursive,force}))
+      await this.storage.delete(this.ws, baseDirPath);
       return { success: true };
     } catch (error: any) {
       logger.error('Error deleting package at path', error);
@@ -159,8 +222,9 @@ export class DictionaryService {
    * Builds a Package hierarchy via `loadPackage` (#106 — content-driven
    * load that merges all `.yaml` sections regardless of filename).
    */
-  private async buildPackageHierarchy(dirPath: string, packageName: string): Promise<Package> {
-    if (!fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) {
+  private async buildPackageHierarchy(dirPath: Path, packageName: string): Promise<Package> {
+    const dirStat = await this.statOrNull(dirPath);
+    if (dirStat === null || !dirStat.isDirectory) {
       return {
         id: packageName,
         name: packageName,
@@ -175,13 +239,16 @@ export class DictionaryService {
 
     // #105 marker first, legacy `metadata.yaml` as fallback.
     let packageMeta: Partial<Package> = {};
-    const markerPath = path.join(dirPath, 'package.yaml');
-    const legacyMetaPath = path.join(dirPath, 'metadata.yaml');
-    const readPath = fs.existsSync(markerPath) ? markerPath
-      : fs.existsSync(legacyMetaPath) ? legacyMetaPath : null;
+    const markerPath = this.childPath(dirPath, 'package.yaml');
+    const legacyMetaPath = this.childPath(dirPath, 'metadata.yaml');
+
+    const markerStat = await this.statOrNull(markerPath);
+    const legacyStat = markerStat === null ? await this.statOrNull(legacyMetaPath) : null;
+    const readPath = markerStat !== null ? markerPath : legacyStat !== null ? legacyMetaPath : null;
+
     if (readPath) {
       try {
-        packageMeta = YAML.parse(fs.readFileSync(readPath, 'utf8')) as Partial<Package>;
+        packageMeta = YAML.parse(await this.storage.read(this.ws, readPath)) as Partial<Package>;
       } catch (e) {
         logger.warn(`Failed to parse package marker: ${readPath}: ${e}`);
       }
@@ -202,10 +269,13 @@ export class DictionaryService {
     }
 
     // Walk subdirectories for nested packages (still supported for nested layouts).
+    // storage.list() returns DirectoryEntry[] with .isDirectory populated —
+    // equivalent to readdir with withFileTypes: true, no second stat call needed.
     const subPackages: Package[] = [];
-    for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
-        const subpkg = await this.buildPackageHierarchy(path.join(dirPath, entry.name), entry.name);
+    const dirEntries = await this.storage.list(this.ws, dirPath);
+    for (const entry of dirEntries) {
+      if (entry.isDirectory) {
+        const subpkg = await this.buildPackageHierarchy(this.childPath(dirPath, entry.name), entry.name);
         subPackages.push(subpkg);
       }
     }
@@ -266,13 +336,13 @@ export class DictionaryService {
         };
       }
 
-      const metadataPath = path.join(getDataDir(), id, 'metadata.yaml');
-
-      if (!fs.existsSync(metadataPath)) {
+      // metadataPath is workspace-relative: "<id>/metadata.yaml"
+      const metadataPath = pathOf(`${id}/metadata.yaml`);
+      if (await this.statOrNull(metadataPath) === null) {
         return null;
       }
 
-      const metadataContent = fs.readFileSync(metadataPath, 'utf8');
+      const metadataContent = await this.storage.read(this.ws, metadataPath);
       const metadata = YAML.parse(metadataContent) as Dictionary;
 
       return metadata;
@@ -370,8 +440,8 @@ export class DictionaryService {
 
   public async getPackageHierarchy(rootPackage: string): Promise<Package | null> {
     try {
-      const dirPath = path.join(getDataDir(), rootPackage);
-      if (!fs.existsSync(dirPath)) {
+      const dirPath = pathOf(rootPackage);
+      if (await this.statOrNull(dirPath) === null) {
         return null;
       }
       return await this.buildPackageHierarchy(dirPath, rootPackage);
@@ -543,7 +613,9 @@ export class DictionaryService {
         children: [] as any[]
       };
 
-      // Read relationships from package-level file
+      // Bridge: getDataDir()+path.join hands an absolute fs path to
+      // readRelationshipsFile(), which still reads directly from disk via
+      // fileOperations.ts (not yet migrated to IStorageBackend).
       const packagePath = path.join(getDataDir(), microservice);
       const relationships = await readRelationshipsFile(packagePath);
 
@@ -598,4 +670,5 @@ export class DictionaryService {
     return entities;
   }
 }
+
 export const dictionaryService = new DictionaryService();

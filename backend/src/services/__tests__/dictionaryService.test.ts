@@ -1,13 +1,22 @@
+import { InMemoryStorageBackend } from '../../storage/memory/InMemoryStorageBackend.js';
+import { DictionaryService } from '../dictionaryService.js';
+import { wsId } from '../../storage/contract/types.js';
 import { listMicroserviceEntities, listAllDictionaries, readEntityFile } from '../../utils/fileOperations.js';
-import { dictionaryService } from '../dictionaryService.js';
 
 // Mock dependencies
 jest.mock('../../utils/fileOperations');
 jest.mock('../../utils/logger');
 
+const WS = wsId('dictionaries');
+
 describe('DictionaryService', () => {
+  let backend: InMemoryStorageBackend;
+  let dictionaryService: DictionaryService;
+
   beforeEach(() => {
     jest.clearAllMocks();
+    backend = new InMemoryStorageBackend();
+    dictionaryService = new DictionaryService(backend, WS);
   });
 
   describe('getAllDictionaries', () => {
