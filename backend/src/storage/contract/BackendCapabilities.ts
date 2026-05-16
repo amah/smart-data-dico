@@ -38,3 +38,22 @@ export const GIT_FILESYSTEM_CAPABILITIES: BackendCapabilities = {
   fullTextSearch: false,
   multiUser: 'single-user',       // flips to 'workspace-per-user' in #169 slice
 };
+
+// Capabilities for the in-memory backend (slice 3). KEY DIFFERENTIATOR:
+// versionControl is false — no commit history. All other flags match the
+// current git slice values (all false / single-user) because the workspace-
+// lifecycle methods also throw 'not-implemented' until #169.
+export const IN_MEMORY_CAPABILITIES: BackendCapabilities = {
+  versionControl: false,          // KEY DIFFERENTIATOR — in-memory has no commit history
+  branches: false,
+  pullRequests: false,
+  timeTravel: false,
+  threeWayMerge: false,
+  concurrency: 'single-user',
+  nativeSearch: false,
+  nativeTraversal: false,
+  nativeImpact: false,
+  nativeLineage: false,
+  fullTextSearch: false,
+  multiUser: 'single-user',
+};

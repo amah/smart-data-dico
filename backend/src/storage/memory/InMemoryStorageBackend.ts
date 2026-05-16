@@ -1,32 +1,48 @@
-// backend/src/__tests__/helpers/InMemoryStorageBackend.ts
-import type { IStorageBackend, ChangeObservable } from '../../storage/contract/IStorageBackend.js';
+// backend/src/storage/memory/InMemoryStorageBackend.ts
+import { EventEmitter } from 'events';
+import type { IStorageBackend, ChangeObservable } from '../contract/IStorageBackend.js';
 import type {
   WorkspaceId, Path, Bytes, WriteOpts, WriteResult,
   DirectoryEntry, Stat, WorkspaceHandle, CreateWorkspaceOpts, MergeResult,
-} from '../../storage/contract/types.js';
-import { pathOf } from '../../storage/contract/types.js';
-import { GIT_FILESYSTEM_CAPABILITIES, type BackendCapabilities } from '../../storage/contract/BackendCapabilities.js';
-import { BackendError, NotFoundError } from '../../storage/contract/errors.js';
+  ChangeEvent,
+} from '../contract/types.js';
+import { pathOf } from '../contract/types.js';
+import { IN_MEMORY_CAPABILITIES, type BackendCapabilities } from '../contract/BackendCapabilities.js';
+import { BackendError, NotFoundError } from '../contract/errors.js';
 
 /**
- * Minimal in-memory IStorageBackend for service-level tests.
- *
- * Slice 2: only `read`/`write`/`list`/`stat`/`delete`/`mkdir` are implemented.
- * `subscribe` + the four workspace-lifecycle methods throw 'not-implemented',
- * matching the slice-1 wrapper's behaviour. Slice 3 will extend this into a
- * full reference implementation.
+ * In-memory IStorageBackend — promoted from the slice-2 test helper to a
+ * first-class backend in slice 3.
  *
  * Storage shape: Map<WorkspaceId, Map<canonicalPath, Bytes>>. Directories
  * are implicit — a "directory" exists iff any stored path starts with
  * `${dir}/`. `mkdir` records the directory so empty dirs are observable.
+ *
+ * `subscribe()` is implemented via a per-workspace Node EventEmitter with
+ * prefix filtering. Workspace-lifecycle methods stay throwing — they are
+ * deferred to #169 (per-user worktrees). Capabilities honestly report
+ * `versionControl: false` and `branches: false`.
+ *
+ * Seeding: callers may insert into `backend.files` directly (not via
+ * `write()`) to avoid firing `subscribe()` change-events at boot.
  */
 export class InMemoryStorageBackend implements IStorageBackend {
-  /** Exposed for tests that want to pre-seed or inspect state. */
+  /** Exposed for seeders that want to pre-populate without firing change events. */
   readonly files = new Map<string, Map<string, Bytes>>();
   /** Explicit empty-directory marker set; entries are canonical paths. */
   readonly dirs = new Map<string, Set<string>>();
   private readonly now = () => new Date();
 
+  // ── Per-workspace EventEmitter for subscribe() ──────────────────────────
+  private readonly emitters = new Map<string, EventEmitter>();
+  private emitterFor(ws: WorkspaceId): EventEmitter {
+    const key = String(ws);
+    let e = this.emitters.get(key);
+    if (!e) { e = new EventEmitter(); this.emitters.set(key, e); }
+    return e;
+  }
+
+  // ── Internal helpers ─────────────────────────────────────────────────────
   private bucket(ws: WorkspaceId): Map<string, Bytes> {
     const key = String(ws);
     let m = this.files.get(key);
@@ -41,12 +57,14 @@ export class InMemoryStorageBackend implements IStorageBackend {
   }
   private canon(p: Path): string { return String(p).split('/').filter(Boolean).join('/'); }
 
+  // ── Read ─────────────────────────────────────────────────────────────────
   async read(ws: WorkspaceId, path: Path): Promise<Bytes> {
     const c = this.canon(path);
     const v = this.bucket(ws).get(c);
     if (v === undefined) throw new NotFoundError(ws, path);
     return v;
   }
+
   async list(ws: WorkspaceId, path: Path): Promise<DirectoryEntry[]> {
     const prefix = this.canon(path);
     const out = new Map<string, DirectoryEntry>();
@@ -76,6 +94,7 @@ export class InMemoryStorageBackend implements IStorageBackend {
     }
     return [...out.values()];
   }
+
   async stat(ws: WorkspaceId, path: Path): Promise<Stat> {
     const c = this.canon(path);
     const v = this.bucket(ws).get(c);
@@ -88,40 +107,65 @@ export class InMemoryStorageBackend implements IStorageBackend {
     }
     throw new NotFoundError(ws, path);
   }
+
+  // ── Write ────────────────────────────────────────────────────────────────
   async write(ws: WorkspaceId, path: Path, bytes: Bytes, _opts?: WriteOpts): Promise<WriteResult> {
     const c = this.canon(path);
+    const existed = this.bucket(ws).has(c);
     this.bucket(ws).set(c, bytes);
-    return { path, size: bytes.length, etag: `${bytes.length}`, updatedAt: this.now() };
+    const result: WriteResult = { path, size: bytes.length, etag: `${bytes.length}`, updatedAt: this.now() };
+    const event: ChangeEvent = { workspace: ws, path, kind: existed ? 'modified' : 'created', at: result.updatedAt };
+    this.emitterFor(ws).emit('change', event);
+    return result;
   }
+
   async delete(ws: WorkspaceId, path: Path): Promise<void> {
     const c = this.canon(path);
     if (!this.bucket(ws).delete(c)) {
       // permissive: also drop a recorded empty dir if present
       if (!this.dirSet(ws).delete(c)) throw new NotFoundError(ws, path);
     }
+    const event: ChangeEvent = { workspace: ws, path, kind: 'deleted', at: this.now() };
+    this.emitterFor(ws).emit('change', event);
   }
+
   async mkdir(ws: WorkspaceId, path: Path, _parents?: boolean): Promise<void> {
     const c = this.canon(path);
     if (c) this.dirSet(ws).add(c);
   }
-  // ---- not-implemented in slice 2 (parity with GitFilesystemStorageBackend) ----
-  subscribe(_ws: WorkspaceId, _path: Path): ChangeObservable {
-    throw new BackendError('subscribe() not implemented in InMemoryStorageBackend (slice 2)', 'not-implemented');
+
+  // ── Change notification ──────────────────────────────────────────────────
+  subscribe(ws: WorkspaceId, path: Path): ChangeObservable {
+    const emitter = this.emitterFor(ws);
+    const prefix = this.canon(path);
+    return {
+      subscribe(observer: (event: ChangeEvent) => void) {
+        const handler = (event: ChangeEvent) => {
+          const epc = String(event.path).split('/').filter(Boolean).join('/');
+          if (prefix === '' || epc === prefix || epc.startsWith(prefix + '/')) observer(event);
+        };
+        emitter.on('change', handler);
+        return { unsubscribe() { emitter.off('change', handler); } };
+      },
+    };
   }
+
+  // ── Workspace lifecycle — deferred to #169 ───────────────────────────────
   async createWorkspace(_id: WorkspaceId, _opts?: CreateWorkspaceOpts): Promise<WorkspaceHandle> {
-    throw new BackendError('createWorkspace() not implemented in InMemoryStorageBackend (slice 2)', 'not-implemented');
+    throw new BackendError('createWorkspace() not implemented in InMemoryStorageBackend', 'not-implemented');
   }
   async forkWorkspace(_s: WorkspaceId, _d: WorkspaceId): Promise<WorkspaceHandle> {
-    throw new BackendError('forkWorkspace() not implemented in InMemoryStorageBackend (slice 2)', 'not-implemented');
+    throw new BackendError('forkWorkspace() not implemented in InMemoryStorageBackend', 'not-implemented');
   }
   async mergeWorkspace(_s: WorkspaceId, _d: WorkspaceId): Promise<MergeResult> {
-    throw new BackendError('mergeWorkspace() not implemented in InMemoryStorageBackend (slice 2)', 'not-implemented');
+    throw new BackendError('mergeWorkspace() not implemented in InMemoryStorageBackend', 'not-implemented');
   }
   async deleteWorkspace(_id: WorkspaceId): Promise<void> {
-    throw new BackendError('deleteWorkspace() not implemented in InMemoryStorageBackend (slice 2)', 'not-implemented');
+    throw new BackendError('deleteWorkspace() not implemented in InMemoryStorageBackend', 'not-implemented');
   }
+
+  // ── Self-description ─────────────────────────────────────────────────────
   capabilities(): BackendCapabilities {
-    // Re-use the git capabilities const so tests don't depend on a fresh constant.
-    return GIT_FILESYSTEM_CAPABILITIES;
+    return IN_MEMORY_CAPABILITIES;
   }
 }
