@@ -13,6 +13,18 @@ import { parseSectionsFromString } from '../../utils/fileOperations.js';
 import { METADATA_SCHEMA_MARKER, METADATA_SCHEMA_MARKER_UUID } from '../schemaEntityService.js';
 import type { Entity } from '../../models/EntitySchema.js';
 import { validateEntity } from '../../models/EntitySchema.js';
+import { GitFilesystemStorageBackend, type IWorkspaceManager } from '../../storage/git/GitFilesystemStorageBackend.js';
+import { storageRegistry } from '../../storage/contract/StorageBackendToken.js';
+
+// Loaded once at startup — see beforeAll below. Tests can't statically import
+// '@hamak/filesystem-server-impl' under NodeNext (the package's typings don't
+// expose the runtime class cleanly); same dynamic-import pattern as
+// GitFilesystemStorageBackend.test.ts.
+let WorkspaceManagerCls: new (w: Record<string, string>, o: { baseDirectory: string }) => IWorkspaceManager;
+beforeAll(async () => {
+  const mod = (await import('@hamak/filesystem-server-impl' as string)) as { WorkspaceManager: typeof WorkspaceManagerCls };
+  WorkspaceManagerCls = mod.WorkspaceManager;
+});
 
 // Mock logger so we can assert on warnings
 const mockWarn = jest.fn();
@@ -106,6 +118,12 @@ function makeTempDataDir(opts: {
     }
   }
 
+  // Register a fresh git+filesystem storage backend rooted at the temp dir.
+  // Service helpers that consume storageRegistry.getBackend() now read/write
+  // through this backend, which routes back to testDataDir via WorkspaceManager.
+  const wm = new WorkspaceManagerCls({ dictionaries: '.' }, { baseDirectory: dir });
+  storageRegistry.setBackend(new GitFilesystemStorageBackend(wm));
+
   return dir;
 }
 
@@ -115,6 +133,7 @@ afterEach(() => {
     fs.rmSync(testDataDir, { recursive: true, force: true });
     testDataDir = '';
   }
+  storageRegistry.reset();
   mockWarn.mockClear();
   mockError.mockClear();
 });
@@ -420,6 +439,7 @@ describe('Criterion 2: loadSchemaPackage() is a loadable package', () => {
   it('returns empty PackageModel when .dico/schemas/ does not exist', async () => {
     testDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dico-test-empty-'));
     fs.mkdirSync(path.join(testDataDir, '.dico'), { recursive: true });
+    storageRegistry.setBackend(new GitFilesystemStorageBackend(new WorkspaceManagerCls({ dictionaries: '.' }, { baseDirectory: testDataDir })));
 
     const { loadSchemaPackage } = await import('../../utils/fileOperations.js');
     const pkg = await loadSchemaPackage();
@@ -431,6 +451,7 @@ describe('Criterion 2: loadSchemaPackage() is a loadable package', () => {
     const schemasDir = path.join(testDataDir, '.dico', 'schemas');
     fs.mkdirSync(schemasDir, { recursive: true });
     // No package.yaml
+    storageRegistry.setBackend(new GitFilesystemStorageBackend(new WorkspaceManagerCls({ dictionaries: '.' }, { baseDirectory: testDataDir })));
 
     mockWarn.mockClear();
     const { loadSchemaPackage } = await import('../../utils/fileOperations.js');

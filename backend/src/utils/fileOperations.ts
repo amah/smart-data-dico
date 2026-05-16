@@ -1,4 +1,3 @@
-import fs from 'fs';
 import path from 'path';
 import YAML from 'yaml';
 import { logger } from './logger.js';
@@ -7,6 +6,46 @@ import { Rule } from '../models/Rule.js';
 import { Dictionary } from '../models/Dictionary.js';
 import { sanitizeFsName } from './uuid.js';
 import { config } from '../kernel/config.js';
+import { storageRegistry } from '../storage/contract/StorageBackendToken.js';
+import type { IStorageBackend } from '../storage/contract/IStorageBackend.js';
+import { wsId, pathOf, type Path, type Stat } from '../storage/contract/types.js';
+
+// fs is GONE. No import. Lint guard will catch regressions in a later slice.
+
+const WS = wsId('dictionaries');
+
+// Lazy backend resolver — copies the slice-4 pattern. The module is loaded
+// at import time; the backend is only registered when server.ts boots.
+// Tests that import this module without registering a backend MUST mock the
+// helpers (existing `jest.mock('../../utils/fileOperations')` calls keep working).
+function getStorage(): IStorageBackend { return storageRegistry.getBackend(); }
+
+/** Try-stat that returns null on `code:'not-found'` (duck-typed per slice-2 rule). */
+async function statOrNull(p: Path): Promise<Stat | null> {
+  try { return await getStorage().stat(WS, p); }
+  catch (e) {
+    if ((e as { code?: string }).code === 'not-found') return null;
+    throw e;
+  }
+}
+
+/** Try-read that returns null on `code:'not-found'`. */
+async function readOrNull(p: Path): Promise<string | null> {
+  try { return await getStorage().read(WS, p); }
+  catch (e) {
+    if ((e as { code?: string }).code === 'not-found') return null;
+    throw e;
+  }
+}
+
+/** Delete that swallows `code:'not-found'`. */
+async function deleteIfExists(p: Path): Promise<void> {
+  try { await getStorage().delete(WS, p); }
+  catch (e) {
+    if ((e as { code?: string }).code === 'not-found') return;
+    throw e;
+  }
+}
 
 // Base directory for data dictionaries
 /** Always reads current config.dataDir so project switching (#95) works. */
@@ -124,27 +163,24 @@ async function commitChanges(filePath: string, message: string): Promise<void> {
 // ────────────────────────────────────────────────────────────────────────
 
 export async function ensureDirectoryStructure(): Promise<void> {
-  const baseDir = getDataDir();
-  if (!fs.existsSync(baseDir)) {
-    fs.mkdirSync(baseDir, { recursive: true });
-    logger.info(`Created base directory: ${baseDir}`);
+  if (await statOrNull(pathOf('')) === null) {
+    await getStorage().mkdir(WS, pathOf(''), true);
+    logger.info(`Created base directory via storage backend`);
   }
-  const dicoDir = path.join(baseDir, '.dico');
-  if (!fs.existsSync(dicoDir)) {
-    fs.mkdirSync(dicoDir, { recursive: true });
-    logger.info(`Created .dico/ system directory: ${dicoDir}`);
+  if (await statOrNull(pathOf('.dico')) === null) {
+    await getStorage().mkdir(WS, pathOf('.dico'), true);
+    logger.info(`Created .dico/ system directory via storage backend`);
   }
 }
 
-export function ensurePackageDirectoryStructure(packageName: string): void {
-  const packageDir = getPackagePath(packageName);
-  if (!fs.existsSync(packageDir)) {
-    fs.mkdirSync(packageDir, { recursive: true });
-    logger.info(`Created package directory: ${packageDir}`);
+export async function ensurePackageDirectoryStructure(packageName: string): Promise<void> {
+  if (await statOrNull(pathOf(packageName)) === null) {
+    await getStorage().mkdir(WS, pathOf(packageName), true);
+    logger.info(`Created package directory: ${packageName}`);
   }
-  const markerPath = path.join(packageDir, 'package.yaml');
-  if (!fs.existsSync(markerPath)) {
-    fs.writeFileSync(markerPath, YAML.stringify({ name: packageName }), 'utf8');
+  const markerPath = pathOf(`${packageName}/package.yaml`);
+  if (await statOrNull(markerPath) === null) {
+    await getStorage().write(WS, markerPath, YAML.stringify({ name: packageName }), { createParents: true });
   }
 }
 
@@ -153,18 +189,16 @@ export function getPackagePath(packageName: string): string {
 }
 
 export async function listPackages(): Promise<string[]> {
-  const baseDir = getDataDir();
-  if (!fs.existsSync(baseDir)) return [];
-  return fs.readdirSync(baseDir).filter(name => {
-    if (RESERVED_DIRS.has(name)) return false;
-    const p = path.join(baseDir, name);
-    try {
-      if (!fs.statSync(p).isDirectory()) return false;
-    } catch {
-      return false;
-    }
-    return fs.existsSync(path.join(p, 'package.yaml'));
-  });
+  if (await statOrNull(pathOf('')) === null) return [];
+  const entries = await getStorage().list(WS, pathOf(''));
+  const out: string[] = [];
+  for (const e of entries) {
+    if (RESERVED_DIRS.has(e.name)) continue;
+    if (!e.isDirectory) continue;
+    const marker = await statOrNull(pathOf(`${e.name}/package.yaml`));
+    if (marker !== null) out.push(e.name);
+  }
+  return out;
 }
 
 /** @deprecated Use `listPackages()`. */
@@ -280,13 +314,18 @@ export function parseSectionsFromString(raw: string, label: string, filename?: s
   }
 }
 
-function parseSections(filePath: string): SectionsFile {
-  try {
-    return parseSectionsFromString(fs.readFileSync(filePath, 'utf8'), filePath, path.basename(filePath));
-  } catch (e) {
-    logger.warn(`Failed to read YAML: ${filePath}: ${e}`);
+/**
+ * Read and parse sections from the storage backend. Returns an empty
+ * SectionsFile if the path does not exist.
+ */
+async function parseSectionsFromStorage(p: Path, label: string): Promise<SectionsFile> {
+  const content = await readOrNull(p);
+  if (content === null) {
     return { entities: [], relationships: [], rules: [], cases: [] };
   }
+  // path.basename works on both abs and workspace-rel since both use '/'
+  const filename = path.basename(String(p));
+  return parseSectionsFromString(content, label, filename);
 }
 
 /**
@@ -394,32 +433,39 @@ export function getReservedPackageFiles(): ReadonlySet<string> {
 }
 
 /**
- * Write sections back to a file. If every section is empty, delete the
- * file (prevents empty YAML from lingering after the last entity is
- * moved or deleted). Preserves stable section order for diff-friendly
- * commits.
+ * Write sections back to a file via the storage backend. If every section
+ * is empty, delete the file (prevents empty YAML from lingering after the
+ * last entity is moved or deleted). Preserves stable section order for
+ * diff-friendly commits.
  */
-function writeSections(filePath: string, sections: SectionsFile): void {
-  const payload: any = {};
+async function writeSectionsToStorage(p: Path, sections: SectionsFile): Promise<void> {
+  const payload: Record<string, unknown> = {};
   if (sections.entities.length > 0) payload.entities = sections.entities;
   if (sections.relationships.length > 0) payload.relationships = sections.relationships;
   if (sections.rules.length > 0) payload.rules = sections.rules;
   if (sections.cases.length > 0) payload.cases = sections.cases;
 
   if (Object.keys(payload).length === 0) {
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    await deleteIfExists(p);
     return;
   }
-  fs.writeFileSync(filePath, YAML.stringify(payload), 'utf8');
+  await getStorage().write(WS, p, YAML.stringify(payload), { createParents: true });
 }
 
-function listPackageYamlFiles(packageName: string): string[] {
-  const dir = getPackagePath(packageName);
-  if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir)
+/**
+ * List workspace-relative paths to all non-reserved `.yaml` files in the
+ * given package directory, sorted lexicographically.
+ */
+async function listPackageYamlFilePaths(packageName: string): Promise<Path[]> {
+  const dir = pathOf(packageName);
+  if (await statOrNull(dir) === null) return [];
+  const entries = await getStorage().list(WS, dir);
+  return entries
+    .filter(e => !e.isDirectory)
+    .map(e => e.name)
     .filter(f => f.endsWith('.yaml') && !RESERVED_PACKAGE_FILES.has(f))
-    .map(f => path.join(dir, f))
-    .sort();
+    .sort()
+    .map(f => pathOf(`${packageName}/${f}`));
 }
 
 /**
@@ -429,11 +475,13 @@ function listPackageYamlFiles(packageName: string): string[] {
  * contents fetched via `git show`.
  */
 export async function loadPackage(packageName: string): Promise<PackageModel> {
-  const files = listPackageYamlFiles(packageName);
-  const parsed: ParsedSections[] = files.map(filePath => ({
-    label: filePath,
-    sections: parseSections(filePath),
-  }));
+  const files = await listPackageYamlFilePaths(packageName);
+  const parsed: ParsedSections[] = await Promise.all(
+    files.map(async (p) => ({
+      label: String(p),
+      sections: await parseSectionsFromStorage(p, String(p)),
+    })),
+  );
   return mergePackageSections(packageName, parsed);
 }
 
@@ -455,41 +503,43 @@ export function getSchemaPackagePath(): string {
 }
 
 /**
- * List all `.yaml` files in the schema package directory and its
- * `_meta/` subdirectory. Returns absolute file paths sorted
- * lexicographically. Unlike `listPackageYamlFiles`, this function
- * descends one level into `_meta/` — the reserved home for built-in
- * bootstrap entities.
+ * List workspace-relative paths to all `.yaml` files in the schema package
+ * directory and its `_meta/` subdirectory. Unlike `listPackageYamlFilePaths`,
+ * this function descends one level into `_meta/`.
  *
  * The schema package is NOT required to have `package.yaml` present for
  * the loader to read it (absence is logged as a warning). If the
  * directory itself is missing, an empty list is returned silently.
  */
-function listSchemaPackageYamlFiles(): string[] {
-  const schemaDir = getSchemaPackagePath();
-  if (!fs.existsSync(schemaDir)) return [];
+async function listSchemaPackageYamlFilePaths(): Promise<Path[]> {
+  const schemaDir = pathOf('.dico/schemas');
+  if (await statOrNull(schemaDir) === null) return [];
 
-  const files: string[] = [];
+  const files: Path[] = [];
 
   // Top-level files in .dico/schemas/
   try {
-    const topLevel = fs.readdirSync(schemaDir)
-      .filter(f => f.endsWith('.yaml') && f !== 'package.yaml')
-      .map(f => path.join(schemaDir, f))
-      .sort();
-    files.push(...topLevel);
+    const topEntries = await getStorage().list(WS, schemaDir);
+    const topFiles = topEntries
+      .filter(e => !e.isDirectory && e.name.endsWith('.yaml') && e.name !== 'package.yaml')
+      .map(e => e.name)
+      .sort()
+      .map(f => pathOf(`.dico/schemas/${f}`));
+    files.push(...topFiles);
   } catch {
     // ignore read errors
   }
 
   // Files in the reserved _meta/ subdirectory
-  const metaDir = path.join(schemaDir, '_meta');
-  if (fs.existsSync(metaDir)) {
+  const metaDir = pathOf('.dico/schemas/_meta');
+  if (await statOrNull(metaDir) !== null) {
     try {
-      const metaFiles = fs.readdirSync(metaDir)
-        .filter(f => f.endsWith('.yaml'))
-        .map(f => path.join(metaDir, f))
-        .sort();
+      const metaEntries = await getStorage().list(WS, metaDir);
+      const metaFiles = metaEntries
+        .filter(e => !e.isDirectory && e.name.endsWith('.yaml'))
+        .map(e => e.name)
+        .sort()
+        .map(f => pathOf(`.dico/schemas/_meta/${f}`));
       files.push(...metaFiles);
     } catch {
       // ignore read errors
@@ -515,26 +565,26 @@ function listSchemaPackageYamlFiles(): string[] {
  * `schemaEntityService` imports this function.
  */
 export async function loadSchemaPackage(): Promise<PackageModel> {
-  const schemaDir = getSchemaPackagePath();
   const packageName = '.dico/schemas';
 
-  if (!fs.existsSync(schemaDir)) {
+  if (await statOrNull(pathOf('.dico/schemas')) === null) {
     return mergePackageSections(packageName, []);
   }
 
-  const markerPath = path.join(schemaDir, 'package.yaml');
-  if (!fs.existsSync(markerPath)) {
+  if (await statOrNull(pathOf('.dico/schemas/package.yaml')) === null) {
     logger.warn(
-      `[#165a] Schema package marker missing at ${markerPath}. ` +
+      `[#165a] Schema package marker missing at .dico/schemas/package.yaml. ` +
       `The metadata-schema bootstrap entity may not load correctly.`,
     );
   }
 
-  const files = listSchemaPackageYamlFiles();
-  const parsed: ParsedSections[] = files.map(filePath => ({
-    label: filePath,
-    sections: parseSections(filePath),
-  }));
+  const files = await listSchemaPackageYamlFilePaths();
+  const parsed: ParsedSections[] = await Promise.all(
+    files.map(async (p) => ({
+      label: String(p),
+      sections: await parseSectionsFromStorage(p, String(p)),
+    })),
+  );
 
   return mergePackageSections(packageName, parsed);
 }
@@ -575,19 +625,17 @@ export async function writeEntityFile(entity: Entity, packageName?: string): Pro
       return false;
     }
 
-    ensurePackageDirectoryStructure(packageName);
-    const packageDir = getPackagePath(packageName);
+    await ensurePackageDirectoryStructure(packageName);
 
     // Locate the owning file by uuid OR by name (handles both renames
     // and fresh writes that happen to reuse a name).
-    const files = listPackageYamlFiles(packageName);
-    let ownerFile: string | null = null;
+    const files = await listPackageYamlFilePaths(packageName);
+    let ownerFile: Path | null = null;
     let ownerSections: SectionsFile | null = null;
 
     for (const f of files) {
-      const s = parseSections(f);
-      const idx = s.entities.findIndex(e => e?.uuid === entity.uuid || e?.name === entity.name);
-      if (idx >= 0) {
+      const s = await parseSectionsFromStorage(f, String(f));
+      if (s.entities.some(e => e?.uuid === entity.uuid || e?.name === entity.name)) {
         ownerFile = f;
         ownerSections = s;
         break;
@@ -595,22 +643,24 @@ export async function writeEntityFile(entity: Entity, packageName?: string): Pro
     }
 
     if (ownerFile && ownerSections) {
+      // PRESERVE non-entity sections by reading the full SectionsFile and only
+      // mutating .entities. Other sections (relationships, rules, cases) pass through untouched.
       ownerSections.entities = ownerSections.entities.filter(
         e => e.uuid !== entity.uuid && e.name !== entity.name,
       );
       ownerSections.entities.push(entity);
-      writeSections(ownerFile, ownerSections);
-      logger.info(`Entity written: ${entity.name} → ${ownerFile}`);
-      await commitChanges(ownerFile, `Updated entity: ${entity.name} (${entity.uuid})`);
+      await writeSectionsToStorage(ownerFile, ownerSections);
+      logger.info(`Entity written: ${entity.name} → ${String(ownerFile)}`);
+      await commitChanges(String(ownerFile), `Updated entity: ${entity.name} (${entity.uuid})`);
       return true;
     }
 
-    const newFilePath = path.join(packageDir, `${sanitizeFsName(entity.name)}.model.yaml`);
-    writeSections(newFilePath, {
+    const newFilePath = pathOf(`${packageName}/${sanitizeFsName(entity.name)}.model.yaml`);
+    await writeSectionsToStorage(newFilePath, {
       entities: [entity], relationships: [], rules: [], cases: [],
     });
-    logger.info(`Entity written to new file: ${newFilePath}`);
-    await commitChanges(newFilePath, `Added entity: ${entity.name} (${entity.uuid})`);
+    logger.info(`Entity written to new file: ${String(newFilePath)}`);
+    await commitChanges(String(newFilePath), `Added entity: ${entity.name} (${entity.uuid})`);
     return true;
   } catch (error) {
     logger.error(`Error writing entity file: ${error}`);
@@ -620,19 +670,19 @@ export async function writeEntityFile(entity: Entity, packageName?: string): Pro
 
 /**
  * Deletes an entity from its owning file. If that was the only content
- * in the file, `writeSections` removes the file itself.
+ * in the file, `writeSectionsToStorage` removes the file itself.
  */
 export async function deleteEntityFile(packageName: string, entityName: string): Promise<boolean> {
   try {
-    const files = listPackageYamlFiles(packageName);
+    const files = await listPackageYamlFilePaths(packageName);
     for (const f of files) {
-      const s = parseSections(f);
+      const s = await parseSectionsFromStorage(f, String(f));
       const before = s.entities.length;
       s.entities = s.entities.filter(e => e.name !== entityName);
       if (s.entities.length !== before) {
-        writeSections(f, s);
-        logger.info(`Entity deleted from: ${f}`);
-        await commitChanges(f, `Deleted entity: ${entityName}`);
+        await writeSectionsToStorage(f, s);
+        logger.info(`Entity deleted from: ${String(f)}`);
+        await commitChanges(String(f), `Deleted entity: ${entityName}`);
         return true;
       }
     }
@@ -647,7 +697,7 @@ export async function deleteEntityFile(packageName: string, entityName: string):
 /**
  * Lists every entity name across every package (post-#106 flat layout).
  * Returns `{ microservice, name, path }` tuples where `path` is the file
- * that currently owns the entity.
+ * that currently owns the entity (workspace-relative string after slice 5).
  */
 export async function listAllEntities(): Promise<Array<{ microservice: string; name: string; path: string }>> {
   const entities: Array<{ microservice: string; name: string; path: string }> = [];
@@ -707,13 +757,13 @@ export async function readRelationshipsFile(packagePath: string): Promise<Relati
 export async function writeRelationshipsFile(packagePath: string, relationships: Relationship[]): Promise<boolean> {
   try {
     const packageName = path.basename(packagePath);
-    ensurePackageDirectoryStructure(packageName);
+    await ensurePackageDirectoryStructure(packageName);
 
-    const files = listPackageYamlFiles(packageName);
-    let targetFile: string | null = null;
+    const files = await listPackageYamlFilePaths(packageName);
+    let targetFile: Path | null = null;
 
     for (const f of files) {
-      const s = parseSections(f);
+      const s = await parseSectionsFromStorage(f, String(f));
       if (s.relationships.length > 0) {
         if (targetFile === null) {
           targetFile = f;
@@ -721,22 +771,20 @@ export async function writeRelationshipsFile(packagePath: string, relationships:
           // Another file also held relationships — clear it so we don't
           // leave duplicates after consolidation.
           s.relationships = [];
-          writeSections(f, s);
+          await writeSectionsToStorage(f, s);
         }
       }
     }
 
     if (!targetFile) {
-      targetFile = path.join(packagePath, 'relationships.model.yaml');
+      targetFile = pathOf(`${packageName}/relationships.model.yaml`);
     }
 
-    const existing = fs.existsSync(targetFile)
-      ? parseSections(targetFile)
-      : { entities: [], relationships: [], rules: [], cases: [] };
+    const existing = await parseSectionsFromStorage(targetFile, String(targetFile));
     existing.relationships = relationships;
-    writeSections(targetFile, existing);
-    logger.info(`Relationships written to: ${targetFile}`);
-    await commitChanges(targetFile, `Updated relationships in ${packageName}`);
+    await writeSectionsToStorage(targetFile, existing);
+    logger.info(`Relationships written to: ${String(targetFile)}`);
+    await commitChanges(String(targetFile), `Updated relationships in ${packageName}`);
     return true;
   } catch (error) {
     logger.error(`Error writing relationships file: ${error}`);
@@ -850,34 +898,31 @@ export async function readPackageRules(service: string): Promise<Rule[]> {
  */
 export async function writePackageRules(service: string, rules: Rule[]): Promise<boolean> {
   try {
-    ensurePackageDirectoryStructure(service);
-    const packageDir = getPackagePath(service);
-    const files = listPackageYamlFiles(service);
-    let targetFile: string | null = null;
+    await ensurePackageDirectoryStructure(service);
+    const files = await listPackageYamlFilePaths(service);
+    let targetFile: Path | null = null;
 
     for (const f of files) {
-      const s = parseSections(f);
+      const s = await parseSectionsFromStorage(f, String(f));
       if (s.rules.length > 0) {
         if (targetFile === null) {
           targetFile = f;
         } else {
           s.rules = [];
-          writeSections(f, s);
+          await writeSectionsToStorage(f, s);
         }
       }
     }
 
     if (!targetFile) {
-      targetFile = path.join(packageDir, 'rules.model.yaml');
+      targetFile = pathOf(`${service}/rules.model.yaml`);
     }
 
-    const existing = fs.existsSync(targetFile)
-      ? parseSections(targetFile)
-      : { entities: [], relationships: [], rules: [], cases: [] };
+    const existing = await parseSectionsFromStorage(targetFile, String(targetFile));
     existing.rules = rules;
-    writeSections(targetFile, existing);
-    logger.info(`Package rules written to: ${targetFile}`);
-    await commitChanges(targetFile, `Updated rules in ${service}`);
+    await writeSectionsToStorage(targetFile, existing);
+    logger.info(`Package rules written to: ${String(targetFile)}`);
+    await commitChanges(String(targetFile), `Updated rules in ${service}`);
     return true;
   } catch (error) {
     logger.error(`Error writing package rules: ${error}`);
@@ -959,12 +1004,10 @@ export async function writeCaseRules(caseUuid: string, rules: Rule[]): Promise<b
 // Global (cross-package) rules (#75) — project-root rules.yaml
 // ────────────────────────────────────────────────────────────────────────
 
-const getGlobalRulesPath = () => path.join(getDataDir(), 'rules.yaml');
-
 export async function readGlobalRules(): Promise<Rule[]> {
   try {
-    if (!fs.existsSync(getGlobalRulesPath())) return [];
-    const content = fs.readFileSync(getGlobalRulesPath(), 'utf8');
+    const content = await readOrNull(pathOf('rules.yaml'));
+    if (content === null) return [];
     return YAML.parse(content) || [];
   } catch (error) {
     logger.error(`Error reading global rules: ${error}`);
@@ -975,10 +1018,10 @@ export async function readGlobalRules(): Promise<Rule[]> {
 export async function writeGlobalRules(rules: Rule[]): Promise<boolean> {
   try {
     if (rules.length === 0) {
-      if (fs.existsSync(getGlobalRulesPath())) fs.unlinkSync(getGlobalRulesPath());
+      await deleteIfExists(pathOf('rules.yaml'));
       return true;
     }
-    fs.writeFileSync(getGlobalRulesPath(), YAML.stringify(rules), 'utf8');
+    await getStorage().write(WS, pathOf('rules.yaml'), YAML.stringify(rules));
     return true;
   } catch (error) {
     logger.error(`Error writing global rules: ${error}`);
@@ -1054,10 +1097,11 @@ export async function writeCaseFile(c: Case): Promise<boolean> {
   try {
     const owner = await findCaseOwner(c.uuid);
     if (owner) {
-      const sections = parseSections(owner.filePath);
+      const ownerPath = pathOf(owner.filePath);
+      const sections = await parseSectionsFromStorage(ownerPath, owner.filePath);
       sections.cases = sections.cases.filter(p => p.uuid !== c.uuid);
       sections.cases.push(c);
-      writeSections(owner.filePath, sections);
+      await writeSectionsToStorage(ownerPath, sections);
       await commitChanges(owner.filePath, `Updated case: ${c.name}`);
       return true;
     }
@@ -1067,16 +1111,14 @@ export async function writeCaseFile(c: Case): Promise<boolean> {
       logger.error(`Cannot write case ${c.uuid}: no package found`);
       return false;
     }
-    ensurePackageDirectoryStructure(targetPackage);
+    await ensurePackageDirectoryStructure(targetPackage);
     const filename = `${sanitizeFsName(c.name || c.uuid)}.case.yaml`;
-    const filePath = path.join(getPackagePath(targetPackage), filename);
+    const filePath = pathOf(`${targetPackage}/${filename}`);
 
-    const sections: SectionsFile = fs.existsSync(filePath)
-      ? parseSections(filePath)
-      : { entities: [], relationships: [], rules: [], cases: [] };
+    const sections = await parseSectionsFromStorage(filePath, String(filePath));
     sections.cases.push(c);
-    writeSections(filePath, sections);
-    await commitChanges(filePath, `Added case: ${c.name}`);
+    await writeSectionsToStorage(filePath, sections);
+    await commitChanges(String(filePath), `Added case: ${c.name}`);
     return true;
   } catch (error) {
     logger.error(`Error writing case: ${error}`);
@@ -1103,9 +1145,10 @@ export async function deleteCaseFile(uuid: string): Promise<boolean> {
   try {
     const owner = await findCaseOwner(uuid);
     if (!owner) return false;
-    const sections = parseSections(owner.filePath);
+    const ownerPath = pathOf(owner.filePath);
+    const sections = await parseSectionsFromStorage(ownerPath, owner.filePath);
     sections.cases = sections.cases.filter(p => p.uuid !== uuid);
-    writeSections(owner.filePath, sections);
+    await writeSectionsToStorage(ownerPath, sections);
     await commitChanges(owner.filePath, `Deleted case ${uuid}`);
     return true;
   } catch (error) {
@@ -1120,14 +1163,12 @@ export async function deleteCaseFile(uuid: string): Promise<boolean> {
 
 export async function writeDictionaryMetadata(dictionary: Dictionary): Promise<boolean> {
   try {
-    const dictionaryDir = path.join(getDataDir(), dictionary.id);
-
-    if (!fs.existsSync(dictionaryDir)) {
-      fs.mkdirSync(dictionaryDir, { recursive: true });
-      logger.info(`Created dictionary directory: ${dictionaryDir}`);
+    if (await statOrNull(pathOf(dictionary.id)) === null) {
+      await getStorage().mkdir(WS, pathOf(dictionary.id), true);
+      logger.info(`Created dictionary directory: ${dictionary.id}`);
     }
 
-    const filePath = path.join(dictionaryDir, 'metadata.yaml');
+    const filePath = pathOf(`${dictionary.id}/metadata.yaml`);
 
     const metadata = {
       id: dictionary.id,
@@ -1138,9 +1179,9 @@ export async function writeDictionaryMetadata(dictionary: Dictionary): Promise<b
       updatedAt: dictionary.updatedAt,
     };
 
-    fs.writeFileSync(filePath, YAML.stringify(metadata), 'utf8');
-    logger.info(`Dictionary metadata written to file: ${filePath}`);
-    await commitChanges(filePath, `Updated dictionary metadata: ${dictionary.name}`);
+    await getStorage().write(WS, filePath, YAML.stringify(metadata), { createParents: true });
+    logger.info(`Dictionary metadata written to file: ${String(filePath)}`);
+    await commitChanges(String(filePath), `Updated dictionary metadata: ${dictionary.name}`);
     return true;
   } catch (error) {
     logger.error(`Error writing dictionary metadata: ${error}`);
@@ -1150,21 +1191,19 @@ export async function writeDictionaryMetadata(dictionary: Dictionary): Promise<b
 
 export async function listAllDictionaries(): Promise<string[]> {
   try {
-    const baseDir = getDataDir();
     const dictionaries: string[] = [];
-    if (!fs.existsSync(baseDir)) return [];
+    if (await statOrNull(pathOf('')) === null) return [];
 
     dictionaries.push(...await listPackages());
 
-    const items = fs.readdirSync(baseDir);
+    const items = await getStorage().list(WS, pathOf(''));
     for (const item of items) {
-      if (RESERVED_DIRS.has(item)) continue;
-      if (dictionaries.includes(item)) continue;
-      const itemPath = path.join(baseDir, item);
-      if (fs.statSync(itemPath).isDirectory()) {
-        const metadataPath = path.join(itemPath, 'metadata.yaml');
-        if (fs.existsSync(metadataPath)) {
-          dictionaries.push(item);
+      if (RESERVED_DIRS.has(item.name)) continue;
+      if (dictionaries.includes(item.name)) continue;
+      if (item.isDirectory) {
+        const metadataStat = await statOrNull(pathOf(`${item.name}/metadata.yaml`));
+        if (metadataStat !== null) {
+          dictionaries.push(item.name);
         }
       }
     }

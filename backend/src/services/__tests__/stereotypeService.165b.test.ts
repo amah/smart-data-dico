@@ -16,6 +16,45 @@ import { METADATA_SCHEMA_MARKER, METADATA_SCHEMA_MARKER_UUID } from '../schemaEn
 import type { Stereotype } from '../../models/EntitySchema.js';
 import { InMemoryStorageBackend } from '../../storage/memory/InMemoryStorageBackend.js';
 import { wsId, pathOf } from '../../storage/contract/types.js';
+import { GitFilesystemStorageBackend, type IWorkspaceManager } from '../../storage/git/GitFilesystemStorageBackend.js';
+
+// Loaded once at startup — same dynamic-import pattern as 165a.
+let WorkspaceManagerCls: new (w: Record<string, string>, o: { baseDirectory: string }) => IWorkspaceManager;
+beforeAll(async () => {
+  const mod = (await import('@hamak/filesystem-server-impl' as string)) as { WorkspaceManager: typeof WorkspaceManagerCls };
+  WorkspaceManagerCls = mod.WorkspaceManager;
+});
+
+// Dynamic-import the storage registry each call — afterEach runs
+// jest.resetModules(), so the module-scope `storageRegistry` import at the top
+// of this file becomes a stale singleton between tests. The dynamically-
+// imported services see a fresh singleton; helpers must register the backend
+// on THAT singleton, not the stale one.
+async function setBackendDynamic(b: { capabilities: () => unknown; read: (...args: unknown[]) => unknown }): Promise<void> {
+  const { storageRegistry: reg } = await import('../../storage/contract/StorageBackendToken.js');
+  reg.setBackend(b as any);
+}
+async function useBackendAt(dir: string): Promise<void> {
+  const wm = new WorkspaceManagerCls({ dictionaries: '.' }, { baseDirectory: dir });
+  await setBackendDynamic(new GitFilesystemStorageBackend(wm));
+}
+
+// Walk a real on-disk dir into an InMemoryStorageBackend's workspace bucket —
+// same pattern slice 3's IntegrationSampleProject.test.ts uses. Bypasses
+// backend.write() so no spurious change events fire during seed.
+function seedFromDisk(backend: InMemoryStorageBackend, dir: string, ws: typeof TEST_WS): void {
+  const files = backend.files.get(String(ws)) ?? backend.files.set(String(ws), new Map()).get(String(ws))!;
+  const walk = (d: string, rel: string): void => {
+    if (!fs.existsSync(d)) return;
+    for (const ent of fs.readdirSync(d, { withFileTypes: true })) {
+      const abs = path.join(d, ent.name);
+      const r = rel ? `${rel}/${ent.name}` : ent.name;
+      if (ent.isDirectory()) walk(abs, r);
+      else if (ent.isFile()) files.set(r, fs.readFileSync(abs, 'utf8'));
+    }
+  };
+  walk(dir, '');
+}
 
 // Mock logger so we can assert on log messages
 const mockWarn = jest.fn();
@@ -45,12 +84,12 @@ const TEST_WS = wsId('dictionaries');
 
 // Helper: create a temp data dir with optional legacy stereotypes and schema-entities
 // (Used for schemaEntityService which still reads from disk via config.dataDir)
-function makeTempDataDir(opts: {
+async function makeTempDataDir(opts: {
   legacyStereotypes?: any[];
   schemaEntities?: Array<{ name: string; uuid: string; appliesTo?: string; domain?: string; displayName?: string; attributes?: any[]; description?: string }>;
   includeMarker?: boolean;
   noSchemasDir?: boolean;
-}): string {
+}): Promise<string> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dico-test-165b-'));
 
   // Create .dico directory
@@ -117,16 +156,24 @@ function makeTempDataDir(opts: {
     }
   }
 
+  // Register a git+filesystem storage backend rooted at the temp dir for
+  // service helpers that consume storageRegistry.getBackend(). Must be
+  // dynamic-imported per call — see useBackendAt's comment.
+  await useBackendAt(dir);
+
   return dir;
 }
 
-afterEach(() => {
+afterEach(async () => {
   // Only delete temp dirs — never delete the real eshop sample directory.
   // Temp dirs are created via fs.mkdtempSync (prefix: 'dico-test-165b-')
   if (testDataDir && testDataDir.includes('dico-test-165b-') && fs.existsSync(testDataDir)) {
     fs.rmSync(testDataDir, { recursive: true, force: true });
   }
   testDataDir = '';
+  // Dynamic-import to reset the SAME registry the tests are using (post-resetModules).
+  const { storageRegistry: reg } = await import('../../storage/contract/StorageBackendToken.js');
+  reg.reset();
   jest.resetModules();
   mockWarn.mockClear();
   mockError.mockClear();
@@ -147,6 +194,7 @@ describe('AC#6: schemaEntityService.list() returns 7 schema-entities on migrated
     // Use the actual eshop sample directory
     const eshopDir = path.join(__dirname, '../../../../samples/eshop');
     testDataDir = eshopDir;
+    await useBackendAt(eshopDir);
 
     const { SchemaEntityService } = await import('../schemaEntityService.js');
     const svc = new SchemaEntityService();
@@ -163,6 +211,7 @@ describe('AC#6: schemaEntityService.list() returns 7 schema-entities on migrated
   it('each entity has stereotype === "metadata-schema" and valid uuid', async () => {
     const eshopDir = path.join(__dirname, '../../../../samples/eshop');
     testDataDir = eshopDir;
+    await useBackendAt(eshopDir);
 
     const { SchemaEntityService } = await import('../schemaEntityService.js');
     const svc = new SchemaEntityService();
@@ -183,6 +232,7 @@ describe('AC#7: findByName("pii") returns the pii schema-entity', () => {
   it('finds pii by name', async () => {
     const eshopDir = path.join(__dirname, '../../../../samples/eshop');
     testDataDir = eshopDir;
+    await useBackendAt(eshopDir);
 
     const { SchemaEntityService } = await import('../schemaEntityService.js');
     const svc = new SchemaEntityService();
@@ -242,6 +292,7 @@ describe('AC#4: getAllStereotypes() byte-identical to pre-#165b', () => {
   it('all 7 stereotypes present with correct ids', async () => {
     const eshopDir = path.join(__dirname, '../../../../samples/eshop');
     testDataDir = eshopDir;
+    await useBackendAt(eshopDir);
 
     const { SchemaEntityService } = await import('../schemaEntityService.js');
     const { toLegacyStereotypeView } = await import('../schemaEntityView.js');
@@ -262,6 +313,7 @@ describe('AC#4: getAllStereotypes() byte-identical to pre-#165b', () => {
   it('pii stereotype has correct metadataDefinitions (AC#5)', async () => {
     const eshopDir = path.join(__dirname, '../../../../samples/eshop');
     testDataDir = eshopDir;
+    await useBackendAt(eshopDir);
 
     const { SchemaEntityService } = await import('../schemaEntityService.js');
     const { toLegacyStereotypeView } = await import('../schemaEntityView.js');
@@ -285,6 +337,7 @@ describe('AC#4: getAllStereotypes() byte-identical to pre-#165b', () => {
   it('aggregate-root stereotype — slug preserved (AI prompt dependency)', async () => {
     const eshopDir = path.join(__dirname, '../../../../samples/eshop');
     testDataDir = eshopDir;
+    await useBackendAt(eshopDir);
 
     const { SchemaEntityService } = await import('../schemaEntityService.js');
     const { toLegacyStereotypeView } = await import('../schemaEntityView.js');
@@ -302,6 +355,7 @@ describe('AC#4: getAllStereotypes() byte-identical to pre-#165b', () => {
   it('event stereotype — "event" slug preserved (AI prompt dependency)', async () => {
     const eshopDir = path.join(__dirname, '../../../../samples/eshop');
     testDataDir = eshopDir;
+    await useBackendAt(eshopDir);
 
     const { SchemaEntityService } = await import('../schemaEntityService.js');
     const { toLegacyStereotypeView } = await import('../schemaEntityView.js');
@@ -322,7 +376,7 @@ describe('AC#4: getAllStereotypes() byte-identical to pre-#165b', () => {
 
 describe('AC#9: write path routes to .dico/schemas/ when legacy YAML is empty', () => {
   it('createStereotype creates .dico/schemas/<slug>.entity.yaml, not stereotypes.yaml', async () => {
-    testDataDir = makeTempDataDir({
+    testDataDir = await makeTempDataDir({
       legacyStereotypes: [], // empty — triggers schema write path
       schemaEntities: [
         {
@@ -339,10 +393,10 @@ describe('AC#9: write path routes to .dico/schemas/ when legacy YAML is empty', 
 
     // Register backend with empty stereotypes.yaml, using the SAME module instance
     // that stereotypeService will import.
-    const { storageRegistry: reg } = await import('../../storage/contract/StorageBackendToken.js');
     const backend = new InMemoryStorageBackend();
+    seedFromDisk(backend, testDataDir, TEST_WS);
+    await setBackendDynamic(backend);
     await backend.write(TEST_WS, pathOf('.dico/stereotypes.yaml'), '[]\n');
-    reg.setBackend(backend);
 
     const { stereotypeService: svc } = await import('../stereotypeService.js');
 
@@ -370,7 +424,7 @@ describe('AC#9: write path routes to .dico/schemas/ when legacy YAML is empty', 
   });
 
   it('createStereotype returns success:false when slug already exists as schema-entity', async () => {
-    testDataDir = makeTempDataDir({
+    testDataDir = await makeTempDataDir({
       legacyStereotypes: [],
       schemaEntities: [
         {
@@ -384,10 +438,10 @@ describe('AC#9: write path routes to .dico/schemas/ when legacy YAML is empty', 
     });
 
     // Register backend with empty stereotypes.yaml
-    const { storageRegistry: reg } = await import('../../storage/contract/StorageBackendToken.js');
     const backend = new InMemoryStorageBackend();
+    seedFromDisk(backend, testDataDir, TEST_WS);
+    await setBackendDynamic(backend);
     await backend.write(TEST_WS, pathOf('.dico/stereotypes.yaml'), '[]\n');
-    reg.setBackend(backend);
 
     const { stereotypeService: svc } = await import('../stereotypeService.js');
 
@@ -410,16 +464,16 @@ describe('AC#9: write path routes to .dico/schemas/ when legacy YAML is empty', 
 
 describe('AC#10: write path routes to .dico/stereotypes.yaml when no schemas/', () => {
   it('createStereotype writes to stereotypes.yaml when schemas/ dir is absent', async () => {
-    testDataDir = makeTempDataDir({
+    testDataDir = await makeTempDataDir({
       legacyStereotypes: [],
       noSchemasDir: true,
     });
 
     // Register backend with empty stereotypes.yaml
-    const { storageRegistry: reg } = await import('../../storage/contract/StorageBackendToken.js');
     const backend = new InMemoryStorageBackend();
+    seedFromDisk(backend, testDataDir, TEST_WS);
+    await setBackendDynamic(backend);
     await backend.write(TEST_WS, pathOf('.dico/stereotypes.yaml'), '[]\n');
-    reg.setBackend(backend);
 
     const { stereotypeService: svc } = await import('../stereotypeService.js');
 
@@ -494,6 +548,7 @@ describe('AC#14: multi-kind YAML semantics (#106)', () => {
   it('loadSchemaPackage() returns 8 entities (7 schema-entities + 1 marker)', async () => {
     const eshopDir = path.join(__dirname, '../../../../samples/eshop');
     testDataDir = eshopDir;
+    await useBackendAt(eshopDir);
 
     const { loadSchemaPackage } = await import('../../utils/fileOperations.js');
     const pkg = await loadSchemaPackage();
@@ -515,7 +570,7 @@ describe('AC#14: multi-kind YAML semantics (#106)', () => {
 
 describe('preferSchemaEntityWrite() routing logic', () => {
   it('returns true when legacy YAML is empty and schema-entities exist', async () => {
-    testDataDir = makeTempDataDir({
+    testDataDir = await makeTempDataDir({
       legacyStereotypes: [],
       schemaEntities: [
         {
@@ -529,10 +584,10 @@ describe('preferSchemaEntityWrite() routing logic', () => {
     });
 
     // Register backend with empty stereotypes.yaml (same module instance as import)
-    const { storageRegistry: reg } = await import('../../storage/contract/StorageBackendToken.js');
     const backend = new InMemoryStorageBackend();
+    seedFromDisk(backend, testDataDir, TEST_WS);
+    await setBackendDynamic(backend);
     await backend.write(TEST_WS, pathOf('.dico/stereotypes.yaml'), '[]\n');
-    reg.setBackend(backend);
 
     const { stereotypeService: svc } = await import('../stereotypeService.js');
 
@@ -541,7 +596,7 @@ describe('preferSchemaEntityWrite() routing logic', () => {
   });
 
   it('returns false when legacy YAML has entries (even if schema-entities also exist)', async () => {
-    testDataDir = makeTempDataDir({
+    testDataDir = await makeTempDataDir({
       legacyStereotypes: [
         { id: 'alpha', name: 'Alpha', appliesTo: 'entity', metadataDefinitions: [] },
       ],
@@ -557,14 +612,14 @@ describe('preferSchemaEntityWrite() routing logic', () => {
     });
 
     // Register backend seeded with legacy entries
-    const { storageRegistry: reg } = await import('../../storage/contract/StorageBackendToken.js');
     const backend = new InMemoryStorageBackend();
+    seedFromDisk(backend, testDataDir, TEST_WS);
+    await setBackendDynamic(backend);
     await backend.write(
       TEST_WS,
       pathOf('.dico/stereotypes.yaml'),
       YAML.stringify([{ id: 'alpha', name: 'Alpha', appliesTo: 'entity', metadataDefinitions: [] }]),
     );
-    reg.setBackend(backend);
 
     const { stereotypeService: svc } = await import('../stereotypeService.js');
 
@@ -573,17 +628,17 @@ describe('preferSchemaEntityWrite() routing logic', () => {
   });
 
   it('returns false when schema-entities list is empty (only marker)', async () => {
-    testDataDir = makeTempDataDir({
+    testDataDir = await makeTempDataDir({
       legacyStereotypes: [],
       schemaEntities: [], // no user-authored schema-entities
       includeMarker: true,
     });
 
     // Register backend with empty stereotypes.yaml
-    const { storageRegistry: reg } = await import('../../storage/contract/StorageBackendToken.js');
     const backend = new InMemoryStorageBackend();
+    seedFromDisk(backend, testDataDir, TEST_WS);
+    await setBackendDynamic(backend);
     await backend.write(TEST_WS, pathOf('.dico/stereotypes.yaml'), '[]\n');
-    reg.setBackend(backend);
 
     const { stereotypeService: svc } = await import('../stereotypeService.js');
 
