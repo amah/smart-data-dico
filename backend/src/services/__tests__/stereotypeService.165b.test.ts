@@ -410,18 +410,15 @@ describe('AC#9: write path routes to .dico/schemas/ when legacy YAML is empty', 
 
     expect(result.success).toBe(true);
 
-    // Assert schema file was created on disk (schemaEntityWriter still uses disk)
-    const schemaFile = path.join(testDataDir, '.dico', 'schemas', 'audit-log.entity.yaml');
-    expect(fs.existsSync(schemaFile)).toBe(true);
+    // Assert schema-entity was written via the storage backend (slice 5b)
+    const schemaBytes = await backend.read(TEST_WS, pathOf('.dico/schemas/audit-log.entity.yaml'));
+    expect(schemaBytes.length).toBeGreaterThan(0);
 
     // Assert stereotypes.yaml in backend remains empty
     const legacyBytes = await backend.read(TEST_WS, pathOf('.dico/stereotypes.yaml'));
     const parsed = YAML.parse(legacyBytes);
     expect(Array.isArray(parsed)).toBe(true);
     expect(parsed).toHaveLength(0);
-
-    // Clean up test artifact
-    if (fs.existsSync(schemaFile)) fs.unlinkSync(schemaFile);
   });
 
   it('createStereotype returns success:false when slug already exists as schema-entity', async () => {
