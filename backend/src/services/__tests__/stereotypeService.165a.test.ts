@@ -252,11 +252,12 @@ describe('Criterion 5: collision detection', () => {
     }
 
     // Only one 'pii' entry in the result (no duplication)
-    const piiEntries = merged.filter((s: any) => s.name === 'pii');
+    // #165b: schema-entity view id = entity.name (the slug), not uuid
+    const piiEntries = merged.filter((s: any) => s.id === 'pii' || s.name === 'pii');
     expect(piiEntries).toHaveLength(1);
 
-    // The schema-entity wins: its uuid is the id (cccccccc-...)
-    expect(piiEntries[0].id).toBe('cccccccc-0000-1000-8000-000000000001');
+    // The schema-entity wins: #165b — id is entity.name (the slug)
+    expect(piiEntries[0].id).toBe('pii');
 
     // Warning was emitted containing "shadowed"
     const warnCalls = mockWarn.mock.calls.map((args: any[]) => args.join(' '));

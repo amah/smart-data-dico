@@ -1,5 +1,5 @@
 /**
- * schemaEntityView.ts — #165a
+ * schemaEntityView.ts — #165a / #165b
  *
  * Pure functions for converting between the Entity/Attribute model (the
  * canonical schema-entity representation) and the legacy Stereotype shape
@@ -14,9 +14,19 @@
  * enum, no fields/items/enum fields). The extended shapes are accessed via
  * `as any` casts so the spec-defined public surface compiles here and on
  * main (#164+).
+ *
+ * #165b changes to toLegacyStereotypeView / fromLegacyStereotypeView:
+ *   - Stereotype.id is now Entity.name (the slug) NOT Entity.uuid.
+ *     Legacy eshop stereotypes use slug ids like 'pii', 'aggregate-root'.
+ *     aiController.ts and serviceService embed these slugs verbatim.
+ *   - Stereotype.name is now metadata['displayName'].value if present,
+ *     else Entity.name (falls back so slugs that equal their display names
+ *     work without an explicit displayName entry).
+ *   - Entity.uuid is NOT surfaced through the Stereotype view — it is
+ *     internal to the schema-entity model.
  */
 import type { Entity, Attribute, MetadataEntry, Stereotype, StereotypeTarget } from '../models/EntitySchema.js';
-import { generateUUID, isValidUUID } from '../utils/uuid.js';
+import { generateUUID } from '../utils/uuid.js';
 import { logger } from '../utils/logger.js';
 
 // Use `any` for MetadataDefinition here to bridge the pre-#164 / post-#164
@@ -134,28 +144,28 @@ function parseAppliesTo(raw: string | undefined): StereotypeTarget {
 // ────────────────────────────────────────────────────────────────────────
 
 /**
- * Convert a schema-entity to the legacy `Stereotype` view shape. The
- * conversion is total — every schema-entity that passes the marker test
- * produces a valid `Stereotype`.
+ * Convert a schema-entity to the legacy `Stereotype` view shape (#165b update).
  *
- * Mapping:
- *   Entity.uuid               → Stereotype.id
- *   Entity.name               → Stereotype.name
- *   Entity.description        → Stereotype.description
- *   metadata['domain'].value  → Stereotype.domain      (string)
- *   metadata['appliesTo'].v   → Stereotype.appliesTo   (StereotypeTarget)
- *   Entity.attributes[]       → Stereotype.metadataDefinitions[]
+ * Mapping (changed in #165b — was uuid→id, name→name in #165a):
+ *   Entity.name                       → Stereotype.id          (slug — preserves pre-#165a HTTP shape)
+ *   metadata['displayName'].value     → Stereotype.name        (display name, falls back to Entity.name)
+ *   Entity.description                → Stereotype.description
+ *   metadata['domain'].value          → Stereotype.domain
+ *   metadata['appliesTo'].value       → Stereotype.appliesTo   (default 'entity')
+ *   Entity.attributes[]               → Stereotype.metadataDefinitions[]
  *
- * `appliesTo` defaults to `'entity'` if the metadata entry is absent.
+ * Entity.uuid is NOT surfaced through the Stereotype view — it is internal
+ * to the schema-entity model. Consumers that want the uuid use
+ * `schemaEntityService.findByName(slug)` directly.
  *
- * Schema-entities with `constraints[]` have those constraints silently
- * dropped here — physical constraints are meaningless on stereotype
- * schemas (#85 governance boundary). A warning is logged upstream in
- * `SchemaEntityService.list()` so the steward can fix the YAML.
+ * Constraints[] still dropped silently with a logged warning (#85, unchanged).
  */
 export function toLegacyStereotypeView(schemaEntity: Entity): Stereotype {
-  const id = schemaEntity.uuid;
-  const name = schemaEntity.name;
+  // #165b: use entity.name (the slug) as the stereotype id, not uuid
+  const id = schemaEntity.name;
+  // #165b: display name from metadata['displayName'], falls back to slug
+  const displayName = findMetadataValue(schemaEntity.metadata, 'displayName');
+  const name = displayName || schemaEntity.name;
   const description = schemaEntity.description;
   const domain = findMetadataValue(schemaEntity.metadata, 'domain');
   const appliesToRaw = findMetadataValue(schemaEntity.metadata, 'appliesTo');
@@ -167,7 +177,7 @@ export function toLegacyStereotypeView(schemaEntity: Entity): Stereotype {
 
   if (schemaEntity.constraints && schemaEntity.constraints.length > 0) {
     logger.warn(
-      `[#165a] toLegacyStereotypeView: schema-entity '${name}' has constraints[]; ` +
+      `[#165b] toLegacyStereotypeView: schema-entity '${id}' has constraints[]; ` +
       `they are dropped in the Stereotype view (physical constraints have no meaning on schemas, #85).`,
     );
   }
@@ -190,28 +200,30 @@ export function toLegacyStereotypeView(schemaEntity: Entity): Stereotype {
 // ────────────────────────────────────────────────────────────────────────
 
 /**
- * Inverse mapping — converts a legacy `Stereotype` to a schema-entity
- * `Entity`. Used by the #165b migration script and kept here so the
- * converter is tested as a pair.
+ * Inverse mapping (#165b update) — converts a legacy `Stereotype` to a
+ * schema-entity `Entity`. Used by the #165b write path and tests.
  *
- * The inverse loses no information when the input is a legacy
- * `Stereotype` (which is structurally a strict subset of `Entity`).
+ * Mapping:
+ *   stereotype.id                     → Entity.name            (slug becomes the entity name)
+ *   stereotype.name (if !== id)       → metadata['displayName']
+ *   stereotype.description            → Entity.description
+ *   stereotype.domain                 → metadata['domain']
+ *   stereotype.appliesTo              → metadata['appliesTo']
+ *   stereotype.metadataDefinitions[]  → Entity.attributes[]
  *
  * UUID handling:
- *   - If `stereotype.id` is a valid UUID (v1–v5), it is reused as the
- *     entity uuid.
- *   - Otherwise a new UUID is generated. This covers the common case
- *     where legacy stereotypes used short string ids like 'pii' or
- *     'aggregate-root'.
+ *   - Always generates a fresh UUID via generateUUID(). Legacy ids are slugs,
+ *     not UUIDs (verified at samples/eshop/.dico/stereotypes.yaml — all 7
+ *     ids are kebab-case slugs). When `stereotype.id` is a valid UUID the
+ *     existing code that reused it was removed in #165b — the view no longer
+ *     surfaces the uuid at all, so there is nothing to preserve.
  *
- * The synthesised entity gets `stereotype: 'metadata-schema'` set so
- * it is recognised as a schema-entity on the next load.
- *
- * `appliesTo` and `domain` are stored as entity-level metadata entries
- * so the round-trip via `toLegacyStereotypeView` is lossless.
+ * The synthesised entity gets `stereotype: 'metadata-schema'` set so it is
+ * recognised on the next load.
  */
 export function fromLegacyStereotypeView(stereotype: Stereotype): Entity {
-  const uuid = isValidUUID(stereotype.id) ? stereotype.id : generateUUID();
+  // #165b: always generate a fresh UUID — legacy ids are slugs, not UUIDs
+  const uuid = generateUUID();
 
   const metadata: MetadataEntry[] = [];
   if (stereotype.appliesTo) {
@@ -220,6 +232,10 @@ export function fromLegacyStereotypeView(stereotype: Stereotype): Entity {
   if ((stereotype as any).domain) {
     metadata.push({ name: 'domain', value: (stereotype as any).domain });
   }
+  // #165b: if the display name differs from the slug, store it as a metadata entry
+  if (stereotype.name && stereotype.name !== stereotype.id) {
+    metadata.push({ name: 'displayName', value: stereotype.name });
+  }
 
   const attributes: Attribute[] = (stereotype.metadataDefinitions || []).map(
     attributeFromDefinition,
@@ -227,7 +243,8 @@ export function fromLegacyStereotypeView(stereotype: Stereotype): Entity {
 
   const entity: Entity = {
     uuid,
-    name: stereotype.name,
+    // #165b: entity.name = stereotype.id (the slug — load-bearing identity)
+    name: stereotype.id,
     stereotype: 'metadata-schema',
     attributes,
   };

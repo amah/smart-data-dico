@@ -1,0 +1,28 @@
+entities:
+  - uuid: eacafa0f-e2c6-481c-ae89-b64b353ef94c
+    name: pii
+    description: Personally Identifiable Information
+    stereotype: metadata-schema
+    metadata:
+      - name: appliesTo
+        value: attribute
+      - name: domain
+        value: Privacy
+      - name: displayName
+        value: PII
+    attributes:
+      - uuid: 4de2568a-8b0d-428f-9760-655241030c60
+        name: pii-category
+        description: "Category: direct, indirect, or sensitive"
+        type: string
+        required: true
+      - uuid: 17d38389-ce26-4c8c-b804-b332e4424749
+        name: retention-days
+        description: Data retention period in days
+        type: number
+        required: false
+      - uuid: f749559a-095a-4b9b-b919-85e45894895e
+        name: encryption-required
+        description: Whether this field must be encrypted at rest
+        type: flag
+        required: false

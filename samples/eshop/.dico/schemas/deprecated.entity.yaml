@@ -1,0 +1,28 @@
+entities:
+  - uuid: 0548da0e-1f32-4dc3-b420-421b11e09b40
+    name: deprecated
+    description: Attribute scheduled for removal
+    stereotype: metadata-schema
+    metadata:
+      - name: appliesTo
+        value: attribute
+      - name: domain
+        value: Lifecycle
+      - name: displayName
+        value: Deprecated
+    attributes:
+      - uuid: 16605dd4-3b2e-49a0-b491-f2e0516a1d2e
+        name: deprecated-since
+        description: Date when this attribute was deprecated
+        type: date
+        required: true
+      - uuid: baf38c80-79e9-4d74-b46e-25ad77f85ff2
+        name: replacement
+        description: Name of the replacement attribute
+        type: string
+        required: false
+      - uuid: f035a058-5028-42de-8690-e6d7986e1a72
+        name: removal-target
+        description: Target date for removal
+        type: date
+        required: false
