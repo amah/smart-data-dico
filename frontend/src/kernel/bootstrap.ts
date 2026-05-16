@@ -19,6 +19,7 @@ import { createNotificationPlugin } from '../plugins/notification/notificationPl
 import { createLoggingPlugin } from '../plugins/logging/loggingPlugin';
 import { createCasePlugin } from '../plugins/case/casePlugin';
 import { createRulesPlugin } from '../plugins/rules/rulesPlugin';
+import { createAiAssistancePlugin } from '../plugins/ai-assistance/aiPlugin';
 import type { IStoreManager } from '@hamak/ui-store-api';
 
 // Domain Redux slices
@@ -168,6 +169,17 @@ export function registerPlugins() {
     'rules',
     { name: 'rules', version: '1.0.0', entry: '', dependsOn: ['store', 'auth'] },
     createRulesPlugin()
+  );
+
+  // AI Assistance plugin (#162) — depends on: store, auth, data-dictionary
+  // Read the feature flag off shell config — if shell isn't bootstrapped
+  // yet (which it is, registered above), the default-on plugin proceeds.
+  // We pass `enabled: true` literal here for the v1 implementation and
+  // rely on ShellLayout's flag-check for the runtime gate. See Risk 3.
+  host.registerPlugin(
+    'ai-assistance',
+    { name: 'ai-assistance', version: '1.0.0', entry: '', dependsOn: ['store', 'auth', 'data-dictionary'] },
+    createAiAssistancePlugin({ enabled: true }),
   );
 }
 

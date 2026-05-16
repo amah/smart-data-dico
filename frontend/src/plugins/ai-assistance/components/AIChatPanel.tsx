@@ -13,13 +13,13 @@ import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml';
 import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql';
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash';
 import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown';
-import { usePrefs } from '../hooks/usePrefs';
+import { usePrefs } from '../../../hooks/usePrefs';
 import {
   AIToolCategory,
   loadPolicy,
   shouldAutoApprove,
 } from '../utils/aiAutoApprovePolicy';
-import { processMentions } from './EntityMention';
+import { processMentions } from '../../../components/EntityMention';
 import {
   SlashCommand,
   extractSlashToken,
@@ -27,6 +27,7 @@ import {
   expandTemplate,
   buildHelpMessage,
 } from '../utils/aiSlashCommands';
+import { runAiCommand } from '../commands';
 
 SyntaxHighlighter.registerLanguage('ts', typescript);
 SyntaxHighlighter.registerLanguage('typescript', typescript);
@@ -333,8 +334,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   }, []);
 
   useEffect(() => {
-    fetch('/api/ai/status', { cache: 'no-store' })
-      .then(r => r.json())
+    runAiCommand('ai.status.get')
       .then(d => setAiAvailable(d.available))
       .catch(() => setAiAvailable(false));
   }, [open]);
@@ -343,11 +343,8 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const hasAutoLoaded = useRef(false);
   useEffect(() => {
     if (open) {
-      const url = conversationQuery.trim()
-        ? `/api/ai/conversations?q=${encodeURIComponent(conversationQuery.trim())}`
-        : '/api/ai/conversations';
-      fetch(url).then(r => r.json()).then(d => {
-        const list = d.data || [];
+      const q = conversationQuery.trim() || undefined;
+      runAiCommand('ai.conversation.list', { q }).then(list => {
         setConversationList(list);
         // Auto-load the most recent conversation on first open if no messages yet
         if (!hasAutoLoaded.current && messages.length === 0 && list.length > 0 && !conversationQuery) {
@@ -364,16 +361,9 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     patch: { title?: string; pinned?: boolean; systemPrompt?: string },
   ) => {
     try {
-      const res = await fetch(`/api/ai/conversations/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patch),
-      });
-      if (!res.ok) return;
-      const url = conversationQuery.trim()
-        ? `/api/ai/conversations?q=${encodeURIComponent(conversationQuery.trim())}`
-        : '/api/ai/conversations';
-      fetch(url).then(r => r.json()).then(d => setConversationList(d.data || [])).catch(() => {});
+      await runAiCommand('ai.conversation.patch', { id, patch });
+      const q = conversationQuery.trim() || undefined;
+      runAiCommand('ai.conversation.list', { q }).then(list => setConversationList(list)).catch(() => {});
     } catch {
       /* swallow — list will refresh on next open */
     }
@@ -406,36 +396,32 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
         },
       } : {}),
     };
-    fetch('/api/ai/conversations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(conv),
-    }).catch(() => {});
+    runAiCommand('ai.conversation.save', { conversation: conv as any }).catch(() => {});
   }, [conversationId, conversationList, systemPromptOverride, mode]);
 
   const loadConversation = useCallback((id: string) => {
-    fetch(`/api/ai/conversations/${id}`).then(r => r.json()).then(d => {
-      if (d.data) {
-        setConversationId(d.data.id);
-        setMessages(d.data.messages);
+    runAiCommand('ai.conversation.get', { id }).then(d => {
+      if (d) {
+        setConversationId(d.id);
+        setMessages(d.messages as any[]);
         // Restore the meter chip from the saved conversation (#128).
         // Older conversations saved before the meter shipped have no
         // `usage` key — clear the chip in that case.
-        if (d.data.usage) {
+        if (d.usage) {
           setUsage({
-            inputTokens: d.data.usage.inputTokens || 0,
-            outputTokens: d.data.usage.outputTokens || 0,
-            ...(typeof d.data.usage.totalCost === 'number' ? { cost: d.data.usage.totalCost } : {}),
+            inputTokens: d.usage.inputTokens || 0,
+            outputTokens: d.usage.outputTokens || 0,
+            ...(typeof d.usage.totalCost === 'number' ? { cost: d.usage.totalCost } : {}),
           });
         } else {
           setUsage(null);
         }
         // #127 — restore per-conversation system prompt override.
-        setSystemPromptOverride(typeof d.data.systemPrompt === 'string' ? d.data.systemPrompt : '');
+        setSystemPromptOverride(typeof d.systemPrompt === 'string' ? d.systemPrompt : '');
         setSystemPromptEditing(false);
         // #55 — restore chat mode; legacy conversations have no `mode`
         // field, fall back to Designer.
-        setMode((d.data.mode === 'ask' || d.data.mode === 'review') ? d.data.mode : 'designer');
+        setMode((d.mode === 'ask' || d.mode === 'review') ? d.mode : 'designer');
         setView('chat');
       }
     }).catch(() => {});
@@ -454,7 +440,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   }, []);
 
   const deleteConversation = useCallback((id: string) => {
-    fetch(`/api/ai/conversations/${id}`, { method: 'DELETE' }).then(() => {
+    runAiCommand('ai.conversation.delete', { id }).then(() => {
       setConversationList(prev => prev.filter(c => c.id !== id));
       if (id === conversationId) startNewConversation();
     }).catch(() => {});
@@ -601,20 +587,16 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
 
       const shouldSendContext = includePageContext && pageContext.length > 0;
       const trimmedSystemPrompt = systemPromptOverride.trim();
-      const response = await fetch('/api/ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: apiMessages,
-          ...(shouldSendContext ? { pageContext } : {}),
-          // #127 — per-conversation override of SYSTEM_PROMPT, scoped to this turn.
-          ...(trimmedSystemPrompt ? { systemPrompt: trimmedSystemPrompt } : {}),
-          // #55 — only send `mode` when it's not the default; keeps
-          // the request payload identical to pre-#55 for the common case.
-          ...(mode !== 'designer' ? { mode } : {}),
-        }),
-        signal: ac.signal,
-      });
+      const chatRequest = {
+        messages: apiMessages,
+        ...(shouldSendContext ? { pageContext } : {}),
+        // #127 — per-conversation override of SYSTEM_PROMPT, scoped to this turn.
+        ...(trimmedSystemPrompt ? { systemPrompt: trimmedSystemPrompt } : {}),
+        // #55 — only send `mode` when it's not the default; keeps
+        // the request payload identical to pre-#55 for the common case.
+        ...(mode !== 'designer' ? { mode } : {}),
+      };
+      const response = await runAiCommand('ai.chat.send', { request: chatRequest as any, signal: ac.signal });
 
       if (!response.ok) {
         const err = await response.json();
@@ -932,15 +914,14 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   // Load tool definitions
   useEffect(() => {
     if (view === 'tools' && toolDefs.length === 0) {
-      fetch('/api/ai/tools').then(r => r.json()).then(d => setToolDefs(d.data || [])).catch(() => {});
+      runAiCommand('ai.tools.list').then(tools => setToolDefs(tools)).catch(() => {});
     }
   }, [view]);
 
   // --- Saved prompts (#123) ---
   const refreshPrompts = useCallback(() => {
-    fetch('/api/ai/prompts')
-      .then(r => r.json())
-      .then(d => setPrompts(d.data || []))
+    runAiCommand('ai.prompt.list')
+      .then(prompts => setPrompts(prompts))
       .catch(() => {});
   }, []);
 
@@ -982,15 +963,10 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     }
     try {
       const isUpdate = editingPromptId !== null;
-      const url = isUpdate ? `/api/ai/prompts/${editingPromptId}` : '/api/ai/prompts';
-      const res = await fetch(url, {
-        method: isUpdate ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, content: promptContentDraft }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.message || 'Save failed');
+      if (isUpdate) {
+        await runAiCommand('ai.prompt.update', { id: editingPromptId!, name, content: promptContentDraft });
+      } else {
+        await runAiCommand('ai.prompt.create', { name, content: promptContentDraft });
       }
       cancelPromptDraft();
       refreshPrompts();
@@ -1001,7 +977,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
 
   const deletePrompt = useCallback(async (id: string) => {
     try {
-      await fetch(`/api/ai/prompts/${id}`, { method: 'DELETE' });
+      await runAiCommand('ai.prompt.delete', { id });
       if (editingPromptId === id) cancelPromptDraft();
       refreshPrompts();
     } catch {
@@ -1063,9 +1039,8 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   useEffect(() => {
     if (mentionToken === null || mentionToken.length === 0) return;
     const handle = setTimeout(() => {
-      fetch(`/api/ai/mentions/search?q=${encodeURIComponent(mentionToken)}`)
-        .then(r => r.json())
-        .then(d => setMentionResults(d.data || { entities: [], packages: [] }))
+      runAiCommand('ai.mentions.search', { q: mentionToken })
+        .then(result => setMentionResults(result))
         .catch(() => {});
     }, 120);
     return () => clearTimeout(handle);

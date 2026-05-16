@@ -59,6 +59,7 @@ The frontend uses `@hamak/app-framework` microkernel with these plugins (registe
 - **remote-fs** — `@hamak/ui-remote-fs-impl` pointing to backend `/fs`
 - **remote-git** — `@hamak/ui-remote-git-fs-impl` pointing to backend `/api/git`
 - **notification** — Toast notifications with command-based API
+- **ai-assistance** — Chat panel, conversation history, prompt CRUD, slash commands; consumes data-dictionary services for grounding
 
 ### Frontend organization
 - **Kernel** (`src/kernel/`): `bootstrap.ts` (Host + plugin registration), `tokens.ts` (DI tokens)
