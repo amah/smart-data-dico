@@ -19,6 +19,7 @@ export function createAppShellPlugin(): PluginModule {
       versionControl: true,
       search: true,
       flatViews: true,
+      aiAssistance: true, // #162 — gate the AI plugin's chat panel mount.
     },
   });
 

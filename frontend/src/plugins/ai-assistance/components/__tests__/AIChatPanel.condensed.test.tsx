@@ -8,8 +8,40 @@ import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import AIChatPanel from '../AIChatPanel';
-import { server } from '../../test/setup';
+import { server } from '../../../../test/setup';
+
+// Mock the AI command bus so these component tests don't need a full
+// kernel bootstrap. Routes each runAiCommand call to a direct fetch.
+vi.mock('../../commands', () => ({
+  runAiCommand: vi.fn(async (name: string, input?: any) => {
+    if (name === 'ai.status.get') {
+      const r = await fetch('/api/ai/status');
+      return r.json();
+    }
+    if (name === 'ai.conversation.list') {
+      const q = input?.q ? `?q=${encodeURIComponent(input.q)}` : '';
+      const r = await fetch(`/api/ai/conversations${q}`);
+      const d = await r.json(); return d.data ?? [];
+    }
+    if (name === 'ai.conversation.get') {
+      const r = await fetch(`/api/ai/conversations/${input?.id}`);
+      const d = await r.json(); return d.data ?? null;
+    }
+    if (name === 'ai.conversation.save') return fetch('/api/ai/conversations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input?.conversation) });
+    if (name === 'ai.conversation.patch') return fetch(`/api/ai/conversations/${input?.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input?.patch) });
+    if (name === 'ai.conversation.delete') return fetch(`/api/ai/conversations/${input?.id}`, { method: 'DELETE' });
+    if (name === 'ai.chat.send') return input.signal ? fetch('/api/ai/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input.request), signal: input.signal }) : fetch('/api/ai/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input.request) });
+    if (name === 'ai.tools.list') { const r = await fetch('/api/ai/tools'); const d = await r.json(); return d.data ?? []; }
+    if (name === 'ai.mentions.search') { const r = await fetch(`/api/ai/mentions/search?q=${encodeURIComponent(input?.q ?? '')}`); const d = await r.json(); return d.data ?? { entities: [], packages: [] }; }
+    if (name === 'ai.prompt.list') { const r = await fetch('/api/ai/prompts'); const d = await r.json(); return d.data ?? []; }
+    if (name === 'ai.prompt.create') { const r = await fetch('/api/ai/prompts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); const d = await r.json(); return d.data; }
+    if (name === 'ai.prompt.update') { const { id, ...rest } = input; const r = await fetch(`/api/ai/prompts/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(rest) }); const d = await r.json(); return d.data; }
+    if (name === 'ai.prompt.delete') return fetch(`/api/ai/prompts/${input?.id}`, { method: 'DELETE' });
+    throw new Error(`Unmocked command: ${name}`);
+  }),
+}));
 import { http, HttpResponse } from 'msw';
+
 
 if (!('scrollIntoView' in HTMLElement.prototype)) {
   HTMLElement.prototype.scrollIntoView = vi.fn();

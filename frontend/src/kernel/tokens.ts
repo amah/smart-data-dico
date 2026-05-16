@@ -114,3 +114,18 @@ export const IMPORT_EXPORT_SERVICE_TOKEN = Symbol('ImportExportService');
  * plugins write into (see frontend/node_modules/@hamak/ui-store-api/dist/tokens/service-tokens.d.ts:8).
  */
 export const METADATA_TYPE_REGISTRY_TOKEN = Symbol('MetadataTypeRegistry');
+
+/**
+ * DI token for the AIService.
+ *
+ * Pattern B per #162: REST wrapper around the AI controller's endpoints
+ * under /api/ai/** (chat streaming, status, config, tools, mentions,
+ * conversations CRUD, prompts CRUD). Owned by the `ai-assistance` plugin;
+ * constructed and provided in `aiPlugin.initialize` as an eager `useValue`.
+ *
+ * AIService grounds itself in dictionary data by resolving existing
+ * data-dictionary tokens on demand inside specific methods — not eagerly
+ * in the constructor — because `DICTIONARY_SERVICE_TOKEN` has no provider
+ * yet. See spec #162 Risk 1.
+ */
+export const AI_SERVICE_TOKEN = Symbol('AIService');

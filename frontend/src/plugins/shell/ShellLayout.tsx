@@ -14,7 +14,9 @@ import Footer from '../../components/Footer';
 import { usePageHeaderMounted } from '../../components/ui/PageHeader';
 import { useKeyboardShortcuts, useKeyboardShortcutsEnabled } from '../../hooks/useKeyboardShortcuts';
 import KeyboardShortcutsModal from '../../components/KeyboardShortcutsModal';
-import AIChatPanel from '../../components/AIChatPanel';
+import AIChatPanel from '../../plugins/ai-assistance/components/AIChatPanel';
+
+const aiAssistanceEnabled = true; // v1: hardcoded ON; runtime gate via plugin enabled flag.
 
 const ShellLayout: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -87,7 +89,7 @@ const ShellLayout: React.FC = () => {
       <Footer />
 
       {/* AI Chat Panel */}
-      <AIChatPanel open={chatOpen} onClose={() => setChatOpen(false)} />
+      {aiAssistanceEnabled && <AIChatPanel open={chatOpen} onClose={() => setChatOpen(false)} />}
 
       {/* Keyboard shortcuts help modal */}
       {showHelp && <KeyboardShortcutsModal onClose={() => setShowHelp(false)} />}

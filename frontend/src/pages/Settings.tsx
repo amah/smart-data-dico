@@ -11,7 +11,7 @@ import {
   loadPolicy,
   savePolicy,
   DEFAULT_AI_AUTO_APPROVE_POLICY,
-} from '../utils/aiAutoApprovePolicy';
+} from '../plugins/ai-assistance/utils/aiAutoApprovePolicy';
 
 interface SettingsFormData {
   theme: string;
