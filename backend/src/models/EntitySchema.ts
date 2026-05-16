@@ -448,6 +448,22 @@ export interface Entity {
   uuid: string;
   name: string;
   description?: string;
+  /**
+   * Optional stereotype reference — a string id or name of the
+   * `Stereotype` that classifies this entity.
+   *
+   * **Reserved value — `'metadata-schema'`** (#165a): entities tagged
+   * with `stereotype: 'metadata-schema'` are interpreted as
+   * **schema-entities** — stereotype definitions expressed in the
+   * `Entity`/`Attribute` model. They live under `.dico/schemas/` and
+   * are loaded by `SchemaEntityService`. The bootstrap marker entity
+   * (`uuid: 00000000-0000-1000-8000-000000000001`, name:
+   * `metadata-schema`) has this field **absent** — it is self-defining
+   * and does not use the stereotype it declares.
+   *
+   * All other values remain plain string name-references to stereotypes
+   * declared in `.dico/stereotypes.yaml` or in `.dico/schemas/`.
+   */
   stereotype?: string;
   status?: EntityStatus;
   attributes: Attribute[];
