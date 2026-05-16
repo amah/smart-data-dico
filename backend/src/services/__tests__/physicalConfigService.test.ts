@@ -3,7 +3,7 @@
  *
  * Uses InMemoryStorageBackend for isolation — no temp directories, no disk I/O.
  */
-import { InMemoryStorageBackend } from '../../__tests__/helpers/InMemoryStorageBackend.js';
+import { InMemoryStorageBackend } from '../../storage/memory/InMemoryStorageBackend.js';
 import { PhysicalConfigService } from '../physicalConfigService.js';
 import { wsId, pathOf } from '../../storage/contract/types.js';
 import {

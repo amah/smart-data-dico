@@ -44,6 +44,7 @@ Backend is a plain Express app; the framework provides only the FS and git route
 - **Adapters** (`src/adapters/`): `EntityFileAdapter.ts` wraps `@hamak/filesystem-server-impl`, `YamlFileInfoEnricher.ts` adds entity metadata to file listings
 - **Utils** (`src/utils/fileOperations.ts`): YAML file I/O, git commits via `@hamak/ui-remote-git-fs-backend`
 - **Framework routes**: `/fs` (filesystem via `@hamak/filesystem-server-impl`), `/api/git` (git via `@hamak/ui-remote-git-fs-backend`)
+- **Storage backend selection** (`src/storage/contract/registerStorageBackend.ts`): The env-var `STORAGE_BACKEND` selects the active backend at startup. `STORAGE_BACKEND=git` (default) uses `GitFilesystemStorageBackend` backed by the working tree. `STORAGE_BACKEND=memory` uses `InMemoryStorageBackend` seeded once from `config.dataDir` at boot — no git, no commit history (`capabilities().versionControl === false`). The memory backend is intended for dev/demo/test only; it does not support project switching at runtime. Both backends live under `src/storage/`; their capability differences are declared in `src/storage/contract/BackendCapabilities.ts` (`GIT_FILESYSTEM_CAPABILITIES` vs `IN_MEMORY_CAPABILITIES`).
 
 ### Frontend — Microkernel Plugin Architecture
 The frontend uses `@hamak/app-framework` microkernel with these plugins (registered in `src/kernel/bootstrap.ts`):

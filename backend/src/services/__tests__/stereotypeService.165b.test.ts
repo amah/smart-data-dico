@@ -14,7 +14,7 @@ import * as os from 'os';
 import * as YAML from 'yaml';
 import { METADATA_SCHEMA_MARKER, METADATA_SCHEMA_MARKER_UUID } from '../schemaEntityService.js';
 import type { Stereotype } from '../../models/EntitySchema.js';
-import { InMemoryStorageBackend } from '../../__tests__/helpers/InMemoryStorageBackend.js';
+import { InMemoryStorageBackend } from '../../storage/memory/InMemoryStorageBackend.js';
 import { wsId, pathOf } from '../../storage/contract/types.js';
 
 // Mock logger so we can assert on log messages
