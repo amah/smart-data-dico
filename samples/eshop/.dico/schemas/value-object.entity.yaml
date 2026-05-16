@@ -1,0 +1,18 @@
+entities:
+  - uuid: 08a0c6af-98a8-4ff3-9ded-dd2942329f2a
+    name: value-object
+    description: An immutable object defined by its attributes rather than identity
+    stereotype: metadata-schema
+    metadata:
+      - name: appliesTo
+        value: entity
+      - name: domain
+        value: DDD
+      - name: displayName
+        value: Value Object
+    attributes:
+      - uuid: 5a25e3f4-23b2-46d0-9eaf-8f609c453401
+        name: immutable
+        description: ''
+        type: flag
+        required: true

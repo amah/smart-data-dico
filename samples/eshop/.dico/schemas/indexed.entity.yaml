@@ -1,0 +1,23 @@
+entities:
+  - uuid: f5af1a72-a191-45d5-97f1-b814e8cf3c73
+    name: indexed
+    description: Database-indexed attribute
+    stereotype: metadata-schema
+    metadata:
+      - name: appliesTo
+        value: attribute
+      - name: domain
+        value: Database
+      - name: displayName
+        value: Indexed
+    attributes:
+      - uuid: 51630862-39e4-4739-b786-5379bcf5880c
+        name: index-type
+        description: "Index type: btree, hash, gin, gist"
+        type: string
+        required: false
+      - uuid: cd4a09db-b45e-48ee-a1cc-c4b2f67522cc
+        name: unique-index
+        description: Whether the index enforces uniqueness
+        type: flag
+        required: false

@@ -75,6 +75,17 @@ export type MetadataValue =
 
 /**
  * A metadata definition (schema for metadata entries).
+ *
+ * @deprecated #165b — prefer `Attribute`. `MetadataDefinition` is now a
+ * documented alias of the same shape: the four extension fields
+ * (fields, items, enum, required, description) overlap one-to-one with
+ * Attribute's (properties, items, validation.enumValues, required,
+ * description). The alias is retained as a TS type for consumers in
+ * `exportService`, `MetadataTypeRegistry`, and `builtinContributions`
+ * that still consume the `MetadataDefinition` name. New code MUST use
+ * `Attribute`. The alias will be deleted in a follow-up ticket once
+ * #165c lands and the frontend has converged.
+ *
  * `type` is a free-form contribution key validated against the
  * MetadataTypeRegistry at write time.
  * Built-in keys: 'string' | 'number' | 'boolean' | 'date' | 'flag' | 'rule'

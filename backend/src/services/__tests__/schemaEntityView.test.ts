@@ -142,7 +142,11 @@ describe('definitionFromAttribute', () => {
 describe('toLegacyStereotypeView', () => {
   it('produces correct Stereotype from schema-entity', () => {
     const result = toLegacyStereotypeView(piiSchemaEntity);
-    expect(result.id).toBe(piiSchemaEntity.uuid);
+    // #165b: id is Entity.name (the slug), NOT Entity.uuid
+    expect(result.id).toBe(piiSchemaEntity.name);
+    expect(result.id).toBe('pii');
+    // #165b: name is metadata['displayName'] if present, else Entity.name
+    // piiSchemaEntity has no displayName metadata → falls back to slug 'pii'
     expect(result.name).toBe('pii');
     expect((result as any).description).toBe('Personally Identifiable Information');
     expect(result.appliesTo).toBe('attribute');
@@ -209,8 +213,8 @@ describe('toLegacyStereotypeView', () => {
 describe('fromLegacyStereotypeView', () => {
   it('produces a valid entity from a legacy stereotype', () => {
     const input: Stereotype = {
-      id: 'a1b2c3d4-0000-1000-8000-000000000099',
-      name: 'pii',
+      id: 'pii',
+      name: 'PII',
       appliesTo: 'attribute',
       metadataDefinitions: [
         { name: 'pii-category', type: 'string' as any, required: true },
@@ -218,15 +222,18 @@ describe('fromLegacyStereotypeView', () => {
       ],
     } as any;
     const result = fromLegacyStereotypeView(input);
-    expect(result.uuid).toBe(input.id); // valid UUID → reused
+    // #165b: entity.name = stereotype.id (the slug)
     expect(result.name).toBe('pii');
+    // #165b: uuid is always freshly generated (never reused from legacy id)
+    expect(result.uuid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    expect(result.uuid).not.toBe('pii');
     expect(result.stereotype).toBe('metadata-schema');
     expect(result.attributes).toHaveLength(2);
     expect(result.attributes[0].name).toBe('pii-category');
     expect(result.attributes[0].required).toBe(true);
   });
 
-  it('generates a new UUID when legacy id is not a valid UUID', () => {
+  it('generates a new UUID for all stereotype ids (slugs and UUIDs alike)', () => {
     const legacyStereotype: Stereotype = {
       id: 'aggregate-root',
       name: 'Aggregate Root',
@@ -234,15 +241,17 @@ describe('fromLegacyStereotypeView', () => {
       metadataDefinitions: [],
     };
     const result = fromLegacyStereotypeView(legacyStereotype);
-    // uuid must be a valid UUID format (v4 generated)
+    // #165b: always generates a fresh UUID — even when id looked like a UUID
     expect(result.uuid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
     expect(result.uuid).not.toBe('aggregate-root');
+    // entity.name = slug
+    expect(result.name).toBe('aggregate-root');
   });
 
   it('stores appliesTo as metadata entry', () => {
     const input: Stereotype = {
-      id: 'a1b2c3d4-0000-1000-8000-000000000099',
-      name: 'pii',
+      id: 'pii',
+      name: 'PII',
       appliesTo: 'attribute',
       metadataDefinitions: [],
     };
@@ -251,10 +260,34 @@ describe('fromLegacyStereotypeView', () => {
     expect(appliesTo?.value).toBe('attribute');
   });
 
+  it('stores displayName as metadata entry when name differs from id', () => {
+    const input: Stereotype = {
+      id: 'pii',
+      name: 'PII',
+      appliesTo: 'attribute',
+      metadataDefinitions: [],
+    };
+    const result = fromLegacyStereotypeView(input);
+    const displayName = result.metadata?.find(m => m.name === 'displayName');
+    expect(displayName?.value).toBe('PII');
+  });
+
+  it('does not add displayName metadata when name equals id', () => {
+    const input: Stereotype = {
+      id: 'indexed',
+      name: 'indexed',
+      appliesTo: 'attribute',
+      metadataDefinitions: [],
+    };
+    const result = fromLegacyStereotypeView(input);
+    const displayName = result.metadata?.find(m => m.name === 'displayName');
+    expect(displayName).toBeUndefined();
+  });
+
   it('sets stereotype field to metadata-schema', () => {
     const input: Stereotype = {
-      id: 'a1b2c3d4-0000-1000-8000-000000000099',
-      name: 'pii',
+      id: 'pii',
+      name: 'PII',
       appliesTo: 'attribute',
       metadataDefinitions: [],
     };
@@ -266,12 +299,14 @@ describe('fromLegacyStereotypeView', () => {
 // ── Round-trip ───────────────────────────────────────────────────────────────
 
 describe('round-trip Entity → Stereotype → Entity', () => {
-  it('schema-entity → toLegacyStereotypeView → fromLegacyStereotypeView preserves key fields', () => {
+  it('schema-entity → toLegacyStereotypeView → fromLegacyStereotypeView preserves slug identity', () => {
     const stereotype = toLegacyStereotypeView(piiSchemaEntity);
     const back = fromLegacyStereotypeView(stereotype);
 
-    // UUID is reused since it was a valid UUID
-    expect(back.uuid).toBe(piiSchemaEntity.uuid);
+    // #165b: uuid is NOT preserved (always regenerated in fromLegacyStereotypeView)
+    expect(back.uuid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    // #165b: entity.name = stereotype.id = 'pii' (the slug)
+    expect(back.name).toBe('pii');
     expect(back.name).toBe(piiSchemaEntity.name);
     expect(back.stereotype).toBe('metadata-schema');
     expect(back.attributes).toHaveLength(piiSchemaEntity.attributes.length);
@@ -280,8 +315,8 @@ describe('round-trip Entity → Stereotype → Entity', () => {
 
   it('Stereotype → fromLegacyStereotypeView → toLegacyStereotypeView is lossless for core fields', () => {
     const input: Stereotype = {
-      id: 'a1b2c3d4-0000-1000-8000-000000000099',
-      name: 'pii',
+      id: 'pii',
+      name: 'PII',
       appliesTo: 'attribute',
       metadataDefinitions: [
         { name: 'pii-category', type: 'string' as any, required: true },
@@ -291,10 +326,32 @@ describe('round-trip Entity → Stereotype → Entity', () => {
     const entity = fromLegacyStereotypeView(input);
     const back = toLegacyStereotypeView(entity);
 
+    // #165b: back.id = entity.name = stereotype.id (the slug)
     expect(back.id).toBe(input.id);
+    // #165b: back.name = metadata['displayName'] = stereotype.name ('PII')
     expect(back.name).toBe(input.name);
     expect(back.appliesTo).toBe(input.appliesTo);
     expect(back.metadataDefinitions).toHaveLength(input.metadataDefinitions.length);
     expect(back.metadataDefinitions[0].name).toBe(input.metadataDefinitions[0].name);
+  });
+
+  it('round-trip with displayName — PII schema-entity → view → entity preserves display name', () => {
+    const piiWithDisplay: Entity = {
+      ...piiSchemaEntity,
+      metadata: [
+        { name: 'appliesTo', value: 'attribute' },
+        { name: 'domain', value: 'Privacy' },
+        { name: 'displayName', value: 'PII' },
+      ],
+    };
+
+    const stereotype = toLegacyStereotypeView(piiWithDisplay);
+    expect(stereotype.id).toBe('pii');
+    expect(stereotype.name).toBe('PII');
+
+    const back = fromLegacyStereotypeView(stereotype);
+    expect(back.name).toBe('pii');
+    const displayNameEntry = back.metadata?.find(m => m.name === 'displayName');
+    expect(displayNameEntry?.value).toBe('PII');
   });
 });

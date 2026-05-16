@@ -1,0 +1,23 @@
+entities:
+  - uuid: ca661443-bc03-4d0f-8650-b85d75516755
+    name: event
+    description: An event that represents something that happened in the domain
+    stereotype: metadata-schema
+    metadata:
+      - name: appliesTo
+        value: entity
+      - name: domain
+        value: DDD
+      - name: displayName
+        value: Domain Event
+    attributes:
+      - uuid: b467d836-bb4b-454a-bc5a-a5c0c72afdda
+        name: event-source
+        description: The aggregate or service that emits this event
+        type: string
+        required: true
+      - uuid: 94229418-306b-45a1-89ee-7a79b9d36b5a
+        name: idempotent
+        description: Whether processing this event is idempotent
+        type: flag
+        required: false

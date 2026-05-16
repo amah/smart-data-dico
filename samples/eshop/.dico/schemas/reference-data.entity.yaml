@@ -1,0 +1,23 @@
+entities:
+  - uuid: 086624e7-29fc-4621-a3f4-a505a9c7bc45
+    name: reference-data
+    description: Slowly-changing lookup/reference data
+    stereotype: metadata-schema
+    metadata:
+      - name: appliesTo
+        value: entity
+      - name: domain
+        value: Reference Data
+      - name: displayName
+        value: Reference Data
+    attributes:
+      - uuid: 103a3acc-e5b6-4bd8-94ee-fcf151286739
+        name: cacheable
+        description: Whether this data can be cached
+        type: flag
+        required: true
+      - uuid: 98ce4cd2-315c-4b16-8568-33be2ae5ca70
+        name: update-frequency
+        description: How often this data changes (daily, weekly, rarely)
+        type: string
+        required: false

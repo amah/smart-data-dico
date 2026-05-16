@@ -1,23 +1,23 @@
 /**
- * stereotypeService.ts — rewritten for #165a
+ * stereotypeService.ts — rewritten for #165a / extended in #165b
  *
  * Returns the merged list of stereotypes — schema-entities loaded from
  * `.dico/schemas/` (via `schemaEntityService`) converted to the legacy
  * `Stereotype` shape (via `toLegacyStereotypeView`), PLUS legacy entries
  * read directly from `.dico/stereotypes.yaml`.
  *
- * Collision policy (#165a): if the same stereotype id (Entity.uuid or
- * Entity.name vs Stereotype.id) appears in both sources, the
- * schema-entity wins and the legacy entry is shadowed with a warning.
+ * Collision policy (#165a): if the same stereotype id (Entity.name vs
+ * Stereotype.id) appears in both sources, the schema-entity wins and the
+ * legacy entry is shadowed with a warning.
  *
- * During the #165a window, the eshop sample has zero user-authored
- * schema-entities (only the bootstrap marker, which is filtered by
- * `schemaEntityService.list()`). Therefore `getAllStereotypes()` is
- * observationally identical to current main — criterion 4.
+ * Write-path routing (#165b):
+ *   - When `preferSchemaEntityWrite()` returns true (legacy YAML is empty
+ *     AND schema entities exist), new and updated stereotypes are written
+ *     to `.dico/schemas/<slug>.entity.yaml`.
+ *   - Otherwise, writes go to `.dico/stereotypes.yaml` (legacy code path).
  *
- * Writes still go to `.dico/stereotypes.yaml`. Schema-entity writes are
- * #165b. If an id matches an existing schema-entity, the write is
- * refused with a clear error message.
+ * In the eshop sample post-#165b migration, `preferSchemaEntityWrite()`
+ * returns true because stereotypes.yaml is emptied to `[]`.
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -28,11 +28,12 @@ import { config } from '../kernel/config.js';
 import type { MetadataValidationError } from './metadata/MetadataTypeRegistry.js';
 import { metadataTypeRegistry } from './metadata/index.js';
 import { schemaEntityService } from './schemaEntityService.js';
-import { toLegacyStereotypeView } from './schemaEntityView.js';
+import { toLegacyStereotypeView, fromLegacyStereotypeView } from './schemaEntityView.js';
 import { getSchemaPackagePath } from '../utils/fileOperations.js';
+import { writeSchemaEntity, deleteSchemaEntity } from './schemaEntityWriter.js';
 
 // Re-export the inverse for external use (migration script, tests)
-export { fromLegacyStereotypeView } from './schemaEntityView.js';
+export { fromLegacyStereotypeView };
 
 const getStereotypesFile = () => path.join(config.dataDir, '.dico', 'stereotypes.yaml');
 
@@ -115,14 +116,40 @@ class StereotypeService {
     return all.find(s => s.id === id) || null;
   }
 
-  // ── Write operations (still .dico/stereotypes.yaml in #165a) ────────
+  // ── Write-path routing (#165b) ──────────────────────────────────────
 
   /**
-   * Create a stereotype. Writes to `.dico/stereotypes.yaml` only.
+   * Route write operations: prefer schema-entity writes when the legacy
+   * YAML is empty AND the schema package has user-authored entities.
+   * Inverts the #165a write-conflict guard for projects that have migrated.
    *
-   * If `id` matches an existing schema-entity (not in the legacy YAML),
-   * the operation fails with a clear error pointing to the schema-entity
-   * file — silent split-brain writes would be the worst #165a regression.
+   * Returns true → writes go to .dico/schemas/<slug>.entity.yaml
+   * Returns false → writes go to .dico/stereotypes.yaml (legacy code path)
+   *
+   * In the eshop sample post-#165b migration: returns true.
+   * In downstream projects without schemas/: returns false.
+   */
+  private async preferSchemaEntityWrite(): Promise<boolean> {
+    const legacy = this.readLegacyStereotypes();
+    if (legacy.length > 0) {
+      return false;
+    }
+    const schemaEntities = await schemaEntityService.list();
+    return schemaEntities.length > 0;
+  }
+
+  // ── Write operations ─────────────────────────────────────────────────
+
+  /**
+   * Create a stereotype.
+   *
+   * #165b routing:
+   *   - When preferSchemaEntityWrite() is true: converts the stereotype
+   *     to a schema-entity and writes to .dico/schemas/<slug>.entity.yaml.
+   *   - Otherwise: writes to .dico/stereotypes.yaml (legacy path).
+   *
+   * If `id` matches an existing schema-entity (in schema-entity write mode)
+   * or an existing legacy entry, the operation fails with a duplicate error.
    */
   async createStereotype(data: Stereotype): Promise<{ success: boolean; stereotype?: Stereotype; errors?: string[] }> {
     if (!data.id || !data.name || !data.appliesTo) {
@@ -132,6 +159,31 @@ class StereotypeService {
       return { success: false, errors: ['appliesTo must be one of: package, entity, attribute, model, relationship'] };
     }
 
+    const useSchemaPath = await this.preferSchemaEntityWrite();
+
+    if (useSchemaPath) {
+      // Schema-entity write path (#165b)
+      logger.info(`[#165b] createStereotype: routing to schema-entity write path for '${data.id}'`);
+      const existingByName = await schemaEntityService.findByName(data.id);
+      if (existingByName) {
+        return { success: false, errors: [`Stereotype with id '${data.id}' already exists as a schema-entity`] };
+      }
+
+      const stereotype: Stereotype = {
+        id: data.id,
+        name: data.name,
+        description: data.description,
+        domain: data.domain,
+        appliesTo: data.appliesTo,
+        metadataDefinitions: data.metadataDefinitions || [],
+      };
+
+      const entity = fromLegacyStereotypeView(stereotype);
+      await writeSchemaEntity(entity);
+      return { success: true, stereotype };
+    }
+
+    // Legacy write path (#165a / original)
     // Write-conflict guard: refuse if id matches an existing schema-entity
     const existingByName = await schemaEntityService.findByName(data.id);
     const existingByUuid = await schemaEntityService.findByUuid(data.id);
@@ -166,20 +218,28 @@ class StereotypeService {
   }
 
   async updateStereotype(id: string, data: Partial<Stereotype>): Promise<{ success: boolean; stereotype?: Stereotype; errors?: string[] }> {
-    // Write-conflict guard
-    const existingByName = await schemaEntityService.findByName(id);
-    const existingByUuid = await schemaEntityService.findByUuid(id);
-    if (existingByName || existingByUuid) {
-      const schemaPackagePath = getSchemaPackagePath();
-      return {
-        success: false,
-        errors: [
-          `Stereotype id "${id}" is defined as a schema-entity at ${schemaPackagePath}; ` +
-          `edit that file or use the #165b write path to update schema-entities.`,
-        ],
+    const existingSchemaEntity = await schemaEntityService.findByName(id);
+
+    if (existingSchemaEntity) {
+      // Schema-entity update path (#165b)
+      logger.info(`[#165b] updateStereotype: routing to schema-entity write path for '${id}'`);
+      const currentStereotype = toLegacyStereotypeView(existingSchemaEntity);
+      const updated: Stereotype = {
+        id: currentStereotype.id,
+        name: data.name ?? currentStereotype.name,
+        description: data.description ?? currentStereotype.description,
+        domain: data.domain ?? currentStereotype.domain,
+        appliesTo: data.appliesTo ?? currentStereotype.appliesTo,
+        metadataDefinitions: data.metadataDefinitions ?? currentStereotype.metadataDefinitions,
       };
+      const entity = fromLegacyStereotypeView(updated);
+      // Preserve the original uuid (not regenerated) for stable file references
+      entity.uuid = existingSchemaEntity.uuid;
+      await writeSchemaEntity(entity);
+      return { success: true, stereotype: updated };
     }
 
+    // Legacy write path
     const all = this.readLegacyStereotypes();
     const index = all.findIndex(s => s.id === id);
     if (index === -1) return { success: false, errors: ['Stereotype not found'] };
@@ -198,20 +258,19 @@ class StereotypeService {
   }
 
   async deleteStereotype(id: string): Promise<{ success: boolean; errors?: string[] }> {
-    // Write-conflict guard
-    const existingByName = await schemaEntityService.findByName(id);
-    const existingByUuid = await schemaEntityService.findByUuid(id);
-    if (existingByName || existingByUuid) {
-      const schemaPackagePath = getSchemaPackagePath();
-      return {
-        success: false,
-        errors: [
-          `Stereotype id "${id}" is defined as a schema-entity at ${schemaPackagePath}; ` +
-          `edit that file or use the #165b write path to delete schema-entities.`,
-        ],
-      };
+    const existingSchemaEntity = await schemaEntityService.findByName(id);
+
+    if (existingSchemaEntity) {
+      // Schema-entity delete path (#165b)
+      logger.info(`[#165b] deleteStereotype: routing to schema-entity delete path for '${id}'`);
+      const deleted = await deleteSchemaEntity(id);
+      if (!deleted) {
+        return { success: false, errors: [`Schema-entity file for '${id}' not found`] };
+      }
+      return { success: true };
     }
 
+    // Legacy delete path
     const all = this.readLegacyStereotypes();
     const filtered = all.filter(s => s.id !== id);
     if (filtered.length === all.length) return { success: false, errors: ['Stereotype not found'] };

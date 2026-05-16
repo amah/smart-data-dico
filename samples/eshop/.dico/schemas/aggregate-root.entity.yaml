@@ -1,0 +1,23 @@
+entities:
+  - uuid: 7372efbf-3caf-4919-8344-b35fc235049e
+    name: aggregate-root
+    description: Root entity of an aggregate boundary
+    stereotype: metadata-schema
+    metadata:
+      - name: appliesTo
+        value: entity
+      - name: domain
+        value: DDD
+      - name: displayName
+        value: Aggregate Root
+    attributes:
+      - uuid: 98f16e02-8df1-4252-ac51-e8df1f1b55f6
+        name: bounded-context
+        description: Name of the bounded context this aggregate belongs to
+        type: string
+        required: true
+      - uuid: 9d75df9a-2242-4390-9915-da204472fe1b
+        name: invariants
+        description: Business invariants enforced by this aggregate
+        type: rule
+        required: false
