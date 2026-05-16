@@ -37,7 +37,7 @@ Backend is a plain Express app; the framework provides only the FS and git route
 
 - **Routes** (`src/routes/index.ts`): All API endpoints (~90 routes) defined in one file
 - **Controllers** (`src/controllers/`): Request handlers for auth, dictionaries, services, versions, diagrams, stereotypes, perspectives, import/export
-- **Services** (`src/services/`): Business logic — `serviceService.ts` (entities, search, impact), `dictionaryService.ts` (packages), `stereotypeService.ts`, `perspectiveService.ts` (BFS resolution), `importService.ts`, `exportService.ts`, `qualityService.ts`. Domain services consume `IStorageBackend` via constructor injection; the module-level singletons default to `storageRegistry.getBackend()`. `promptService` and `conversationService` still use direct `fs` because they store under `~/.dico-app/`, outside the current backend's single workspace — slice-2b migrates them after the app-dir workspace is registered.
+- **Services** (`src/services/`): Business logic — `serviceService.ts` (entities, search, impact), `dictionaryService.ts` (packages), `stereotypeService.ts`, `perspectiveService.ts` (BFS resolution), `importService.ts`, `exportService.ts`, `qualityService.ts`. Domain services consume `IStorageBackend` via constructor injection; the module-level singletons default to `storageRegistry.getBackend()`. Only `dictionaryService` still uses direct `fs` — its migration is deferred for multi-kind YAML write-semantics reasons (separate slice).
 - **Models** (`src/models/`): TypeScript interfaces + JSON Schema validation (`EntitySchema.ts`, `Dictionary.ts`)
 - **Middleware** (`src/middleware/`): Basic auth + JWT auth with role-based access (ADMIN, EDITOR, VIEWER)
 - **Kernel** (`src/kernel/config.ts`): Centralized configuration

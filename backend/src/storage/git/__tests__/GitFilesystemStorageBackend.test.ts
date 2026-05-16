@@ -16,7 +16,7 @@ describe('GitFilesystemStorageBackend', () => {
     // while still resolving correctly in the Jest CJS (moduleResolution:node) context.
     const { WorkspaceManager } = await import('@hamak/filesystem-server-impl' as string) as { WorkspaceManager: new (w: Record<string, string>, o: { baseDirectory: string }) => IWorkspaceManager };
     const wm = new WorkspaceManager({ dictionaries: '.' }, { baseDirectory: tmpDir });
-    backend = new GitFilesystemStorageBackend(wm, { workspaceId: 'dictionaries' });
+    backend = new GitFilesystemStorageBackend(wm);
   });
 
   afterEach(() => {
@@ -136,5 +136,29 @@ describe('GitFilesystemStorageBackend', () => {
     await backend.mkdir(wsId('dictionaries'), pathOf('statdir'));
     const s = await backend.stat(wsId('dictionaries'), pathOf('statdir'));
     expect(s.isDirectory).toBe(true);
+  });
+
+  // AC #5 (slice-2b): multi-workspace — writes land in physically distinct directories
+  it('AC#5-slice2b — two workspaces write to physically distinct directories', async () => {
+    // Sub-directories d/ and a/ relative to tmpDir for the two workspaces
+    const dDir = path.join(tmpDir, 'd');
+    const aDir = path.join(tmpDir, 'a');
+    fs.mkdirSync(dDir, { recursive: true });
+    fs.mkdirSync(aDir, { recursive: true });
+
+    const { WorkspaceManager: WM2 } = await import('@hamak/filesystem-server-impl' as string) as { WorkspaceManager: new (w: Record<string, string>, o: { baseDirectory: string }) => IWorkspaceManager };
+    const wm2 = new WM2({ dictionaries: 'd', app: 'a' }, { baseDirectory: tmpDir });
+    const b2 = new GitFilesystemStorageBackend(wm2);
+
+    await b2.write(wsId('dictionaries'), pathOf('x.txt'), 'D', { createParents: true });
+    await b2.write(wsId('app'), pathOf('x.txt'), 'A', { createParents: true });
+
+    // Verify via IStorageBackend read
+    expect(await b2.read(wsId('dictionaries'), pathOf('x.txt'))).toBe('D');
+    expect(await b2.read(wsId('app'), pathOf('x.txt'))).toBe('A');
+
+    // Verify via raw fs.readFileSync that they're physically distinct
+    expect(fs.readFileSync(path.join(tmpDir, 'd', 'x.txt'), 'utf8')).toBe('D');
+    expect(fs.readFileSync(path.join(tmpDir, 'a', 'x.txt'), 'utf8')).toBe('A');
   });
 });

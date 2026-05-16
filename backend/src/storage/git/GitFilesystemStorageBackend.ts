@@ -36,33 +36,25 @@ export interface IWorkspaceManager {
   getFile(workspace: string, path: string | string[]): Promise<FileInfo>;
 }
 
-export interface GitFilesystemStorageBackendOptions {
-  /** The framework workspace id used today ('dictionaries'). All requests delegate using this id. */
-  workspaceId: string;
-}
-
 export class GitFilesystemStorageBackend implements IStorageBackend {
-  constructor(
-    private readonly wm: IWorkspaceManager,
-    private readonly opts: GitFilesystemStorageBackendOptions,
-  ) {}
+  constructor(private readonly wm: IWorkspaceManager) {}
 
   // ---- Read -----------------------------------------------------------------
 
-  async read(_ws: WorkspaceId, path: Path): Promise<Bytes> {
+  async read(ws: WorkspaceId, path: Path): Promise<Bytes> {
     try {
-      const info = await this.wm.readFile(this.opts.workspaceId, this.toSegments(path));
+      const info = await this.wm.readFile(String(ws), this.toSegments(path));
       return info.content ?? '';
     } catch (err) {
       if (this.isEnoent(err)) {
-        throw new NotFoundError(_ws, path, err);
+        throw new NotFoundError(ws, path, err);
       }
       throw err;
     }
   }
 
-  async list(_ws: WorkspaceId, path: Path): Promise<DirectoryEntry[]> {
-    const infos = await this.wm.listFiles(this.opts.workspaceId, this.toSegments(path));
+  async list(ws: WorkspaceId, path: Path): Promise<DirectoryEntry[]> {
+    const infos = await this.wm.listFiles(String(ws), this.toSegments(path));
     return infos.map((info) => ({
       name: info.name,
       path: pathOf(info.path),
@@ -72,9 +64,9 @@ export class GitFilesystemStorageBackend implements IStorageBackend {
     }));
   }
 
-  async stat(_ws: WorkspaceId, path: Path): Promise<Stat> {
+  async stat(ws: WorkspaceId, path: Path): Promise<Stat> {
     try {
-      const info = await this.wm.getFile(this.opts.workspaceId, this.toSegments(path));
+      const info = await this.wm.getFile(String(ws), this.toSegments(path));
       return {
         path: pathOf(info.path),
         isDirectory: false,
@@ -92,7 +84,7 @@ export class GitFilesystemStorageBackend implements IStorageBackend {
         const segs = this.toSegments(path);
         const parentSegs = segs.slice(0, -1);
         const name = segs[segs.length - 1];
-        const siblings = await this.wm.listFiles(this.opts.workspaceId, parentSegs);
+        const siblings = await this.wm.listFiles(String(ws), parentSegs);
         const entry = siblings.find((s) => s.name === name);
         if (entry) {
           return {
@@ -115,7 +107,7 @@ export class GitFilesystemStorageBackend implements IStorageBackend {
         };
       }
       if (this.isEnoent(err)) {
-        throw new NotFoundError(_ws, path, err);
+        throw new NotFoundError(ws, path, err);
       }
       throw err;
     }
@@ -123,12 +115,12 @@ export class GitFilesystemStorageBackend implements IStorageBackend {
 
   // ---- Write ----------------------------------------------------------------
 
-  async write(_ws: WorkspaceId, path: Path, bytes: Bytes, opts?: WriteOpts): Promise<WriteResult> {
+  async write(ws: WorkspaceId, path: Path, bytes: Bytes, opts?: WriteOpts): Promise<WriteResult> {
     const segs = this.toSegments(path);
 
     // 1. Optimistic concurrency check
     if (opts?.ifMatch !== undefined) {
-      const current = await this.stat(_ws, path);
+      const current = await this.stat(ws, path);
       if (current.etag !== opts.ifMatch) {
         throw new ConflictError(
           `ETag mismatch for ${path}: expected ${opts.ifMatch}, got ${current.etag}`,
@@ -140,15 +132,15 @@ export class GitFilesystemStorageBackend implements IStorageBackend {
     if (opts?.createParents) {
       const parentSegs = segs.slice(0, -1);
       if (parentSegs.length > 0) {
-        await this.wm.createDirectory(this.opts.workspaceId, parentSegs);
+        await this.wm.createDirectory(String(ws), parentSegs);
       }
     }
 
     // 3. Write the file
-    await this.wm.writeFile(this.opts.workspaceId, segs, bytes);
+    await this.wm.writeFile(String(ws), segs, bytes);
 
     // 4. Re-stat to get fresh mtime/size for the WriteResult
-    const stat = await this.stat(_ws, path);
+    const stat = await this.stat(ws, path);
     return {
       path,
       size: stat.size,
@@ -157,21 +149,21 @@ export class GitFilesystemStorageBackend implements IStorageBackend {
     };
   }
 
-  async delete(_ws: WorkspaceId, path: Path): Promise<void> {
+  async delete(ws: WorkspaceId, path: Path): Promise<void> {
     try {
-      await this.wm.deleteFile(this.opts.workspaceId, this.toSegments(path));
+      await this.wm.deleteFile(String(ws), this.toSegments(path));
     } catch (err) {
       if (this.isEnoent(err)) {
-        throw new NotFoundError(_ws, path, err);
+        throw new NotFoundError(ws, path, err);
       }
       throw err;
     }
   }
 
-  async mkdir(_ws: WorkspaceId, path: Path, _parents?: boolean): Promise<void> {
+  async mkdir(ws: WorkspaceId, path: Path, _parents?: boolean): Promise<void> {
     // wm.createDirectory always recurses (fs.mkdir recursive:true) so
     // the `parents` arg is documented but ignored (known gap, see spec §3).
-    await this.wm.createDirectory(this.opts.workspaceId, this.toSegments(path));
+    await this.wm.createDirectory(String(ws), this.toSegments(path));
   }
 
   // ---- Change notification (FRAMEWORK GAP) ---------------------------------
