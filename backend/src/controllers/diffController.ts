@@ -246,7 +246,7 @@ async function introspectServiceLive(
   credentials: { user: string; password: string },
   connectionOverrides?: Record<string, unknown>,
 ): Promise<Entity[]> {
-  const config = getPhysicalConfig(serviceName);
+  const config = await getPhysicalConfig(serviceName);
   if (!config) {
     throw new Error(`No physical.yaml config for service '${serviceName}'`);
   }
@@ -459,7 +459,7 @@ export const impactDiffAll = async (req: Request, res: Response) => {
       const modelEntities = await serviceService.getServiceEntities(serviceName);
       const physDiff = diffPhysicalModel(modelEntities, resolved.entities);
       // Pick the dialect: per-service persisted config wins, fallback second.
-      const cfg = getPhysicalConfig(serviceName);
+      const cfg = await getPhysicalConfig(serviceName);
       const dialect = cfg?.dialect || fallbackDialect || 'postgres';
       const impact = buildImpactDiff(physDiff, dialect);
       byService[serviceName] = { status: 'ok', impact, dialect };
@@ -536,9 +536,9 @@ export const exportMigrationAll = async (req: Request, res: Response) => {
       bucket.get(key)!.push(op);
     }
 
-    const pickDialect = (serviceName: string): string => {
+    const pickDialect = async (serviceName: string): Promise<string> => {
       if (serviceName === '__default__') return fallbackDialect || 'postgres';
-      const cfg = getPhysicalConfig(serviceName);
+      const cfg = await getPhysicalConfig(serviceName);
       return cfg?.dialect || fallbackDialect || 'postgres';
     };
 
@@ -547,7 +547,7 @@ export const exportMigrationAll = async (req: Request, res: Response) => {
       // streaming is a follow-up — plain text works everywhere today.
       const parts: string[] = [];
       for (const [serviceName, ops] of bucket) {
-        const d = pickDialect(serviceName);
+        const d = await pickDialect(serviceName);
         const gen = generateMigration(ops, d, format, (options || {}) as any);
         parts.push(
           `-- ═══════════════════════════════════════════════════════════\n-- ${serviceName} (${d})\n-- ═══════════════════════════════════════════════════════════\n\n${gen.content}`,
@@ -571,13 +571,13 @@ export const exportMigrationAll = async (req: Request, res: Response) => {
     // caller by including the dialect in the banner.
     const combinedParts: string[] = [];
     for (const [serviceName, ops] of bucket) {
-      const d = pickDialect(serviceName);
+      const d = await pickDialect(serviceName);
       const gen = generateMigration(ops, d, format, (options || {}) as any);
       combinedParts.push(
         `-- ─── ${serviceName} (${d}) ───\n${gen.content}`,
       );
     }
-    const first = bucket.size > 0 ? pickDialect([...bucket.keys()][0]) : 'postgres';
+    const first = bucket.size > 0 ? await pickDialect([...bucket.keys()][0]) : 'postgres';
     const header = `-- Whole-model migration (${bucket.size} service${bucket.size === 1 ? '' : 's'}, primary dialect: ${first})\n\n`;
 
     const contentTypes: Record<string, string> = {
@@ -607,7 +607,7 @@ export const exportMigrationAll = async (req: Request, res: Response) => {
 export const getPhysicalConfigController = async (req: Request, res: Response) => {
   try {
     const { service } = req.params;
-    const cfg = getPhysicalConfig(service);
+    const cfg = await getPhysicalConfig(service);
     if (!cfg) {
       return res.status(404).json({ message: `No physical config for service '${service}'` });
     }
@@ -633,8 +633,8 @@ export const putPhysicalConfigController = async (req: Request, res: Response) =
     if (!['oracle', 'postgres', 'mysql', 'mssql'].includes(cfg.dialect)) {
       return res.status(400).json({ message: `Unknown dialect '${cfg.dialect}'` });
     }
-    setPhysicalConfig(service, cfg);
-    res.json({ message: `Physical config saved for '${service}'`, data: getPhysicalConfig(service) });
+    await setPhysicalConfig(service, cfg);
+    res.json({ message: `Physical config saved for '${service}'`, data: await getPhysicalConfig(service) });
   } catch (error) {
     logger.error('Error writing physical config', error);
     res.status(500).json({ message: 'Error writing physical config', error: String(error) });
@@ -647,7 +647,7 @@ export const putPhysicalConfigController = async (req: Request, res: Response) =
 export const deletePhysicalConfigController = async (req: Request, res: Response) => {
   try {
     const { service } = req.params;
-    deletePhysicalConfig(service);
+    await deletePhysicalConfig(service);
     res.json({ message: `Physical config deleted for '${service}'` });
   } catch (error) {
     logger.error('Error deleting physical config', error);

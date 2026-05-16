@@ -19,35 +19,51 @@
  * In the eshop sample post-#165b migration, `preferSchemaEntityWrite()`
  * returns true because stereotypes.yaml is emptied to `[]`.
  */
-import * as fs from 'fs';
-import * as path from 'path';
 import * as YAML from 'yaml';
 import { Stereotype, StereotypeTarget, MetadataEntry } from '../models/EntitySchema.js';
 import { logger } from '../utils/logger.js';
-import { config } from '../kernel/config.js';
 import type { MetadataValidationError } from './metadata/MetadataTypeRegistry.js';
 import { metadataTypeRegistry } from './metadata/index.js';
 import { schemaEntityService } from './schemaEntityService.js';
 import { toLegacyStereotypeView, fromLegacyStereotypeView } from './schemaEntityView.js';
 import { getSchemaPackagePath } from '../utils/fileOperations.js';
 import { writeSchemaEntity, deleteSchemaEntity } from './schemaEntityWriter.js';
+import { storageRegistry } from '../storage/contract/StorageBackendToken.js';
+import type { IStorageBackend } from '../storage/contract/IStorageBackend.js';
+import { wsId, pathOf, type WorkspaceId, type Path } from '../storage/contract/types.js';
 
 // Re-export the inverse for external use (migration script, tests)
 export { fromLegacyStereotypeView };
 
-const getStereotypesFile = () => path.join(config.dataDir, '.dico', 'stereotypes.yaml');
-
-class StereotypeService {
-  // ── Legacy loader (read-compat) ─────────────────────────────────────
-
-  private readLegacyStereotypes(): Stereotype[] {
-    if (!fs.existsSync(getStereotypesFile())) return [];
-    const content = fs.readFileSync(getStereotypesFile(), 'utf8');
-    return YAML.parse(content) || [];
+export class StereotypeService {
+  private _storage?: IStorageBackend;
+  private get storage(): IStorageBackend {
+    if (!this._storage) this._storage = storageRegistry.getBackend();
+    return this._storage;
   }
 
-  private writeStereotypes(stereotypes: Stereotype[]): void {
-    fs.writeFileSync(getStereotypesFile(), YAML.stringify(stereotypes), 'utf8');
+  constructor(
+    storage?: IStorageBackend,
+    private readonly ws: WorkspaceId = wsId('dictionaries'),
+    private readonly stereotypesPath: Path = pathOf('.dico/stereotypes.yaml'),
+  ) {
+    this._storage = storage;
+  }
+
+  // ── Legacy loader (read-compat) ─────────────────────────────────────
+
+  private async readLegacyStereotypes(): Promise<Stereotype[]> {
+    try {
+      const content = await this.storage.read(this.ws, this.stereotypesPath);
+      return YAML.parse(content) || [];
+    } catch (e) {
+      if ((e as { code?: string }).code === 'not-found') return [];
+      throw e;
+    }
+  }
+
+  private async writeStereotypes(stereotypes: Stereotype[]): Promise<void> {
+    await this.storage.write(this.ws, this.stereotypesPath, YAML.stringify(stereotypes));
   }
 
   // ── Merged-source read ──────────────────────────────────────────────
@@ -80,7 +96,7 @@ class StereotypeService {
     const schemaNames = new Set<string>(fromSchemas.map(s => s.name));
 
     // Load legacy stereotypes from .dico/stereotypes.yaml
-    const legacy = this.readLegacyStereotypes();
+    const legacy = await this.readLegacyStereotypes();
 
     const schemaPackagePath = getSchemaPackagePath();
 
@@ -99,8 +115,8 @@ class StereotypeService {
         // Collision — schema-entity wins, legacy entry is shadowed
         logger.warn(
           `[#165a] Stereotype '${leg.id}' (name: '${leg.name}') exists in both ` +
-          `${getStereotypesFile()} (legacy, shadowed) and ${schemaPackagePath} (schema-entity, wins). ` +
-          `To suppress this warning, remove the legacy entry from ${getStereotypesFile()}.`,
+          `.dico/stereotypes.yaml (legacy, shadowed) and ${schemaPackagePath} (schema-entity, wins). ` +
+          `To suppress this warning, remove the legacy entry from .dico/stereotypes.yaml.`,
         );
       } else {
         merged.push(leg);
@@ -130,7 +146,7 @@ class StereotypeService {
    * In downstream projects without schemas/: returns false.
    */
   private async preferSchemaEntityWrite(): Promise<boolean> {
-    const legacy = this.readLegacyStereotypes();
+    const legacy = await this.readLegacyStereotypes();
     if (legacy.length > 0) {
       return false;
     }
@@ -198,7 +214,7 @@ class StereotypeService {
       };
     }
 
-    const all = this.readLegacyStereotypes();
+    const all = await this.readLegacyStereotypes();
     if (all.find(s => s.id === data.id)) {
       return { success: false, errors: [`Stereotype with id '${data.id}' already exists`] };
     }
@@ -213,7 +229,7 @@ class StereotypeService {
     };
 
     all.push(stereotype);
-    this.writeStereotypes(all);
+    await this.writeStereotypes(all);
     return { success: true, stereotype };
   }
 
@@ -240,7 +256,7 @@ class StereotypeService {
     }
 
     // Legacy write path
-    const all = this.readLegacyStereotypes();
+    const all = await this.readLegacyStereotypes();
     const index = all.findIndex(s => s.id === id);
     if (index === -1) return { success: false, errors: ['Stereotype not found'] };
 
@@ -253,7 +269,7 @@ class StereotypeService {
       metadataDefinitions: data.metadataDefinitions ?? all[index].metadataDefinitions,
     };
 
-    this.writeStereotypes(all);
+    await this.writeStereotypes(all);
     return { success: true, stereotype: all[index] };
   }
 
@@ -271,10 +287,10 @@ class StereotypeService {
     }
 
     // Legacy delete path
-    const all = this.readLegacyStereotypes();
+    const all = await this.readLegacyStereotypes();
     const filtered = all.filter(s => s.id !== id);
     if (filtered.length === all.length) return { success: false, errors: ['Stereotype not found'] };
-    this.writeStereotypes(filtered);
+    await this.writeStereotypes(filtered);
     return { success: true };
   }
 

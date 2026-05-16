@@ -1,7 +1,7 @@
-import fs from 'fs/promises';
-import path from 'path';
-import { config } from '../kernel/config.js';
 import { logger } from '../utils/logger.js';
+import { storageRegistry } from '../storage/contract/StorageBackendToken.js';
+import type { IStorageBackend } from '../storage/contract/IStorageBackend.js';
+import { wsId, pathOf, type WorkspaceId, type Path } from '../storage/contract/types.js';
 
 export interface DiagramLayout {
   id: string;
@@ -24,33 +24,43 @@ export interface DiagramLayout {
   updatedAt: string;
 }
 
-const getDiagramsDir = () => path.join(config.dataDir, '.dico', 'diagrams');
-
 export class DiagramService {
+  private _storage?: IStorageBackend;
+  private get storage(): IStorageBackend {
+    if (!this._storage) this._storage = storageRegistry.getBackend();
+    return this._storage;
+  }
+
+  constructor(
+    storage?: IStorageBackend,
+    private readonly ws: WorkspaceId = wsId('dictionaries'),
+    private readonly diagramsDir: Path = pathOf('.dico/diagrams'),
+  ) {
+    this._storage = storage;
+  }
+
   private async ensureDiagramsDirectory(): Promise<void> {
-    try {
-      await fs.access(getDiagramsDir());
-    } catch {
-      await fs.mkdir(getDiagramsDir(), { recursive: true });
-    }
+    await this.storage.mkdir(this.ws, this.diagramsDir, true);
   }
 
   async saveDiagramLayout(layout: Omit<DiagramLayout, 'createdAt' | 'updatedAt'>): Promise<DiagramLayout> {
     try {
       await this.ensureDiagramsDirectory();
-      
+
       const now = new Date().toISOString();
       const diagramLayout: DiagramLayout = {
         ...layout,
         createdAt: now,
-        updatedAt: now
+        updatedAt: now,
       };
 
-      const filename = `${layout.id}.json`;
-      const filepath = path.join(getDiagramsDir(), filename);
-      
-      await fs.writeFile(filepath, JSON.stringify(diagramLayout, null, 2));
-      
+      await this.storage.write(
+        this.ws,
+        pathOf(`${this.diagramsDir}/${layout.id}.json`),
+        JSON.stringify(diagramLayout, null, 2),
+        { createParents: true },
+      );
+
       logger.info(`Saved diagram layout: ${layout.id}`);
       return diagramLayout;
     } catch (error) {
@@ -61,20 +71,20 @@ export class DiagramService {
 
   async loadDiagramLayout(id: string): Promise<DiagramLayout | null> {
     try {
-      const filename = `${id}.json`;
-      const filepath = path.join(getDiagramsDir(), filename);
-      
-      const data = await fs.readFile(filepath, 'utf-8');
+      const data = await this.storage.read(
+        this.ws,
+        pathOf(`${this.diagramsDir}/${id}.json`),
+      );
       const layout = JSON.parse(data) as DiagramLayout;
-      
+
       logger.info(`Loaded diagram layout: ${id}`);
       return layout;
-    } catch (error) {
-      if ((error as any).code === 'ENOENT') {
+    } catch (e) {
+      if ((e as { code?: string }).code === 'not-found') {
         logger.warn(`Diagram layout not found: ${id}`);
         return null;
       }
-      logger.error('Error loading diagram layout:', error);
+      logger.error('Error loading diagram layout:', e);
       throw new Error('Failed to load diagram layout');
     }
   }
@@ -90,14 +100,15 @@ export class DiagramService {
         ...existingLayout,
         ...updates,
         id, // Ensure ID doesn't change
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
       };
 
-      const filename = `${id}.json`;
-      const filepath = path.join(getDiagramsDir(), filename);
-      
-      await fs.writeFile(filepath, JSON.stringify(updatedLayout, null, 2));
-      
+      await this.storage.write(
+        this.ws,
+        pathOf(`${this.diagramsDir}/${id}.json`),
+        JSON.stringify(updatedLayout, null, 2),
+      );
+
       logger.info(`Updated diagram layout: ${id}`);
       return updatedLayout;
     } catch (error) {
@@ -108,18 +119,18 @@ export class DiagramService {
 
   async deleteDiagramLayout(id: string): Promise<void> {
     try {
-      const filename = `${id}.json`;
-      const filepath = path.join(getDiagramsDir(), filename);
-      
-      await fs.unlink(filepath);
-      
+      await this.storage.delete(
+        this.ws,
+        pathOf(`${this.diagramsDir}/${id}.json`),
+      );
+
       logger.info(`Deleted diagram layout: ${id}`);
-    } catch (error) {
-      if ((error as any).code === 'ENOENT') {
+    } catch (e) {
+      if ((e as { code?: string }).code === 'not-found') {
         logger.warn(`Diagram layout not found for deletion: ${id}`);
         return;
       }
-      logger.error('Error deleting diagram layout:', error);
+      logger.error('Error deleting diagram layout:', e);
       throw new Error('Failed to delete diagram layout');
     }
   }
@@ -127,30 +138,33 @@ export class DiagramService {
   async listDiagramLayouts(service?: string): Promise<DiagramLayout[]> {
     try {
       await this.ensureDiagramsDirectory();
-      
-      const files = await fs.readdir(getDiagramsDir());
-      const jsonFiles = files.filter(file => file.endsWith('.json'));
-      
+
+      const entries = await this.storage.list(this.ws, this.diagramsDir);
+      const jsonEntries = entries.filter(entry => entry.name.endsWith('.json') && !entry.isDirectory);
+
       const layouts: DiagramLayout[] = [];
-      
-      for (const file of jsonFiles) {
+
+      for (const entry of jsonEntries) {
         try {
-          const filepath = path.join(getDiagramsDir(), file);
-          const data = await fs.readFile(filepath, 'utf-8');
+          // Use workspace-relative path, not entry.path (which is absolute)
+          const data = await this.storage.read(
+            this.ws,
+            pathOf(`${this.diagramsDir}/${entry.name}`),
+          );
           const layout = JSON.parse(data) as DiagramLayout;
-          
+
           // Filter by service if specified
           if (!service || layout.service === service) {
             layouts.push(layout);
           }
         } catch (error) {
-          logger.warn(`Error reading diagram layout file ${file}:`, error);
+          logger.warn(`Error reading diagram layout file ${entry.name}:`, error);
         }
       }
-      
+
       // Sort by updatedAt descending
       layouts.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-      
+
       logger.info(`Listed ${layouts.length} diagram layouts${service ? ` for service ${service}` : ''}`);
       return layouts;
     } catch (error) {

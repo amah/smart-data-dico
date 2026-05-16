@@ -12,9 +12,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as YAML from 'yaml';
-import { parseSectionsFromString } from '../../utils/fileOperations.js';
 import { METADATA_SCHEMA_MARKER, METADATA_SCHEMA_MARKER_UUID } from '../schemaEntityService.js';
 import type { Stereotype } from '../../models/EntitySchema.js';
+import { InMemoryStorageBackend } from '../../__tests__/helpers/InMemoryStorageBackend.js';
+import { wsId, pathOf } from '../../storage/contract/types.js';
 
 // Mock logger so we can assert on log messages
 const mockWarn = jest.fn();
@@ -40,7 +41,10 @@ jest.mock('../../kernel/config.js', () => ({
   },
 }));
 
+const TEST_WS = wsId('dictionaries');
+
 // Helper: create a temp data dir with optional legacy stereotypes and schema-entities
+// (Used for schemaEntityService which still reads from disk via config.dataDir)
 function makeTempDataDir(opts: {
   legacyStereotypes?: any[];
   schemaEntities?: Array<{ name: string; uuid: string; appliesTo?: string; domain?: string; displayName?: string; attributes?: any[]; description?: string }>;
@@ -53,7 +57,7 @@ function makeTempDataDir(opts: {
   const dicoDir = path.join(dir, '.dico');
   fs.mkdirSync(dicoDir, { recursive: true });
 
-  // Write legacy stereotypes.yaml
+  // Write legacy stereotypes.yaml to disk (for reference — service now uses backend)
   const legacyContent = opts.legacyStereotypes ?? [];
   fs.writeFileSync(
     path.join(dicoDir, 'stereotypes.yaml'),
@@ -333,6 +337,13 @@ describe('AC#9: write path routes to .dico/schemas/ when legacy YAML is empty', 
       includeMarker: true,
     });
 
+    // Register backend with empty stereotypes.yaml, using the SAME module instance
+    // that stereotypeService will import.
+    const { storageRegistry: reg } = await import('../../storage/contract/StorageBackendToken.js');
+    const backend = new InMemoryStorageBackend();
+    await backend.write(TEST_WS, pathOf('.dico/stereotypes.yaml'), '[]\n');
+    reg.setBackend(backend);
+
     const { stereotypeService: svc } = await import('../stereotypeService.js');
 
     const result = await svc.createStereotype({
@@ -344,14 +355,13 @@ describe('AC#9: write path routes to .dico/schemas/ when legacy YAML is empty', 
 
     expect(result.success).toBe(true);
 
-    // Assert schema file was created
+    // Assert schema file was created on disk (schemaEntityWriter still uses disk)
     const schemaFile = path.join(testDataDir, '.dico', 'schemas', 'audit-log.entity.yaml');
     expect(fs.existsSync(schemaFile)).toBe(true);
 
-    // Assert stereotypes.yaml remains empty
-    const legacyFile = path.join(testDataDir, '.dico', 'stereotypes.yaml');
-    const legacyContent = fs.readFileSync(legacyFile, 'utf8');
-    const parsed = YAML.parse(legacyContent);
+    // Assert stereotypes.yaml in backend remains empty
+    const legacyBytes = await backend.read(TEST_WS, pathOf('.dico/stereotypes.yaml'));
+    const parsed = YAML.parse(legacyBytes);
     expect(Array.isArray(parsed)).toBe(true);
     expect(parsed).toHaveLength(0);
 
@@ -372,6 +382,12 @@ describe('AC#9: write path routes to .dico/schemas/ when legacy YAML is empty', 
       ],
       includeMarker: true,
     });
+
+    // Register backend with empty stereotypes.yaml
+    const { storageRegistry: reg } = await import('../../storage/contract/StorageBackendToken.js');
+    const backend = new InMemoryStorageBackend();
+    await backend.write(TEST_WS, pathOf('.dico/stereotypes.yaml'), '[]\n');
+    reg.setBackend(backend);
 
     const { stereotypeService: svc } = await import('../stereotypeService.js');
 
@@ -399,6 +415,12 @@ describe('AC#10: write path routes to .dico/stereotypes.yaml when no schemas/', 
       noSchemasDir: true,
     });
 
+    // Register backend with empty stereotypes.yaml
+    const { storageRegistry: reg } = await import('../../storage/contract/StorageBackendToken.js');
+    const backend = new InMemoryStorageBackend();
+    await backend.write(TEST_WS, pathOf('.dico/stereotypes.yaml'), '[]\n');
+    reg.setBackend(backend);
+
     const { stereotypeService: svc } = await import('../stereotypeService.js');
 
     const result = await svc.createStereotype({
@@ -410,13 +432,13 @@ describe('AC#10: write path routes to .dico/stereotypes.yaml when no schemas/', 
 
     expect(result.success).toBe(true);
 
-    // Assert written to stereotypes.yaml
-    const legacyFile = path.join(testDataDir, '.dico', 'stereotypes.yaml');
-    const parsed = YAML.parse(fs.readFileSync(legacyFile, 'utf8')) || [];
+    // Assert written to stereotypes.yaml in the backend
+    const legacyBytes = await backend.read(TEST_WS, pathOf('.dico/stereotypes.yaml'));
+    const parsed = YAML.parse(legacyBytes) || [];
     expect(Array.isArray(parsed)).toBe(true);
     expect(parsed.some((s: any) => s.id === 'my-type')).toBe(true);
 
-    // Assert no schema file created
+    // Assert no schema dir was created on disk
     const schemaDir = path.join(testDataDir, '.dico', 'schemas');
     expect(fs.existsSync(schemaDir)).toBe(false);
   });
@@ -506,6 +528,12 @@ describe('preferSchemaEntityWrite() routing logic', () => {
       includeMarker: true,
     });
 
+    // Register backend with empty stereotypes.yaml (same module instance as import)
+    const { storageRegistry: reg } = await import('../../storage/contract/StorageBackendToken.js');
+    const backend = new InMemoryStorageBackend();
+    await backend.write(TEST_WS, pathOf('.dico/stereotypes.yaml'), '[]\n');
+    reg.setBackend(backend);
+
     const { stereotypeService: svc } = await import('../stereotypeService.js');
 
     const result = await (svc as any).preferSchemaEntityWrite();
@@ -528,6 +556,16 @@ describe('preferSchemaEntityWrite() routing logic', () => {
       includeMarker: true,
     });
 
+    // Register backend seeded with legacy entries
+    const { storageRegistry: reg } = await import('../../storage/contract/StorageBackendToken.js');
+    const backend = new InMemoryStorageBackend();
+    await backend.write(
+      TEST_WS,
+      pathOf('.dico/stereotypes.yaml'),
+      YAML.stringify([{ id: 'alpha', name: 'Alpha', appliesTo: 'entity', metadataDefinitions: [] }]),
+    );
+    reg.setBackend(backend);
+
     const { stereotypeService: svc } = await import('../stereotypeService.js');
 
     const result = await (svc as any).preferSchemaEntityWrite();
@@ -540,6 +578,12 @@ describe('preferSchemaEntityWrite() routing logic', () => {
       schemaEntities: [], // no user-authored schema-entities
       includeMarker: true,
     });
+
+    // Register backend with empty stereotypes.yaml
+    const { storageRegistry: reg } = await import('../../storage/contract/StorageBackendToken.js');
+    const backend = new InMemoryStorageBackend();
+    await backend.write(TEST_WS, pathOf('.dico/stereotypes.yaml'), '[]\n');
+    reg.setBackend(backend);
 
     const { stereotypeService: svc } = await import('../stereotypeService.js');
 
