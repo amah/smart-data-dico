@@ -146,20 +146,28 @@ describe('#155-search criterion #12 — SearchComponent consumer migration (#163
 });
 
 // -----------------------------------------------------------------------
-// Criterion #13 — searchSlice thunk migration
+// Criterion #13 — searchSlice.ts does not exist (#154 reframe)
 // -----------------------------------------------------------------------
-// #163: searchSlice thunk migrated from useService(SEARCH_SERVICE_TOKEN).searchEntities
-// to ctx.commands.run('search.search', { query }) via the host's rootActivationCtx.
-describe('#155-search criterion #13 — searchSlice thunk migration (#163 update)', () => {
-  it('searchSlice.ts does not import from ../../services/api', () => {
-    const content = read(SEARCH_SLICE);
-    expect(content).not.toMatch(/from\s+['"][^'"]*services\/api['"]/);
+// #154: searchSlice.ts was deleted; search results are now written as
+// dynamic Store FS files by the search plugin's command handler.
+// The guard asserts the file's ABSENCE and confirms the plugin registers
+// the dynamic-file command body.
+describe('#154 criterion #13 — searchSlice.ts deleted and dynamic-file command registered', () => {
+  it('searchSlice.ts does not exist (file is deleted per #154)', () => {
+    expect(
+      fs.existsSync(SEARCH_SLICE),
+      'searchSlice.ts should not exist after #154 — it was replaced by dynamic Store FS files',
+    ).toBe(false);
   });
 
-  it('searchSlice.ts thunk body calls commands.run via host.rootActivationCtx', () => {
-    const content = read(SEARCH_SLICE);
-    expect(content).toMatch(/ctx\.commands\.run/);
-    expect(content).toMatch(/['"]search\.search['"]/);
+  it('searchPlugin.ts registers search.search via ctx.commands.register', () => {
+    const content = read(PLUGIN);
+    expect(content).toMatch(/ctx\.commands\.register\s*\(\s*['"]search\.search['"]/);
+  });
+
+  it('searchPlugin.ts command body calls actions.setFile(', () => {
+    const content = read(PLUGIN);
+    expect(content).toMatch(/actions\.setFile\s*\(/);
   });
 });
 

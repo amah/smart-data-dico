@@ -35,7 +35,6 @@ import type {
 } from '../plugins/data-dictionary/services/ImportExportService';
 import type {
   SearchFilters,
-  SearchResponse,
 } from '../plugins/search/services/SearchService';
 import type {
   GitStatusDTO,
@@ -43,6 +42,7 @@ import type {
   GitLogEntryDTO,
 } from '../plugins/git/services/GitService';
 import type { SaveResult } from '../plugins/data-dictionary/services/PublishService';
+import type { SearchCommandResult } from '../plugins/search/searchPlugin';
 
 export interface CommandMap {
   // ── Stereotypes (data-dictionary) ────────────────────────────────────
@@ -132,7 +132,7 @@ export interface CommandMap {
   // ── Search (search) ──────────────────────────────────────────────────
   'search.search': {
     input: { query: string; filters?: SearchFilters };
-    output: SearchResponse;
+    output: SearchCommandResult;
   };
 
   // ── Git transport (data-dictionary owns the user-facing commands,

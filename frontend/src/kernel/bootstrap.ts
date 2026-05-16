@@ -30,7 +30,6 @@ import packagesReducer from '../store/slices/packagesSlice';
 import stereotypesReducer from '../store/slices/stereotypesSlice';
 import casesReducer from '../plugins/data-dictionary/slices/casesSlice';
 import rulesReducer from '../plugins/data-dictionary/slices/rulesSlice';
-import searchReducer from '../store/slices/searchSlice';
 
 /**
  * Create and configure the microkernel host
@@ -67,7 +66,6 @@ export function registerPlugins() {
         reducerRegistry.register('stereotypes', stereotypesReducer);
         reducerRegistry.register('cases', casesReducer);
         reducerRegistry.register('rules', rulesReducer);
-        reducerRegistry.register('search', searchReducer);
       }
     },
     async activate(ctx: any) {
@@ -104,19 +102,19 @@ export function registerPlugins() {
   host.registerPlugin(
     'data-dictionary',
     { name: 'data-dictionary', version: '1.0.0', entry: '', dependsOn: ['store', 'auth', 'store-fs', 'git'] },
-    createDataDictionaryPlugin()
+    createDataDictionaryPlugin({ workingFolder: ['dictionaries'] })
   );
 
   host.registerPlugin(
     'visualization',
     { name: 'visualization', version: '1.0.0', entry: '', dependsOn: ['store'] },
-    createVisualizationPlugin()
+    createVisualizationPlugin({ workingFolder: ['dictionaries'] })
   );
 
   host.registerPlugin(
     'search',
-    { name: 'search', version: '1.0.0', entry: '', dependsOn: ['store'] },
-    createSearchPlugin()
+    { name: 'search', version: '1.0.0', entry: '', dependsOn: ['store', 'store-fs'] },
+    createSearchPlugin({ workingFolder: ['dictionaries', '.dico', 'search'] })
   );
 
   // Remote FS plugin (depends on: store)

@@ -1,9 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useSelector } from 'react-redux';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { servicesApi, stereotypeApi } from '../services/api';
 import { useCommand } from '../kernel/useCommand';
+import { useService } from '../kernel/useService';
+import type { StoreFileSystemFacade } from '@hamak/ui-store-impl';
+import type { FileNode } from '@hamak/ui-store-api';
+import { STORE_FS_TOKEN } from '../kernel/tokens';
 import type { SearchFilters } from '../plugins/search/services/SearchService';
+import type { SearchResultFileContent, SearchCommandResult } from '../plugins/search/searchPlugin';
 import type { SearchResult, Stereotype } from '../types';
+import type { RootState } from '../kernel/bootstrap';
 
 const TYPE_BADGES: Record<string, string> = {
   entity: 'badge-primary',
@@ -18,12 +25,27 @@ const SearchComponent = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const initialQuery = searchParams.get('q') || '';
   const run = useCommand();
+  const storeFs = useService<StoreFileSystemFacade<RootState>>(STORE_FS_TOKEN);
 
   const [query, setQuery] = useState(initialQuery);
-  const [results, setResults] = useState<SearchResult[]>([]);
+  // currentPath holds the Store FS path of the most recent search-result file.
+  // null means no search has been performed yet (or the query was empty).
+  const [currentPath, setCurrentPath] = useState<string[] | null>(null);
   const [focusedIdx, setFocusedIdx] = useState(-1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Derive the result file selector from the current path (memoised to avoid
+  // re-creating the selector on every render). Returns undefined while no
+  // search has run (currentPath === null). Cookbook §2.
+  const fileSelector = useMemo(
+    () => (currentPath ? storeFs.createFileSelector(currentPath) : null),
+    [storeFs, currentPath],
+  );
+  const file = useSelector<RootState, FileNode<SearchResultFileContent> | undefined>(
+    (state) => (fileSelector ? (fileSelector(state) as FileNode<SearchResultFileContent> | undefined) : undefined),
+  );
+  const results: SearchResult[] = file?.content?.response.data ?? [];
   const [filters, setFilters] = useState({
     type: searchParams.get('type') || 'all',
     service: searchParams.get('service') || 'all',
@@ -43,7 +65,7 @@ const SearchComponent = () => {
   }, [initialQuery]);
 
   const performSearch = async (searchQuery: string) => {
-    if (!searchQuery.trim()) { setResults([]); return; }
+    if (!searchQuery.trim()) { setCurrentPath(null); return; }
 
     try {
       setLoading(true);
@@ -54,11 +76,11 @@ const SearchComponent = () => {
       if (filters.stereotype !== 'all') backendFilters.stereotype = filters.stereotype;
       if (filters.hasMetadata) backendFilters.hasMetadata = filters.hasMetadata;
 
-      const response = await run('search.search', {
+      const { path } = await run('search.search', {
         query: searchQuery,
         filters: Object.keys(backendFilters).length > 0 ? backendFilters : undefined,
-      });
-      setResults(response.data);
+      }) as SearchCommandResult;
+      setCurrentPath(path);
     } catch (err) {
       setError('Failed to perform search.');
     } finally {
