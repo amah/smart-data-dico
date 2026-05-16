@@ -68,7 +68,11 @@ export interface PhysicalDiffSummary {
 // ────────────────────────────────────────────────────────────────────────
 
 function readMeta(metadata: MetadataEntry[] | undefined, name: string): string | number | boolean | undefined {
-  return (metadata || []).find(m => m.name === name)?.value;
+  const v = (metadata || []).find(m => m.name === name)?.value;
+  // MetadataValue was widened to include arrays/objects (#164); physical.*
+  // keys are always scalar, so we guard to preserve the narrow return type.
+  if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return v;
+  return undefined;
 }
 
 // ────────────────────────────────────────────────────────────────────────

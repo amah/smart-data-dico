@@ -79,3 +79,19 @@ export const DIFF_SERVICE_TOKEN = Symbol('DiffService');
  * `.claude/work/155-import-export/spec.md` "Out of scope."
  */
 export const IMPORT_EXPORT_SERVICE_TOKEN = Symbol('ImportExportService');
+
+/**
+ * DI token for the MetadataTypeRegistry.
+ *
+ * Registry-shaped Pattern B variant (#164): holds a mutable registry of
+ * MetadataTypeContribution objects. Owned by the `data-dictionary` plugin;
+ * constructed and seeded with the 9 built-in contributions in
+ * `dataDictionaryPlugin.initialize`. Other plugins may extend the registry
+ * by calling `ctx.resolve(METADATA_TYPE_REGISTRY_TOKEN).register(...)` in
+ * their own `initialize`.
+ *
+ * Precedent: `STORE_EXTENSIONS_TOKEN` from `@hamak/ui-store-api` is the
+ * closest in-framework analog — a DI token holding a registry that other
+ * plugins write into (see frontend/node_modules/@hamak/ui-store-api/dist/tokens/service-tokens.d.ts:8).
+ */
+export const METADATA_TYPE_REGISTRY_TOKEN = Symbol('MetadataTypeRegistry');

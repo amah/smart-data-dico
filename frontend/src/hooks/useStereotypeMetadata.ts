@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { stereotypeApi } from '../services/api';
-import type { Stereotype, StereotypeTarget, Attribute, MetadataEntry } from '../types';
+import type { Stereotype, StereotypeTarget, Attribute, MetadataEntry, MetadataValue } from '../types';
 
 export interface MetadataColumn {
   /** Metadata definition name (key in the metadata array) */
@@ -89,22 +89,24 @@ export function getActiveColumns(
 /**
  * Helper: get a metadata value from any element that carries a metadata
  * array (attribute, entity, relationship).
+ * Returns MetadataValue | undefined (widened from string|number|boolean in #164).
  */
 export function getMetadataValue(
   target: { metadata?: MetadataEntry[] },
   metadataName: string,
-): string | number | boolean | undefined {
+): MetadataValue | undefined {
   const entry = (target.metadata || []).find(m => m.name === metadataName);
   return entry?.value;
 }
 
 /**
  * Helper: set a metadata value, returning a new metadata array.
+ * Accepts MetadataValue (widened from string|number|boolean in #164).
  */
 export function setMetadataValue(
   currentMetadata: MetadataEntry[] | undefined,
   name: string,
-  value: string | number | boolean,
+  value: MetadataValue,
 ): MetadataEntry[] {
   const entries = [...(currentMetadata || [])];
   const idx = entries.findIndex(m => m.name === name);

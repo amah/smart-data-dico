@@ -4,6 +4,8 @@ import * as YAML from 'yaml';
 import { Stereotype, StereotypeTarget, MetadataEntry } from '../models/EntitySchema.js';
 import { logger } from '../utils/logger.js';
 import { config } from '../kernel/config.js';
+import type { MetadataValidationError } from './metadata/MetadataTypeRegistry.js';
+import { metadataTypeRegistry } from './metadata/index.js';
 
 const getStereotypesFile = () => path.join(config.dataDir, '.dico', 'stereotypes.yaml');
 
@@ -82,17 +84,22 @@ class StereotypeService {
     return { success: true };
   }
 
-  validateMetadata(stereotype: Stereotype, metadata: MetadataEntry[] = []): string[] {
-    const errors: string[] = [];
-    for (const def of stereotype.metadataDefinitions) {
-      if (def.required) {
-        const entry = metadata.find((m) => m.name === def.name);
-        if (!entry || entry.value === undefined || entry.value === '') {
-          errors.push(`Required metadata '${def.name}' is missing (stereotype: ${stereotype.name})`);
-        }
-      }
-    }
-    return errors;
+  /**
+   * Validate metadata against a stereotype using the registry.
+   * Returns path-aware errors with full nesting support.
+   */
+  validateMetadata(stereotype: Stereotype, metadata: MetadataEntry[] = []): MetadataValidationError[] {
+    return metadataTypeRegistry.validateBlock(metadata, stereotype.metadataDefinitions, stereotype.name);
+  }
+
+  /**
+   * @deprecated Use `validateMetadata` which now returns `MetadataValidationError[]`.
+   * Shim preserved for callers that expect `string[]` during the migration window.
+   */
+  validateMetadataLegacy(stereotype: Stereotype, metadata: MetadataEntry[] = []): string[] {
+    return this.validateMetadata(stereotype, metadata).map(
+      (e) => `Required metadata '${e.path}' is missing (stereotype: ${stereotype.name})`,
+    );
   }
 }
 

@@ -1,7 +1,9 @@
-import { Entity, AttributeType, Attribute, Relationship, AttributeValidation } from '../models/EntitySchema.js';
+import { Entity, AttributeType, Attribute, Relationship, AttributeValidation, MetadataEntry, MetadataDefinition } from '../models/EntitySchema.js';
 import { listMicroserviceEntities, readEntityFile, readRelationshipsFile, getPackagePath } from '../utils/fileOperations.js';
 import { listDerivedTypes, resolveAttributeType, DerivedType } from './dicoConfigService.js';
 import { logger } from '../utils/logger.js';
+import { metadataTypeRegistry } from './metadata/index.js';
+import type { JsonSchemaFragment } from './metadata/MetadataTypeRegistry.js';
 
 const ATTR_TO_JSON_SCHEMA: Record<string, string> = {
   [AttributeType.STRING]: 'string',
@@ -38,12 +40,22 @@ class ExportService {
         if (attr.required) required.push(attr.name);
       }
 
-      definitions[entity.name] = {
+      const entityDef: Record<string, any> = {
         type: 'object',
         description: entity.description || undefined,
         properties,
         ...(required.length > 0 ? { required } : {}),
       };
+
+      // Additive: emit metadata property if the entity has a stereotype with
+      // metadata definitions. Falls back to no metadata property when no
+      // stereotype is present (backwards compat).
+      const metadataSchema = this.metadataToJsonSchema(entity);
+      if (metadataSchema) {
+        entityDef.metadata = metadataSchema;
+      }
+
+      definitions[entity.name] = entityDef;
     }
 
     // Derived types expose as named $defs (#107). Attributes that declare
@@ -118,6 +130,62 @@ class ExportService {
     if (v.format) schema.format = v.format;
   }
 
+  /**
+   * Additive: build a metadata JSON Schema property for an entity, by walking
+   * the entity's stereotype metadataDefinitions and calling each contribution's
+   * `toJsonSchema(def)`. Returns undefined when no metadata definitions exist.
+   */
+  private metadataToJsonSchema(entity: Entity): JsonSchemaFragment | undefined {
+    // We need the stereotype's metadataDefinitions. The entity only stores the
+    // stereotype id; loading it requires async access we don't have here.
+    // Instead we use the entity's own metadata entries and infer types from
+    // the registry, OR we use a passed-in defs array. For the export path the
+    // caller is expected to have already enriched the entity — but since
+    // exportToJsonSchema is synchronous (entity already loaded), we generate
+    // a generic object schema from the entry names if no defs are available.
+    //
+    // NOTE: Full stereotype-driven toJsonSchema requires the stereotype to be
+    // loaded. This implementation emits a best-effort schema from the entries
+    // that are actually present on the entity (additive, not breaking).
+    if (!entity.metadata || entity.metadata.length === 0) return undefined;
+
+    const properties: Record<string, JsonSchemaFragment> = {};
+    for (const entry of entity.metadata) {
+      const contribution = metadataTypeRegistry.get(typeof entry.value === 'string' ? 'string'
+        : typeof entry.value === 'number' ? 'number'
+        : typeof entry.value === 'boolean' ? 'boolean'
+        : Array.isArray(entry.value) ? 'array'
+        : 'object');
+      if (contribution) {
+        // Use a minimal def (no sub-structure since we don't have the stereotype)
+        properties[entry.name] = contribution.toJsonSchema({ name: entry.name, type: contribution.type });
+      } else {
+        properties[entry.name] = {};
+      }
+    }
+
+    return { type: 'object', properties };
+  }
+
+  /**
+   * Render a metadata entry to Markdown via the registry.
+   * Falls back to string coercion for unregistered types.
+   */
+  private metadataEntryToMarkdown(entry: MetadataEntry, def?: MetadataDefinition): string {
+    if (def) {
+      const contribution = metadataTypeRegistry.get(def.type);
+      if (contribution) {
+        const md = contribution.toMarkdown(entry.value as any, def);
+        if (typeof entry.value === 'object' || Array.isArray(entry.value)) {
+          return `- ${entry.name}:\n${md}`;
+        }
+        return `- ${entry.name}: ${md}`;
+      }
+    }
+    // Unknown type or no def — fall back to string coercion (legacy behaviour)
+    return `- ${entry.name}: ${entry.value}`;
+  }
+
   async exportToMarkdown(service: string): Promise<string> {
     const entityNames = await listMicroserviceEntities(service);
     const entities: Entity[] = [];
@@ -177,11 +245,12 @@ class ExportService {
       }
       lines.push('');
 
-      // Metadata
+      // Metadata — rendered via registry; falls back to string coercion for
+      // unregistered types or entries without a stereotype definition.
       if (entity.metadata && entity.metadata.length > 0) {
         lines.push('**Metadata**:');
         for (const m of entity.metadata) {
-          lines.push(`- ${m.name}: ${m.value}`);
+          lines.push(this.metadataEntryToMarkdown(m));
         }
         lines.push('');
       }

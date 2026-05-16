@@ -1,21 +1,32 @@
 import { useState, useRef, useEffect, type CSSProperties } from 'react';
 import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
+import type { MetadataValue } from '../types';
+import { METADATA_TYPE_REGISTRY_TOKEN } from '../kernel/tokens';
+import { useService } from '../kernel/useService';
+import type { MetadataTypeRegistry } from '../plugins/data-dictionary/metadata/MetadataTypeRegistry';
 import { fieldStyle } from './ui';
 
+// Scalar-type set — these use the existing inline-edit UX.
+const SCALAR_INLINE_TYPES = new Set(['string', 'number', 'date', 'flag', 'boolean', 'rule', 'enum']);
+
 interface InlineMetadataCellProps {
-  value: string | number | boolean | undefined;
+  value: MetadataValue | undefined;     // was: string | number | boolean | undefined
   column: MetadataColumn;
-  onChange: (value: string | number | boolean) => void;
+  onChange: (value: MetadataValue) => void;   // was: (value: string | number | boolean) => void
+  /** Optional — called when the cell shows a non-scalar value and the user clicks. */
+  onExpand?: () => void;
 }
 
 /**
  * Inline cell editor for stereotype-driven metadata. Click-to-edit on
  * text/number/date columns; checkboxes for flag/boolean columns are
- * always interactive (no edit mode toggle).
+ * always interactive (no edit mode toggle). Non-scalar values (object/array)
+ * render via the registry's Viewer with optional expand callback.
  *
  * Design-token styled — see /design-system.
  */
-export default function InlineMetadataCell({ value, column, onChange }: InlineMetadataCellProps) {
+export default function InlineMetadataCell({ value, column, onChange, onExpand }: InlineMetadataCellProps) {
+  const registry = useService<MetadataTypeRegistry>(METADATA_TYPE_REGISTRY_TOKEN);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLInputElement | HTMLSelectElement>(null);
@@ -28,6 +39,27 @@ export default function InlineMetadataCell({ value, column, onChange }: InlineMe
       }
     }
   }, [editing]);
+
+  // Check if the value is non-scalar (object or array)
+  const isNonScalar = (v: MetadataValue | undefined): v is { [k: string]: MetadataValue } | MetadataValue[] =>
+    v !== undefined && v !== null && typeof v === 'object';
+
+  // For non-scalar values, route through registry's Viewer (read-only).
+  // Inline-edit of nested objects is deferred to a side-panel (Phase 4).
+  if (isNonScalar(value) || !SCALAR_INLINE_TYPES.has(column.type)) {
+    const def = { name: column.name, type: column.type, description: column.description };
+    const contribution = registry.getOrFallback(column.type);
+    const { Viewer } = contribution;
+    return (
+      <span
+        onClick={onExpand}
+        title={onExpand ? 'Click to expand' : column.description}
+        style={{ ...displayStyle, cursor: onExpand ? 'pointer' : 'default' }}
+      >
+        <Viewer value={value as any} def={def as any} />
+      </span>
+    );
+  }
 
   const commit = () => {
     setEditing(false);
