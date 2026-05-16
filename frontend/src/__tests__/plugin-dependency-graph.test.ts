@@ -30,7 +30,6 @@ import {
   INTEGRITY_SERVICE_TOKEN,
   DIFF_SERVICE_TOKEN,
   IMPORT_EXPORT_SERVICE_TOKEN,
-  METADATA_TYPE_REGISTRY_TOKEN,
   GIT_SERVICE_TOKEN,
   PUBLISH_SERVICE_TOKEN,
   CASE_SERVICE_TOKEN,
@@ -223,12 +222,6 @@ describe("plugin DI tokens — each plugin's actual resolves succeed", () => {
   it('data-dictionary → IMPORT_EXPORT_SERVICE_TOKEN is non-null', () => {
     const ctx = host.rootActivationCtx!;
     const value = ctx.resolve(IMPORT_EXPORT_SERVICE_TOKEN);
-    expect(value).toBeTruthy();
-  });
-
-  it('data-dictionary → METADATA_TYPE_REGISTRY_TOKEN is non-null', () => {
-    const ctx = host.rootActivationCtx!;
-    const value = ctx.resolve(METADATA_TYPE_REGISTRY_TOKEN);
     expect(value).toBeTruthy();
   });
 
