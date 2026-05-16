@@ -34,6 +34,16 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     css: true,
+    // Use forks pool so each test file runs in its own subprocess. OS
+    // reclaims memory on process exit, eliminating the cumulative-heap
+    // OOM that hits ~50+ files when running with the default threads pool.
+    // Costs ~+20-40s wall time vs threads but stays bounded under 4 GB.
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        singleFork: false,
+      },
+    },
     server: {
       deps: {
         // Force @hamak/* through Vite's transform pipeline. Two concerns:
@@ -55,9 +65,7 @@ export default defineConfig({
           '@hamak/ui-remote-fs',
           '@hamak/ui-remote-git-fs',
           '@hamak/ui-shell',
-          '@hamak/ui-navigation',
           '@hamak/shared-utils',
-          '@hamak/event-channel',
           '@hamak/notification',
         ],
       },

@@ -333,8 +333,6 @@ export const modelApi = {
   },
 };
 
-// caseApi block (#121) deleted by #161 — consumers use CaseService via DI.
-// gitApi block deleted by #160 — consumers use GitService via DI.
 
 // Model-level metadata API (#94)
 export interface ModelMetadataDoc {
