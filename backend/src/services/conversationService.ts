@@ -1,4 +1,3 @@
-// TODO(#167-slice2b): migrate to IStorageBackend once second workspace is registered
 /**
  * Conversation persistence service
  *
@@ -7,11 +6,13 @@
  *
  * Future consideration: migrate to SQLite (sql.js or better-sqlite3)
  * when conversation volume exceeds ~1000 or search/analytics are needed.
+ *
+ * Migrated to IStorageBackend in slice-2b (#167).
  */
 
-import fs from 'fs';
-import path from 'path';
-import { CONVERSATIONS_DIR, ensureAppDir } from '../utils/appDir.js';
+import { storageRegistry } from '../storage/contract/StorageBackendToken.js';
+import type { IStorageBackend } from '../storage/contract/IStorageBackend.js';
+import { wsId, pathOf, type WorkspaceId, type Path } from '../storage/contract/types.js';
 
 export interface ConversationMessage {
   id: string;
@@ -59,52 +60,72 @@ export interface ConversationSummary {
   pinned?: boolean;
 }
 
-function convPath(id: string): string {
-  return path.join(CONVERSATIONS_DIR, `${id}.json`);
-}
+export class ConversationService {
+  private _storage?: IStorageBackend;
+  private get storage(): IStorageBackend {
+    if (!this._storage) this._storage = storageRegistry.getBackend();
+    return this._storage;
+  }
 
-export const conversationService = {
-  list(query?: string): ConversationSummary[] {
-    ensureAppDir();
-    if (!fs.existsSync(CONVERSATIONS_DIR)) return [];
+  constructor(
+    storage?: IStorageBackend,
+    private readonly ws: WorkspaceId = wsId('app'),
+    private readonly conversationsDir: Path = pathOf('conversations'),
+  ) {
+    this._storage = storage;
+  }
+
+  async list(query?: string): Promise<ConversationSummary[]> {
+    let entries;
+    try {
+      entries = await this.storage.list(this.ws, this.conversationsDir);
+    } catch (e) {
+      if ((e as { code?: string }).code === 'not-found') return [];
+      throw e;
+    }
 
     const q = query?.trim().toLowerCase() || '';
-    const all = fs.readdirSync(CONVERSATIONS_DIR)
-      .filter(f => f.endsWith('.json'))
-      .map(f => {
-        try {
-          const data = JSON.parse(fs.readFileSync(path.join(CONVERSATIONS_DIR, f), 'utf8')) as Conversation;
-          // #127 search: title + every message text
-          if (q) {
-            const haystack = (data.title + ' ' + data.messages.map(m => m.text).join(' ')).toLowerCase();
-            if (!haystack.includes(q)) return null;
-          }
-          return {
-            id: data.id,
-            title: data.title,
-            messageCount: data.messages.length,
-            createdAt: data.createdAt,
-            updatedAt: data.updatedAt,
-            pinned: data.pinned ?? false,
-          };
-        } catch {
-          return null;
+    const all: ConversationSummary[] = [];
+
+    for (const entry of entries) {
+      if (entry.isDirectory || !entry.name.endsWith('.json')) continue;
+      try {
+        const raw = await this.storage.read(this.ws, pathOf(`${this.conversationsDir}/${entry.name}`));
+        const data = JSON.parse(raw) as Conversation;
+        // #127 search: title + every message text
+        if (q) {
+          const haystack = (data.title + ' ' + data.messages.map((m) => m.text).join(' ')).toLowerCase();
+          if (!haystack.includes(q)) continue;
         }
-      })
-      .filter(Boolean) as ConversationSummary[];
+        all.push({
+          id: data.id,
+          title: data.title,
+          messageCount: data.messages.length,
+          createdAt: data.createdAt,
+          updatedAt: data.updatedAt,
+          pinned: data.pinned ?? false,
+        });
+      } catch {
+        // skip corrupt JSON files
+      }
+    }
+
     // Pinned first, then most recent. Stable across reloads.
     return all.sort((a, b) => {
       if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
       return b.updatedAt.localeCompare(a.updatedAt);
     });
-  },
+  }
 
   /**
    * Patch a subset of conversation fields. Only `title`, `pinned`, and
    * `systemPrompt` are user-editable; everything else is server-managed.
    */
-  patch(id: string, patch: { title?: string; pinned?: boolean; systemPrompt?: string; mode?: Conversation['mode'] }): Conversation | null {
-    const conv = this.get(id);
+  async patch(
+    id: string,
+    patch: { title?: string; pinned?: boolean; systemPrompt?: string; mode?: Conversation['mode'] },
+  ): Promise<Conversation | null> {
+    const conv = await this.get(id);
     if (!conv) return null;
     if (typeof patch.title === 'string') conv.title = patch.title.slice(0, 200);
     if (typeof patch.pinned === 'boolean') conv.pinned = patch.pinned;
@@ -118,39 +139,42 @@ export const conversationService = {
     if (patch.mode === 'designer' || patch.mode === 'ask' || patch.mode === 'review') {
       conv.mode = patch.mode;
     }
-    this.save(conv);
+    await this.save(conv);
     return conv;
-  },
+  }
 
-  get(id: string): Conversation | null {
+  async get(id: string): Promise<Conversation | null> {
     try {
-      const p = convPath(id);
-      if (!fs.existsSync(p)) return null;
-      return JSON.parse(fs.readFileSync(p, 'utf8'));
-    } catch {
-      return null;
+      const raw = await this.storage.read(this.ws, pathOf(`${this.conversationsDir}/${id}.json`));
+      return JSON.parse(raw) as Conversation;
+    } catch (e) {
+      if ((e as { code?: string }).code === 'not-found') return null;
+      throw e;
     }
-  },
+  }
 
-  save(conversation: Conversation): void {
-    ensureAppDir();
+  async save(conversation: Conversation): Promise<void> {
     conversation.updatedAt = new Date().toISOString();
-    fs.writeFileSync(convPath(conversation.id), JSON.stringify(conversation, null, 2), 'utf8');
-  },
+    await this.storage.write(
+      this.ws,
+      pathOf(`${this.conversationsDir}/${conversation.id}.json`),
+      JSON.stringify(conversation, null, 2),
+      { createParents: true },
+    );
+  }
 
-  delete(id: string): boolean {
+  async delete(id: string): Promise<boolean> {
     try {
-      const p = convPath(id);
-      if (!fs.existsSync(p)) return false;
-      fs.unlinkSync(p);
+      await this.storage.delete(this.ws, pathOf(`${this.conversationsDir}/${id}.json`));
       return true;
-    } catch {
-      return false;
+    } catch (e) {
+      if ((e as { code?: string }).code === 'not-found') return false;
+      throw e;
     }
-  },
+  }
 
-  addMessage(conversationId: string, message: ConversationMessage): Conversation {
-    let conv = this.get(conversationId);
+  async addMessage(conversationId: string, message: ConversationMessage): Promise<Conversation> {
+    let conv = await this.get(conversationId);
     if (!conv) {
       conv = {
         id: conversationId,
@@ -161,7 +185,9 @@ export const conversationService = {
       };
     }
     conv.messages.push(message);
-    this.save(conv);
+    await this.save(conv);
     return conv;
-  },
-};
+  }
+}
+
+export const conversationService = new ConversationService();

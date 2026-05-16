@@ -12,6 +12,7 @@ import { logger } from '../utils/logger.js';
 import { Entity, validateEntity } from '../models/EntitySchema.js';
 import { generateEntityFilename } from '../utils/uuid.js';
 import { config } from '../kernel/config.js';
+import { STORAGE_DIR, ensureAppDir } from '../utils/appDir.js';
 
 // Lazy-loaded framework modules (ESM)
 let WorkspaceManager: any;
@@ -40,17 +41,19 @@ export async function initializeFileSystem(): Promise<{
   FileRouter = fsModule.FileRouter;
   FileInfoEnricherRegistry = fsModule.FileInfoEnricherRegistry;
 
+  ensureAppDir();  // ensure ~/.dico-app/storage/{conversations,prompts} exist before WS register
   const baseDirectory = config.dataDir;
 
   const workspacesConfig: Record<string, string> = {
     dictionaries: '.',
+    app: STORAGE_DIR,   // absolute path → overrides baseDirectory in path.resolve
   };
 
   workspaceManager = new WorkspaceManager(workspacesConfig, { baseDirectory });
   enricherRegistry = new FileInfoEnricherRegistry();
   fileRouter = new FileRouter(workspaceManager, { enricherRegistry });
 
-  logger.info('Framework filesystem initialized', { baseDirectory });
+  logger.info('Framework filesystem initialized', { baseDirectory, appWorkspace: STORAGE_DIR });
 
   return { workspaceManager, fileRouter, enricherRegistry };
 }

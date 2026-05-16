@@ -10,7 +10,7 @@ import { storageRegistry } from './StorageBackendToken.js';
  * server.ts via module-level side effects).
  */
 export function registerStorageBackend(workspaceManager: IWorkspaceManager): GitFilesystemStorageBackend {
-  const backend = new GitFilesystemStorageBackend(workspaceManager, { workspaceId: 'dictionaries' });
+  const backend = new GitFilesystemStorageBackend(workspaceManager);
   storageRegistry.setBackend(backend);
   return backend;
 }

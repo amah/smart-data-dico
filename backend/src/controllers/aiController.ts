@@ -1207,18 +1207,18 @@ async function buildMentionsContext(rawMessages: any[]): Promise<string> {
 
 export const listConversations = async (req: Request, res: Response) => {
   const q = typeof req.query.q === 'string' ? req.query.q : undefined;
-  res.json({ data: conversationService.list(q) });
+  res.json({ data: await conversationService.list(q) });
 };
 
 export const getConversation = async (req: Request, res: Response) => {
-  const conv = conversationService.get(req.params.id);
+  const conv = await conversationService.get(req.params.id);
   if (!conv) return res.status(404).json({ message: 'Conversation not found' });
   res.json({ data: conv });
 };
 
 export const saveConversation = async (req: Request, res: Response) => {
   try {
-    conversationService.save(req.body);
+    await conversationService.save(req.body);
     res.json({ message: 'Conversation saved' });
   } catch (err: any) {
     res.status(500).json({ message: 'Failed to save', error: err.message });
@@ -1229,24 +1229,24 @@ export const saveConversation = async (req: Request, res: Response) => {
 // system prompt). #55 also lets the client set the chat mode here.
 export const patchConversation = async (req: Request, res: Response) => {
   const { title, pinned, systemPrompt, mode } = req.body || {};
-  const conv = conversationService.patch(req.params.id, { title, pinned, systemPrompt, mode });
+  const conv = await conversationService.patch(req.params.id, { title, pinned, systemPrompt, mode });
   if (!conv) return res.status(404).json({ message: 'Conversation not found' });
   res.json({ data: conv });
 };
 
 export const deleteConversation = async (req: Request, res: Response) => {
-  conversationService.delete(req.params.id);
+  await conversationService.delete(req.params.id);
   res.json({ message: 'Conversation deleted' });
 };
 
 // --- Saved prompts endpoints (#123) ---
 
 export const listPrompts = async (_req: Request, res: Response) => {
-  res.json({ data: promptService.list() });
+  res.json({ data: await promptService.list() });
 };
 
 export const getPrompt = async (req: Request, res: Response) => {
-  const prompt = promptService.get(req.params.id);
+  const prompt = await promptService.get(req.params.id);
   if (!prompt) return res.status(404).json({ message: 'Prompt not found' });
   res.json({ data: prompt });
 };
@@ -1260,7 +1260,7 @@ export const createPrompt = async (req: Request, res: Response) => {
     if (typeof content !== 'string') {
       return res.status(400).json({ message: 'content is required' });
     }
-    const prompt = promptService.create({ name, content });
+    const prompt = await promptService.create({ name, content });
     res.status(201).json({ data: prompt });
   } catch (err: any) {
     res.status(500).json({ message: 'Failed to create prompt', error: err.message });
@@ -1270,7 +1270,7 @@ export const createPrompt = async (req: Request, res: Response) => {
 export const updatePrompt = async (req: Request, res: Response) => {
   try {
     const { name, content } = req.body || {};
-    const updated = promptService.update(req.params.id, { name, content });
+    const updated = await promptService.update(req.params.id, { name, content });
     if (!updated) return res.status(404).json({ message: 'Prompt not found' });
     res.json({ data: updated });
   } catch (err: any) {
@@ -1279,7 +1279,7 @@ export const updatePrompt = async (req: Request, res: Response) => {
 };
 
 export const deletePrompt = async (req: Request, res: Response) => {
-  const ok = promptService.delete(req.params.id);
+  const ok = await promptService.delete(req.params.id);
   if (!ok) return res.status(404).json({ message: 'Prompt not found' });
   res.json({ message: 'Prompt deleted' });
 };
