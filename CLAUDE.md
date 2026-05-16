@@ -37,7 +37,7 @@ Backend is a plain Express app; the framework provides only the FS and git route
 
 - **Routes** (`src/routes/index.ts`): All API endpoints (~90 routes) defined in one file
 - **Controllers** (`src/controllers/`): Request handlers for auth, dictionaries, services, versions, diagrams, stereotypes, perspectives, import/export
-- **Services** (`src/services/`): Business logic — `serviceService.ts` (entities, search, impact), `dictionaryService.ts` (packages), `stereotypeService.ts`, `perspectiveService.ts` (BFS resolution), `importService.ts`, `exportService.ts`, `qualityService.ts`. All domain services consume `IStorageBackend`. fileOperations.ts is the last `fs` allow-list site and migrates in a follow-up slice.
+- **Services** (`src/services/`): Business logic — `serviceService.ts` (entities, search, impact), `dictionaryService.ts` (packages), `stereotypeService.ts`, `perspectiveService.ts` (BFS resolution), `importService.ts`, `exportService.ts`, `qualityService.ts`. All domain services consume `IStorageBackend`. `fileOperations.ts` is fully migrated to `IStorageBackend` (slice 5). The only remaining direct-`fs` holdout in production backend code is `backend/src/services/schemaEntityWriter.ts` — deferred to slice 5b before the ESLint `no-restricted-imports` rule for `fs` lands.
 - **Models** (`src/models/`): TypeScript interfaces + JSON Schema validation (`EntitySchema.ts`, `Dictionary.ts`)
 - **Middleware** (`src/middleware/`): Basic auth + JWT auth with role-based access (ADMIN, EDITOR, VIEWER)
 - **Kernel** (`src/kernel/config.ts`): Centralized configuration

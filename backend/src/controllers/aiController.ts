@@ -416,7 +416,7 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
         const pkgName = parsed.packageName || 'default';
         const { listPackages, ensurePackageDirectoryStructure } = await import('../utils/fileOperations.js');
         const existing = await listPackages();
-        if (!existing.includes(pkgName)) ensurePackageDirectoryStructure(pkgName);
+        if (!existing.includes(pkgName)) await ensurePackageDirectoryStructure(pkgName);
 
         const entity = {
           uuid: crypto.randomUUID(),
@@ -685,7 +685,7 @@ export const aiChat = async (req: Request, res: Response) => {
               const { listPackages, ensurePackageDirectoryStructure } = await import('../utils/fileOperations.js');
               const existingServices = await listPackages();
               if (!existingServices.includes(pkgName)) {
-                ensurePackageDirectoryStructure(pkgName);
+                await ensurePackageDirectoryStructure(pkgName);
               }
 
               const attrs = (parsed.attributes || []).map((a: any) => ({

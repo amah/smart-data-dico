@@ -224,7 +224,7 @@ export function createMcpServer(): McpServer {
         const { serviceService, fileOps } = await loadServices();
         const existing = await fileOps.listPackages();
         if (!existing.includes(packageName)) {
-          fileOps.ensurePackageDirectoryStructure(packageName);
+          await fileOps.ensurePackageDirectoryStructure(packageName);
         }
         // Coerce the free-form `type` string into the AttributeType enum.
         // We accept anything here (including derived types declared in
