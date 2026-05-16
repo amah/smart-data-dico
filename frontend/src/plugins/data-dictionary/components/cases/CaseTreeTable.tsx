@@ -1,14 +1,14 @@
 import { useState, useMemo, useCallback, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import type { ResolvedNode, ResolvedAttribute, MetadataEntry } from '../types';
-import { Cardinality } from '../types';
-import { useStereotypeMetadata, setMetadataValue } from '../hooks/useStereotypeMetadata';
-import InlineMetadataCell from './InlineMetadataCell';
-import { servicesApi } from '../services/api';
-import type { Entity, Attribute } from '../types';
-import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
-import { Button, Chip, Input, Menu, Toolbar, TreeTable, resetTreeTableWidths } from './ui';
-import type { ColumnDef, TreeTableRow } from './ui';
+import type { ResolvedNode, ResolvedAttribute, MetadataEntry } from '../../../../types';
+import { Cardinality } from '../../../../types';
+import { useStereotypeMetadata, setMetadataValue } from '../../../../hooks/useStereotypeMetadata';
+import InlineMetadataCell from '../../../../components/InlineMetadataCell';
+import { servicesApi } from '../../../../services/api';
+import type { Entity, Attribute } from '../../../../types';
+import type { MetadataColumn } from '../../../../hooks/useStereotypeMetadata';
+import { Button, Chip, Input, Menu, Toolbar, TreeTable, resetTreeTableWidths } from '../../../../components/ui';
+import type { ColumnDef, TreeTableRow } from '../../../../components/ui';
 
 // ────────────────────────────────────────────────────────────────────────
 // Tree data model

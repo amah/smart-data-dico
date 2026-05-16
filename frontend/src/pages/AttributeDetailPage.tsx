@@ -22,8 +22,10 @@ import { Link, useParams } from 'react-router-dom';
 import {
   servicesApi,
   relationshipApi,
-  ruleApi,
 } from '../services/api';
+import { useService } from '../kernel/useService';
+import { RULE_SERVICE_TOKEN } from '../kernel/tokens';
+import type { RuleService } from '../plugins/data-dictionary/services/RuleService';
 import {
   useStereotypeMetadata,
   getMetadataValue,
@@ -49,6 +51,7 @@ import {
 import Breadcrumbs from '../components/Breadcrumbs';
 
 const AttributeDetailPage = () => {
+  const ruleService = useService<RuleService>(RULE_SERVICE_TOKEN);
   const params = useParams<{ '*': string }>();
   const { service, entityName, attributeName } = parseParams(params['*'] || '');
 
@@ -84,8 +87,8 @@ const AttributeDetailPage = () => {
 
   useEffect(() => {
     if (!entity?.uuid) return;
-    ruleApi.getRulesForEntity(entity.uuid).then(setRules).catch(() => setRules([]));
-  }, [entity?.uuid]);
+    ruleService.getRulesForEntity(entity.uuid).then(setRules).catch(() => setRules([]));
+  }, [entity?.uuid, ruleService]);
 
   const attribute = useMemo<Attribute | null>(
     () => entity?.attributes.find(a => a.name === attributeName) ?? null,

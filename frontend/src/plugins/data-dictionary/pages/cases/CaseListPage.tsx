@@ -1,15 +1,18 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { caseApi } from '../services/api';
-import type { Case } from '../types';
+import { useService } from '../../../../kernel/useService';
+import { CASE_SERVICE_TOKEN } from '../../../../kernel/tokens';
+import type { CaseService } from '../../services/CaseService';
+import type { Case } from '../../../../types';
 
 export default function CaseListPage() {
+  const caseService = useService<CaseService>(CASE_SERVICE_TOKEN);
   const [cases, setCases] = useState<Case[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    caseApi.getAll().then(setCases).catch(() => {}).finally(() => setLoading(false));
-  }, []);
+    caseService.getAll().then(setCases).catch(() => {}).finally(() => setLoading(false));
+  }, [caseService]);
 
   if (loading) {
     return <div className="flex items-center justify-center h-64"><span className="loading loading-spinner loading-lg" /></div>;

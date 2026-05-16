@@ -1,13 +1,16 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { servicesApi, relationshipApi, stereotypeApi, ruleApi } from '../services/api';
+import { servicesApi, relationshipApi, stereotypeApi } from '../services/api';
 import { Entity, Relationship, Stereotype, ImpactAnalysis, Rule } from '../types';
 import ReviewComments from './ReviewComments';
 import LineageView from './LineageView';
 import MetadataEditor from './MetadataEditor';
 import AttributeList from './AttributeList';
 import RelationshipList from './RelationshipList';
-import EntityRulesList from './EntityRulesList';
+import EntityRulesList from '../plugins/data-dictionary/components/rules/EntityRulesList';
+import { useService } from '../kernel/useService';
+import { RULE_SERVICE_TOKEN } from '../kernel/tokens';
+import type { RuleService } from '../plugins/data-dictionary/services/RuleService';
 import { Button, Chip, EmptyState, Icon, PageHeader } from './ui';
 import Breadcrumbs from './Breadcrumbs';
 
@@ -40,6 +43,7 @@ interface TabDef {
 }
 
 const EntityDetail = (props: EntityDetailProps) => {
+  const ruleService = useService<RuleService>(RULE_SERVICE_TOKEN);
   const params = useParams<{ service: string; entity: string }>();
   const service = props.serviceProp || params.service;
   const entity = props.entityProp || params.entity;
@@ -110,13 +114,13 @@ const EntityDetail = (props: EntityDetailProps) => {
   const fetchEntityRules = useCallback(async () => {
     if (!entityData?.uuid) return;
     try {
-      const rules = await ruleApi.getRulesForEntity(entityData.uuid);
+      const rules = await ruleService.getRulesForEntity(entityData.uuid);
       setEntityRules(rules);
     } catch (err) {
       console.error('Failed to fetch entity rules:', err);
       setEntityRules([]);
     }
-  }, [entityData?.uuid]);
+  }, [entityData?.uuid, ruleService]);
 
   useEffect(() => {
     fetchEntityRules();

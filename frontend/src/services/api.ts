@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-import { Entity, Relationship, Stereotype, StereotypeTarget, Case, ResolvedCase, CaseNode, GraphData, ImpactAnalysis, ReviewComment, LineageResult, Rule, RuleScope, RuleSeverityValue, RuleEnforcement, MetadataEntry } from '../types';
+import { Entity, Relationship, Stereotype, StereotypeTarget, ImpactAnalysis, ReviewComment, LineageResult, MetadataEntry } from '../types';
 import { Package } from '../types';
 
 /**
@@ -333,41 +333,8 @@ export const modelApi = {
   },
 };
 
-// Case API endpoints (#121)
-export const caseApi = {
-  getAll: async (): Promise<Case[]> => {
-    const response = await api.get('/cases');
-    return response.data.data;
-  },
-  getById: async (id: string): Promise<Case> => {
-    const response = await api.get(`/cases/${id}`);
-    return response.data.data;
-  },
-  create: async (data: Partial<Case>) => {
-    const response = await api.post('/cases', data);
-    return response.data;
-  },
-  update: async (id: string, data: Partial<Case>) => {
-    const response = await api.put(`/cases/${id}`, data);
-    return response.data;
-  },
-  delete: async (id: string) => {
-    const response = await api.delete(`/cases/${id}`);
-    return response.data;
-  },
-  resolve: async (id: string): Promise<ResolvedCase> => {
-    const response = await api.get(`/cases/${id}/resolve`);
-    return response.data.data;
-  },
-  getGraphData: async (id: string): Promise<GraphData> => {
-    const response = await api.get(`/cases/${id}/graph`);
-    return response.data.data;
-  },
-  upsertNode: async (id: string, node: CaseNode) => {
-    const response = await api.put(`/cases/${id}/nodes`, node);
-    return response.data;
-  },
-};
+// caseApi block (#121) deleted by #161 — consumers use CaseService via DI.
+// gitApi block deleted by #160 — consumers use GitService via DI.
 
 // Model-level metadata API (#94)
 export interface ModelMetadataDoc {
@@ -413,53 +380,6 @@ export const stereotypeApi = {
   delete: async (id: string) => {
     const response = await api.delete(`/stereotypes/${id}`);
     return response.data;
-  },
-};
-
-// Rule API endpoints (#74)
-export const ruleApi = {
-  list: async (filters: {
-    scope?: RuleScope;
-    severity?: RuleSeverityValue;
-    enforcement?: RuleEnforcement;
-    targetUuid?: string;
-    case?: string;
-    package?: string;
-  } = {}): Promise<Rule[]> => {
-    const params = new URLSearchParams();
-    if (filters.scope) params.set('scope', filters.scope);
-    if (filters.severity) params.set('severity', filters.severity);
-    if (filters.enforcement) params.set('enforcement', filters.enforcement);
-    if (filters.targetUuid) params.set('targetUuid', filters.targetUuid);
-    if (filters.case) params.set('case', filters.case);
-    if (filters.package) params.set('package', filters.package);
-    const qs = params.toString();
-    const response = await api.get(`/rules${qs ? '?' + qs : ''}`);
-    return response.data.data;
-  },
-
-  get: async (uuid: string): Promise<Rule> => {
-    const response = await api.get(`/rules/${uuid}`);
-    return response.data.data;
-  },
-
-  getRulesForEntity: async (entityUuid: string): Promise<Rule[]> => {
-    const response = await api.get(`/entities/${entityUuid}/rules`);
-    return response.data.data;
-  },
-
-  create: async (rule: Partial<Rule>): Promise<Rule> => {
-    const response = await api.post('/rules', rule);
-    return response.data.data;
-  },
-
-  update: async (uuid: string, rule: Partial<Rule>): Promise<Rule> => {
-    const response = await api.put(`/rules/${uuid}`, rule);
-    return response.data.data;
-  },
-
-  delete: async (uuid: string): Promise<void> => {
-    await api.delete(`/rules/${uuid}`);
   },
 };
 

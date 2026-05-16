@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react';
 import type { Core } from 'cytoscape';
-import { caseApi } from '../../services/api';
+import { useService } from '../../kernel/useService';
+import { CASE_SERVICE_TOKEN } from '../../kernel/tokens';
+import type { CaseService } from '../../plugins/data-dictionary/services/CaseService';
 import type { ResolvedCase } from '../../types';
 
 export function useCytoscapeCaseOverlay(
   cyRef: React.RefObject<Core | null>,
   caseId?: string,
 ) {
+  const caseService = useService<CaseService>(CASE_SERVICE_TOKEN);
   const [resolved, setResolved] = useState<ResolvedCase | null>(null);
 
   useEffect(() => {
@@ -20,8 +23,8 @@ export function useCytoscapeCaseOverlay(
       return;
     }
 
-    caseApi.resolve(caseId).then(setResolved).catch(() => setResolved(null));
-  }, [caseId]);
+    caseService.resolve(caseId).then(setResolved).catch(() => setResolved(null));
+  }, [caseId, caseService]);
 
   // Apply overlay when resolved data or cy changes
   useEffect(() => {

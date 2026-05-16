@@ -18,10 +18,12 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { Link, useParams } from 'react-router-dom';
 import {
   relationshipApi,
-  ruleApi,
   entityApi,
-  caseApi,
 } from '../services/api';
+import { useService } from '../kernel/useService';
+import { CASE_SERVICE_TOKEN, RULE_SERVICE_TOKEN } from '../kernel/tokens';
+import type { CaseService } from '../plugins/data-dictionary/services/CaseService';
+import type { RuleService } from '../plugins/data-dictionary/services/RuleService';
 import {
   useStereotypeMetadata,
   getMetadataValue,
@@ -52,6 +54,8 @@ interface EntityLookupEntry {
 }
 
 const RelationshipDetailPage = () => {
+  const caseService = useService<CaseService>(CASE_SERVICE_TOKEN);
+  const ruleService = useService<RuleService>(RULE_SERVICE_TOKEN);
   const params = useParams<{ '*': string }>();
   const { service, entityName, uuid } = parseParams(params['*'] || '');
 
@@ -96,8 +100,8 @@ const RelationshipDetailPage = () => {
   }, []);
 
   useEffect(() => {
-    caseApi.getAll().then(setCases).catch(() => setCases([]));
-  }, []);
+    caseService.getAll().then(setCases).catch(() => setCases([]));
+  }, [caseService]);
 
   const rel = useMemo<Relationship | null>(
     () => rels.find(r => r.uuid === uuid) ?? null,
@@ -107,10 +111,10 @@ const RelationshipDetailPage = () => {
   // Pull rules for the source entity — then filter to those targeting this rel.
   useEffect(() => {
     if (!rel) return;
-    ruleApi.getRulesForEntity(rel.source.entity)
+    ruleService.getRulesForEntity(rel.source.entity)
       .then(setRules)
       .catch(() => setRules([]));
-  }, [rel?.source.entity]);
+  }, [rel?.source.entity, ruleService]);
 
   const saveRelationship = useCallback(async (updater: (r: Relationship) => Relationship) => {
     if (!service || !rel) return;

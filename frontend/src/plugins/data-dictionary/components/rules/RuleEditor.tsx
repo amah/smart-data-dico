@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import Markdown from 'react-markdown';
-import { ruleApi, entityApi, stereotypeApi } from '../services/api';
+import { entityApi, stereotypeApi } from '../../../../services/api';
+import { useService } from '../../../../kernel/useService';
+import { RULE_SERVICE_TOKEN } from '../../../../kernel/tokens';
+import type { RuleService } from '../../services/RuleService';
 import type {
   Rule,
   RuleScope,
@@ -11,8 +14,8 @@ import type {
   Package,
   Stereotype,
   StereotypeTarget,
-} from '../types';
-import { Button, Field, fieldStyle, Modal } from './ui';
+} from '../../../../types';
+import { Button, Field, fieldStyle, Modal } from '../../../../components/ui';
 
 interface RuleEditorProps {
   /** Rule to edit, or null to create a new one */
@@ -44,6 +47,7 @@ const stereotypeTargetsForScope = (scope: RuleScope): StereotypeTarget[] => {
  * single-entity for v1 — multi-target and complex pickers come later.
  */
 const RuleEditor = ({ rule, onClose, onSaved }: RuleEditorProps) => {
+  const ruleService = useService<RuleService>(RULE_SERVICE_TOKEN);
   const isNew = rule === null;
   const [name, setName] = useState(rule?.name || '');
   const [description, setDescription] = useState(rule?.description || '');
@@ -165,9 +169,9 @@ const RuleEditor = ({ rule, onClose, onSaved }: RuleEditorProps) => {
         metadata: metadata.length > 0 ? metadata : undefined,
       };
       if (isNew) {
-        await ruleApi.create(payload);
+        await ruleService.create(payload);
       } else {
-        await ruleApi.update(rule!.uuid, payload);
+        await ruleService.update(rule!.uuid, payload);
       }
       onSaved();
     } catch (err: any) {
@@ -183,7 +187,7 @@ const RuleEditor = ({ rule, onClose, onSaved }: RuleEditorProps) => {
     if (!window.confirm(`Delete rule "${rule.name}"? This cannot be undone.`)) return;
     setSaving(true);
     try {
-      await ruleApi.delete(rule.uuid);
+      await ruleService.delete(rule.uuid);
       onSaved();
     } catch {
       setError('Failed to delete rule.');

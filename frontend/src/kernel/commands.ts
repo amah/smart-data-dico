@@ -8,10 +8,11 @@
 // Removing a command means: delete the key here, delete the register call,
 // delete the call-sites. Type errors enforce the audit.
 //
-// Total: 19 (pre-#160 baseline) + 11 (#160: git + publish) = 30 keys.
+// Total: 19 (pre-#160 baseline) + 11 (#160: git + publish) + 13 (#161: case + rule) = 43 keys
 
 import { host } from './bootstrap';
-import type { Stereotype } from '../types';
+import type { Stereotype, Case, ResolvedCase, GraphData, Rule } from '../types';
+import type { RuleListFilters } from '../plugins/data-dictionary/services/RuleService';
 import type {
   LogicalDiffOperand,
   PhysicalDiffSource,
@@ -149,6 +150,23 @@ export interface CommandMap {
   'data-dictionary.publish.publish': { input: { remote?: string }; output: void; };
   'data-dictionary.publish.sync': { input: { remote?: string }; output: void; };
   'data-dictionary.publish.revert': { input: { commitHash: string }; output: { newCommitHash?: string }; };
+
+  // ── Cases (data-dictionary) — #161 ───────────────────────────────────
+  'data-dictionary.case.list': { input: void; output: Case[]; };
+  'data-dictionary.case.getById': { input: { id: string }; output: Case; };
+  'data-dictionary.case.resolve': { input: { id: string }; output: ResolvedCase; };
+  'data-dictionary.case.getGraphData': { input: { id: string }; output: GraphData; };
+  'data-dictionary.case.create': { input: { data: Partial<Case> }; output: { data: Case }; };
+  'data-dictionary.case.update': { input: { id: string; data: Partial<Case> }; output: { data: Case }; };
+  'data-dictionary.case.delete': { input: { id: string }; output: void; };
+
+  // ── Rules (data-dictionary) — #161 ───────────────────────────────────
+  'data-dictionary.rule.list': { input: { filters?: RuleListFilters }; output: Rule[]; };
+  'data-dictionary.rule.get': { input: { uuid: string }; output: Rule; };
+  'data-dictionary.rule.getRulesForEntity': { input: { entityUuid: string }; output: Rule[]; };
+  'data-dictionary.rule.create': { input: { data: Partial<Rule> }; output: Rule; };
+  'data-dictionary.rule.update': { input: { uuid: string; data: Partial<Rule> }; output: Rule; };
+  'data-dictionary.rule.delete': { input: { uuid: string }; output: void; };
 }
 
 export type CommandName = keyof CommandMap;

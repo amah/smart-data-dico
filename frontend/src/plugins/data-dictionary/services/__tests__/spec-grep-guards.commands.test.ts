@@ -118,11 +118,11 @@ describe('#163 acceptance #2 — typed CommandMap exists with 30 entries', () =>
     expect(content).toMatch(/export interface CommandMap\b/);
   });
 
-  it('CommandMap has exactly 30 command keys', () => {
+  it('CommandMap has exactly 43 command keys (19 pre-#160 + 11 #160 git/publish + 13 #161 case/rule)', () => {
     const content = read(COMMANDS_TS);
     // Count quoted keys ending in `: {` pattern (command entries in interface)
     const matches = content.match(/^\s*['"][a-z][^'"]+['"]\s*:/gm) ?? [];
-    expect(matches.length).toBe(30);
+    expect(matches.length).toBe(43);
   });
 
   const commandNames = [
@@ -245,21 +245,38 @@ describe('#163 acceptance #6 — search plugin registers search.search', () => {
 // ── Acceptance #7 — dead refresh commands deleted ─────────────────────────
 
 describe('#163 acceptance #7 — dead refresh commands deleted', () => {
-  const deadCommands = [
+  // dataDictionaryPlugin and versionControlPlugin still exist; test
+  // that they don't contain stale command names.
+  const pluginDeadCommands = [
     { file: DATA_DICTIONARY_PLUGIN, label: 'dataDictionaryPlugin', command: 'data-dictionary.refresh' },
     { file: DATA_DICTIONARY_PLUGIN, label: 'dataDictionaryPlugin', command: 'data-dictionary:refresh-requested' },
-    { file: CASE_PLUGIN, label: 'casePlugin', command: 'case.refresh' },
-    { file: CASE_PLUGIN, label: 'casePlugin', command: 'case:refresh-requested' },
-    { file: RULES_PLUGIN, label: 'rulesPlugin', command: 'rules.refresh' },
-    { file: RULES_PLUGIN, label: 'rulesPlugin', command: 'rules:refresh-requested' },
+    // casePlugin, rulesPlugin (deleted #161) and versionControlPlugin (deleted #160)
+    // are checked via fs.existsSync below.
   ];
 
-  for (const { file, label, command } of deadCommands) {
+  for (const { file, label, command } of pluginDeadCommands) {
     it(`${label} does NOT contain '${command}'`, () => {
       const content = read(file);
       expect(content).not.toContain(`'${command}'`);
     });
   }
+
+  // #161: casePlugin and rulesPlugin are deleted entirely — verify files are absent.
+  it('casePlugin does NOT contain \'case.refresh\' (file deleted by #161)', () => {
+    expect(fs.existsSync(CASE_PLUGIN)).toBe(false);
+  });
+
+  it('casePlugin does NOT contain \'case:refresh-requested\' (file deleted by #161)', () => {
+    expect(fs.existsSync(CASE_PLUGIN)).toBe(false);
+  });
+
+  it('rulesPlugin does NOT contain \'rules.refresh\' (file deleted by #161)', () => {
+    expect(fs.existsSync(RULES_PLUGIN)).toBe(false);
+  });
+
+  it('rulesPlugin does NOT contain \'rules:refresh-requested\' (file deleted by #161)', () => {
+    expect(fs.existsSync(RULES_PLUGIN)).toBe(false);
+  });
 });
 
 // ── Acceptance #8 — event-channel and ui-navigation removed ───────────────
@@ -522,10 +539,10 @@ describe('#163 acceptance #21 — no commands.execute calls in frontend/src', ()
     ).toEqual([]);
   });
 
-  it('dataDictionaryPlugin.ts has 29 ctx.commands.register calls (per-plugin total)', () => {
+  it('dataDictionaryPlugin.ts has 42 ctx.commands.register calls (18 pre-#160 + 11 #160 git/publish + 13 #161 case/rule)', () => {
     const content = read(DATA_DICTIONARY_PLUGIN);
     const matches = content.match(/ctx\.commands\.register\s*\(/g) ?? [];
-    expect(matches.length).toBe(29);
+    expect(matches.length).toBe(42);
   });
 
   it('searchPlugin.ts has 1 ctx.commands.register call (per-plugin total)', () => {

@@ -17,8 +17,6 @@ import { createAppRemoteFsPlugin } from '../plugins/remote-fs/remoteFsPlugin';
 import { createGitPlugin } from '../plugins/git/gitPlugin';
 import { createNotificationPlugin } from '../plugins/notification/notificationPlugin';
 import { createLoggingPlugin } from '../plugins/logging/loggingPlugin';
-import { createCasePlugin } from '../plugins/case/casePlugin';
-import { createRulesPlugin } from '../plugins/rules/rulesPlugin';
 import { createAiAssistancePlugin } from '../plugins/ai-assistance/aiPlugin';
 import type { IStoreManager } from '@hamak/ui-store-api';
 
@@ -30,7 +28,8 @@ import dictionaryReducer from '../store/slices/dictionarySlice';
 import diagramReducer from '../store/slices/diagramSlice';
 import packagesReducer from '../store/slices/packagesSlice';
 import stereotypesReducer from '../store/slices/stereotypesSlice';
-import casesReducer from '../store/slices/casesSlice';
+import casesReducer from '../plugins/data-dictionary/slices/casesSlice';
+import rulesReducer from '../plugins/data-dictionary/slices/rulesSlice';
 import searchReducer from '../store/slices/searchSlice';
 
 /**
@@ -67,6 +66,7 @@ export function registerPlugins() {
         reducerRegistry.register('packages', packagesReducer);
         reducerRegistry.register('stereotypes', stereotypesReducer);
         reducerRegistry.register('cases', casesReducer);
+        reducerRegistry.register('rules', rulesReducer);
         reducerRegistry.register('search', searchReducer);
       }
     },
@@ -157,25 +157,8 @@ export function registerPlugins() {
     createNotificationPlugin()
   );
 
-  // Cases plugin (depends on: store, auth) — renamed from perspective (#121)
-  host.registerPlugin(
-    'cases',
-    { name: 'cases', version: '1.0.0', entry: '', dependsOn: ['store', 'auth'] },
-    createCasePlugin()
-  );
-
-  // Rules plugin (#74) — depends on: store, auth
-  host.registerPlugin(
-    'rules',
-    { name: 'rules', version: '1.0.0', entry: '', dependsOn: ['store', 'auth'] },
-    createRulesPlugin()
-  );
-
   // AI Assistance plugin (#162) — depends on: store, auth, data-dictionary
-  // Read the feature flag off shell config — if shell isn't bootstrapped
-  // yet (which it is, registered above), the default-on plugin proceeds.
-  // We pass `enabled: true` literal here for the v1 implementation and
-  // rely on ShellLayout's flag-check for the runtime gate. See Risk 3.
+  // ShellLayout's flag-check is the runtime gate. See spec #162 Risk 3.
   host.registerPlugin(
     'ai-assistance',
     { name: 'ai-assistance', version: '1.0.0', entry: '', dependsOn: ['store', 'auth', 'data-dictionary'] },
