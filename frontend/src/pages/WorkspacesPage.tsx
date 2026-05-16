@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { gitApi } from '../services/api';
+import { useCommand } from '../kernel/useCommand';
 
 export default function WorkspacesPage() {
   const [branches, setBranches] = useState<{ current: string; local: string[]; remote: string[] }>({
@@ -10,12 +10,13 @@ export default function WorkspacesPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const run = useCommand();
 
   const fetchBranches = async () => {
     try {
       setLoading(true);
-      const data = await gitApi.getBranches();
-      const currentBranch = typeof data.current === 'object' ? data.current?.name : (data.current || data.branch || 'main');
+      const data = await run('data-dictionary.git.listBranches');
+      const currentBranch = typeof data.current === 'object' ? (data.current as any)?.name : (data.current || 'main');
       setBranches({
         current: currentBranch,
         local: data.local || data.branches || data.all || [],
@@ -36,7 +37,7 @@ export default function WorkspacesPage() {
     setCreating(true);
     setError(null);
     try {
-      await gitApi.checkout(branchName, true);
+      await run('data-dictionary.git.checkout', { branch: branchName, create: true });
       setSuccess(`Workspace "${newName}" created and activated.`);
       setNewName('');
       fetchBranches();
@@ -50,7 +51,7 @@ export default function WorkspacesPage() {
   const handleSwitch = async (branch: string) => {
     setError(null);
     try {
-      await gitApi.checkout(branch);
+      await run('data-dictionary.git.checkout', { branch });
       setSuccess(`Switched to "${friendlyName(branch)}".`);
       fetchBranches();
     } catch (err: any) {

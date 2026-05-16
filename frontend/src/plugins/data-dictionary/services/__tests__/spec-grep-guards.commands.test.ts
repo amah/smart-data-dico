@@ -46,7 +46,6 @@ const DATA_DICTIONARY_PLUGIN = path.join(SRC, 'plugins', 'data-dictionary', 'dat
 const SEARCH_PLUGIN = path.join(SRC, 'plugins', 'search', 'searchPlugin.ts');
 const CASE_PLUGIN = path.join(SRC, 'plugins', 'case', 'casePlugin.ts');
 const RULES_PLUGIN = path.join(SRC, 'plugins', 'rules', 'rulesPlugin.ts');
-const VERSION_CONTROL_PLUGIN = path.join(SRC, 'plugins', 'version-control', 'versionControlPlugin.ts');
 const STEREOTYPES_PAGE = path.join(SRC, 'pages', 'StereotypesPage.tsx');
 const INTEGRITY_PAGE = path.join(SRC, 'pages', 'IntegrityPage.tsx');
 const HOME_PAGE = path.join(SRC, 'pages', 'HomePage.tsx');
@@ -113,17 +112,17 @@ describe('#163 acceptance #1 — typed EventMap exists', () => {
 
 // ── Acceptance #2 — CommandMap with exactly 19 keys ───────────────────────
 
-describe('#163 acceptance #2 — typed CommandMap exists with 19 entries', () => {
+describe('#163 acceptance #2 — typed CommandMap exists with 30 entries', () => {
   it('kernel/commands.ts exists and exports CommandMap interface', () => {
     const content = read(COMMANDS_TS);
     expect(content).toMatch(/export interface CommandMap\b/);
   });
 
-  it('CommandMap has exactly 19 command keys', () => {
+  it('CommandMap has exactly 30 command keys', () => {
     const content = read(COMMANDS_TS);
     // Count quoted keys ending in `: {` pattern (command entries in interface)
     const matches = content.match(/^\s*['"][a-z][^'"]+['"]\s*:/gm) ?? [];
-    expect(matches.length).toBe(19);
+    expect(matches.length).toBe(30);
   });
 
   const commandNames = [
@@ -146,6 +145,17 @@ describe('#163 acceptance #2 — typed CommandMap exists with 19 entries', () =>
     'data-dictionary.import-export.exportMarkdown',
     'data-dictionary.quality.getReport',
     'search.search',
+    'data-dictionary.git.getStatus',
+    'data-dictionary.git.listBranches',
+    'data-dictionary.git.checkout',
+    'data-dictionary.git.log',
+    'data-dictionary.git.diff',
+    'data-dictionary.git.pull',
+    'data-dictionary.git.push',
+    'data-dictionary.publish.save',
+    'data-dictionary.publish.publish',
+    'data-dictionary.publish.sync',
+    'data-dictionary.publish.revert',
   ];
 
   for (const name of commandNames) {
@@ -176,11 +186,11 @@ describe('#163 acceptance #4 — CommandsDebugPage exists', () => {
 
 // ── Acceptance #5 — data-dictionary plugin registers 18 commands ──────────
 
-describe('#163 acceptance #5 — data-dictionary plugin registers 18 data-dictionary.* commands', () => {
-  it('dataDictionaryPlugin.ts has >= 18 ctx.commands.register calls for data-dictionary.*', () => {
+describe('#163 acceptance #5 — data-dictionary plugin registers 29 data-dictionary.* commands', () => {
+  it('dataDictionaryPlugin.ts has >= 29 ctx.commands.register calls for data-dictionary.*', () => {
     const content = read(DATA_DICTIONARY_PLUGIN);
     const matches = content.match(/ctx\.commands\.register\s*\(\s*['"]data-dictionary\./g) ?? [];
-    expect(matches.length).toBeGreaterThanOrEqual(18);
+    expect(matches.length).toBeGreaterThanOrEqual(29);
   });
 
   const ddCommands = [
@@ -202,6 +212,17 @@ describe('#163 acceptance #5 — data-dictionary plugin registers 18 data-dictio
     'data-dictionary.import-export.exportJsonSchema',
     'data-dictionary.import-export.exportMarkdown',
     'data-dictionary.quality.getReport',
+    'data-dictionary.git.getStatus',
+    'data-dictionary.git.listBranches',
+    'data-dictionary.git.checkout',
+    'data-dictionary.git.log',
+    'data-dictionary.git.diff',
+    'data-dictionary.git.pull',
+    'data-dictionary.git.push',
+    'data-dictionary.publish.save',
+    'data-dictionary.publish.publish',
+    'data-dictionary.publish.sync',
+    'data-dictionary.publish.revert',
   ];
 
   for (const name of ddCommands) {
@@ -231,8 +252,6 @@ describe('#163 acceptance #7 — dead refresh commands deleted', () => {
     { file: CASE_PLUGIN, label: 'casePlugin', command: 'case:refresh-requested' },
     { file: RULES_PLUGIN, label: 'rulesPlugin', command: 'rules.refresh' },
     { file: RULES_PLUGIN, label: 'rulesPlugin', command: 'rules:refresh-requested' },
-    { file: VERSION_CONTROL_PLUGIN, label: 'versionControlPlugin', command: 'version.commit' },
-    { file: VERSION_CONTROL_PLUGIN, label: 'versionControlPlugin', command: 'version:commit-requested' },
   ];
 
   for (const { file, label, command } of deadCommands) {
@@ -503,10 +522,10 @@ describe('#163 acceptance #21 — no commands.execute calls in frontend/src', ()
     ).toEqual([]);
   });
 
-  it('dataDictionaryPlugin.ts has 18 ctx.commands.register calls (per-plugin total)', () => {
+  it('dataDictionaryPlugin.ts has 29 ctx.commands.register calls (per-plugin total)', () => {
     const content = read(DATA_DICTIONARY_PLUGIN);
     const matches = content.match(/ctx\.commands\.register\s*\(/g) ?? [];
-    expect(matches.length).toBe(18);
+    expect(matches.length).toBe(29);
   });
 
   it('searchPlugin.ts has 1 ctx.commands.register call (per-plugin total)', () => {

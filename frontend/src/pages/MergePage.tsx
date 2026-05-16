@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { gitApi } from '../services/api';
+import { useCommand } from '../kernel/useCommand';
 
 export default function MergePage() {
   const [branches, setBranches] = useState<{ current: string; local: string[] }>({
@@ -10,11 +10,13 @@ export default function MergePage() {
   const [loading, setLoading] = useState(true);
   const [merging, setMerging] = useState(false);
   const [result, setResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const run = useCommand();
 
   useEffect(() => {
-    gitApi.getBranches().then((data) => {
+    run('data-dictionary.git.listBranches').then((data) => {
+      const current = typeof data.current === 'object' ? (data.current as any)?.name : (data.current || 'main');
       setBranches({
-        current: data.current || data.branch || 'main',
+        current,
         local: data.local || data.branches || [],
       });
       setLoading(false);
@@ -24,7 +26,7 @@ export default function MergePage() {
   const handlePreview = async () => {
     if (!selectedSource) return;
     try {
-      const data = await gitApi.getDiff();
+      const data = await run('data-dictionary.git.diff', {});
       setDiff(data);
     } catch {
       setDiff({ error: 'Failed to get diff preview' });
@@ -37,7 +39,7 @@ export default function MergePage() {
     setResult(null);
     try {
       // Switch to source, pull, switch back — simplified merge via pull
-      await gitApi.pull(undefined);
+      await run('data-dictionary.git.pull', {});
       setResult({ type: 'success', text: `Merged changes from "${selectedSource}" successfully.` });
     } catch (err: any) {
       const msg = err.response?.data?.message || 'Merge failed. There may be conflicts to resolve.';

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { versionApi } from '../services/api';
+import { useCommand } from '../kernel/useCommand';
 
 const CommitChanges = () => {
   const [commitMessage, setCommitMessage] = useState('');
@@ -8,23 +8,24 @@ const CommitChanges = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const navigate = useNavigate();
+  const run = useCommand();
 
   const handleCommit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!commitMessage.trim()) {
       setError('Commit message is required');
       return;
     }
-    
+
     try {
       setLoading(true);
       setError(null);
       setSuccess(null);
-      
-      const response = await versionApi.commitChanges(commitMessage);
-      
-      setSuccess(`Changes committed successfully. Commit hash: ${response.data.commitHash}`);
+
+      const result = await run('data-dictionary.publish.save', { message: commitMessage });
+
+      setSuccess(`Changes committed successfully. Commit hash: ${result.commitHash || 'unknown'}`);
       setCommitMessage('');
       
       // After a successful commit, wait a bit and then navigate to history

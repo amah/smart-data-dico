@@ -11,9 +11,28 @@ export const DICTIONARY_SERVICE_TOKEN = Symbol('DictionaryService');
 export const ENTITY_SERVICE_TOKEN = Symbol('EntityService');
 export const MICROSERVICE_SERVICE_TOKEN = Symbol('MicroserviceService');
 export const DIAGRAM_SERVICE_TOKEN = Symbol('DiagramService');
-export const VERSION_SERVICE_TOKEN = Symbol('VersionService');
 export const SEARCH_SERVICE_TOKEN = Symbol('SearchService');
 export const AUTH_SERVICE_TOKEN = Symbol('AuthService');
+
+/**
+ * DI token for the GitService.
+ *
+ * Local symbol — NOT the framework's git service token from
+ * @hamak/ui-remote-git-fs-api/tokens (which is never registered by the
+ * framework's createGitPlugin factory). This token is provided by
+ * `gitPlugin.ts` during `initialize` as an eager `useValue`.
+ */
+export const GIT_SERVICE_TOKEN = Symbol('GitService');
+
+/**
+ * DI token for the PublishService.
+ *
+ * Provided by `dataDictionaryPlugin.initialize` for forward-compat (any
+ * future cross-plugin consumer can resolve it via this token). The eleven
+ * command handlers in dataDictionaryPlugin close over the local instance
+ * directly, so this token is currently surplus but kept per Pattern B.
+ */
+export const PUBLISH_SERVICE_TOKEN = Symbol('PublishService');
 
 /**
  * DI token for the canonical Store FS facade.

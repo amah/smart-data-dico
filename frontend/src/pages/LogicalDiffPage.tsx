@@ -15,13 +15,13 @@
  *       ◎  meta
  *   - Before/after rendered as aligned two-line diffs, not raw JSON.
  *
- * All backend data paths (diff.getLogical, versionApi.getCommitHistory,
+ * All backend data paths (diff.getLogical, data-dictionary.git.log,
  * servicesApi.getAllServices) are preserved verbatim.
  */
 
 import { useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { servicesApi, versionApi } from '../services/api';
+import { servicesApi } from '../services/api';
 import { useCommand } from '../kernel/useCommand';
 import {
   Button,
@@ -249,7 +249,7 @@ export default function LogicalDiffPage() {
 
   useEffect(() => {
     servicesApi.getAllServices().then((data: any) => setServices(data.data || [])).catch(() => {});
-    versionApi.getCommitHistory(50).then((data: any) => setCommits(data.data || [])).catch(() => {});
+    run('data-dictionary.git.log', { limit: 50 }).then((data: any) => setCommits(data || [])).catch(() => {});
   }, []);
 
   const runDiff = useCallback(async () => {

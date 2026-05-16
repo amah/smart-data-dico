@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { gitApi, versionApi } from '../services/api';
+import { useCommand } from '../kernel/useCommand';
 import Breadcrumbs from '../components/Breadcrumbs';
 import { PageHeader } from '../components/ui';
 
@@ -9,10 +9,11 @@ export default function SavePublishPage() {
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [result, setResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const run = useCommand();
 
   const fetchStatus = async () => {
     try {
-      const data = await gitApi.getStatus();
+      const data = await run('data-dictionary.git.getStatus');
       setStatus(data);
     } catch {
       setStatus(null);
@@ -32,7 +33,7 @@ export default function SavePublishPage() {
     setResult(null);
     try {
       const commitMessage = message.trim() || `Updated data dictionary — ${unsavedCount} file${unsavedCount !== 1 ? 's' : ''} changed`;
-      await versionApi.commitChanges(commitMessage);
+      await run('data-dictionary.publish.save', { message: commitMessage });
       setResult({ type: 'success', text: 'Changes saved successfully.' });
       setMessage('');
       fetchStatus();
@@ -47,7 +48,7 @@ export default function SavePublishPage() {
     setPublishing(true);
     setResult(null);
     try {
-      await gitApi.push();
+      await run('data-dictionary.publish.publish', {});
       setResult({ type: 'success', text: 'Published to shared repository.' });
       fetchStatus();
     } catch (err: any) {
@@ -60,7 +61,7 @@ export default function SavePublishPage() {
   const handleSync = async () => {
     setResult(null);
     try {
-      await gitApi.pull();
+      await run('data-dictionary.publish.sync', {});
       setResult({ type: 'success', text: 'Synced with shared repository.' });
       fetchStatus();
     } catch (err: any) {
