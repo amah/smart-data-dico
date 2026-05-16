@@ -37,14 +37,13 @@ Backend is a plain Express app; the framework provides only the FS and git route
 
 - **Routes** (`src/routes/index.ts`): All API endpoints (~90 routes) defined in one file
 - **Controllers** (`src/controllers/`): Request handlers for auth, dictionaries, services, versions, diagrams, stereotypes, perspectives, import/export
-- **Services** (`src/services/`): Business logic — `serviceService.ts` (entities, search, impact), `dictionaryService.ts` (packages), `stereotypeService.ts`, `perspectiveService.ts` (BFS resolution), `importService.ts`, `exportService.ts`, `qualityService.ts`. Domain services consume `IStorageBackend` via constructor injection; the module-level singletons default to `storageRegistry.getBackend()`. Only `dictionaryService` still uses direct `fs` — its migration is deferred for multi-kind YAML write-semantics reasons (separate slice).
+- **Services** (`src/services/`): Business logic — `serviceService.ts` (entities, search, impact), `dictionaryService.ts` (packages), `stereotypeService.ts`, `perspectiveService.ts` (BFS resolution), `importService.ts`, `exportService.ts`, `qualityService.ts`. All domain services consume `IStorageBackend`. fileOperations.ts is the last `fs` allow-list site and migrates in a follow-up slice.
 - **Models** (`src/models/`): TypeScript interfaces + JSON Schema validation (`EntitySchema.ts`, `Dictionary.ts`)
 - **Middleware** (`src/middleware/`): Basic auth + JWT auth with role-based access (ADMIN, EDITOR, VIEWER)
 - **Kernel** (`src/kernel/config.ts`): Centralized configuration
 - **Adapters** (`src/adapters/`): `EntityFileAdapter.ts` wraps `@hamak/filesystem-server-impl`, `YamlFileInfoEnricher.ts` adds entity metadata to file listings
 - **Utils** (`src/utils/fileOperations.ts`): YAML file I/O, git commits via `@hamak/ui-remote-git-fs-backend`
 - **Framework routes**: `/fs` (filesystem via `@hamak/filesystem-server-impl`), `/api/git` (git via `@hamak/ui-remote-git-fs-backend`)
-- **Storage backend selection** (`src/storage/contract/registerStorageBackend.ts`): The env-var `STORAGE_BACKEND` selects the active backend at startup. `STORAGE_BACKEND=git` (default) uses `GitFilesystemStorageBackend` backed by the working tree. `STORAGE_BACKEND=memory` uses `InMemoryStorageBackend` seeded once from `config.dataDir` at boot — no git, no commit history (`capabilities().versionControl === false`). The memory backend is intended for dev/demo/test only; it does not support project switching at runtime. Both backends live under `src/storage/`; their capability differences are declared in `src/storage/contract/BackendCapabilities.ts` (`GIT_FILESYSTEM_CAPABILITIES` vs `IN_MEMORY_CAPABILITIES`).
 
 ### Frontend — Microkernel Plugin Architecture
 The frontend uses `@hamak/app-framework` microkernel with these plugins (registered in `src/kernel/bootstrap.ts`):
