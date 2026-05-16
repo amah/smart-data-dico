@@ -1,32 +1,85 @@
 import { useState, useRef, useEffect, type CSSProperties } from 'react';
 import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
 import type { MetadataValue } from '../types';
-import { METADATA_TYPE_REGISTRY_TOKEN } from '../kernel/tokens';
-import { useService } from '../kernel/useService';
-import type { MetadataTypeRegistry } from '../plugins/data-dictionary/metadata/MetadataTypeRegistry';
 import { fieldStyle } from './ui';
 
-// Scalar-type set — these use the existing inline-edit UX.
-const SCALAR_INLINE_TYPES = new Set(['string', 'number', 'date', 'flag', 'boolean', 'rule', 'enum']);
-
 interface InlineMetadataCellProps {
-  value: MetadataValue | undefined;     // was: string | number | boolean | undefined
+  value: string | number | boolean | undefined;
   column: MetadataColumn;
-  onChange: (value: MetadataValue) => void;   // was: (value: string | number | boolean) => void
-  /** Optional — called when the cell shows a non-scalar value and the user clicks. */
+  onChange: (value: string | number | boolean) => void;
+  /** Optional callback for non-scalar cells — called when the cell is clicked. */
   onExpand?: () => void;
 }
+
+// ─── Non-scalar inline renderers ─────────────────────────────────────────────
+
+/**
+ * Read-only renderer for object-typed metadata values inside the inline
+ * table cell.
+ */
+function renderObjectInline(value: { [k: string]: MetadataValue }): JSX.Element {
+  const entries = Object.entries(value);
+  if (entries.length === 0) {
+    return <span style={{ color: 'var(--text-subtle)', fontSize: 'var(--fs-xs)', fontStyle: 'italic' }}>—</span>;
+  }
+  return (
+    <div style={{ fontSize: 'var(--fs-xs)', lineHeight: 1.4 }}>
+      {entries.map(([k, v]) => (
+        <div key={k}>
+          <span style={{ fontWeight: 600 }}>{k}</span>
+          {': '}
+          <span>{String(v)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Read-only renderer for array-typed metadata values inside the inline
+ * table cell.
+ */
+function renderArrayInline(value: MetadataValue[]): JSX.Element {
+  if (value.length === 0) {
+    return <span style={{ color: 'var(--text-subtle)', fontSize: 'var(--fs-xs)', fontStyle: 'italic' }}>—</span>;
+  }
+  return (
+    <ol style={{ fontSize: 'var(--fs-xs)', listStyleType: 'decimal', paddingLeft: '1rem', margin: 0 }}>
+      {value.map((item, i) => (
+        <li key={i}>{String(item)}</li>
+      ))}
+    </ol>
+  );
+}
+
+/**
+ * Fallback renderer for unknown metadata `column.type` keys — shows the
+ * raw JSON value with a "unknown type: {type}" badge.
+ */
+function renderUnknownInline(value: MetadataValue | undefined, columnType: string): JSX.Element {
+  return (
+    <div style={{ fontSize: 'var(--fs-xs)' }}>
+      <span style={{ background: 'var(--warning, #f59e0b)', color: '#fff', padding: '0 4px', borderRadius: 2, fontSize: 'var(--fs-xs)', marginRight: 4 }}>
+        unknown type: {columnType}
+      </span>
+      <span style={{ fontFamily: 'monospace' }}>{JSON.stringify(value)}</span>
+    </div>
+  );
+}
+
+// ─── InlineMetadataCell ───────────────────────────────────────────────────────
 
 /**
  * Inline cell editor for stereotype-driven metadata. Click-to-edit on
  * text/number/date columns; checkboxes for flag/boolean columns are
- * always interactive (no edit mode toggle). Non-scalar values (object/array)
- * render via the registry's Viewer with optional expand callback.
+ * always interactive (no edit mode toggle).
+ *
+ * Non-scalar columns (object, array) are rendered read-only inline;
+ * clicking them calls `onExpand` if provided.
  *
  * Design-token styled — see /design-system.
  */
 export default function InlineMetadataCell({ value, column, onChange, onExpand }: InlineMetadataCellProps) {
-  const registry = useService<MetadataTypeRegistry>(METADATA_TYPE_REGISTRY_TOKEN);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLInputElement | HTMLSelectElement>(null);
@@ -39,27 +92,6 @@ export default function InlineMetadataCell({ value, column, onChange, onExpand }
       }
     }
   }, [editing]);
-
-  // Check if the value is non-scalar (object or array)
-  const isNonScalar = (v: MetadataValue | undefined): v is { [k: string]: MetadataValue } | MetadataValue[] =>
-    v !== undefined && v !== null && typeof v === 'object';
-
-  // For non-scalar values, route through registry's Viewer (read-only).
-  // Inline-edit of nested objects is deferred to a side-panel (Phase 4).
-  if (isNonScalar(value) || !SCALAR_INLINE_TYPES.has(column.type)) {
-    const def = { name: column.name, type: column.type, description: column.description };
-    const contribution = registry.getOrFallback(column.type);
-    const { Viewer } = contribution;
-    return (
-      <span
-        onClick={onExpand}
-        title={onExpand ? 'Click to expand' : column.description}
-        style={{ ...displayStyle, cursor: onExpand ? 'pointer' : 'default' }}
-      >
-        <Viewer value={value as any} def={def as any} />
-      </span>
-    );
-  }
 
   const commit = () => {
     setEditing(false);
@@ -95,6 +127,49 @@ export default function InlineMetadataCell({ value, column, onChange, onExpand }
         title={column.description}
         style={{ accentColor: 'var(--accent)', cursor: 'pointer' }}
       />
+    );
+  }
+
+  // Non-scalar types — render read-only inline; clicking calls onExpand.
+  if (column.type === 'object') {
+    const objValue =
+      value !== undefined && value !== null && typeof value === 'object' && !Array.isArray(value)
+        ? (value as { [k: string]: MetadataValue })
+        : {};
+    return (
+      <span
+        onClick={onExpand}
+        title={column.description || (onExpand ? 'Click to expand' : undefined)}
+        style={{ ...displayStyle, cursor: onExpand ? 'pointer' : 'default' }}
+      >
+        {renderObjectInline(objValue)}
+      </span>
+    );
+  }
+
+  if (column.type === 'array') {
+    const arrValue = Array.isArray(value) ? (value as MetadataValue[]) : [];
+    return (
+      <span
+        onClick={onExpand}
+        title={column.description || (onExpand ? 'Click to expand' : undefined)}
+        style={{ ...displayStyle, cursor: onExpand ? 'pointer' : 'default' }}
+      >
+        {renderArrayInline(arrValue)}
+      </span>
+    );
+  }
+
+  // Unknown scalar-ish types — render with unknown badge.
+  const knownTypes = ['string', 'number', 'boolean', 'flag', 'date', 'rule', 'enum', 'object', 'array'];
+  if (!knownTypes.includes(column.type)) {
+    return (
+      <span
+        onClick={onExpand}
+        style={{ ...displayStyle, cursor: onExpand ? 'pointer' : 'default' }}
+      >
+        {renderUnknownInline(value as MetadataValue | undefined, column.type)}
+      </span>
     );
   }
 

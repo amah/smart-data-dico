@@ -1,11 +1,7 @@
 import { useState } from 'react';
-import type { MetadataEntry, MetadataDefinition, MetadataValue, Stereotype, RuleSeverity } from '../types';
-import { METADATA_TYPE_REGISTRY_TOKEN } from '../kernel/tokens';
-import { useService } from '../kernel/useService';
-import type { MetadataTypeRegistry } from '../plugins/data-dictionary/metadata/MetadataTypeRegistry';
-import { setMetadataFieldComponent } from '../plugins/data-dictionary/metadata/builtinContributions';
+import type { MetadataValue, MetadataDefinition, MetadataEntry, Stereotype, RuleSeverity } from '../types';
 
-// ─── MetadataField ────────────────────────────────────────────────────────────
+// ─── MetadataField ───────────────────────────────────────────────────────────
 
 interface MetadataFieldProps {
   value: MetadataValue;
@@ -17,33 +13,194 @@ interface MetadataFieldProps {
 }
 
 /**
- * Recursive single-field renderer. Resolves the contribution for
- * definition.type from the registry and renders <contribution.Editor />.
- * Built-in object/array contributions render their children by recursing
- * INTO <MetadataField />, NOT into <MetadataBlock /> (which speaks the
- * entries+stereotype shape, not value+definition).
+ * Recursive single-field renderer. Dispatches on `definition.type` via a
+ * static switch over the 9 known keys (string, number, boolean, date, flag,
+ * rule, object, array, enum). Unknown types fall through to a read-only
+ * JSON dump with an "unknown type" badge, matching the legacy
+ * UnknownTypeEditor behaviour.
+ *
+ * Object/array recurse back into <MetadataField /> directly (same module —
+ * no lazy injection or indirection required).
  */
-export function MetadataField({ value, definition, onChange, path, readOnly }: MetadataFieldProps) {
-  const registry = useService<MetadataTypeRegistry>(METADATA_TYPE_REGISTRY_TOKEN);
-  const contribution = registry.getOrFallback(definition.type);
-  const { Editor } = contribution;
+export function MetadataField({ value, definition, onChange, path, readOnly }: MetadataFieldProps): JSX.Element {
+  switch (definition.type) {
+    case 'flag':
+      return (
+        <input
+          type="checkbox"
+          className="toggle toggle-primary toggle-sm"
+          checked={!!value}
+          onChange={(e) => onChange(e.target.checked)}
+          disabled={readOnly}
+        />
+      );
 
-  return (
-    <Editor
-      value={value as any}
-      onChange={onChange as any}
-      def={definition}
-      path={path}
-      readOnly={readOnly}
-    />
-  );
+    case 'boolean':
+      return (
+        <input
+          type="checkbox"
+          className="checkbox checkbox-sm"
+          checked={!!value}
+          onChange={(e) => onChange(e.target.checked)}
+          disabled={readOnly}
+        />
+      );
+
+    case 'number':
+      return (
+        <input
+          type="number"
+          className="input input-bordered input-sm w-32"
+          value={typeof value === 'number' ? value : ''}
+          onChange={(e) => onChange(Number(e.target.value))}
+          disabled={readOnly}
+        />
+      );
+
+    case 'date':
+      return (
+        <input
+          type="date"
+          className="input input-bordered input-sm"
+          value={String(value || '')}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={readOnly}
+        />
+      );
+
+    case 'rule':
+      return (
+        <textarea
+          className="textarea textarea-bordered textarea-sm flex-1"
+          value={String(value || '')}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Describe the rule..."
+          rows={2}
+          disabled={readOnly}
+        />
+      );
+
+    case 'object': {
+      const objValue = (value && typeof value === 'object' && !Array.isArray(value))
+        ? value as Record<string, MetadataValue>
+        : {};
+      const childDefs = definition.fields || [];
+      if (childDefs.length === 0) {
+        return (
+          <span className="text-sm text-base-content/50 italic">Object (no fields defined)</span>
+        );
+      }
+      return (
+        <div className="pl-3 border-l-2 border-base-300 space-y-2">
+          {childDefs.map((childDef) => (
+            <div key={childDef.name} className="flex items-start gap-2">
+              <span className="font-mono text-xs min-w-[100px] mt-1.5">{childDef.name}</span>
+              <MetadataField
+                value={objValue[childDef.name] ?? ''}
+                definition={childDef}
+                onChange={(next) => onChange({ ...objValue, [childDef.name]: next })}
+                path={`${path}.${childDef.name}`}
+                readOnly={readOnly}
+              />
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    case 'array': {
+      const arrValue = Array.isArray(value) ? value as MetadataValue[] : [];
+      const itemDef = definition.items;
+      if (!itemDef) {
+        return (
+          <span className="text-sm text-base-content/50 italic">Array (no item definition)</span>
+        );
+      }
+      return (
+        <div className="space-y-1">
+          {arrValue.map((item, idx) => (
+            <div key={idx} className="flex items-start gap-2">
+              <span className="text-xs text-base-content/50 min-w-[24px] mt-1.5">[{idx}]</span>
+              <MetadataField
+                value={item}
+                definition={itemDef}
+                onChange={(next) => {
+                  const updated = [...arrValue];
+                  updated[idx] = next;
+                  onChange(updated);
+                }}
+                path={`${path}[${idx}]`}
+                readOnly={readOnly}
+              />
+              {!readOnly && (
+                <button
+                  className="btn btn-ghost btn-xs text-error"
+                  onClick={() => onChange(arrValue.filter((_, i) => i !== idx))}
+                  title="Remove item"
+                >
+                  &times;
+                </button>
+              )}
+            </div>
+          ))}
+          {!readOnly && (
+            <button
+              className="btn btn-xs btn-ghost"
+              onClick={() => onChange([...arrValue, ''])}
+            >
+              + Add item
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    case 'enum': {
+      const enumValues = definition.enum || [];
+      return (
+        <select
+          className="select select-bordered select-sm"
+          value={String(value || '')}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={readOnly}
+        >
+          <option value="">— select —</option>
+          {enumValues.map((v) => (
+            <option key={v} value={v}>{v}</option>
+          ))}
+        </select>
+      );
+    }
+
+    case 'string':
+    default: {
+      // Default/unknown types fall back to a text input (string case)
+      // or a JSON dump with "unknown type" badge if the type is truly unrecognised.
+      const knownTypes = ['string', 'number', 'boolean', 'date', 'flag', 'rule', 'object', 'array', 'enum'];
+      if (!knownTypes.includes(definition.type as string)) {
+        return (
+          <div className="flex items-center gap-2">
+            <span className="badge badge-warning badge-xs">unknown type: {definition.type}</span>
+            <span className="font-mono text-xs text-base-content/70">
+              {JSON.stringify(value)}
+            </span>
+          </div>
+        );
+      }
+      return (
+        <input
+          type="text"
+          className="input input-bordered input-sm flex-1"
+          value={String(value || '')}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={readOnly}
+        />
+      );
+    }
+  }
 }
 
-// Register MetadataField with builtinContributions so object/array editors
-// can recurse without a circular import.
-setMetadataFieldComponent(MetadataField);
-
-// ─── MetadataBlock ─────────────────────────────────────────────────────────────
+// ─── MetadataBlock ────────────────────────────────────────────────────────────
 
 interface MetadataBlockProps {
   entries: MetadataEntry[];
@@ -53,23 +210,21 @@ interface MetadataBlockProps {
 }
 
 /**
- * Top-level block editor. Adapts a MetadataEntry[] (the on-disk shape) +
- * Stereotype to a definitions-driven iteration over MetadataField.
- * This is the ONLY component that adapts MetadataEntry[] ↔ MetadataDefinition[].
- * Everything beneath it speaks MetadataValue + MetadataDefinition.
+ * Top-level block editor; iterates definitions + entries and delegates
+ * per-field rendering to <MetadataField />.
  */
-export function MetadataBlock({ entries, stereotype, onChange, readOnly }: MetadataBlockProps) {
+export function MetadataBlock({ entries, stereotype, onChange, readOnly }: MetadataBlockProps): JSX.Element {
   const [newName, setNewName] = useState('');
   const [newValue, setNewValue] = useState('');
 
+  // Merge stereotype definitions with current entries
   const definitions = stereotype?.metadataDefinitions || [];
-
-  // Merge stereotype definitions with current entries — add placeholders for
-  // definitions not yet present in entries.
   const allEntries = [...entries];
+
+  // Add missing required/optional entries from stereotype
   for (const def of definitions) {
     if (!allEntries.find((e) => e.name === def.name)) {
-      allEntries.push({ name: def.name, value: def.type === 'flag' || def.type === 'boolean' ? false : '' });
+      allEntries.push({ name: def.name, value: def.type === 'flag' ? false : '' });
     }
   }
 
@@ -80,6 +235,7 @@ export function MetadataBlock({ entries, stereotype, onChange, readOnly }: Metad
     const updated = entries.map((e) =>
       e.name === name ? { ...e, value, ...(severity !== undefined ? { severity } : {}) } : e,
     );
+    // If entry doesn't exist yet, add it
     if (!updated.find((e) => e.name === name)) {
       updated.push({ name, value, ...(severity ? { severity } : {}) });
     }
@@ -88,7 +244,7 @@ export function MetadataBlock({ entries, stereotype, onChange, readOnly }: Metad
 
   const removeEntry = (name: string) => {
     const def = getDef(name);
-    if (def?.required) return;
+    if (def?.required) return; // Can't remove required entries
     onChange(entries.filter((e) => e.name !== name));
   };
 
@@ -108,6 +264,9 @@ export function MetadataBlock({ entries, stereotype, onChange, readOnly }: Metad
         const isRequired = def?.required;
         const isFromStereotype = !!def;
 
+        // For rule-typed entries, render severity alongside the field
+        const isRule = def?.type === 'rule';
+
         return (
           <div key={entry.name} className="flex items-start gap-3">
             <div className="min-w-[140px]">
@@ -123,7 +282,27 @@ export function MetadataBlock({ entries, stereotype, onChange, readOnly }: Metad
               )}
             </div>
             <div className="flex-1">
-              {def ? (
+              {isRule ? (
+                <div className="flex gap-2 items-start">
+                  <MetadataField
+                    value={entry.value}
+                    definition={def!}
+                    onChange={(next) => updateEntry(entry.name, next, entry.severity)}
+                    path={entry.name}
+                    readOnly={readOnly}
+                  />
+                  <select
+                    className="select select-bordered select-sm"
+                    value={entry.severity || 'info'}
+                    onChange={(e) => updateEntry(entry.name, entry.value, e.target.value as RuleSeverity)}
+                    disabled={readOnly}
+                  >
+                    <option value="info">Info</option>
+                    <option value="warning">Warning</option>
+                    <option value="error">Error</option>
+                  </select>
+                </div>
+              ) : def ? (
                 <MetadataField
                   value={entry.value}
                   definition={def}
@@ -132,17 +311,14 @@ export function MetadataBlock({ entries, stereotype, onChange, readOnly }: Metad
                   readOnly={readOnly}
                 />
               ) : (
-                // Custom entry with no stereotype definition — render as string
-                readOnly ? (
-                  <span className="text-sm">{String(entry.value ?? '')}</span>
-                ) : (
-                  <input
-                    type="text"
-                    className="input input-bordered input-sm flex-1"
-                    value={String(entry.value ?? '')}
-                    onChange={(e) => updateEntry(entry.name, e.target.value)}
-                  />
-                )
+                // Custom (non-stereotype) entry — plain text input
+                <input
+                  type="text"
+                  className="input input-bordered input-sm flex-1"
+                  value={String(entry.value || '')}
+                  onChange={(e) => updateEntry(entry.name, e.target.value)}
+                  disabled={readOnly}
+                />
               )}
             </div>
             {!readOnly && !isRequired && (
@@ -188,7 +364,5 @@ export function MetadataBlock({ entries, stereotype, onChange, readOnly }: Metad
   );
 }
 
-// Default export preserves existing import sites:
-//   import MetadataEditor from '../components/MetadataEditor'
-//   -> resolves to MetadataBlock (same props as today).
+/** Unchanged default export — preserves all current import sites. */
 export default MetadataBlock;

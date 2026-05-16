@@ -15,7 +15,6 @@ import {
   INTEGRITY_SERVICE_TOKEN,
   DIFF_SERVICE_TOKEN,
   IMPORT_EXPORT_SERVICE_TOKEN,
-  METADATA_TYPE_REGISTRY_TOKEN,
   GIT_SERVICE_TOKEN,
   PUBLISH_SERVICE_TOKEN,
   CASE_SERVICE_TOKEN,
@@ -34,9 +33,6 @@ import { RuleService } from './services/RuleService';
 import type { RuleListFilters } from './services/RuleService';
 import type { Stereotype, Case, Rule } from '../../types';
 import type { RootState } from '../../kernel/bootstrap';
-import { createMetadataTypeRegistry } from './metadata/MetadataTypeRegistry';
-import { registerBuiltinContributions } from './metadata/builtinContributions';
-import { UnknownTypeContribution } from './metadata/UnknownTypeEditor';
 
 // Module-scope mutable notify slot. `initialize` constructs the service with a
 // stable forwarder lambda that resolves `notifyImpl` at call time; `activate`
@@ -117,16 +113,6 @@ export function createDataDictionaryPlugin(options: DataDictionaryPluginOptions 
       ctx.provide({
         provide: INTEGRITY_SERVICE_TOKEN,
         useValue: new IntegrityService(),
-      });
-
-      // #164 — registry-shaped Pattern B: construct, seed with 9 built-ins,
-      // provide under METADATA_TYPE_REGISTRY_TOKEN. Other plugins may extend
-      // it by calling ctx.resolve(METADATA_TYPE_REGISTRY_TOKEN).register(...).
-      const metadataRegistry = createMetadataTypeRegistry({ unknownTypeFallback: UnknownTypeContribution });
-      registerBuiltinContributions(metadataRegistry);
-      ctx.provide({
-        provide: METADATA_TYPE_REGISTRY_TOKEN,
-        useValue: metadataRegistry,
       });
 
       // Pattern B (#155-diff): no kernel deps — register DiffService.

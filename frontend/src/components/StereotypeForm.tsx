@@ -1,8 +1,25 @@
 import { useState } from 'react';
-import type { Stereotype, MetadataDefinition, StereotypeTarget } from '../types';
-import { METADATA_TYPE_REGISTRY_TOKEN } from '../kernel/tokens';
-import { useService } from '../kernel/useService';
-import type { MetadataTypeRegistry } from '../plugins/data-dictionary/metadata/MetadataTypeRegistry';
+import type { Stereotype, MetadataDefinition, StereotypeTarget, MetadataValueType } from '../types';
+
+/**
+ * The fixed type-key catalogue surfaced in the stereotype-form dropdown.
+ * Ordering: string → number → boolean → date → flag → rule → object → array → enum.
+ *
+ * Future extension (post-#165c, e.g. when #107 derived types are exposed
+ * here): merge `dico.config.json.types[]` into this list. Out of scope
+ * for the registry-collapse slice.
+ */
+const AVAILABLE_METADATA_TYPES: ReadonlyArray<{ type: string; label: string }> = [
+  { type: 'string',  label: 'Text'    },
+  { type: 'number',  label: 'Number'  },
+  { type: 'boolean', label: 'Boolean' },
+  { type: 'date',    label: 'Date'    },
+  { type: 'flag',    label: 'Flag'    },
+  { type: 'rule',    label: 'Rule'    },
+  { type: 'object',  label: 'Object'  },
+  { type: 'array',   label: 'Array'   },
+  { type: 'enum',    label: 'Enum'    },
+];
 
 interface StereotypeFormProps {
   initialValues?: Partial<Stereotype>;
@@ -14,7 +31,6 @@ interface StereotypeFormProps {
 }
 
 export default function StereotypeForm({ initialValues, knownDomains = [], onSubmit, onCancel, isEdit }: StereotypeFormProps) {
-  const registry = useService<MetadataTypeRegistry>(METADATA_TYPE_REGISTRY_TOKEN);
   const [id, setId] = useState(initialValues?.id || '');
   const [name, setName] = useState(initialValues?.name || '');
   const [description, setDescription] = useState(initialValues?.description || '');
@@ -22,13 +38,8 @@ export default function StereotypeForm({ initialValues, knownDomains = [], onSub
   const [appliesTo, setAppliesTo] = useState<StereotypeTarget>(initialValues?.appliesTo || 'entity');
   const [definitions, setDefinitions] = useState<MetadataDefinition[]>(initialValues?.metadataDefinitions || []);
 
-  // Filter contributions by appliesTo: undefined = all targets, array = specific targets.
-  const availableTypes = registry.list().filter(
-    (c) => c.appliesTo === undefined || c.appliesTo.includes(appliesTo),
-  );
-
   const addDefinition = () => {
-    setDefinitions([...definitions, { name: '', type: availableTypes[0]?.type ?? 'string' }]);
+    setDefinitions([...definitions, { name: '', type: 'string' as MetadataValueType }]);
   };
 
   const updateDefinition = (index: number, field: string, value: any) => {
@@ -149,8 +160,8 @@ export default function StereotypeForm({ initialValues, knownDomains = [], onSub
                 value={def.type}
                 onChange={(e) => updateDefinition(i, 'type', e.target.value)}
               >
-                {availableTypes.map((c) => (
-                  <option key={c.type} value={c.type}>{c.label}</option>
+                {AVAILABLE_METADATA_TYPES.map(({ type, label }) => (
+                  <option key={type} value={type}>{label}</option>
                 ))}
               </select>
               <label className="flex items-center gap-1 text-xs cursor-pointer">
