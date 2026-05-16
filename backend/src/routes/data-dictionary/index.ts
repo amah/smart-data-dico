@@ -10,7 +10,7 @@ import modelMetadataRoutes from './model-metadata.routes.js';
 import dicoConfigRoutes from './dico-config.routes.js';
 import diffRoutes from './diff.routes.js';
 import importExportRoutes from './import-export.routes.js';
-import versionRoutes from './version.routes.js';
+import publishRoutes from './publish.routes.js';
 
 const router: Router = Router();
 // Ordering: literals before :params within /api/packages/** and /api/entities/**.
@@ -28,5 +28,5 @@ router.use(modelMetadataRoutes);
 router.use(dicoConfigRoutes);
 router.use(diffRoutes);
 router.use(importExportRoutes);
-router.use(versionRoutes);
+router.use(publishRoutes);
 export default router;

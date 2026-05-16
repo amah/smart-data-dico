@@ -1,12 +1,14 @@
 // frontend/src/kernel/commands.ts
 //
-// Typed command surface for Slice 1. The five DI'd services contribute the
-// command set. Adding a new command means:
+// Typed command surface. The DI'd services contribute the command set.
+// Adding a new command means:
 //   1. Add the {input, output} pair to `CommandMap` below.
 //   2. Register it in the owning plugin's `initialize` via `ctx.commands.register`.
 //   3. Call it from components via `useCommand()(name, input)`.
 // Removing a command means: delete the key here, delete the register call,
 // delete the call-sites. Type errors enforce the audit.
+//
+// Total: 19 (pre-#160 baseline) + 11 (#160: git + publish) = 30 keys.
 
 import { host } from './bootstrap';
 import type { Stereotype } from '../types';
@@ -34,6 +36,12 @@ import type {
   SearchFilters,
   SearchResponse,
 } from '../plugins/search/services/SearchService';
+import type {
+  GitStatusDTO,
+  GitBranchListDTO,
+  GitLogEntryDTO,
+} from '../plugins/git/services/GitService';
+import type { SaveResult } from '../plugins/data-dictionary/services/PublishService';
 
 export interface CommandMap {
   // ── Stereotypes (data-dictionary) ────────────────────────────────────
@@ -125,6 +133,22 @@ export interface CommandMap {
     input: { query: string; filters?: SearchFilters };
     output: SearchResponse;
   };
+
+  // ── Git transport (data-dictionary owns the user-facing commands,
+  //    delegates to GitService) ──────────────────────────────────────────
+  'data-dictionary.git.getStatus': { input: void; output: GitStatusDTO; };
+  'data-dictionary.git.listBranches': { input: void; output: GitBranchListDTO; };
+  'data-dictionary.git.checkout': { input: { branch: string; create?: boolean }; output: void; };
+  'data-dictionary.git.log': { input: { limit?: number }; output: GitLogEntryDTO[]; };
+  'data-dictionary.git.diff': { input: { file?: string }; output: { diff: string; file?: string }; };
+  'data-dictionary.git.pull': { input: { remote?: string }; output: void; };
+  'data-dictionary.git.push': { input: { remote?: string }; output: void; };
+
+  // ── Save & Publish (PublishService composites) ──────────────────────────
+  'data-dictionary.publish.save': { input: { message: string }; output: SaveResult; };
+  'data-dictionary.publish.publish': { input: { remote?: string }; output: void; };
+  'data-dictionary.publish.sync': { input: { remote?: string }; output: void; };
+  'data-dictionary.publish.revert': { input: { commitHash: string }; output: { newCommitHash?: string }; };
 }
 
 export type CommandName = keyof CommandMap;

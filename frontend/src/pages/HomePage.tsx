@@ -13,7 +13,7 @@
  * KPI data sources:
  *   - Quality      → commands.run('data-dictionary.quality.getReport') → overall %
  *   - Integrity    → commands.run('data-dictionary.integrity.getReport') → count of severity=error
- *   - Open diff    → gitApi.getStatus() → uncommitted file count
+ *   - Open diff    → commands.run('data-dictionary.git.getStatus') → uncommitted file count
  *   - Physical sync → placeholder (— "not run") until the Phase 6
  *     drift job is wired up
  */
@@ -23,7 +23,6 @@ import { Link } from 'react-router-dom';
 import {
   servicesApi,
   packageApi,
-  gitApi,
 } from '../services/api';
 import { useCommand } from '../kernel/useCommand';
 import { getRecentPackages } from '../hooks/useRecentPackages';
@@ -147,7 +146,7 @@ const HomePage = () => {
       })
       .catch(() => { /* best effort */ });
 
-    gitApi.getStatus()
+    run('data-dictionary.git.getStatus')
       .then((status: any) => {
         if (cancelled) return;
         const dirty =

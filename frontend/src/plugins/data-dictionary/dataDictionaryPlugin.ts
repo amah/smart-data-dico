@@ -16,6 +16,8 @@ import {
   DIFF_SERVICE_TOKEN,
   IMPORT_EXPORT_SERVICE_TOKEN,
   METADATA_TYPE_REGISTRY_TOKEN,
+  GIT_SERVICE_TOKEN,
+  PUBLISH_SERVICE_TOKEN,
 } from '../../kernel/tokens';
 import { StereotypeService, type NotifyFn } from './services/StereotypeService';
 import { IntegrityService } from './services/IntegrityService';
@@ -23,6 +25,8 @@ import { DiffService } from './services/DiffService';
 import type { LogicalDiffOperand, PhysicalDiffSource } from './services/DiffService';
 import { ImportExportService } from './services/ImportExportService';
 import type { SchemaImportOptions, DbDialect } from './services/ImportExportService';
+import { PublishService } from './services/PublishService';
+import type { GitService } from '../git/services/GitService';
 import type { Stereotype } from '../../types';
 import type { RootState } from '../../kernel/bootstrap';
 import { createMetadataTypeRegistry } from './metadata/MetadataTypeRegistry';
@@ -199,6 +203,38 @@ export function createDataDictionaryPlugin(): PluginModule {
         ctx.hooks.emit('quality.report.refreshed', { service, overall: report.overall });
         return report;
       });
+
+      // ── #160 Git + Publish command registrations ──────────────────────────
+      // Resolve GitService (provided by gitPlugin.initialize — guaranteed by
+      // dependsOn: ['git'] in bootstrap.ts).
+      // Guard: the git plugin is not bootstrapped in lightweight test harnesses
+      // that only include [store, remote-fs, store-fs, data-dictionary].
+      // We resolve best-effort; if GIT_SERVICE_TOKEN is absent we skip the
+      // command registrations gracefully (StereotypeService tests are unaffected).
+      let git: GitService | null = null;
+      try {
+        git = ctx.resolve<GitService>(GIT_SERVICE_TOKEN);
+      } catch {
+        // git plugin absent (test-only bootstrap) — skip git/publish commands.
+      }
+
+      if (git !== null) {
+        const publish = new PublishService(git);
+        ctx.provide({ provide: PUBLISH_SERVICE_TOKEN, useValue: publish });
+
+        ctx.commands.register('data-dictionary.git.getStatus',    () => git!.getStatus());
+        ctx.commands.register('data-dictionary.git.listBranches', () => git!.listBranches());
+        ctx.commands.register('data-dictionary.git.checkout',     ({ branch, create }: { branch: string; create?: boolean }) => git!.checkout(branch, create));
+        ctx.commands.register('data-dictionary.git.log',          ({ limit }: { limit?: number }) => git!.log(limit));
+        ctx.commands.register('data-dictionary.git.diff',         ({ file }: { file?: string }) => git!.diff(file));
+        ctx.commands.register('data-dictionary.git.pull',         ({ remote }: { remote?: string }) => git!.pull(remote));
+        ctx.commands.register('data-dictionary.git.push',         ({ remote }: { remote?: string }) => git!.push(remote));
+
+        ctx.commands.register('data-dictionary.publish.save',    ({ message }: { message: string }) => publish.save(message));
+        ctx.commands.register('data-dictionary.publish.publish', ({ remote }: { remote?: string }) => publish.publish(remote));
+        ctx.commands.register('data-dictionary.publish.sync',    ({ remote }: { remote?: string }) => publish.sync(remote));
+        ctx.commands.register('data-dictionary.publish.revert',  ({ commitHash }: { commitHash: string }) => publish.revert(commitHash));
+      }
 
       // Route ownership for the commands debug page.
       // (Route declared here because data-dictionary owns broad dev-tooling surfaces.)

@@ -118,19 +118,7 @@ describe('API Integration Tests', () => {
     });
   });
 
-  describe('Version Control', () => {
-    it('POST /api/commit should commit changes', async () => {
-      const response = await request(app)
-        .post('/api/commit')
-        .send({ message: 'Test commit' });
-      expect(response.status).toBe(200);
-    });
-
-    it('GET /api/history should return commit history', async () => {
-      const response = await request(app).get('/api/history');
-      expect(response.status).toBe(200);
-    });
-
+  describe('Publish (revert)', () => {
     it('POST /api/revert should revert to commit', async () => {
       const response = await request(app)
         .post('/api/revert')

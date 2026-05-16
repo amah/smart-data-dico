@@ -13,9 +13,8 @@ import { createAuthPlugin } from '../plugins/auth/authPlugin';
 import { createDataDictionaryPlugin } from '../plugins/data-dictionary/dataDictionaryPlugin';
 import { createVisualizationPlugin } from '../plugins/visualization/visualizationPlugin';
 import { createSearchPlugin } from '../plugins/search/searchPlugin';
-import { createVersionControlPlugin } from '../plugins/version-control/versionControlPlugin';
 import { createAppRemoteFsPlugin } from '../plugins/remote-fs/remoteFsPlugin';
-import { createAppRemoteGitPlugin } from '../plugins/remote-fs/remoteGitPlugin';
+import { createGitPlugin } from '../plugins/git/gitPlugin';
 import { createNotificationPlugin } from '../plugins/notification/notificationPlugin';
 import { createLoggingPlugin } from '../plugins/logging/loggingPlugin';
 import { createCasePlugin } from '../plugins/case/casePlugin';
@@ -31,7 +30,6 @@ import diagramReducer from '../store/slices/diagramSlice';
 import packagesReducer from '../store/slices/packagesSlice';
 import stereotypesReducer from '../store/slices/stereotypesSlice';
 import casesReducer from '../store/slices/casesSlice';
-import versionReducer from '../store/slices/versionSlice';
 import searchReducer from '../store/slices/searchSlice';
 
 /**
@@ -68,7 +66,6 @@ export function registerPlugins() {
         reducerRegistry.register('packages', packagesReducer);
         reducerRegistry.register('stereotypes', stereotypesReducer);
         reducerRegistry.register('cases', casesReducer);
-        reducerRegistry.register('version', versionReducer);
         reducerRegistry.register('search', searchReducer);
       }
     },
@@ -102,10 +99,10 @@ export function registerPlugins() {
     createAuthPlugin()
   );
 
-  // Feature plugins (depends on: store, auth, store-fs)
+  // Feature plugins (depends on: store, auth, store-fs, git)
   host.registerPlugin(
     'data-dictionary',
-    { name: 'data-dictionary', version: '1.0.0', entry: '', dependsOn: ['store', 'auth', 'store-fs'] },
+    { name: 'data-dictionary', version: '1.0.0', entry: '', dependsOn: ['store', 'auth', 'store-fs', 'git'] },
     createDataDictionaryPlugin()
   );
 
@@ -119,12 +116,6 @@ export function registerPlugins() {
     'search',
     { name: 'search', version: '1.0.0', entry: '', dependsOn: ['store'] },
     createSearchPlugin()
-  );
-
-  host.registerPlugin(
-    'version-control',
-    { name: 'version-control', version: '1.0.0', entry: '', dependsOn: ['store', 'auth'] },
-    createVersionControlPlugin()
   );
 
   // Remote FS plugin (depends on: store)
@@ -143,11 +134,12 @@ export function registerPlugins() {
     createAppStoreFsPlugin()
   );
 
-  // Remote Git plugin (depends on: store, remote-fs)
+  // Git plugin — wraps @hamak/ui-remote-git-fs with our Pattern B GitService.
+  // Provides GIT_SERVICE_TOKEN. Renamed from remote-git in #160.
   host.registerPlugin(
-    'remote-git',
-    { name: 'remote-git', version: '1.0.0', entry: '', dependsOn: ['store', 'remote-fs'] },
-    createAppRemoteGitPlugin()
+    'git',
+    { name: 'git', version: '1.0.0', entry: '', dependsOn: ['store', 'remote-fs'] },
+    createGitPlugin()
   );
 
   // Logging plugin (no dependencies; must be registered before notification)

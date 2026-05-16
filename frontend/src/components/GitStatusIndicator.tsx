@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { gitApi } from '../services/api';
+import { useCommand } from '../kernel/useCommand';
 import { Button, Chip, Icon, Menu } from './ui';
 
 interface GitStatus {
@@ -21,10 +21,11 @@ interface GitStatus {
 export default function GitStatusIndicator() {
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const run = useCommand();
 
   const fetchStatus = async () => {
     try {
-      const data = await gitApi.getStatus();
+      const data = await run('data-dictionary.git.getStatus');
       // Framework returns branch as object {current, tracking, ahead, behind} or as string
       const branchInfo = typeof data.branch === 'object' ? data.branch : null;
       setStatus({
@@ -47,12 +48,12 @@ export default function GitStatusIndicator() {
 
   const handlePull = async () => {
     setSyncing(true);
-    try { await gitApi.pull(); fetchStatus(); } catch { /* ignore */ } finally { setSyncing(false); }
+    try { await run('data-dictionary.git.pull', {}); fetchStatus(); } catch { /* ignore */ } finally { setSyncing(false); }
   };
 
   const handlePush = async () => {
     setSyncing(true);
-    try { await gitApi.push(); fetchStatus(); } catch { /* ignore */ } finally { setSyncing(false); }
+    try { await run('data-dictionary.git.push', {}); fetchStatus(); } catch { /* ignore */ } finally { setSyncing(false); }
   };
 
   if (!status) return null;

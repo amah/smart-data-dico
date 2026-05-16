@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { versionApi } from '../services/api';
+import { useCommand } from '../kernel/useCommand';
 import { CommitInfo } from '../types';
 
 const CommitHistory = () => {
@@ -10,6 +10,7 @@ const CommitHistory = () => {
   const [revertError, setRevertError] = useState<string | null>(null);
   const [revertSuccess, setRevertSuccess] = useState<string | null>(null);
   const [limit, setLimit] = useState(20);
+  const run = useCommand();
 
   useEffect(() => {
     fetchCommitHistory();
@@ -19,9 +20,10 @@ const CommitHistory = () => {
     try {
       setLoading(true);
       setError(null);
-      
-      const response = await versionApi.getCommitHistory(limit);
-      setCommits(response.data);
+
+      const data = await run('data-dictionary.git.log', { limit });
+      // The framework log endpoint returns an array of log entries directly
+      setCommits(data as unknown as CommitInfo[]);
     } catch (err) {
       console.error('Error fetching commit history:', err);
       setError('Failed to load commit history. Please try again later.');
@@ -35,11 +37,11 @@ const CommitHistory = () => {
       setRevertLoading(commitHash);
       setRevertError(null);
       setRevertSuccess(null);
-      
-      const response = await versionApi.revertToCommit(commitHash);
-      
-      setRevertSuccess(`Successfully reverted to commit ${commitHash.substring(0, 7)}. New revert commit: ${response.data.newCommitHash.substring(0, 7)}`);
-      
+
+      const result = await run('data-dictionary.publish.revert', { commitHash });
+
+      setRevertSuccess(`Successfully reverted to commit ${commitHash.substring(0, 7)}. New revert commit: ${(result.newCommitHash || '').substring(0, 7)}`);
+
       // Refresh commit history after revert
       fetchCommitHistory();
     } catch (err) {
