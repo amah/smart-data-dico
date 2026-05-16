@@ -43,6 +43,23 @@ export const host = new Host([], undefined, { debug: false });
 let isBootstrapped = false;
 
 /**
+ * Plugin `dependsOn` convention.
+ *
+ * `dependsOn` lists every plugin whose DI token this plugin resolves at
+ * `initialize` or `activate`. The microkernel uses these names solely for
+ * topological ordering of `initialize` and `activate` (graph-utils.js:10).
+ * They are NOT enforcement — a missing token surfaces only as a runtime
+ * `No provider for token: …` throw from container.resolve (di.js:63).
+ *
+ * Out of scope of this declaration:
+ *   - `ctx.commands.run(...)` callers — command bus is name-keyed, loose.
+ *   - `ctx.hooks.on(...)` listeners — listeners survive without emitter.
+ *   - Best-effort `ctx.resolve` calls wrapped in try/catch.
+ *
+ * Smoke test enforcing this convention: src/__tests__/plugin-dependency-graph.test.ts.
+ */
+
+/**
  * Register all application plugins
  */
 export function registerPlugins() {
@@ -84,30 +101,31 @@ export function registerPlugins() {
     wrappedStorePlugin
   );
 
-  // Shell plugin (depends on: store)
+  // Shell plugin — no DI token resolves (ShellPluginFactory has zero ctx.resolve calls)
   host.registerPlugin(
     'shell',
-    { name: 'shell', version: '1.0.0', entry: '', dependsOn: ['store'] },
+    { name: 'shell', version: '1.0.0', entry: '' },
     createAppShellPlugin()
   );
 
-  // Auth plugin (depends on: store)
+  // Auth plugin — no DI token resolves (only provides AUTH_SERVICE_TOKEN)
   host.registerPlugin(
     'auth',
-    { name: 'auth', version: '1.0.0', entry: '', dependsOn: ['store'] },
+    { name: 'auth', version: '1.0.0', entry: '' },
     createAuthPlugin()
   );
 
-  // Feature plugins (depends on: store, auth, store-fs, git)
+  // Feature plugins (depends on: store, store-fs, git) — 'auth' dropped: AUTH_SERVICE_TOKEN never resolved
   host.registerPlugin(
     'data-dictionary',
-    { name: 'data-dictionary', version: '1.0.0', entry: '', dependsOn: ['store', 'auth', 'store-fs', 'git'] },
+    { name: 'data-dictionary', version: '1.0.0', entry: '', dependsOn: ['store', 'store-fs', 'git'] },
     createDataDictionaryPlugin({ workingFolder: ['dictionaries'] })
   );
 
+  // Visualization plugin — no DI token resolves (only registers routes)
   host.registerPlugin(
     'visualization',
-    { name: 'visualization', version: '1.0.0', entry: '', dependsOn: ['store'] },
+    { name: 'visualization', version: '1.0.0', entry: '' },
     createVisualizationPlugin({ workingFolder: ['dictionaries'] })
   );
 
@@ -135,9 +153,11 @@ export function registerPlugins() {
 
   // Git plugin — wraps @hamak/ui-remote-git-fs with our Pattern B GitService.
   // Provides GIT_SERVICE_TOKEN. Renamed from remote-git in #160.
+  // 'remote-fs' dropped: git-plugin-factory constructs its own GitPathTranslator,
+  // does NOT resolve PATH_TRANSLATOR_TOKEN from remote-fs.
   host.registerPlugin(
     'git',
-    { name: 'git', version: '1.0.0', entry: '', dependsOn: ['store', 'remote-fs'] },
+    { name: 'git', version: '1.0.0', entry: '', dependsOn: ['store'] },
     createGitPlugin()
   );
 
@@ -148,18 +168,21 @@ export function registerPlugins() {
     createLoggingPlugin()
   );
 
-  // Notification plugin (depends on: store, logging)
+  // Notification plugin — resolves LOG_MANAGER_TOKEN (hard); 'store' dropped:
+  // Symbol.for('@hamak/ui-store:StoreExtensionsRegistry') != Symbol('StoreExtensions')
+  // so the store extension is silently skipped in a try/catch (pre-existing bug, Risk 2).
   host.registerPlugin(
     'notification',
-    { name: 'notification', version: '1.0.0', entry: '', dependsOn: ['store', 'logging'] },
+    { name: 'notification', version: '1.0.0', entry: '', dependsOn: ['logging'] },
     createNotificationPlugin()
   );
 
-  // AI Assistance plugin (#162) — depends on: store, auth, data-dictionary
+  // AI Assistance plugin (#162) — no DI token resolves (only provides AI_SERVICE_TOKEN).
   // ShellLayout's flag-check is the runtime gate. See spec #162 Risk 3.
+  // 'store', 'auth', 'data-dictionary' dropped: aiPlugin.ts has zero ctx.resolve calls.
   host.registerPlugin(
     'ai-assistance',
-    { name: 'ai-assistance', version: '1.0.0', entry: '', dependsOn: ['store', 'auth', 'data-dictionary'] },
+    { name: 'ai-assistance', version: '1.0.0', entry: '' },
     createAiAssistancePlugin({ enabled: true }),
   );
 }
