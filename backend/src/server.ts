@@ -8,6 +8,8 @@ import { logger } from './utils/logger.js';
 import { config } from './kernel/config.js';
 import { initializeFileSystem, getFileRouter } from './adapters/EntityFileAdapter.js';
 import { createYamlFileInfoEnricher } from './adapters/YamlFileInfoEnricher.js';
+import { registerStorageBackend } from './storage/contract/registerStorageBackend.js';
+export { registerStorageBackend };
 
 // Load environment variables
 dotenv.config();
@@ -71,7 +73,10 @@ app.use(routes);
 async function mountFrameworkRoutes() {
   try {
     // Initialize filesystem framework
-    const { enricherRegistry } = await initializeFileSystem();
+    const { workspaceManager, enricherRegistry } = await initializeFileSystem();
+
+    // Register the git+filesystem storage backend singleton
+    registerStorageBackend(workspaceManager);
 
     // Register YAML entity enricher
     const yamlEnricher = createYamlFileInfoEnricher();
