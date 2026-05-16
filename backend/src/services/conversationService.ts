@@ -1,3 +1,4 @@
+// TODO(#167-slice2b): migrate to IStorageBackend once second workspace is registered
 /**
  * Conversation persistence service
  *

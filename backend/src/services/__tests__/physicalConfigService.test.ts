@@ -1,51 +1,47 @@
 /**
  * Tests for the per-service physical config store (whole-model diff).
  *
- * Uses a fresh temp directory as the backing DATA_DICTIONARIES_DIR so the
- * real project's data-dictionaries/ is never touched. The service under
- * test is a thin YAML read/write layer, so we only need to verify the
- * shape, the credential-stripping invariant, and round-trip reads.
+ * Uses InMemoryStorageBackend for isolation — no temp directories, no disk I/O.
  */
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
+import { InMemoryStorageBackend } from '../../__tests__/helpers/InMemoryStorageBackend.js';
+import { PhysicalConfigService } from '../physicalConfigService.js';
+import { wsId, pathOf } from '../../storage/contract/types.js';
+import {
+  mergeCredentials,
+  type PhysicalConfig,
+} from '../physicalConfigService.js';
 
 jest.mock('../../utils/logger');
 
-// Mock getPackagePath to point at a temp dir
-const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'physconfig-'));
-const servicesDir = path.join(tmpRoot, 'microservices');
-fs.mkdirSync(servicesDir, { recursive: true });
-fs.mkdirSync(path.join(servicesDir, 'order-service'));
-fs.mkdirSync(path.join(servicesDir, 'user-service'));
+const WS = wsId('dictionaries');
 
-jest.mock('../../utils/fileOperations', () => {
-  const realPath = jest.requireActual('path');
-  return {
-    getPackagePath: (name: string) => realPath.join(servicesDir, name),
-    listMicroservices: async () => ['order-service', 'user-service'],
-  };
-});
+function makeService(backend: InMemoryStorageBackend): PhysicalConfigService {
+  return new PhysicalConfigService(backend, WS);
+}
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const {
-  getPhysicalConfig,
-  setPhysicalConfig,
-  deletePhysicalConfig,
-  mergeCredentials,
-} = require('../physicalConfigService');
-
-afterAll(() => {
-  fs.rmSync(tmpRoot, { recursive: true, force: true });
-});
+async function seedServiceDir(backend: InMemoryStorageBackend, serviceName: string): Promise<void> {
+  // Create a file inside the service dir so stat() finds it as a directory
+  await backend.mkdir(WS, pathOf(serviceName), true);
+}
 
 describe('physicalConfigService', () => {
-  it('returns null when no config exists', () => {
-    expect(getPhysicalConfig('order-service')).toBeNull();
+  let backend: InMemoryStorageBackend;
+  let svc: PhysicalConfigService;
+
+  beforeEach(async () => {
+    backend = new InMemoryStorageBackend();
+    svc = makeService(backend);
+    // Pre-create service directories
+    await seedServiceDir(backend, 'order-service');
+    await seedServiceDir(backend, 'user-service');
   });
 
-  it('round-trips a postgres config', () => {
-    setPhysicalConfig('order-service', {
+  it('returns null when no config exists', async () => {
+    expect(await svc.get('order-service')).toBeNull();
+  });
+
+  it('round-trips a postgres config', async () => {
+    await svc.set('order-service', {
       dialect: 'postgres',
       connection: {
         host: 'db.example.com',
@@ -54,7 +50,7 @@ describe('physicalConfigService', () => {
         schema: 'public',
       },
     });
-    const cfg = getPhysicalConfig('order-service');
+    const cfg = await svc.get('order-service');
     expect(cfg).toEqual({
       dialect: 'postgres',
       connection: {
@@ -66,8 +62,8 @@ describe('physicalConfigService', () => {
     });
   });
 
-  it('strips user/password defensively on write (never persists creds)', () => {
-    setPhysicalConfig('user-service', {
+  it('strips user/password defensively on write (never persists creds)', async () => {
+    await svc.set('user-service', {
       dialect: 'mysql',
       connection: {
         host: 'mysql.internal',
@@ -80,39 +76,40 @@ describe('physicalConfigService', () => {
         password: 'hunter2',
       } as any,
     });
-    const cfg = getPhysicalConfig('user-service')!;
+    const cfg = (await svc.get('user-service'))!;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((cfg.connection as any).user).toBeUndefined();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((cfg.connection as any).password).toBeUndefined();
-    // Re-read the raw file to confirm the bytes on disk don't contain the password
-    const raw = fs.readFileSync(
-      path.join(servicesDir, 'user-service', 'physical.yaml'),
-      'utf-8',
-    );
+    // Re-read the raw bytes to confirm they don't contain the password
+    const raw = await backend.read(WS, pathOf('user-service/physical.yaml'));
     expect(raw).not.toContain('hunter2');
     expect(raw).not.toContain('password');
   });
 
-  it('rejects writes for services that do not exist', () => {
-    expect(() =>
-      setPhysicalConfig('ghost-service', {
+  it('rejects writes for services that do not exist', async () => {
+    await expect(
+      svc.set('ghost-service', {
         dialect: 'oracle',
         connection: { connectString: 'h:1521/s' },
       }),
-    ).toThrow(/does not exist/);
+    ).rejects.toThrow(/does not exist/);
   });
 
-  it('deletes configs idempotently', () => {
-    deletePhysicalConfig('order-service');
-    expect(getPhysicalConfig('order-service')).toBeNull();
+  it('deletes configs idempotently', async () => {
+    await svc.set('order-service', {
+      dialect: 'postgres',
+      connection: { host: 'h', database: 'd' },
+    });
+    await svc.delete('order-service');
+    expect(await svc.get('order-service')).toBeNull();
     // Second delete is a no-op, not an error
-    expect(() => deletePhysicalConfig('order-service')).not.toThrow();
+    await expect(svc.delete('order-service')).resolves.not.toThrow();
   });
 
   it('mergeCredentials layers creds without mutating the source config', () => {
-    const base = {
-      dialect: 'postgres' as const,
+    const base: PhysicalConfig = {
+      dialect: 'postgres',
       connection: { host: 'h', database: 'd' },
     };
     const merged = mergeCredentials(base, { user: 'u', password: 'p' });

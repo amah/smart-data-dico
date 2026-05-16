@@ -6,7 +6,7 @@
  * NEVER persisted here — they come at request time from the diff caller and
  * are only held in memory for the duration of the introspection.
  *
- * File layout: `data-dictionaries/microservices/{service}/physical.yaml`
+ * File layout: `<serviceName>/physical.yaml` (workspace-relative)
  *   dialect: postgres
  *   connection:
  *     host: db.example.com
@@ -19,11 +19,11 @@
  * database / schema for each service. Dialects are the same four supported
  * by the unified import endpoint (#79/#80/#81): oracle, postgres, mysql, mssql.
  */
-import fs from 'fs';
-import path from 'path';
 import YAML from 'yaml';
-import { getPackagePath } from '../utils/fileOperations.js';
 import { logger } from '../utils/logger.js';
+import { storageRegistry } from '../storage/contract/StorageBackendToken.js';
+import type { IStorageBackend } from '../storage/contract/IStorageBackend.js';
+import { wsId, pathOf, type WorkspaceId } from '../storage/contract/types.js';
 
 export type PhysicalDialect = 'oracle' | 'postgres' | 'mysql' | 'mssql';
 
@@ -48,60 +48,83 @@ export interface PhysicalConfig {
   connection: PhysicalConnectionConfig;
 }
 
-const FILE_NAME = 'physical.yaml';
+class PhysicalConfigService {
+  private _storage?: IStorageBackend;
+  private get storage(): IStorageBackend {
+    if (!this._storage) this._storage = storageRegistry.getBackend();
+    return this._storage;
+  }
 
-function configPath(serviceName: string): string {
-  return path.join(getPackagePath(serviceName), FILE_NAME);
-}
+  constructor(
+    storage?: IStorageBackend,
+    private readonly ws: WorkspaceId = wsId('dictionaries'),
+  ) {
+    this._storage = storage;
+  }
 
-/**
- * Read the physical config for a service, or return null if it isn't set.
- * Missing file and parse errors both resolve to null so callers can fall
- * back cleanly (e.g. "physical config missing — skipping this service").
- */
-export function getPhysicalConfig(serviceName: string): PhysicalConfig | null {
-  const file = configPath(serviceName);
-  if (!fs.existsSync(file)) return null;
-  try {
-    const raw = fs.readFileSync(file, 'utf-8');
-    const parsed = YAML.parse(raw) as PhysicalConfig;
-    if (!parsed || !parsed.dialect) return null;
-    return parsed;
-  } catch (e) {
-    logger.warn(`Failed to parse ${file}: ${e}`);
-    return null;
+  /**
+   * Read the physical config for a service, or return null if it isn't set.
+   * Missing file and parse errors both resolve to null so callers can fall
+   * back cleanly (e.g. "physical config missing — skipping this service").
+   */
+  async get(serviceName: string): Promise<PhysicalConfig | null> {
+    try {
+      const raw = await this.storage.read(this.ws, pathOf(`${serviceName}/physical.yaml`));
+      const parsed = YAML.parse(raw) as PhysicalConfig;
+      if (!parsed || !parsed.dialect) return null;
+      return parsed;
+    } catch (e) {
+      if ((e as { code?: string }).code === 'not-found') return null;
+      logger.warn(`Failed to parse ${serviceName}/physical.yaml: ${e}`);
+      return null;
+    }
+  }
+
+  /**
+   * Write the physical config for a service. Fails (throws) if the parent
+   * service directory doesn't exist — configs for unknown services are a
+   * caller bug, not something to silently create.
+   */
+  async set(serviceName: string, config: PhysicalConfig): Promise<void> {
+    // Verify service directory exists (stat throws not-found if absent)
+    try {
+      await this.storage.stat(this.ws, pathOf(serviceName));
+    } catch (e) {
+      if ((e as { code?: string }).code === 'not-found') {
+        throw new Error(`Service '${serviceName}' does not exist`);
+      }
+      throw e;
+    }
+    // Strip any accidentally-included credential fields — defence in depth.
+    const safe: PhysicalConfig = {
+      dialect: config.dialect,
+      connection: { ...config.connection },
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const conn = safe.connection as any;
+    delete conn.user;
+    delete conn.password;
+    await this.storage.write(this.ws, pathOf(`${serviceName}/physical.yaml`), YAML.stringify(safe));
+  }
+
+  /**
+   * Delete a service's physical config. No-op if the file doesn't exist.
+   */
+  async delete(serviceName: string): Promise<void> {
+    try {
+      await this.storage.delete(this.ws, pathOf(`${serviceName}/physical.yaml`));
+    } catch (e) {
+      if ((e as { code?: string }).code === 'not-found') return;
+      throw e;
+    }
   }
 }
 
-/**
- * Write the physical config for a service. Fails (throws) if the parent
- * service directory doesn't exist — configs for unknown services are a
- * caller bug, not something to silently create.
- */
-export function setPhysicalConfig(serviceName: string, config: PhysicalConfig): void {
-  const dir = getPackagePath(serviceName);
-  if (!fs.existsSync(dir)) {
-    throw new Error(`Service '${serviceName}' does not exist`);
-  }
-  // Strip any accidentally-included credential fields — defence in depth.
-  const safe: PhysicalConfig = {
-    dialect: config.dialect,
-    connection: { ...config.connection },
-  };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const conn = safe.connection as any;
-  delete conn.user;
-  delete conn.password;
-  fs.writeFileSync(configPath(serviceName), YAML.stringify(safe), 'utf-8');
-}
+const _instance = new PhysicalConfigService();
 
-/**
- * Delete a service's physical config. No-op if the file doesn't exist.
- */
-export function deletePhysicalConfig(serviceName: string): void {
-  const file = configPath(serviceName);
-  if (fs.existsSync(file)) fs.unlinkSync(file);
-}
+export const getPhysicalConfig = (s: string): Promise<PhysicalConfig | null> => _instance.get(s);
+export const setPhysicalConfig = (s: string, c: PhysicalConfig): Promise<void> => _instance.set(s, c);
+export const deletePhysicalConfig = (s: string): Promise<void> => _instance.delete(s);
 
 /**
  * Merge runtime credentials onto a persisted physical config. Returns a
@@ -122,3 +145,6 @@ export function mergeCredentials(
     },
   };
 }
+
+// Export the class for test injection
+export { PhysicalConfigService };
