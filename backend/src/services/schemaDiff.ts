@@ -111,7 +111,11 @@ const PHYSICAL_PREFIX = 'physical.';
 /** Read a metadata entry value by name. */
 function readMeta(metadata: MetadataEntry[] | undefined, name: string): string | number | boolean | undefined {
   if (!metadata) return undefined;
-  return metadata.find(m => m.name === name)?.value;
+  const v = metadata.find(m => m.name === name)?.value;
+  // MetadataValue was widened to include arrays/objects (#164); physical.*
+  // keys are always scalar, so we guard to preserve the narrow return type.
+  if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return v;
+  return undefined;
 }
 
 /** Read the physical table name from an entity (the stable identity). */
@@ -275,10 +279,15 @@ function diffEntityPhysicalMetadata(source: Entity, existing: Entity): string[] 
   const sourcePhys = new Map<string, string | number | boolean>();
   const existingPhys = new Map<string, string | number | boolean>();
   for (const m of source.metadata || []) {
-    if (m.name.startsWith(PHYSICAL_PREFIX)) sourcePhys.set(m.name, m.value);
+    // MetadataValue widened (#164); physical.* keys are always scalar
+    if (m.name.startsWith(PHYSICAL_PREFIX) && (typeof m.value === 'string' || typeof m.value === 'number' || typeof m.value === 'boolean')) {
+      sourcePhys.set(m.name, m.value);
+    }
   }
   for (const m of existing.metadata || []) {
-    if (m.name.startsWith(PHYSICAL_PREFIX)) existingPhys.set(m.name, m.value);
+    if (m.name.startsWith(PHYSICAL_PREFIX) && (typeof m.value === 'string' || typeof m.value === 'number' || typeof m.value === 'boolean')) {
+      existingPhys.set(m.name, m.value);
+    }
   }
   for (const [name, value] of sourcePhys) {
     if (existingPhys.get(name) !== value) changed.push(name);

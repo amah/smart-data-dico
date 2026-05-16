@@ -96,7 +96,12 @@ export enum Cardinality {
 }
 
 /**
- * Metadata value types
+ * Metadata value types.
+ *
+ * @deprecated The enum is retained for backwards compatibility with legacy
+ * TypeScript consumers and as the seed for built-in registry registrations.
+ * It is no longer authoritative — the MetadataTypeRegistry is. New code
+ * should use free-form string keys on `MetadataDefinition.type`.
  */
 export enum MetadataValueType {
   STRING = 'string',
@@ -111,6 +116,56 @@ export enum RuleSeverity {
   INFO = 'info',
   WARNING = 'warning',
   ERROR = 'error',
+}
+
+/**
+ * A recursive metadata value. Scalars are the common case; arrays and
+ * nested objects enable structured metadata (PII classification, ownership,
+ * lineage steps). YAML serialises this losslessly — no migration required.
+ */
+export type MetadataValue =
+  | string
+  | number
+  | boolean
+  | MetadataValue[]
+  | { [key: string]: MetadataValue };
+
+// ── MetadataTypeContributionCore mirror (backend parity — #164 Risk 1) ──────
+// These interfaces are duplicated from backend/src/services/metadata/MetadataTypeRegistry.ts.
+// A parity test in backend/src/services/metadata/__tests__/parity.test.ts
+// asserts that the 9 built-in names are identical between tiers.
+
+export interface JsonSchemaFragment {
+  type?: string | string[];
+  enum?: unknown[];
+  format?: string;
+  properties?: Record<string, JsonSchemaFragment>;
+  items?: JsonSchemaFragment;
+  required?: string[];
+  description?: string;
+  [k: string]: unknown;
+}
+
+export interface MetadataValidationError {
+  path: string;
+  message: string;
+}
+
+export interface MetadataValidationResult {
+  ok: boolean;
+  errors: MetadataValidationError[];
+}
+
+export interface MetadataTypeContributionCore<T extends MetadataValue = MetadataValue> {
+  type: string;
+  label: string;
+  defaultValue: T;
+  appliesTo?: Array<'package' | 'entity' | 'attribute' | 'model' | 'relationship'>;
+  validate(value: unknown, def: MetadataDefinition): MetadataValidationResult;
+  serialize(value: T): MetadataValue;
+  parse(raw: unknown): T;
+  toJsonSchema(def: MetadataDefinition): JsonSchemaFragment;
+  toMarkdown(value: T, def?: MetadataDefinition): string;
 }
 
 // ────────────────────────────────────────────
@@ -189,13 +244,23 @@ export interface ReviewComment {
 export type StereotypeTarget = 'package' | 'entity' | 'attribute' | 'model' | 'relationship';
 
 /**
- * Metadata definition (schema for metadata entries)
+ * Metadata definition (schema for metadata entries).
+ * `type` is a free-form contribution key validated against the registry.
+ * Built-in keys: 'string' | 'number' | 'boolean' | 'date' | 'flag' | 'rule'
+ *                | 'object' | 'array' | 'enum'
  */
 export interface MetadataDefinition {
   name: string;
-  type: MetadataValueType;
+  /** Free-form contribution key. Was MetadataValueType enum — now open. */
+  type: string;
   description?: string;
   required?: boolean;
+  /** Field schemas for 'object' contributions. */
+  fields?: MetadataDefinition[];
+  /** Item schema for 'array' contributions. */
+  items?: MetadataDefinition;
+  /** Allowed values for 'enum' contributions. */
+  enum?: Array<string | number | { value: string | number; label: string }>;
 }
 
 /**
@@ -203,7 +268,7 @@ export interface MetadataDefinition {
  */
 export interface MetadataEntry {
   name: string;
-  value: string | number | boolean;
+  value: MetadataValue;
   severity?: RuleSeverity;
 }
 

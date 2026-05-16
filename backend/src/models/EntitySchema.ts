@@ -38,7 +38,13 @@ export enum Cardinality {
 }
 
 /**
- * Metadata value types for typed metadata definitions
+ * Metadata value types for typed metadata definitions.
+ *
+ * @deprecated The enum is retained for backwards compatibility with legacy
+ * TypeScript consumers and as the seed for built-in registry registrations.
+ * It is no longer authoritative — the MetadataTypeRegistry is. New code
+ * should use the free-form `string` key on `MetadataDefinition.type` and
+ * resolve behaviour from the registry.
  */
 export enum MetadataValueType {
   STRING = 'string',
@@ -56,13 +62,36 @@ export enum RuleSeverity {
 }
 
 /**
- * A metadata definition (schema for metadata entries)
+ * A recursive metadata value. Scalars are the common case; arrays and
+ * nested objects enable structured metadata (PII classification, ownership,
+ * lineage steps). YAML serialises this losslessly — no migration required.
+ */
+export type MetadataValue =
+  | string
+  | number
+  | boolean
+  | MetadataValue[]
+  | { [key: string]: MetadataValue };
+
+/**
+ * A metadata definition (schema for metadata entries).
+ * `type` is a free-form contribution key validated against the
+ * MetadataTypeRegistry at write time.
+ * Built-in keys: 'string' | 'number' | 'boolean' | 'date' | 'flag' | 'rule'
+ *                | 'object' | 'array' | 'enum'
  */
 export interface MetadataDefinition {
   name: string;
-  type: MetadataValueType;
+  /** Free-form contribution key. Was MetadataValueType enum — now open. */
+  type: string;
   description?: string;
   required?: boolean;
+  /** Field schemas for 'object' contributions. */
+  fields?: MetadataDefinition[];
+  /** Item schema for 'array' contributions. */
+  items?: MetadataDefinition;
+  /** Allowed values for 'enum' contributions. */
+  enum?: Array<string | number | { value: string | number; label: string }>;
 }
 
 /**
@@ -70,7 +99,7 @@ export interface MetadataDefinition {
  */
 export interface MetadataEntry {
   name: string;
-  value: string | number | boolean;
+  value: MetadataValue;
   severity?: RuleSeverity;
 }
 

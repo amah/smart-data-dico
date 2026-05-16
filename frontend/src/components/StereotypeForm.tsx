@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import type { Stereotype, MetadataDefinition, StereotypeTarget } from '../types';
-import { MetadataValueType } from '../types';
+import { METADATA_TYPE_REGISTRY_TOKEN } from '../kernel/tokens';
+import { useService } from '../kernel/useService';
+import type { MetadataTypeRegistry } from '../plugins/data-dictionary/metadata/MetadataTypeRegistry';
 
 interface StereotypeFormProps {
   initialValues?: Partial<Stereotype>;
@@ -12,6 +14,7 @@ interface StereotypeFormProps {
 }
 
 export default function StereotypeForm({ initialValues, knownDomains = [], onSubmit, onCancel, isEdit }: StereotypeFormProps) {
+  const registry = useService<MetadataTypeRegistry>(METADATA_TYPE_REGISTRY_TOKEN);
   const [id, setId] = useState(initialValues?.id || '');
   const [name, setName] = useState(initialValues?.name || '');
   const [description, setDescription] = useState(initialValues?.description || '');
@@ -19,8 +22,13 @@ export default function StereotypeForm({ initialValues, knownDomains = [], onSub
   const [appliesTo, setAppliesTo] = useState<StereotypeTarget>(initialValues?.appliesTo || 'entity');
   const [definitions, setDefinitions] = useState<MetadataDefinition[]>(initialValues?.metadataDefinitions || []);
 
+  // Filter contributions by appliesTo: undefined = all targets, array = specific targets.
+  const availableTypes = registry.list().filter(
+    (c) => c.appliesTo === undefined || c.appliesTo.includes(appliesTo),
+  );
+
   const addDefinition = () => {
-    setDefinitions([...definitions, { name: '', type: MetadataValueType.STRING }]);
+    setDefinitions([...definitions, { name: '', type: availableTypes[0]?.type ?? 'string' }]);
   };
 
   const updateDefinition = (index: number, field: string, value: any) => {
@@ -141,8 +149,8 @@ export default function StereotypeForm({ initialValues, knownDomains = [], onSub
                 value={def.type}
                 onChange={(e) => updateDefinition(i, 'type', e.target.value)}
               >
-                {Object.values(MetadataValueType).map((t) => (
-                  <option key={t} value={t}>{t}</option>
+                {availableTypes.map((c) => (
+                  <option key={c.type} value={c.type}>{c.label}</option>
                 ))}
               </select>
               <label className="flex items-center gap-1 text-xs cursor-pointer">

@@ -1,37 +1,85 @@
 import { useState } from 'react';
-import type { MetadataEntry, MetadataDefinition, Stereotype, RuleSeverity } from '../types';
-import { MetadataValueType } from '../types';
+import type { MetadataEntry, MetadataDefinition, MetadataValue, Stereotype, RuleSeverity } from '../types';
+import { METADATA_TYPE_REGISTRY_TOKEN } from '../kernel/tokens';
+import { useService } from '../kernel/useService';
+import type { MetadataTypeRegistry } from '../plugins/data-dictionary/metadata/MetadataTypeRegistry';
+import { setMetadataFieldComponent } from '../plugins/data-dictionary/metadata/builtinContributions';
 
-interface MetadataEditorProps {
+// ─── MetadataField ────────────────────────────────────────────────────────────
+
+interface MetadataFieldProps {
+  value: MetadataValue;
+  definition: MetadataDefinition;
+  onChange: (next: MetadataValue) => void;
+  /** Dotted path from the root entry value — used for nested error keys. */
+  path: string;
+  readOnly?: boolean;
+}
+
+/**
+ * Recursive single-field renderer. Resolves the contribution for
+ * definition.type from the registry and renders <contribution.Editor />.
+ * Built-in object/array contributions render their children by recursing
+ * INTO <MetadataField />, NOT into <MetadataBlock /> (which speaks the
+ * entries+stereotype shape, not value+definition).
+ */
+export function MetadataField({ value, definition, onChange, path, readOnly }: MetadataFieldProps) {
+  const registry = useService<MetadataTypeRegistry>(METADATA_TYPE_REGISTRY_TOKEN);
+  const contribution = registry.getOrFallback(definition.type);
+  const { Editor } = contribution;
+
+  return (
+    <Editor
+      value={value as any}
+      onChange={onChange as any}
+      def={definition}
+      path={path}
+      readOnly={readOnly}
+    />
+  );
+}
+
+// Register MetadataField with builtinContributions so object/array editors
+// can recurse without a circular import.
+setMetadataFieldComponent(MetadataField);
+
+// ─── MetadataBlock ─────────────────────────────────────────────────────────────
+
+interface MetadataBlockProps {
   entries: MetadataEntry[];
   stereotype?: Stereotype | null;
   onChange: (entries: MetadataEntry[]) => void;
   readOnly?: boolean;
 }
 
-export default function MetadataEditor({ entries, stereotype, onChange, readOnly }: MetadataEditorProps) {
+/**
+ * Top-level block editor. Adapts a MetadataEntry[] (the on-disk shape) +
+ * Stereotype to a definitions-driven iteration over MetadataField.
+ * This is the ONLY component that adapts MetadataEntry[] ↔ MetadataDefinition[].
+ * Everything beneath it speaks MetadataValue + MetadataDefinition.
+ */
+export function MetadataBlock({ entries, stereotype, onChange, readOnly }: MetadataBlockProps) {
   const [newName, setNewName] = useState('');
   const [newValue, setNewValue] = useState('');
 
-  // Merge stereotype definitions with current entries
   const definitions = stereotype?.metadataDefinitions || [];
-  const allEntries = [...entries];
 
-  // Add missing required/optional entries from stereotype
+  // Merge stereotype definitions with current entries — add placeholders for
+  // definitions not yet present in entries.
+  const allEntries = [...entries];
   for (const def of definitions) {
     if (!allEntries.find((e) => e.name === def.name)) {
-      allEntries.push({ name: def.name, value: def.type === 'flag' ? false : '' });
+      allEntries.push({ name: def.name, value: def.type === 'flag' || def.type === 'boolean' ? false : '' });
     }
   }
 
   const getDef = (name: string): MetadataDefinition | undefined =>
     definitions.find((d) => d.name === name);
 
-  const updateEntry = (name: string, value: any, severity?: RuleSeverity) => {
+  const updateEntry = (name: string, value: MetadataValue, severity?: RuleSeverity) => {
     const updated = entries.map((e) =>
       e.name === name ? { ...e, value, ...(severity !== undefined ? { severity } : {}) } : e,
     );
-    // If entry doesn't exist yet, add it
     if (!updated.find((e) => e.name === name)) {
       updated.push({ name, value, ...(severity ? { severity } : {}) });
     }
@@ -40,7 +88,7 @@ export default function MetadataEditor({ entries, stereotype, onChange, readOnly
 
   const removeEntry = (name: string) => {
     const def = getDef(name);
-    if (def?.required) return; // Can't remove required entries
+    if (def?.required) return;
     onChange(entries.filter((e) => e.name !== name));
   };
 
@@ -50,91 +98,6 @@ export default function MetadataEditor({ entries, stereotype, onChange, readOnly
     onChange([...entries, { name: newName.trim(), value: newValue }]);
     setNewName('');
     setNewValue('');
-  };
-
-  const renderInput = (entry: MetadataEntry, def?: MetadataDefinition) => {
-    const type = def?.type || MetadataValueType.STRING;
-
-    switch (type) {
-      case MetadataValueType.FLAG:
-        return (
-          <input
-            type="checkbox"
-            className="toggle toggle-primary toggle-sm"
-            checked={!!entry.value}
-            onChange={(e) => updateEntry(entry.name, e.target.checked)}
-            disabled={readOnly}
-          />
-        );
-
-      case MetadataValueType.BOOLEAN:
-        return (
-          <input
-            type="checkbox"
-            className="checkbox checkbox-sm"
-            checked={!!entry.value}
-            onChange={(e) => updateEntry(entry.name, e.target.checked)}
-            disabled={readOnly}
-          />
-        );
-
-      case MetadataValueType.NUMBER:
-        return (
-          <input
-            type="number"
-            className="input input-bordered input-sm w-32"
-            value={entry.value as number}
-            onChange={(e) => updateEntry(entry.name, Number(e.target.value))}
-            disabled={readOnly}
-          />
-        );
-
-      case MetadataValueType.DATE:
-        return (
-          <input
-            type="date"
-            className="input input-bordered input-sm"
-            value={String(entry.value || '')}
-            onChange={(e) => updateEntry(entry.name, e.target.value)}
-            disabled={readOnly}
-          />
-        );
-
-      case MetadataValueType.RULE:
-        return (
-          <div className="flex gap-2 items-start">
-            <textarea
-              className="textarea textarea-bordered textarea-sm flex-1"
-              value={String(entry.value || '')}
-              onChange={(e) => updateEntry(entry.name, e.target.value, entry.severity)}
-              placeholder="Describe the rule..."
-              rows={2}
-              disabled={readOnly}
-            />
-            <select
-              className="select select-bordered select-sm"
-              value={entry.severity || 'info'}
-              onChange={(e) => updateEntry(entry.name, entry.value, e.target.value as RuleSeverity)}
-              disabled={readOnly}
-            >
-              <option value="info">Info</option>
-              <option value="warning">Warning</option>
-              <option value="error">Error</option>
-            </select>
-          </div>
-        );
-
-      default: // STRING
-        return (
-          <input
-            type="text"
-            className="input input-bordered input-sm flex-1"
-            value={String(entry.value || '')}
-            onChange={(e) => updateEntry(entry.name, e.target.value)}
-            disabled={readOnly}
-          />
-        );
-    }
   };
 
   return (
@@ -159,7 +122,29 @@ export default function MetadataEditor({ entries, stereotype, onChange, readOnly
                 <span className="badge badge-xs badge-outline mt-0.5">stereotype</span>
               )}
             </div>
-            <div className="flex-1">{renderInput(entry, def)}</div>
+            <div className="flex-1">
+              {def ? (
+                <MetadataField
+                  value={entry.value}
+                  definition={def}
+                  onChange={(next) => updateEntry(entry.name, next)}
+                  path={entry.name}
+                  readOnly={readOnly}
+                />
+              ) : (
+                // Custom entry with no stereotype definition — render as string
+                readOnly ? (
+                  <span className="text-sm">{String(entry.value ?? '')}</span>
+                ) : (
+                  <input
+                    type="text"
+                    className="input input-bordered input-sm flex-1"
+                    value={String(entry.value ?? '')}
+                    onChange={(e) => updateEntry(entry.name, e.target.value)}
+                  />
+                )
+              )}
+            </div>
             {!readOnly && !isRequired && (
               <button
                 className="btn btn-ghost btn-xs text-error"
@@ -202,3 +187,8 @@ export default function MetadataEditor({ entries, stereotype, onChange, readOnly
     </div>
   );
 }
+
+// Default export preserves existing import sites:
+//   import MetadataEditor from '../components/MetadataEditor'
+//   -> resolves to MetadataBlock (same props as today).
+export default MetadataBlock;

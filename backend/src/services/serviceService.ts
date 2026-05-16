@@ -1,6 +1,7 @@
 import { Entity, Relationship, Cardinality, EntityStatus, ReviewComment, LineageNode, LineageResult } from '../models/EntitySchema.js';
 import { stereotypeService } from './stereotypeService.js';
 import { logger } from '../utils/logger.js';
+import { metadataValueToSearchString } from './metadata/metadataValueToSearchString.js';
 import {
   listMicroservices,
   listMicroserviceEntities,
@@ -146,7 +147,7 @@ export class ServiceService {
         if (stereotype) {
           const metadataErrors = stereotypeService.validateMetadata(stereotype, entity.metadata);
           if (metadataErrors.length > 0) {
-            return { success: false, errors: metadataErrors };
+            return { success: false, errors: metadataErrors.map(e => e.message) };
           }
         }
       }
@@ -407,12 +408,13 @@ export class ServiceService {
           const entityMeta = this.normalizeMetadata(entity.metadata);
           for (const m of entityMeta) {
             const nameMatch = this.calculateMatchScore(m.name, searchTerms);
-            const valueMatch = this.calculateMatchScore(String(m.value), searchTerms);
+            const valueStr = metadataValueToSearchString(m.value);
+            const valueMatch = this.calculateMatchScore(valueStr, searchTerms);
 
             if (nameMatch > 0 || valueMatch > 0) {
               results.push({
                 type: 'metadata', service: entityInfo.microservice, entityName: entity.name,
-                name: m.name, description: `${m.name} = ${m.value}`,
+                name: m.name, description: `${m.name} = ${valueStr}`,
                 path: `${entityInfo.microservice}/${entity.name}`,
                 score: Math.max(nameMatch * 1.5, valueMatch),
                 matchContext: `on entity ${entity.name}`,
@@ -425,12 +427,13 @@ export class ServiceService {
             const attrMeta = this.normalizeMetadata(attr.metadata);
             for (const m of attrMeta) {
               const nameMatch = this.calculateMatchScore(m.name, searchTerms);
-              const valueMatch = this.calculateMatchScore(String(m.value), searchTerms);
+              const valueStr = metadataValueToSearchString(m.value);
+              const valueMatch = this.calculateMatchScore(valueStr, searchTerms);
 
               if (nameMatch > 0 || valueMatch > 0) {
                 results.push({
                   type: 'metadata', service: entityInfo.microservice, entityName: entity.name,
-                  attributeName: attr.name, name: m.name, description: `${m.name} = ${m.value}`,
+                  attributeName: attr.name, name: m.name, description: `${m.name} = ${valueStr}`,
                   path: `${entityInfo.microservice}/${entity.name}/${attr.name}`,
                   score: Math.max(nameMatch * 1.5, valueMatch),
                   matchContext: `on ${entity.name}.${attr.name}`,

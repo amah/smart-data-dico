@@ -226,6 +226,27 @@ useEffect(() => {
 - ❌ Storing fetched data in `useState` inside the page — Pattern B's loading/error live in the page (§1.5 ephemeral-UI carve-out applies *only* because there is no Store FS node to attach them to), but the **data itself** is the service's return value, not page state.
 - ❌ Holding a reference to the service in `useState` or `useRef`. `useService(TOKEN)` returns the same singleton every render (DI cache).
 
+### Pattern B variant — registry-shaped tokens
+
+Some Pattern B tokens hold a **mutable registry** rather than a REST wrapper. `METADATA_TYPE_REGISTRY_TOKEN` is the in-house example: it holds a `MetadataTypeRegistry` instance that the `data-dictionary` plugin seeds with 9 built-in contributions during `initialize`. Other plugins can extend it by resolving and calling `register`:
+
+```ts
+// In another plugin's initialize:
+const registry = ctx.resolve<MetadataTypeRegistry>(METADATA_TYPE_REGISTRY_TOKEN);
+registry.register(myEmailContribution);
+```
+
+The token is still provided as an eager `useValue` (same shape as `INTEGRITY_SERVICE_TOKEN`):
+
+```ts
+// dataDictionaryPlugin.ts (initialize)
+const metadataRegistry = createMetadataTypeRegistry({ unknownTypeFallback: UnknownTypeContribution });
+registerBuiltinContributions(metadataRegistry);
+ctx.provide({ provide: METADATA_TYPE_REGISTRY_TOKEN, useValue: metadataRegistry });
+```
+
+Precedent: `STORE_EXTENSIONS_TOKEN` from `@hamak/ui-store-api` (`frontend/node_modules/@hamak/ui-store-api/dist/tokens/service-tokens.d.ts:8`) is the closest in-framework analog — `@hamak/ui-remote-fs` and `@hamak/notification` write into it as a registry extension point. `METADATA_TYPE_REGISTRY_TOKEN` follows the same shape, applied to the metadata-type domain.
+
 ---
 
 ## 4. Commands and events
