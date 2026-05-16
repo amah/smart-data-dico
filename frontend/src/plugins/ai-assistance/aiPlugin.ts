@@ -13,6 +13,10 @@
  *
  * AI grounding deferred — DICTIONARY_SERVICE_TOKEN has no provider yet.
  * See spec #162 Risk 1.
+ *
+ * `workingFolder` added in #154 — informational today. Default would be
+ * `['dictionaries', '.dico', 'ai']` once AI Pattern A file work (conversations
+ * / prompts as files) is implemented in a follow-up.
  */
 
 import type { PluginModule } from '@hamak/microkernel-spi';
@@ -22,10 +26,15 @@ import { AIService } from './services/AIService';
 export interface AiPluginOptions {
   /** Default true. Set to false to skip all registrations (feature flag). */
   enabled?: boolean;
+  /** Reserved for future Pattern A file work (#154 reframe). Informational today. */
+  workingFolder?: string[];
 }
 
 export function createAiAssistancePlugin(options: AiPluginOptions = {}): PluginModule {
   const enabled = options.enabled !== false;
+  // workingFolder is informational at this stage. Captured so future tickets
+  // can parameterize AI file paths without another factory signature change.
+  void options.workingFolder;
 
   return {
     async initialize(ctx) {

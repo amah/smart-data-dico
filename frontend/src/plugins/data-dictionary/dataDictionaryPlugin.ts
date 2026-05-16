@@ -49,7 +49,25 @@ import { UnknownTypeContribution } from './metadata/UnknownTypeEditor';
 // Single-line edit in the `activate` handler below.
 let notifyImpl: NotifyFn = () => {};
 
-export function createDataDictionaryPlugin(): PluginModule {
+/**
+ * Plugin factory options for the data-dictionary plugin.
+ *
+ * `workingFolder` is informational at this stage — does NOT relocate existing
+ * hard-coded paths (`StereotypeService` keeps `STEREOTYPES_PATH`). Threading
+ * this through lets future tickets parameterize without another factory
+ * signature change.
+ *
+ * Default: `['dictionaries']` (the remote-fs mount root).
+ */
+export interface DataDictionaryPluginOptions {
+  workingFolder?: string[];
+}
+
+export function createDataDictionaryPlugin(options: DataDictionaryPluginOptions = {}): PluginModule {
+  // workingFolder is informational at this stage. Captured so future
+  // tickets can parameterize existing hard-coded paths without another
+  // factory signature change (e.g. threading it into StereotypeService).
+  void options.workingFolder;
   return {
     async initialize(ctx) {
       // Declare route ownership

@@ -472,7 +472,7 @@ describe('#163 acceptance #15 — QualityDashboardPage uses commands.run for qua
   });
 });
 
-// ── Acceptance #16 — SearchComponent and searchSlice ─────────────────────
+// ── Acceptance #16 — SearchComponent and searchSlice (#154 rewrite) ──────
 
 describe('#163 acceptance #16 — Search call sites migrated to commands.run', () => {
   it('SearchComponent.tsx calls commands.run for search.search', () => {
@@ -485,9 +485,12 @@ describe('#163 acceptance #16 — Search call sites migrated to commands.run', (
     expect(content).not.toMatch(/search\.searchEntities\s*\(/);
   });
 
-  it('searchSlice.ts calls commands.run for search.search', () => {
-    const content = read(SEARCH_SLICE);
-    expect(content).toMatch(/['"]search\.search['"]/);
+  // #154 rewrite: searchSlice.ts was deleted; the guard now asserts its absence.
+  it('searchSlice.ts does not exist (deleted per #154 reframe)', () => {
+    expect(
+      fs.existsSync(SEARCH_SLICE),
+      'searchSlice.ts should not exist after #154 — replaced by dynamic Store FS files',
+    ).toBe(false);
   });
 });
 
