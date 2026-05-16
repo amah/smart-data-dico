@@ -17,6 +17,7 @@ import type { Stereotype } from '../../models/EntitySchema.js';
 import { InMemoryStorageBackend } from '../../storage/memory/InMemoryStorageBackend.js';
 import { wsId, pathOf } from '../../storage/contract/types.js';
 import { GitFilesystemStorageBackend, type IWorkspaceManager } from '../../storage/git/GitFilesystemStorageBackend.js';
+import type { IStorageBackend } from '../../storage/contract/IStorageBackend.js';
 
 // Loaded once at startup — same dynamic-import pattern as 165a.
 let WorkspaceManagerCls: new (w: Record<string, string>, o: { baseDirectory: string }) => IWorkspaceManager;
@@ -30,9 +31,9 @@ beforeAll(async () => {
 // of this file becomes a stale singleton between tests. The dynamically-
 // imported services see a fresh singleton; helpers must register the backend
 // on THAT singleton, not the stale one.
-async function setBackendDynamic(b: { capabilities: () => unknown; read: (...args: unknown[]) => unknown }): Promise<void> {
+async function setBackendDynamic(b: IStorageBackend): Promise<void> {
   const { storageRegistry: reg } = await import('../../storage/contract/StorageBackendToken.js');
-  reg.setBackend(b as any);
+  reg.setBackend(b);
 }
 async function useBackendAt(dir: string): Promise<void> {
   const wm = new WorkspaceManagerCls({ dictionaries: '.' }, { baseDirectory: dir });
