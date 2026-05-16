@@ -438,6 +438,108 @@ export async function loadPackage(packageName: string): Promise<PackageModel> {
 }
 
 // ────────────────────────────────────────────────────────────────────────
+// Schema package — `.dico/schemas/` carve-out (#165a)
+// ────────────────────────────────────────────────────────────────────────
+
+/**
+ * Resolve the on-disk path for the schema package.
+ * Returns `<dataDir>/.dico/schemas`.
+ *
+ * The schema package is NEVER returned by `listPackages()` — it lives
+ * under `.dico/` which is in `RESERVED_DIRS`. Only `schemaEntityService`
+ * imports this function so that schema-entities don't surface as
+ * ordinary package entities.
+ */
+export function getSchemaPackagePath(): string {
+  return path.join(getDataDir(), '.dico', 'schemas');
+}
+
+/**
+ * List all `.yaml` files in the schema package directory and its
+ * `_meta/` subdirectory. Returns absolute file paths sorted
+ * lexicographically. Unlike `listPackageYamlFiles`, this function
+ * descends one level into `_meta/` — the reserved home for built-in
+ * bootstrap entities.
+ *
+ * The schema package is NOT required to have `package.yaml` present for
+ * the loader to read it (absence is logged as a warning). If the
+ * directory itself is missing, an empty list is returned silently.
+ */
+function listSchemaPackageYamlFiles(): string[] {
+  const schemaDir = getSchemaPackagePath();
+  if (!fs.existsSync(schemaDir)) return [];
+
+  const files: string[] = [];
+
+  // Top-level files in .dico/schemas/
+  try {
+    const topLevel = fs.readdirSync(schemaDir)
+      .filter(f => f.endsWith('.yaml') && f !== 'package.yaml')
+      .map(f => path.join(schemaDir, f))
+      .sort();
+    files.push(...topLevel);
+  } catch {
+    // ignore read errors
+  }
+
+  // Files in the reserved _meta/ subdirectory
+  const metaDir = path.join(schemaDir, '_meta');
+  if (fs.existsSync(metaDir)) {
+    try {
+      const metaFiles = fs.readdirSync(metaDir)
+        .filter(f => f.endsWith('.yaml'))
+        .map(f => path.join(metaDir, f))
+        .sort();
+      files.push(...metaFiles);
+    } catch {
+      // ignore read errors
+    }
+  }
+
+  return files;
+}
+
+/**
+ * Load the `.dico/schemas/` directory as a package, bypassing
+ * `RESERVED_DIRS` exclusion. Returns an empty `PackageModel` if the
+ * directory is missing. Logs a warning if `package.yaml` is absent (the
+ * package marker is expected). Internally delegates to the same
+ * `mergePackageSections` pipeline as `loadPackage()` so identifier-
+ * collision rules apply identically within the schema package.
+ *
+ * Two layers are read: files directly under `.dico/schemas/` AND files
+ * directly under `.dico/schemas/_meta/` (reserved for bootstrap entities).
+ *
+ * The schema package is NEVER returned by `listPackages()` — the
+ * frontend doesn't see it as an ordinary package. Only
+ * `schemaEntityService` imports this function.
+ */
+export async function loadSchemaPackage(): Promise<PackageModel> {
+  const schemaDir = getSchemaPackagePath();
+  const packageName = '.dico/schemas';
+
+  if (!fs.existsSync(schemaDir)) {
+    return mergePackageSections(packageName, []);
+  }
+
+  const markerPath = path.join(schemaDir, 'package.yaml');
+  if (!fs.existsSync(markerPath)) {
+    logger.warn(
+      `[#165a] Schema package marker missing at ${markerPath}. ` +
+      `The metadata-schema bootstrap entity may not load correctly.`,
+    );
+  }
+
+  const files = listSchemaPackageYamlFiles();
+  const parsed: ParsedSections[] = files.map(filePath => ({
+    label: filePath,
+    sections: parseSections(filePath),
+  }));
+
+  return mergePackageSections(packageName, parsed);
+}
+
+// ────────────────────────────────────────────────────────────────────────
 // Entity CRUD (backed by loadPackage)
 // ────────────────────────────────────────────────────────────────────────
 

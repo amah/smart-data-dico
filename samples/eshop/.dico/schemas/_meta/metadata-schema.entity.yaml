@@ -1,0 +1,11 @@
+entities:
+  - uuid: 00000000-0000-1000-8000-000000000001
+    name: metadata-schema
+    description: >-
+      Bootstrap marker entity for the schema-entity metamodel (#165a).
+      Any entity whose stereotype field equals 'metadata-schema' is
+      interpreted as a schema-entity — a stereotype definition expressed
+      in the Entity/Attribute model. This marker entity has no attributes
+      and no stereotype field of its own: it bootstraps the regress by
+      defining the concept without self-referencing.
+    attributes: []
