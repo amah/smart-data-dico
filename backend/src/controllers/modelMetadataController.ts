@@ -1,41 +1,46 @@
 import { Request, Response } from 'express';
-import * as fs from 'fs';
-import * as path from 'path';
 import * as YAML from 'yaml';
-import { config } from '../kernel/config.js';
 import { MetadataEntry } from '../models/EntitySchema.js';
 import { logger } from '../utils/logger.js';
+import { storageRegistry } from '../storage/contract/StorageBackendToken.js';
+import { wsId, pathOf } from '../storage/contract/types.js';
 
 interface ModelMetadataDoc {
   stereotype?: string;
   metadata: MetadataEntry[];
 }
 
-const getModelMetadataFile = () => path.join(config.dataDir, '.dico', 'metadata.yaml');
+const DICT_WS = wsId('dictionaries');
+const METADATA_DIR = pathOf('.dico');
+const METADATA_FILE = pathOf('.dico/metadata.yaml');
 
-function readModelMetadata(): ModelMetadataDoc {
-  const file = getModelMetadataFile();
-  if (!fs.existsSync(file)) return { metadata: [] };
-  const parsed = YAML.parse(fs.readFileSync(file, 'utf8')) || {};
-  return {
-    stereotype: parsed.stereotype,
-    metadata: Array.isArray(parsed.metadata) ? parsed.metadata : [],
-  };
+async function readModelMetadata(): Promise<ModelMetadataDoc> {
+  try {
+    const raw = await storageRegistry.getBackend().read(DICT_WS, METADATA_FILE);
+    const parsed = YAML.parse(raw) || {};
+    return {
+      stereotype: parsed.stereotype,
+      metadata: Array.isArray(parsed.metadata) ? parsed.metadata : [],
+    };
+  } catch (e) {
+    if ((e as { code?: string }).code === 'not-found') return { metadata: [] };
+    throw e;
+  }
 }
 
-function writeModelMetadata(doc: ModelMetadataDoc): void {
-  const file = getModelMetadataFile();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+async function writeModelMetadata(doc: ModelMetadataDoc): Promise<void> {
+  const backend = storageRegistry.getBackend();
+  await backend.mkdir(DICT_WS, METADATA_DIR, true);
   const body: ModelMetadataDoc = {
     ...(doc.stereotype ? { stereotype: doc.stereotype } : {}),
     metadata: doc.metadata || [],
   };
-  fs.writeFileSync(file, YAML.stringify(body), 'utf8');
+  await backend.write(DICT_WS, METADATA_FILE, YAML.stringify(body));
 }
 
 export const getModelMetadata = async (_req: Request, res: Response) => {
   try {
-    res.json({ message: 'Success', data: readModelMetadata() });
+    res.json({ message: 'Success', data: await readModelMetadata() });
   } catch (error) {
     logger.error('Error reading model metadata', error);
     res.status(500).json({ message: 'Error reading model metadata', error });
@@ -52,7 +57,7 @@ export const putModelMetadata = async (req: Request, res: Response) => {
       stereotype: typeof stereotype === 'string' && stereotype ? stereotype : undefined,
       metadata: metadata || [],
     };
-    writeModelMetadata(doc);
+    await writeModelMetadata(doc);
     res.json({ message: 'Model metadata saved', data: doc });
   } catch (error) {
     logger.error('Error saving model metadata', error);

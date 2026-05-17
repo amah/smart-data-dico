@@ -10,11 +10,10 @@
  * derivation is detected at load time and surfaced as an error to the
  * caller so project open can fail loudly.
  */
-import fs from 'fs';
-import path from 'path';
-import { config } from '../kernel/config.js';
 import { AttributeType, AttributeValidation } from '../models/EntitySchema.js';
 import { logger } from '../utils/logger.js';
+import { storageRegistry } from '../storage/contract/StorageBackendToken.js';
+import { wsId, pathOf } from '../storage/contract/types.js';
 
 /** One derived type entry persisted under `dico.config.json.types[]`. */
 export interface DerivedType {
@@ -36,30 +35,30 @@ export interface DicoConfig {
   types?: DerivedType[];
 }
 
-const getConfigPath = () => path.join(config.dataDir, 'dico.config.json');
+/** Workspace + path for `dico.config.json` (at the dictionaries-workspace root). */
+const DICT_WS = wsId('dictionaries');
+const CONFIG_PATH = pathOf('dico.config.json');
 
 /** Standard AttributeType enum values, used to detect leaf bases. */
 const STANDARD_TYPES = new Set<string>(Object.values(AttributeType));
 
 /** Read the full config document. Returns a zero-value if missing. */
 export async function readConfig(): Promise<DicoConfig> {
-  const p = getConfigPath();
-  if (!fs.existsSync(p)) return { version: 1 };
   try {
-    const raw = fs.readFileSync(p, 'utf-8');
+    const raw = await storageRegistry.getBackend().read(DICT_WS, CONFIG_PATH);
     const parsed = JSON.parse(raw);
     if (typeof parsed.version !== 'number') parsed.version = 1;
     return parsed as DicoConfig;
   } catch (e) {
+    if ((e as { code?: string }).code === 'not-found') return { version: 1 };
     logger.error(`Failed to read dico.config.json: ${e}`);
     return { version: 1 };
   }
 }
 
 async function writeConfig(next: DicoConfig): Promise<void> {
-  const p = getConfigPath();
   const body = JSON.stringify(next, null, 2) + '\n';
-  fs.writeFileSync(p, body, 'utf-8');
+  await storageRegistry.getBackend().write(DICT_WS, CONFIG_PATH, body);
 }
 
 /** Return the current `types[]` list, or `[]` if unset. */
