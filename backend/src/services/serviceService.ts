@@ -6,7 +6,6 @@ import {
   listMicroservices,
   listMicroserviceEntities,
   readEntityFile,
-  writeEntityFile,
   listAllEntities,
   readRelationshipsFile,
   writeRelationshipsFile,
@@ -693,8 +692,20 @@ export class ServiceService {
 
     entity.status = newStatus;
     entity.updatedAt = new Date().toISOString();
-    const result = await writeEntityFile(entity, service);
-    return { success: result, errors: result ? [] : ['Failed to write entity'] };
+
+    // Slice 6b''''': route through the registered LogicalProjection so the
+    // slice-6c UuidIndex sees the invalidation event. Last serviceService
+    // entity-write site. Closes Risk §11.6 for the controller-routed PUT
+    // /api/services/:service/entities/:name/status path.
+    try {
+      const projection = getProjection(wsId('dictionaries'));
+      const logicalPath = `packages/${service}/entities/${entity.name}`;
+      await projection.writeEntity(logicalPath, entity);
+      return { success: true, errors: [] };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      return { success: false, errors: [message] };
+    }
   }
 
   // --- Comments ---
