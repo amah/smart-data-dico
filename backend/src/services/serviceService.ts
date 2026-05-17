@@ -206,12 +206,19 @@ export class ServiceService {
       entity.createdAt = existingEntity.createdAt;
       entity.updatedAt = new Date().toISOString();
 
-      const result = await writeEntityFile(entity, service);
-
-      return {
-        success: result,
-        errors: result ? [] : ['Failed to write entity file']
-      };
+      // Slice 6b''': route through the registered LogicalProjection so the
+      // slice-6c UuidIndex sees the invalidation event. Mirrors the 6b''
+      // createEntity migration. Closes Risk §11.6 for the controller-routed
+      // PUT /api/services/:service/entities/:name path.
+      try {
+        const projection = getProjection(wsId('dictionaries'));
+        const logicalPath = `packages/${service}/entities/${entity.name}`;
+        await projection.writeEntity(logicalPath, entity);
+        return { success: true, errors: [] };
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        return { success: false, errors: [message] };
+      }
     } catch (error) {
       logger.error(`Error updating entity: ${error}`);
       return {
