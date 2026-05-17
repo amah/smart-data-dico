@@ -1,6 +1,8 @@
 import { Entity, Relationship, validateEntity, validateRelationship } from '../models/EntitySchema.js';
-import { readEntityFile, writeEntityFile, listAllEntities, readRelationshipsFile, getPackagePath } from '../utils/fileOperations.js';
+import { readEntityFile, listAllEntities, readRelationshipsFile, getPackagePath } from '../utils/fileOperations.js';
 import { logger } from '../utils/logger.js';
+import { getProjection } from '../storage/projection/ProjectionRegistry.js';
+import { wsId } from '../storage/contract/types.js';
 
 /**
  * Service for managing entities and their relationships
@@ -44,12 +46,18 @@ export class EntityService {
       };
     }
 
-    const saved = await writeEntityFile(entity, packageName);
-
-    return {
-      success: saved,
-      errors: saved ? [] : ['Failed to write entity file']
-    };
+    // Slice 6b': route through the registered LogicalProjection so the
+    // slice-6c UuidIndex sees the invalidation event. Closes Risk §11.6
+    // for this write path.
+    try {
+      const projection = getProjection(wsId('dictionaries'));
+      const logicalPath = `packages/${packageName}/entities/${entity.name}`;
+      await projection.writeEntity(logicalPath, entity);
+      return { success: true, errors: [] };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      return { success: false, errors: [message] };
+    }
   }
 
   /**
