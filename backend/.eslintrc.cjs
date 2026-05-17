@@ -40,12 +40,16 @@ module.exports = {
   overrides: [
     {
       // Permanent: storage backend implementations + bootstrap + scripts.
-      // fs IS the implementation layer here, by design.
+      // fs IS the implementation layer here, by design. project.routes.ts
+      // is pre-workspace (folder browsing, dataDir switching, project init
+      // on arbitrary user-supplied paths) and conceptually lives at the
+      // same layer as server.ts boot.
       files: [
         'src/storage/git/**',
         'src/storage/contract/registerStorageBackend.ts',
         'src/utils/appDir.ts',
         'src/server.ts',
+        'src/routes/project.routes.ts',
         'src/scripts/**',
       ],
       rules: { 'no-restricted-imports': 'off' },
@@ -53,16 +57,6 @@ module.exports = {
     {
       // Permanent: tests legitimately seed/inspect disk to set up workspaces.
       files: ['src/**/__tests__/**'],
-      rules: { 'no-restricted-imports': 'off' },
-    },
-    {
-      // TEMPORARY: production sites still on direct fs, queued for follow-up
-      // migration slices. Remove each line as the matching migration lands.
-      files: [
-        'src/controllers/modelMetadataController.ts',
-        'src/routes/project.routes.ts',
-        'src/services/dicoConfigService.ts',
-      ],
       rules: { 'no-restricted-imports': 'off' },
     },
   ],
