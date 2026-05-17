@@ -17,11 +17,54 @@ module.exports = {
   rules: {
     '@typescript-eslint/explicit-function-return-type': 'off',
     '@typescript-eslint/no-explicit-any': 'warn',
-    '@typescript-eslint/no-unused-vars': ['error', { 
+    '@typescript-eslint/no-unused-vars': ['error', {
       'argsIgnorePattern': '^_',
-      'varsIgnorePattern': '^_' 
+      'varsIgnorePattern': '^_'
     }],
     'no-console': ['warn', { allow: ['warn', 'error'] }],
+    // #167 slice 5c — block new direct-fs imports; force IStorageBackend.
+    // Allow-list lives in `overrides` below.
+    'no-restricted-imports': ['error', {
+      paths: [
+        {
+          name: 'fs',
+          message: 'Use IStorageBackend (src/storage/contract/) instead of direct fs. See overrides in .eslintrc.cjs for the allow-list.',
+        },
+        {
+          name: 'fs/promises',
+          message: 'Use IStorageBackend (src/storage/contract/) instead of direct fs/promises.',
+        },
+      ],
+    }],
   },
+  overrides: [
+    {
+      // Permanent: storage backend implementations + bootstrap + scripts.
+      // fs IS the implementation layer here, by design.
+      files: [
+        'src/storage/git/**',
+        'src/storage/contract/registerStorageBackend.ts',
+        'src/utils/appDir.ts',
+        'src/server.ts',
+        'src/scripts/**',
+      ],
+      rules: { 'no-restricted-imports': 'off' },
+    },
+    {
+      // Permanent: tests legitimately seed/inspect disk to set up workspaces.
+      files: ['src/**/__tests__/**'],
+      rules: { 'no-restricted-imports': 'off' },
+    },
+    {
+      // TEMPORARY: production sites still on direct fs, queued for follow-up
+      // migration slices. Remove each line as the matching migration lands.
+      files: [
+        'src/controllers/modelMetadataController.ts',
+        'src/routes/project.routes.ts',
+        'src/services/dicoConfigService.ts',
+      ],
+      rules: { 'no-restricted-imports': 'off' },
+    },
+  ],
   ignorePatterns: ['dist', 'node_modules', 'jest.config.cjs', '.eslintrc.cjs'],
 };
