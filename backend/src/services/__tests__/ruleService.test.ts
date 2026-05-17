@@ -2,9 +2,22 @@
  * Tests for the rule service (#74) — covers the three storage scopes:
  * entity-sidecar, package, and case. Mocks the file operations layer
  * so tests don't touch the real filesystem.
+ *
+ * Slice 6e.1 (#167): rule writes now route through `LogicalProjection`
+ * rather than calling the `write*Rules` helpers directly. This file's
+ * assertions are kept against the legacy mock API (asserting that
+ * `writeEntityRules` / `writePackageRules` / `writeCaseRules` /
+ * `writeGlobalRules` were called with the expected arguments) by
+ * registering a projection whose `writePackageRules` / `writeGlobalRules`
+ * / `writeEntity` / `writeCase` methods route THROUGH the same legacy
+ * mocks (instead of through the real `fileOperations` writers). The
+ * new contract — projection-routed writes + invalidation events — is
+ * verified in `ruleService.6e.test.ts`.
  */
 import { ruleService } from '../ruleService.js';
 import { Rule } from '../../models/Rule.js';
+import { wsId } from '../../storage/contract/types.js';
+import { registerProjection, resetProjectionRegistry } from '../../storage/projection/ProjectionRegistry.js';
 
 // Provide an explicit factory mock so our new rule helpers exist (the
 // __mocks__/fileOperations.ts manual mock predates them).
@@ -15,9 +28,16 @@ jest.mock('../../utils/fileOperations', () => ({
   writePackageRules: jest.fn(),
   readCaseRules: jest.fn(),
   writeCaseRules: jest.fn(),
+  readGlobalRules: jest.fn(),
+  writeGlobalRules: jest.fn(),
+  readCaseFile: jest.fn(),
+  writeCaseFile: jest.fn(),
+  deleteCaseFile: jest.fn(),
+  loadPackage: jest.fn(),
   listAllEntityRuleFiles: jest.fn(),
   listPackagesWithRules: jest.fn(),
   listCases: jest.fn(),
+  listPackages: jest.fn(),
 }));
 jest.mock('../../utils/logger');
 jest.mock('../../utils/uuid', () => ({
@@ -33,10 +53,55 @@ const mocked = fileOps as {
   writePackageRules: jest.Mock;
   readCaseRules: jest.Mock;
   writeCaseRules: jest.Mock;
+  readGlobalRules: jest.Mock;
+  writeGlobalRules: jest.Mock;
+  readCaseFile: jest.Mock;
+  writeCaseFile: jest.Mock;
+  deleteCaseFile: jest.Mock;
+  loadPackage: jest.Mock;
   listAllEntityRuleFiles: jest.Mock;
   listPackagesWithRules: jest.Mock;
   listCases: jest.Mock;
+  listPackages: jest.Mock;
 };
+
+const DICT_WS = wsId('dictionaries');
+
+/**
+ * Stand-in projection that satisfies the slice-6e.1 contract by routing
+ * each projection method back to the legacy `fileOperations` mocks the
+ * tests below already configure. Keeps the existing mock-based assertions
+ * intact while ruleService internally calls `projection.write*`.
+ */
+function buildFakeProjection() {
+  return {
+    writeEntity: jest.fn(async (logicalPath: string, entity: { name: string; rules?: Rule[] }) => {
+      // Parse `packages/<svc>/entities/<Name>` to get the service.
+      const segs = String(logicalPath).split('/').filter(Boolean);
+      const entitiesIdx = segs.lastIndexOf('entities');
+      const service = segs.slice(1, entitiesIdx).join('/');
+      const entityUuid = (entity as unknown as { uuid: string }).uuid;
+      await mocked.writeEntityRules(service, entityUuid, entity.rules || []);
+    }),
+    writePackageRules: jest.fn(async (packagePath: string, rules: Rule[]) => {
+      const packageName = String(packagePath).replace(/^packages\//, '');
+      await mocked.writePackageRules(packageName, rules);
+    }),
+    writeGlobalRules: jest.fn(async (rules: Rule[]) => {
+      await mocked.writeGlobalRules(rules);
+    }),
+    writeCase: jest.fn(async (logicalPath: string, c: { uuid: string; rules?: unknown[] }) => {
+      // Mirror writeCaseRules signature: (caseUuid, rules[])
+      await mocked.writeCaseRules(c.uuid, (c.rules as Rule[]) || []);
+    }),
+    deleteCase: jest.fn(async () => true),
+    readCase: jest.fn(async () => null),
+    readEntity: jest.fn(async () => null),
+    listEntitiesInPackage: jest.fn(async () => []),
+    deleteEntity: jest.fn(async () => false),
+    onInvalidate: jest.fn(() => () => undefined),
+  };
+}
 
 const buildRule = (overrides: Partial<Rule> = {}): Rule => ({
   uuid: 'rule-1',
@@ -60,12 +125,38 @@ describe('ruleService', () => {
     mocked.listAllEntityRuleFiles.mockResolvedValue([]);
     mocked.listPackagesWithRules.mockResolvedValue([]);
     mocked.listCases.mockResolvedValue([]);
+    mocked.listPackages.mockResolvedValue([]);
     mocked.readEntityRules.mockResolvedValue([]);
     mocked.readPackageRules.mockResolvedValue([]);
     mocked.readCaseRules.mockResolvedValue([]);
+    mocked.readGlobalRules.mockResolvedValue([]);
     mocked.writeEntityRules.mockResolvedValue(true);
     mocked.writePackageRules.mockResolvedValue(true);
     mocked.writeCaseRules.mockResolvedValue(true);
+    mocked.writeGlobalRules.mockResolvedValue(true);
+    mocked.readCaseFile.mockResolvedValue(null);
+    mocked.loadPackage.mockResolvedValue({
+      entities: [],
+      relationships: [],
+      rules: [],
+      cases: [],
+      ownership: {
+        entityByName: new Map(),
+        entityByUuid: new Map(),
+        relationshipByUuid: new Map(),
+        ruleByUuid: new Map(),
+        caseByUuid: new Map(),
+      },
+    });
+
+    // Slice 6e.1: register a stand-in projection so projection-routed writes
+    // succeed. The fake projection forwards each call to the legacy
+    // fileOperations mocks, so the existing test assertions keep working.
+    registerProjection(DICT_WS, buildFakeProjection() as unknown as Parameters<typeof registerProjection>[1]);
+  });
+
+  afterEach(() => {
+    resetProjectionRegistry();
   });
 
   // ─── listRules ─────────────────────────────────────────────────────────
@@ -210,6 +301,22 @@ describe('ruleService', () => {
     });
 
     it('creates an entity-scoped rule when packageName is provided as the service hint', async () => {
+      // Slice 6e.1 — ruleService now loads the parent entity from loadPackage
+      // before round-tripping through projection.writeEntity. Provide a
+      // package model that contains the entity so findEntityByUuid succeeds.
+      mocked.loadPackage.mockResolvedValue({
+        entities: [{ uuid: 'ent-1', name: 'Profile', attributes: [] }],
+        relationships: [],
+        rules: [],
+        cases: [],
+        ownership: {
+          entityByName: new Map([['Profile', '']]),
+          entityByUuid: new Map([['ent-1', '']]),
+          relationshipByUuid: new Map(),
+          ruleByUuid: new Map(),
+          caseByUuid: new Map(),
+        },
+      });
       const result = await ruleService.createRule({
         name: 'profile-complete',
         description: 'desc',
@@ -229,6 +336,32 @@ describe('ruleService', () => {
     });
 
     it('creates a case-scoped rule and persists via writeCaseRules', async () => {
+      // Slice 6e.1 — ruleService now loads the case via readCaseFile and
+      // round-trips through projection.writeCase. The fake projection in
+      // beforeEach forwards writeCase → writeCaseRules so the legacy
+      // assertion below still passes.
+      mocked.readCaseFile.mockResolvedValue({
+        uuid: 'p-fraud',
+        name: 'FraudCheck',
+        rootEntities: [],
+        nodes: [],
+        rules: [],
+      });
+      mocked.listPackages.mockResolvedValue(['fraud-service']);
+      mocked.loadPackage.mockResolvedValue({
+        entities: [],
+        relationships: [],
+        rules: [],
+        cases: [{ uuid: 'p-fraud', name: 'FraudCheck' }],
+        ownership: {
+          entityByName: new Map(),
+          entityByUuid: new Map(),
+          relationshipByUuid: new Map(),
+          ruleByUuid: new Map(),
+          caseByUuid: new Map([['p-fraud', '']]),
+        },
+      });
+
       const result = await ruleService.createRule({
         name: 'fraud-check',
         description: 'check',
@@ -276,6 +409,27 @@ describe('ruleService', () => {
       mocked.readEntityRules.mockResolvedValue([
         buildRule({ uuid: 'r-1', scope: 'entity', entityUuid: 'ent-1', packageName: 'user-service' }),
       ]);
+      // Slice 6e.1 — removeRuleFromScope's entity arm now loads the entity
+      // from loadPackage before round-tripping through projection.writeEntity.
+      // The entity must carry the rule the test asserts gets removed.
+      mocked.loadPackage.mockResolvedValue({
+        entities: [{
+          uuid: 'ent-1',
+          name: 'Profile',
+          attributes: [],
+          rules: [buildRule({ uuid: 'r-1', scope: 'entity', entityUuid: 'ent-1', packageName: 'user-service' })],
+        }],
+        relationships: [],
+        rules: [],
+        cases: [],
+        ownership: {
+          entityByName: new Map([['Profile', '']]),
+          entityByUuid: new Map([['ent-1', '']]),
+          relationshipByUuid: new Map(),
+          ruleByUuid: new Map(),
+          caseByUuid: new Map(),
+        },
+      });
 
       const result = await ruleService.updateRule('r-1', {
         scope: 'package',

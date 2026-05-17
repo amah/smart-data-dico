@@ -12,19 +12,21 @@
 import { Rule, RuleScope, validateRule } from '../models/Rule.js';
 import {
   readEntityRules,
-  writeEntityRules,
   readPackageRules,
-  writePackageRules,
   readCaseRules,
-  writeCaseRules,
   readGlobalRules,
-  writeGlobalRules,
   listAllEntityRuleFiles,
   listPackagesWithRules,
   listCases,
+  readCaseFile,
+  loadPackage,
 } from '../utils/fileOperations.js';
 import { generateUUID } from '../utils/uuid.js';
 import { logger } from '../utils/logger.js';
+import { getProjection } from '../storage/projection/ProjectionRegistry.js';
+import { wsId } from '../storage/contract/types.js';
+import type { LogicalPath } from '../storage/projection/LogicalProjection.js';
+import type { Case } from '../models/EntitySchema.js';
 
 interface ListFilters {
   scope?: RuleScope;
@@ -199,41 +201,80 @@ class RuleService {
   // ─── Private helpers: route to the right storage location ────────────────
 
   private async saveRuleToScope(rule: Rule): Promise<boolean> {
+    const projection = getProjection(wsId('dictionaries'));
     switch (rule.scope) {
       case 'entity': {
         if (!rule.entityUuid) return false;
-        // We need a service name to find the sidecar — derive it from the first target's package context.
-        // Walk all entity rule files to find which service owns this entity uuid.
+        // Find the service owning this entity uuid.
         const files = await listAllEntityRuleFiles();
         let service = files.find(f => f.entityUuid === rule.entityUuid)?.service;
-        if (!service) {
-          // No existing sidecar — caller must provide via packageName, or we look up the entity
-          service = rule.packageName;
-        }
+        if (!service) service = rule.packageName;
         if (!service) {
           logger.error(`Cannot determine service for entity ${rule.entityUuid}`);
           return false;
         }
-        const existing = await readEntityRules(service, rule.entityUuid);
-        const updated = [...existing.filter(r => r.uuid !== rule.uuid), rule];
-        return writeEntityRules(service, rule.entityUuid, updated);
+        // Slice 6e.1 — entity-scope rule writes go through projection.writeEntity
+        // (which fires the existing entity-written event the UuidIndex consumes).
+        // We must NOT fire a separate rule-written event for this case.
+        const entity = await this.findEntityByUuid(service, rule.entityUuid);
+        if (!entity) {
+          logger.error(`Entity ${rule.entityUuid} not found in service ${service}`);
+          return false;
+        }
+        const existing = entity.rules || [];
+        const updatedRules = [...existing.filter(r => r.uuid !== rule.uuid), rule];
+        entity.rules = updatedRules.length > 0 ? updatedRules : undefined;
+        const logicalPath = `packages/${service}/entities/${entity.name}` as LogicalPath;
+        try {
+          await projection.writeEntity(logicalPath, entity);
+          return true;
+        } catch (e) {
+          logger.error(`Failed to write entity-scope rule via projection: ${(e as Error).message}`);
+          return false;
+        }
       }
       case 'package': {
         if (!rule.packageName) return false;
         const existing = await readPackageRules(rule.packageName);
         const updated = [...existing.filter(r => r.uuid !== rule.uuid), rule];
-        return writePackageRules(rule.packageName, updated);
+        const packageLogicalPath = `packages/${rule.packageName}` as LogicalPath;
+        try {
+          await projection.writePackageRules(packageLogicalPath, updated);
+          return true;
+        } catch (e) {
+          logger.error(`Failed to write package-scope rules via projection: ${(e as Error).message}`);
+          return false;
+        }
       }
       case 'case': {
         if (!rule.caseUuid) return false;
-        const existing = await readCaseRules(rule.caseUuid);
-        const updated = [...existing.filter(r => r.uuid !== rule.uuid), rule];
-        return writeCaseRules(rule.caseUuid, updated);
+        // Load the case, mutate its rules, and round-trip via projection.writeCase.
+        const c = await readCaseFile(rule.caseUuid);
+        if (!c) return false;
+        const existing = (c.rules as Rule[]) || [];
+        c.rules = [...existing.filter(r => r.uuid !== rule.uuid), rule];
+        c.updatedAt = new Date().toISOString();
+        const targetPackage = await this.resolveCaseHomePackage(c);
+        if (!targetPackage) return false;
+        const caseLogicalPath = `packages/${targetPackage}/cases/${c.name}` as LogicalPath;
+        try {
+          await projection.writeCase(caseLogicalPath, c);
+          return true;
+        } catch (e) {
+          logger.error(`Failed to write case-scope rule via projection: ${(e as Error).message}`);
+          return false;
+        }
       }
       case 'global': {
         const existing = await readGlobalRules();
         const updated = [...existing.filter(r => r.uuid !== rule.uuid), rule];
-        return writeGlobalRules(updated);
+        try {
+          await projection.writeGlobalRules(updated);
+          return true;
+        } catch (e) {
+          logger.error(`Failed to write global rules via projection: ${(e as Error).message}`);
+          return false;
+        }
       }
       default:
         return false;
@@ -241,36 +282,115 @@ class RuleService {
   }
 
   private async removeRuleFromScope(rule: Rule): Promise<boolean> {
+    const projection = getProjection(wsId('dictionaries'));
     switch (rule.scope) {
       case 'entity': {
         if (!rule.entityUuid) return false;
         const files = await listAllEntityRuleFiles();
         const service = files.find(f => f.entityUuid === rule.entityUuid)?.service ?? rule.packageName;
         if (!service) return false;
-        const existing = await readEntityRules(service, rule.entityUuid);
-        const updated = existing.filter(r => r.uuid !== rule.uuid);
-        return writeEntityRules(service, rule.entityUuid, updated);
+        const entity = await this.findEntityByUuid(service, rule.entityUuid);
+        if (!entity) return false;
+        const existing = entity.rules || [];
+        const updatedRules = existing.filter(r => r.uuid !== rule.uuid);
+        entity.rules = updatedRules.length > 0 ? updatedRules : undefined;
+        const logicalPath = `packages/${service}/entities/${entity.name}` as LogicalPath;
+        try {
+          await projection.writeEntity(logicalPath, entity);
+          return true;
+        } catch (e) {
+          logger.error(`Failed to remove entity-scope rule via projection: ${(e as Error).message}`);
+          return false;
+        }
       }
       case 'package': {
         if (!rule.packageName) return false;
         const existing = await readPackageRules(rule.packageName);
         const updated = existing.filter(r => r.uuid !== rule.uuid);
-        return writePackageRules(rule.packageName, updated);
+        const packageLogicalPath = `packages/${rule.packageName}` as LogicalPath;
+        try {
+          await projection.writePackageRules(packageLogicalPath, updated);
+          return true;
+        } catch (e) {
+          logger.error(`Failed to remove package-scope rule via projection: ${(e as Error).message}`);
+          return false;
+        }
       }
       case 'case': {
         if (!rule.caseUuid) return false;
-        const existing = await readCaseRules(rule.caseUuid);
+        const c = await readCaseFile(rule.caseUuid);
+        if (!c) return false;
+        const existing = (c.rules as Rule[]) || [];
         const updated = existing.filter(r => r.uuid !== rule.uuid);
-        return writeCaseRules(rule.caseUuid, updated);
+        c.rules = updated.length > 0 ? updated : undefined;
+        c.updatedAt = new Date().toISOString();
+        const targetPackage = await this.resolveCaseHomePackage(c);
+        if (!targetPackage) return false;
+        const caseLogicalPath = `packages/${targetPackage}/cases/${c.name}` as LogicalPath;
+        try {
+          await projection.writeCase(caseLogicalPath, c);
+          return true;
+        } catch (e) {
+          logger.error(`Failed to remove case-scope rule via projection: ${(e as Error).message}`);
+          return false;
+        }
       }
       case 'global': {
         const existing = await readGlobalRules();
         const updated = existing.filter(r => r.uuid !== rule.uuid);
-        return writeGlobalRules(updated);
+        try {
+          await projection.writeGlobalRules(updated);
+          return true;
+        } catch (e) {
+          logger.error(`Failed to remove global rule via projection: ${(e as Error).message}`);
+          return false;
+        }
       }
       default:
         return false;
     }
+  }
+
+  /**
+   * Load an entity from a package by uuid. Returns null if not found.
+   * Used by entity-scope rule writes to round-trip the parent entity
+   * through `projection.writeEntity`.
+   */
+  private async findEntityByUuid(service: string, entityUuid: string) {
+    try {
+      const pkg = await loadPackage(service);
+      return pkg.entities.find(e => e.uuid === entityUuid) ?? null;
+    } catch (error) {
+      logger.error(`Error loading package ${service} for entity lookup: ${error}`);
+      return null;
+    }
+  }
+
+  /**
+   * Resolve the home package for a case so we can construct a
+   * `packages/<pkg>/cases/<name>` logical path. Mirrors the heuristic in
+   * caseService.ts / fileOperations.ts: existing-owner lookup by uuid first,
+   * then first root entity's package, then first package on disk.
+   */
+  private async resolveCaseHomePackage(c: Case): Promise<string | null> {
+    const { listPackages } = await import('../utils/fileOperations.js');
+    const packages = await listPackages();
+    for (const pkg of packages) {
+      try {
+        const model = await loadPackage(pkg);
+        if (model.ownership.caseByUuid.has(c.uuid)) return pkg;
+      } catch { /* skip */ }
+    }
+    if (c.rootEntities && c.rootEntities.length > 0) {
+      const rootUuid = c.rootEntities[0];
+      for (const pkg of packages) {
+        try {
+          const model = await loadPackage(pkg);
+          if (model.ownership.entityByUuid.has(rootUuid)) return pkg;
+        } catch { /* skip */ }
+      }
+    }
+    return packages[0] || null;
   }
 
   // ─── Auto-promote / auto-demote (#75) ────────────────────────────────

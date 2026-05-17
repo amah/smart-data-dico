@@ -9,8 +9,11 @@ import {
   MetadataEntry,
   normalizeRelationshipEnds,
 } from '../models/EntitySchema.js';
-import { listCases, readCaseFile, writeCaseFile, deleteCaseFile, getAllRelationships, listAllEntities, readEntityFile } from '../utils/fileOperations.js';
+import { listCases, readCaseFile, getAllRelationships, listAllEntities, readEntityFile, listPackages, loadPackage } from '../utils/fileOperations.js';
 import { generateUUID } from '../utils/uuid.js';
+import { getProjection } from '../storage/projection/ProjectionRegistry.js';
+import { wsId } from '../storage/contract/types.js';
+import type { LogicalPath } from '../storage/projection/LogicalProjection.js';
 
 interface AdjacencyEntry {
   neighborUuid: string;
@@ -58,6 +61,44 @@ function slimAttributes(entity: Entity): ResolvedAttribute[] {
   });
 }
 
+/**
+ * Resolve the home package for a case so the caller can construct a
+ * logical path of the form `packages/<pkg>/cases/<Name>`. Mirrors the
+ * heuristic that `fileOperations.writeCaseFile` uses internally:
+ *
+ *   1. If a file already owns the case (lookup by uuid), use that package.
+ *   2. Otherwise, use the package of the first root entity.
+ *   3. Otherwise, fall back to the first package on disk.
+ *   4. If nothing is found, return null.
+ *
+ * The projection's `writeCase` validates name vs path but does NOT enforce
+ * that the path's package segment matches the on-disk owning package — the
+ * underlying `writeCaseFile` is uuid-keyed and will still place the file
+ * correctly even if the heuristic guessed a different package.
+ */
+async function resolveCaseHomePackage(c: Case): Promise<string | null> {
+  const packages = await listPackages();
+  // 1. Existing-owner lookup.
+  for (const pkg of packages) {
+    try {
+      const model = await loadPackage(pkg);
+      if (model.ownership.caseByUuid.has(c.uuid)) return pkg;
+    } catch { /* skip */ }
+  }
+  // 2. First root entity's package.
+  if (c.rootEntities && c.rootEntities.length > 0) {
+    const rootUuid = c.rootEntities[0];
+    for (const pkg of packages) {
+      try {
+        const model = await loadPackage(pkg);
+        if (model.ownership.entityByUuid.has(rootUuid)) return pkg;
+      } catch { /* skip */ }
+    }
+  }
+  // 3. First package.
+  return packages[0] || null;
+}
+
 class CaseService {
   // --- CRUD ---
 
@@ -85,9 +126,17 @@ class CaseService {
       updatedAt: new Date().toISOString(),
     };
 
-    const ok = await writeCaseFile(newCase);
-    if (!ok) return { success: false, errors: ['Failed to write case file'] };
-    return { success: true, case: newCase };
+    // Slice 6e.1: route through the registered projection.
+    const targetPackage = await resolveCaseHomePackage(newCase);
+    if (!targetPackage) return { success: false, errors: ['Cannot resolve home package for case'] };
+    const projection = getProjection(wsId('dictionaries'));
+    const caseLogicalPath = `packages/${targetPackage}/cases/${newCase.name}` as LogicalPath;
+    try {
+      await projection.writeCase(caseLogicalPath, newCase);
+      return { success: true, case: newCase };
+    } catch (e) {
+      return { success: false, errors: [`Failed to write case file: ${(e as Error).message}`] };
+    }
   }
 
   async update(uuid: string, data: Partial<Case>): Promise<{ success: boolean; case?: Case; errors?: string[] }> {
@@ -105,13 +154,28 @@ class CaseService {
       updatedAt: new Date().toISOString(),
     };
 
-    const ok = await writeCaseFile(updated);
-    if (!ok) return { success: false, errors: ['Failed to write case file'] };
-    return { success: true, case: updated };
+    const targetPackage = await resolveCaseHomePackage(updated);
+    if (!targetPackage) return { success: false, errors: ['Cannot resolve home package for case'] };
+    const projection = getProjection(wsId('dictionaries'));
+    const caseLogicalPath = `packages/${targetPackage}/cases/${updated.name}` as LogicalPath;
+    try {
+      await projection.writeCase(caseLogicalPath, updated);
+      return { success: true, case: updated };
+    } catch (e) {
+      return { success: false, errors: [`Failed to write case file: ${(e as Error).message}`] };
+    }
   }
 
   async delete(uuid: string): Promise<{ success: boolean; errors?: string[] }> {
-    const ok = await deleteCaseFile(uuid);
+    // Need the case to derive its logical path. `readCaseFile` scans packages
+    // by uuid; the path-shape projection.deleteCase wants both pkg + name.
+    const existing = await readCaseFile(uuid);
+    if (!existing) return { success: false, errors: ['Case not found'] };
+    const targetPackage = await resolveCaseHomePackage(existing);
+    if (!targetPackage) return { success: false, errors: ['Case not found'] };
+    const projection = getProjection(wsId('dictionaries'));
+    const caseLogicalPath = `packages/${targetPackage}/cases/${existing.name}` as LogicalPath;
+    const ok = await projection.deleteCase(caseLogicalPath);
     if (!ok) return { success: false, errors: ['Case not found'] };
     return { success: true };
   }
@@ -132,9 +196,16 @@ class CaseService {
     c.nodes = nodes;
     c.updatedAt = new Date().toISOString();
 
-    const ok = await writeCaseFile(c);
-    if (!ok) return { success: false, errors: ['Failed to write'] };
-    return { success: true };
+    const targetPackage = await resolveCaseHomePackage(c);
+    if (!targetPackage) return { success: false, errors: ['Failed to write'] };
+    const projection = getProjection(wsId('dictionaries'));
+    const caseLogicalPath = `packages/${targetPackage}/cases/${c.name}` as LogicalPath;
+    try {
+      await projection.writeCase(caseLogicalPath, c);
+      return { success: true };
+    } catch {
+      return { success: false, errors: ['Failed to write'] };
+    }
   }
 
   // --- BFS Resolution ---
