@@ -17,6 +17,8 @@ import {
   writeComments
 } from '../utils/fileOperations.js';
 import { generateUUID } from '../utils/uuid.js';
+import { getProjection } from '../storage/projection/ProjectionRegistry.js';
+import { wsId } from '../storage/contract/types.js';
 
 /**
  * Interface for search result
@@ -156,12 +158,19 @@ export class ServiceService {
       entity.createdAt = new Date().toISOString();
       entity.updatedAt = new Date().toISOString();
 
-      const result = await writeEntityFile(entity, service);
-
-      return {
-        success: result,
-        errors: result ? [] : ['Failed to write entity file']
-      };
+      // Slice 6b'': route through the registered LogicalProjection so the
+      // slice-6c UuidIndex sees the invalidation event. Mirrors EntityService
+      // .saveEntity from slice 6b'. Closes Risk §11.6 for the controller-routed
+      // POST /api/services/:service/entities path.
+      try {
+        const projection = getProjection(wsId('dictionaries'));
+        const logicalPath = `packages/${service}/entities/${entity.name}`;
+        await projection.writeEntity(logicalPath, entity);
+        return { success: true, errors: [] };
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        return { success: false, errors: [message] };
+      }
     } catch (error) {
       logger.error(`Error creating entity: ${error}`);
       return {
