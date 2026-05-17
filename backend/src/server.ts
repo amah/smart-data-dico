@@ -85,16 +85,23 @@ async function mountFrameworkRoutes() {
     try {
       const { wsId } = await import('./storage/contract/types.js');
       const { LogicalProjection } = await import('./storage/projection/LogicalProjection.js');
+      const { registerProjection } = await import('./storage/projection/ProjectionRegistry.js');
       const { UuidIndex, registerUuidIndex } = await import('./storage/projection/UuidIndex.js');
+      const { storageRegistry } = await import('./storage/contract/StorageBackendToken.js');
       const dictWs = wsId('dictionaries');
-      const projection = new LogicalProjection(workspaceManager, dictWs);
-      const uuidIndex = new UuidIndex(projection, dictWs, workspaceManager);
+      const backend = storageRegistry.getBackend();
+      const projection = new LogicalProjection(backend, dictWs);
+      // Register the projection FIRST so the UuidIndex subscribes to the
+      // SAME instance the /fs/logical route handlers will consume. This
+      // closes slice-6c Risk §11.6 for projection-routed writes.
+      registerProjection(dictWs, projection);
+      const uuidIndex = new UuidIndex(projection, dictWs, backend);
       await uuidIndex.rebuild();
       uuidIndex.start();
       registerUuidIndex(dictWs, uuidIndex);
-      logger.info('UuidIndex initialized (slice 6c)');
+      logger.info('UuidIndex initialized (slice 6c) + LogicalProjection registered (slice 6d)');
     } catch (e) {
-      logger.warn(`UuidIndex initialization failed: ${e instanceof Error ? e.message : String(e)}`);
+      logger.warn(`Projection/UuidIndex initialization failed: ${e instanceof Error ? e.message : String(e)}`);
     }
 
     // Register YAML entity enricher
@@ -130,8 +137,18 @@ async function mountFrameworkRoutes() {
     // Mount filesystem routes
     const fsRouter = getFileRouter();
     app.use('/fs', fsRouter);
+    // Slice 6d: /fs/raw is the semantic-explicit alias for the existing /fs
+    // mount. Same Router instance — zero new state. The frontend may switch
+    // `baseUrl: '/fs'` to `baseUrl: '/fs/raw'` in a follow-up ticket without
+    // any backend change.
+    app.use('/fs/raw', fsRouter);
+    // Slice 6d: /fs/logical serves entity-level reads/writes/deletes against
+    // the LogicalProjection registered above. Workspace path is the embedded
+    // :workspace URL param (matches the framework's FileRouter URL shape).
+    const { createLogicalFsRouter } = await import('./routes/logicalFsRouter.js');
+    app.use('/fs/logical', createLogicalFsRouter());
 
-    logger.info('Filesystem routes mounted at /fs');
+    logger.info('Filesystem routes mounted at /fs, /fs/raw, /fs/logical');
   } catch (error) {
     logger.warn(`Framework filesystem not initialized: ${error}`);
   }
