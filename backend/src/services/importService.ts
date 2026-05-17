@@ -1,7 +1,8 @@
 import { Entity, Attribute, AttributeType, EntityStatus, MetadataEntry, PhysicalConstraint, Relationship, Cardinality, ReferentialAction } from '../models/EntitySchema.js';
-import { writeEntityFile } from '../utils/fileOperations.js';
 import { generateUUID } from '../utils/uuid.js';
 import { logger } from '../utils/logger.js';
+import { getProjection } from '../storage/projection/ProjectionRegistry.js';
+import { wsId } from '../storage/contract/types.js';
 
 /**
  * Options controlling how SQL DDL is parsed into the logical model (#69 C1).
@@ -549,11 +550,18 @@ class ImportService {
           updatedAt: new Date().toISOString(),
         };
 
-        const ok = await writeEntityFile(entity, service);
-        if (ok) {
+        // Slice 6b'''''': route through the registered LogicalProjection so
+        // the slice-6c UuidIndex sees the invalidation event. Partial-success
+        // contract preserved: thrown errors are caught per-entity and surfaced
+        // as `errors[]` while the loop continues with the next entity.
+        try {
+          const projection = getProjection(wsId('dictionaries'));
+          const logicalPath = `packages/${service}/entities/${entity.name}`;
+          await projection.writeEntity(logicalPath, entity);
           entities.push(entity);
-        } else {
-          errors.push(`Failed to write entity: ${name}`);
+        } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
+          errors.push(`Failed to write entity: ${name}: ${message}`);
         }
       }
     } catch (error: any) {
@@ -753,14 +761,16 @@ class ImportService {
   ): Promise<{ written: Entity[]; errors: string[] }> {
     const written: Entity[] = [];
     const errors: string[] = [];
+    // Slice 6b''''''': route through the registered LogicalProjection so
+    // the slice-6c UuidIndex sees the invalidation event. Partial-success
+    // contract preserved: per-entity try/catch surfaces thrown errors as
+    // `errors[]` while the loop continues with the next entity.
     for (const entity of entities) {
       try {
-        const ok = await writeEntityFile(entity, service);
-        if (ok) {
-          written.push(entity);
-        } else {
-          errors.push(`Failed to write entity: ${entity.name}`);
-        }
+        const projection = getProjection(wsId('dictionaries'));
+        const logicalPath = `packages/${service}/entities/${entity.name}`;
+        await projection.writeEntity(logicalPath, entity);
+        written.push(entity);
       } catch (error: any) {
         errors.push(`Error writing entity ${entity.name}: ${error.message}`);
       }
