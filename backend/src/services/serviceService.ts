@@ -7,7 +7,6 @@ import {
   listMicroserviceEntities,
   readEntityFile,
   writeEntityFile,
-  deleteEntityFile,
   listAllEntities,
   readRelationshipsFile,
   writeRelationshipsFile,
@@ -256,12 +255,22 @@ export class ServiceService {
         };
       }
 
-      const result = await deleteEntityFile(service, entityName);
-
-      return {
-        success: result,
-        errors: result ? [] : ['Failed to delete entity file']
-      };
+      // Slice 6b'''': route through the registered LogicalProjection so the
+      // slice-6c UuidIndex sees the invalidation event. Closes Risk §11.6 for
+      // the controller-routed DELETE /api/services/:service/entities/:name
+      // path.
+      try {
+        const projection = getProjection(wsId('dictionaries'));
+        const logicalPath = `packages/${service}/entities/${existingEntity.name}`;
+        const deleted = await projection.deleteEntity(logicalPath);
+        return {
+          success: deleted,
+          errors: deleted ? [] : ['Failed to delete entity file'],
+        };
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        return { success: false, errors: [message] };
+      }
     } catch (error) {
       logger.error(`Error deleting entity: ${error}`);
       return {
