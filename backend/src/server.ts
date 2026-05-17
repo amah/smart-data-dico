@@ -78,6 +78,25 @@ async function mountFrameworkRoutes() {
     // Register the git+filesystem storage backend singleton
     registerStorageBackend(workspaceManager);
 
+    // Bootstrap the uuid → logical-path index (#167 slice 6c) for the
+    // default dictionaries workspace. Per-workspace; #169 multi-workspace
+    // work will extend this to fork-on-demand instances. Wrapped in try/catch
+    // so a duplicate-uuid throw does NOT abort the framework-routes mount.
+    try {
+      const { wsId } = await import('./storage/contract/types.js');
+      const { LogicalProjection } = await import('./storage/projection/LogicalProjection.js');
+      const { UuidIndex, registerUuidIndex } = await import('./storage/projection/UuidIndex.js');
+      const dictWs = wsId('dictionaries');
+      const projection = new LogicalProjection(workspaceManager, dictWs);
+      const uuidIndex = new UuidIndex(projection, dictWs, workspaceManager);
+      await uuidIndex.rebuild();
+      uuidIndex.start();
+      registerUuidIndex(dictWs, uuidIndex);
+      logger.info('UuidIndex initialized (slice 6c)');
+    } catch (e) {
+      logger.warn(`UuidIndex initialization failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
     // Register YAML entity enricher
     const yamlEnricher = createYamlFileInfoEnricher();
     enricherRegistry.register(yamlEnricher);
