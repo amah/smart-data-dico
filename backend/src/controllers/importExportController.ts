@@ -10,9 +10,12 @@ import { introspectPostgres, PostgresConnectionConfig } from '../services/postgr
 import { introspectMysql, MysqlConnectionConfig } from '../services/mysqlIntrospect.js';
 import { introspectMssql, MssqlConnectionConfig } from '../services/mssqlIntrospect.js';
 import { Entity, Relationship } from '../models/EntitySchema.js';
-import { readRelationshipsFile, writeRelationshipsFile } from '../utils/fileOperations.js';
+import { readRelationshipsFile } from '../utils/fileOperations.js';
 import { logger } from '../utils/logger.js';
 import path from 'path';
+import { getProjection } from '../storage/projection/ProjectionRegistry.js';
+import { wsId } from '../storage/contract/types.js';
+import type { LogicalPath } from '../storage/projection/LogicalProjection.js';
 
 export const importJsonSchema = async (req: Request, res: Response) => {
   try {
@@ -191,7 +194,12 @@ export const commitSqlDdl = async (req: Request, res: Response) => {
       const mergedRels = mergeRelationships(parsedRelationships, existingRels, entityUuidMap);
       const relDiffs = diffRelationships(parsedRelationships, existingRels);
 
-      await writeRelationshipsFile(packagePath, mergedRels);
+      // Slice 6e.1: route through projection so subscribers see the
+      // invalidation. Path-shape projection.writeRelationships needs the
+      // logical `packages/<pkg>` form, not the physical filesystem path.
+      const projection = getProjection(wsId('dictionaries'));
+      const packageLogicalPath = `packages/${targetService}` as LogicalPath;
+      await projection.writeRelationships(packageLogicalPath, mergedRels);
 
       relCounts = {
         added: relDiffs.filter(d => d.status === 'added').length,

@@ -188,7 +188,7 @@ export class UuidIndex {
       if (!event.uuid) return;
       this.uuidToPath.set(event.uuid, event.logicalPath);
       this.pathToUuid.set(event.logicalPath, event.uuid);
-    } else {
+    } else if (event.kind === 'entity-deleted') {
       // entity-deleted: looked up by path (delete events carry no uuid per
       // 6b Design Decision 4.4).
       const uuid = this.pathToUuid.get(event.logicalPath);
@@ -205,6 +205,11 @@ export class UuidIndex {
       // If path is not indexed, silently no-op — a delete of an unknown
       // entity is benign; the index was already in the right state.
     }
+    // Slice 6e.1 introduced relationships-written / rule-written / rule-deleted /
+    // case-written / case-deleted event kinds. The UuidIndex indexes only
+    // entity UUIDs (slice 6c), so all other event kinds are intentionally
+    // ignored here — see slice 6e §4.2 / §4.4 (the multi-kind UUID index is
+    // explicitly out of scope, deferred to a later ticket).
   }
 
   /**

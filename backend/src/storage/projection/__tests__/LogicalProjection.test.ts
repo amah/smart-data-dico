@@ -603,9 +603,11 @@ describe('T23: deleteEntity fires entity-deleted event without uuid', () => {
     expect(deleted).toBe(true);
 
     expect(spy.calls).toHaveLength(1);
-    expect(spy.calls[0].kind).toBe('entity-deleted');
-    expect(spy.calls[0].logicalPath).toBe('packages/order-service/entities/Order');
-    expect(spy.calls[0].uuid).toBeUndefined();
+    const evt = spy.calls[0];
+    expect(evt.kind).toBe('entity-deleted');
+    if (evt.kind !== 'entity-deleted') throw new Error('unreachable');
+    expect(evt.logicalPath).toBe('packages/order-service/entities/Order');
+    expect(evt.uuid).toBeUndefined();
   });
 });
 

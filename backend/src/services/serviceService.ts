@@ -8,7 +8,6 @@ import {
   readEntityFile,
   listAllEntities,
   readRelationshipsFile,
-  writeRelationshipsFile,
   getPackagePath,
   getAllRelationships,
   readComments,
@@ -17,6 +16,7 @@ import {
 import { generateUUID } from '../utils/uuid.js';
 import { getProjection } from '../storage/projection/ProjectionRegistry.js';
 import { wsId } from '../storage/contract/types.js';
+import type { LogicalPath } from '../storage/projection/LogicalProjection.js';
 
 /**
  * Interface for search result
@@ -296,11 +296,15 @@ export class ServiceService {
       const relationships = await readRelationshipsFile(packagePath);
       relationships.push(relationship);
 
-      const result = await writeRelationshipsFile(packagePath, relationships);
+      // Slice 6e.1: write via projection so the (future) UuidIndex / cache
+      // subscribers see the invalidation. Projection throws on failure.
+      const projection = getProjection(wsId('dictionaries'));
+      const packageLogicalPath = `packages/${packageName}` as LogicalPath;
+      await projection.writeRelationships(packageLogicalPath, relationships);
       return {
-        success: result,
-        errors: result ? [] : ['Failed to write relationships file'],
-        relationship: result ? relationship : undefined
+        success: true,
+        errors: [],
+        relationship,
       };
     } catch (error) {
       logger.error(`Error creating relationship: ${error}`);
@@ -319,11 +323,10 @@ export class ServiceService {
       }
 
       relationships[index] = { ...relationship, uuid };
-      const result = await writeRelationshipsFile(packagePath, relationships);
-      return {
-        success: result,
-        errors: result ? [] : ['Failed to write relationships file']
-      };
+      const projection = getProjection(wsId('dictionaries'));
+      const packageLogicalPath = `packages/${packageName}` as LogicalPath;
+      await projection.writeRelationships(packageLogicalPath, relationships);
+      return { success: true, errors: [] };
     } catch (error) {
       logger.error(`Error updating relationship: ${error}`);
       return { success: false, errors: [`Error updating relationship: ${error}`] };
@@ -341,11 +344,10 @@ export class ServiceService {
       }
 
       relationships.splice(index, 1);
-      const result = await writeRelationshipsFile(packagePath, relationships);
-      return {
-        success: result,
-        errors: result ? [] : ['Failed to write relationships file']
-      };
+      const projection = getProjection(wsId('dictionaries'));
+      const packageLogicalPath = `packages/${packageName}` as LogicalPath;
+      await projection.writeRelationships(packageLogicalPath, relationships);
+      return { success: true, errors: [] };
     } catch (error) {
       logger.error(`Error deleting relationship: ${error}`);
       return { success: false, errors: [`Error deleting relationship: ${error}`] };

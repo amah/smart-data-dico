@@ -10,10 +10,21 @@
  * relationships, rules, and cases.
  */
 
-import type { Entity } from '../../models/EntitySchema.js';
+import type { Entity, Relationship, Case } from '../../models/EntitySchema.js';
+import type { Rule } from '../../models/Rule.js';
 import type { IStorageBackend } from '../contract/IStorageBackend.js';
 import type { WorkspaceId } from '../contract/types.js';
-import { loadPackage, writeEntityFile, deleteEntityFile } from '../../utils/fileOperations.js';
+import {
+  loadPackage,
+  writeEntityFile,
+  deleteEntityFile,
+  writeRelationshipsFile,
+  writePackageRules,
+  writeGlobalRules,
+  writeCaseFile,
+  deleteCaseFile,
+  getPackagePath,
+} from '../../utils/fileOperations.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public types
@@ -43,23 +54,28 @@ export interface EntityRef {
  * Invalidation event emitted by `LogicalProjection` after a confirmed write
  * or delete. Subscribers consume this to invalidate caches or update indexes.
  *
- * - `kind: 'entity-written'` — fires after `writeEntity` succeeds. `uuid` is
- *   always present (taken from `entity.uuid`).
- * - `kind: 'entity-deleted'` — fires after `deleteEntity` returns `true`.
- *   `uuid` is omitted (deletion is by path; the caller did not provide a uuid
- *   and slice 6b does not perform a pre-delete read — see Design Decision 4).
+ * Slice 6a/6b emitted only entity events. Slice 6e.1 extends the union to
+ * cover relationships, rules (entity/package/case/global), and cases —
+ * additive only, so the existing `UuidIndex` handler (which dispatches on
+ * `entity-written` / `entity-deleted` and silently ignores anything else)
+ * remains forward-compatible.
+ *
+ * Entity-scope rule writes do NOT fire `rule-written`: they go through
+ * `projection.writeEntity` (which fires `entity-written`). That's why the
+ * `scope` literal on `rule-*` events excludes `'entity'`.
  *
  * Events fire SYNCHRONOUSLY after the underlying file mutation succeeds.
  * Subscriber errors are NOT swallowed — they propagate out of the write/delete
- * call and the caller sees them. (Slice 6c is the first subscriber; if it
- * throws, the entire write/delete throws, which is the correct fail-loud
- * semantic for an inconsistent index.)
+ * call and the caller sees them.
  */
-export interface ProjectionInvalidationEvent {
-  kind: 'entity-written' | 'entity-deleted';
-  logicalPath: LogicalPath;
-  uuid?: string;
-}
+export type ProjectionInvalidationEvent =
+  | { kind: 'entity-written'; logicalPath: LogicalPath; uuid: string }
+  | { kind: 'entity-deleted'; logicalPath: LogicalPath; uuid?: string }
+  | { kind: 'relationships-written'; packagePath: LogicalPath; uuids: string[] }
+  | { kind: 'rule-written'; scope: 'package' | 'case' | 'global'; ruleUuid: string; anchorLogicalPath?: LogicalPath }
+  | { kind: 'rule-deleted'; scope: 'package' | 'case' | 'global'; ruleUuid: string }
+  | { kind: 'case-written'; logicalPath: LogicalPath; uuid: string }
+  | { kind: 'case-deleted'; logicalPath: LogicalPath; uuid: string };
 
 /** Callback invoked synchronously when an invalidation event fires. */
 export type InvalidationCallback = (event: ProjectionInvalidationEvent) => void;
@@ -105,7 +121,7 @@ function parseEntityPath(p: LogicalPath): ParsedEntityPath | null {
 /**
  * Parse a logical package path into the workspace-relative package name.
  * Returns `null` for any malformed input (missing prefix, too short,
- * or is actually an entity path containing an `entities` segment).
+ * or is actually an entity/case path containing those segments).
  *
  * Path shape: `packages/<pkg>/[<sub>/...]`
  * Minimum 2 segments: `packages`, `<pkg>`.
@@ -115,7 +131,39 @@ function parsePackagePath(p: LogicalPath): string | null {
   if (segs.length < 2) return null;
   if (segs[0] !== 'packages') return null;
   if (segs.includes('entities')) return null;  // not a package path, it's an entity path
+  if (segs.includes('cases')) return null;     // not a package path, it's a case path
   return segs.slice(1).join('/');
+}
+
+interface ParsedCasePath {
+  /** Workspace-relative package directory (slash-joined). */
+  packageName: string;
+  /** The case name from the last segment after `cases/`. */
+  caseName: string;
+}
+
+/**
+ * Parse a logical case path into its package-name and case-name components.
+ * Returns `null` for any malformed input.
+ *
+ * Path shape: `packages/<pkg>/[<sub>/...]/cases/<CaseName>`
+ * Mirrors `parseEntityPath` with `cases` in place of `entities`.
+ */
+function parseCasePath(p: LogicalPath): ParsedCasePath | null {
+  const segs = String(p).split('/').filter(Boolean);
+  if (segs.length < 4) return null;
+  if (segs[0] !== 'packages') return null;
+  const casesIdx = segs.lastIndexOf('cases');
+  if (casesIdx < 2) return null;
+  if (casesIdx !== segs.length - 2) return null;
+  const caseName = segs[segs.length - 1];
+  // Case names are user-authored. `entities` allows [A-Za-z0-9_-]; for cases
+  // we mirror that exactly so the path parsing semantic stays uniform — the
+  // file layer sanitises differently via `sanitizeFsName`, but the path-level
+  // shape is identical to entities.
+  if (!/^[A-Za-z0-9_-]+$/.test(caseName)) return null;
+  const packageName = segs.slice(1, casesIdx).join('/');
+  return { packageName, caseName };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -241,6 +289,173 @@ export class LogicalProjection {
       this.fireInvalidation({ kind: 'entity-deleted', logicalPath });
     }
     return deleted;
+  }
+
+  /**
+   * Write the full relationships list for a package. Delegates to
+   * `fileOperations.writeRelationshipsFile`, which preserves co-located
+   * non-relationship sections (entities, rules, cases — #106 multi-kind).
+   *
+   * `packagePath` MUST be a `packages/<pkg>` shape (no `/entities/`,
+   * `/cases/` segments). Mismatch throws.
+   *
+   * On success, fires
+   * `{ kind: 'relationships-written', packagePath, uuids: relationships.map(r => r.uuid) }`.
+   */
+  async writeRelationships(packagePath: LogicalPath, relationships: Relationship[]): Promise<void> {
+    const parsedPackageName = parsePackagePath(packagePath);
+    if (!parsedPackageName) {
+      throw new Error(`LogicalProjection.writeRelationships: malformed path "${packagePath}"`);
+    }
+    const physicalPackagePath = getPackagePath(parsedPackageName);
+    const ok = await writeRelationshipsFile(physicalPackagePath, relationships);
+    if (!ok) {
+      throw new Error(
+        `LogicalProjection.writeRelationships: writeRelationshipsFile failed for ` +
+        `"${packagePath}". Check backend logs for the underlying cause.`
+      );
+    }
+    this.fireInvalidation({
+      kind: 'relationships-written',
+      packagePath,
+      uuids: relationships.map(r => r.uuid),
+    });
+  }
+
+  /**
+   * Write the full package-scope rules list. Mirrors `writeRelationships`.
+   * Delegates to `fileOperations.writePackageRules`.
+   *
+   * Fires one `{ kind: 'rule-written', scope: 'package', ... }` event per
+   * rule in the new list (spec §6 AC5: "one event per rule").
+   */
+  async writePackageRules(packagePath: LogicalPath, rules: Rule[]): Promise<void> {
+    const parsedPackageName = parsePackagePath(packagePath);
+    if (!parsedPackageName) {
+      throw new Error(`LogicalProjection.writePackageRules: malformed path "${packagePath}"`);
+    }
+    const ok = await writePackageRules(parsedPackageName, rules);
+    if (!ok) {
+      throw new Error(
+        `LogicalProjection.writePackageRules: writePackageRules failed for ` +
+        `"${packagePath}". Check backend logs for the underlying cause.`
+      );
+    }
+    // One event per rule (spec §6 AC5). The new list is the canonical state
+    // after the write; subscribers needing per-rule notifications fan out here.
+    for (const r of rules) {
+      this.fireInvalidation({
+        kind: 'rule-written',
+        scope: 'package',
+        ruleUuid: r.uuid,
+        anchorLogicalPath: packagePath,
+      });
+    }
+  }
+
+  /**
+   * Write global (project-root `rules.yaml`) rules. No logical-path argument
+   * because global rules are not under `packages/**`. Delegates to
+   * `fileOperations.writeGlobalRules`.
+   *
+   * Fires one `{ kind: 'rule-written', scope: 'global', ... }` event per rule.
+   */
+  async writeGlobalRules(rules: Rule[]): Promise<void> {
+    const ok = await writeGlobalRules(rules);
+    if (!ok) {
+      throw new Error(
+        `LogicalProjection.writeGlobalRules: writeGlobalRules failed. ` +
+        `Check backend logs for the underlying cause.`
+      );
+    }
+    // One event per rule (spec §6 AC6 wording: "one event per rule").
+    for (const r of rules) {
+      this.fireInvalidation({
+        kind: 'rule-written',
+        scope: 'global',
+        ruleUuid: r.uuid,
+        anchorLogicalPath: undefined,
+      });
+    }
+  }
+
+  /**
+   * Write a case at a logical path. Path shape:
+   * `packages/<pkg>/cases/<Name>`. `c.name` MUST equal the parsed last
+   * segment (mirrors `writeEntity`'s slice-6b' guard at
+   * `LogicalProjection.ts:203-209`).
+   *
+   * Delegates to `fileOperations.writeCaseFile`, which (a) finds the
+   * owning package via the case uuid if it already exists, (b) otherwise
+   * places the case in the home package resolved from its first root
+   * entity. The path-level package segment is therefore validated only as
+   * a name-vs-content guard; the actual on-disk placement is `writeCaseFile`'s
+   * concern.
+   *
+   * Fires `{ kind: 'case-written', logicalPath, uuid: c.uuid }`.
+   */
+  async writeCase(logicalPath: LogicalPath, c: Case): Promise<void> {
+    const parsed = parseCasePath(logicalPath);
+    if (!parsed) {
+      throw new Error(`LogicalProjection.writeCase: malformed path "${logicalPath}"`);
+    }
+    if (parsed.caseName !== c.name) {
+      throw new Error(
+        `LogicalProjection.writeCase: path/content mismatch — ` +
+        `path "${logicalPath}" parses to case name "${parsed.caseName}" ` +
+        `but case.name is "${c.name}"`
+      );
+    }
+    const ok = await writeCaseFile(c);
+    if (!ok) {
+      throw new Error(
+        `LogicalProjection.writeCase: writeCaseFile failed for ` +
+        `"${logicalPath}" (case "${c.name}" uuid "${c.uuid}"). ` +
+        `Check backend logs for the underlying cause.`
+      );
+    }
+    this.fireInvalidation({ kind: 'case-written', logicalPath, uuid: c.uuid });
+  }
+
+  /**
+   * Delete the case at a logical path. Reads the case via `readCase` to
+   * resolve its uuid, then delegates to `fileOperations.deleteCaseFile`.
+   *
+   * Returns `true` if a case was deleted, `false` if no case was found at
+   * that path. Invalidation event fires ONLY on the `true` path.
+   */
+  async deleteCase(logicalPath: LogicalPath): Promise<boolean> {
+    const parsed = parseCasePath(logicalPath);
+    if (!parsed) {
+      throw new Error(`LogicalProjection.deleteCase: malformed path "${logicalPath}"`);
+    }
+    const existing = await this.readCase(logicalPath);
+    if (!existing) return false;
+    const ok = await deleteCaseFile(existing.uuid);
+    if (!ok) return false;
+    this.fireInvalidation({ kind: 'case-deleted', logicalPath, uuid: existing.uuid });
+    return true;
+  }
+
+  /**
+   * Read one case at a logical path. Returns `null` on miss (malformed
+   * path, missing package, or no case in the package matching the
+   * `cases/<Name>` segment). Symmetric with `readEntity`.
+   *
+   * Resolution: scans the parsed package's loaded `cases` for an entry
+   * whose `name === caseName`. The underlying `loadPackage` is already
+   * content-driven (multi-kind, filename-independent), so a case may live
+   * in any `.yaml` file under the package folder.
+   */
+  async readCase(logicalPath: LogicalPath): Promise<Case | null> {
+    const parsed = parseCasePath(logicalPath);
+    if (!parsed) return null;
+    try {
+      const pkg = await loadPackage(parsed.packageName);
+      return pkg.cases.find(c => c.name === parsed.caseName) ?? null;
+    } catch {
+      return null;
+    }
   }
 
   /**
