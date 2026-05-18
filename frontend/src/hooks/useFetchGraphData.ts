@@ -126,6 +126,13 @@ export function useFetchGraphData(service?: string, entity?: string): FetchGraph
           .map((rel) => {
             const srcEntity = allEntities.find((e) => e.uuid === rel.source.entity);
             const tgtEntity = allEntities.find((e) => e.uuid === rel.target.entity);
+            // Symmetric `ends[]` shape (#99) is canonical when present; fall back
+            // to the legacy `source.name` / `target.name` so older relationships
+            // still surface their role labels.
+            const endA = rel.ends?.[0];
+            const endB = rel.ends?.[1];
+            const sourceName = (endA?.role ?? rel.source.name) || undefined;
+            const targetName = (endB?.role ?? rel.target.name) || undefined;
             return {
               id: rel.uuid,
               source: rel.source.entity,
@@ -133,6 +140,8 @@ export function useFetchGraphData(service?: string, entity?: string): FetchGraph
               label: rel.description || `${srcEntity?.name || '?'} -> ${tgtEntity?.name || '?'}`,
               sourceCardinality: rel.source.cardinality,
               targetCardinality: rel.target.cardinality,
+              sourceName,
+              targetName,
             };
           });
 

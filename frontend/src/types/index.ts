@@ -523,6 +523,10 @@ export interface GraphEdge {
   label: string;
   sourceCardinality?: string;
   targetCardinality?: string;
+  /** Role / endpoint name at the source end (e.g. "items"). */
+  sourceName?: string;
+  /** Role / endpoint name at the target end (e.g. "order"). */
+  targetName?: string;
 }
 
 /**
