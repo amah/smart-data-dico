@@ -365,6 +365,21 @@ export function createMcpServer(): McpServer {
     },
   );
 
+  // -------- listRoutes --------
+  server.registerTool(
+    'listRoutes',
+    {
+      title: 'List app URL patterns',
+      description:
+        'List every valid URL pattern in the smart-data-dico web app with a short description and (where useful) a concrete example. Useful for clients that want to deep-link the user to a specific page — turns navigation into a lookup rather than a guess.',
+      inputSchema: {},
+    },
+    async () => {
+      const { KNOWN_ROUTES } = await import('../controllers/routesManifest.js');
+      return asJsonContent({ routes: KNOWN_ROUTES });
+    },
+  );
+
   // -------- listStereotypes --------
   server.registerTool(
     'listStereotypes',
@@ -404,6 +419,7 @@ export const MCP_TOOL_NAMES = [
   'getEntityDetails',
   'createEntity',
   'createRelationship',
+  'listRoutes',
   'listStereotypes',
 ] as const;
 

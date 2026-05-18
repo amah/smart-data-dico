@@ -2283,7 +2283,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
             )}
           </div>
         )}
-        <div className="flex gap-1.5 items-end">
+        <div className="flex gap-1.5 items-end border border-base-300 rounded-md px-2 py-0.5 bg-base-100 focus-within:border-primary/50 transition-colors">
           <span className="text-primary text-xs pb-1">&gt;</span>
           <textarea
             ref={inputRef}
