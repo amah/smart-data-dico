@@ -126,7 +126,10 @@ const RelationshipEditor = ({ isEdit = false, initialData, onSave, serviceProp, 
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [availableEntities, setAvailableEntities] = useState<string[]>([]);
+  // Each option carries the UUID (form value) + a human label "svc/Name"
+  // — the relationship model addresses entities by UUID, so storing the UUID
+  // here is what makes cross-package relationships round-trip correctly.
+  const [availableEntities, setAvailableEntities] = useState<Array<{ uuid: string; label: string }>>([]);
   const [loadingEntities, setLoadingEntities] = useState(false);
   const [relationshipStereotypes, setRelationshipStereotypes] = useState<Stereotype[]>([]);
 
@@ -155,12 +158,15 @@ const RelationshipEditor = ({ isEdit = false, initialData, onSave, serviceProp, 
         const servicesResponse = await servicesApi.getAllServices();
         const allServices = servicesResponse.data;
 
-        const allEntities: string[] = [];
+        const allEntities: Array<{ uuid: string; label: string }> = [];
         for (const svc of allServices) {
           const entitiesResponse = await servicesApi.getServiceEntities(svc);
-          const entities = entitiesResponse.data.map((e: any) => `${svc}/${e.name}`);
-          allEntities.push(...entities);
+          for (const e of entitiesResponse.data) {
+            if (typeof e?.uuid !== 'string') continue;
+            allEntities.push({ uuid: e.uuid, label: `${svc}/${e.name}` });
+          }
         }
+        allEntities.sort((a, b) => a.label.localeCompare(b.label));
 
         setAvailableEntities(allEntities);
       } catch (err) {
@@ -223,7 +229,7 @@ const RelationshipEditor = ({ isEdit = false, initialData, onSave, serviceProp, 
           >
             <option value="">Select entity</option>
             {availableEntities.map(ent => (
-              <option key={ent} value={ent}>{ent}</option>
+              <option key={ent.uuid} value={ent.uuid}>{ent.label}</option>
             ))}
           </select>
           {loadingEntities && (

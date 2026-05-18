@@ -19,6 +19,7 @@ import {
   loadPolicy,
   shouldAutoApprove,
 } from '../utils/aiAutoApprovePolicy';
+import { validateNavigatePath } from '../utils/validateNavigatePath';
 import { processMentions } from '../../../components/EntityMention';
 import {
   SlashCommand,
@@ -741,7 +742,27 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
               pushToolUpdate();
 
               if (data.output?.navigate) {
-                navigate(data.output.navigate);
+                const check = validateNavigatePath(data.output.navigate);
+                if (check.valid) {
+                  navigate(data.output.navigate);
+                } else {
+                  // Suppress the navigation, rewrite the tool output so the
+                  // AI sees the failure on its next turn and can self-correct
+                  // (rather than landing the user on the 404 page).
+                  const errorOutput = {
+                    ...data.output,
+                    success: false,
+                    error: check.reason,
+                    knownRoots: check.knownRoots,
+                    navigate: undefined,
+                  };
+                  toolMap[data.toolCallId] = {
+                    ...toolMap[data.toolCallId],
+                    output: errorOutput,
+                    status: undefined,
+                  };
+                  pushToolUpdate();
+                }
               }
             }
           } catch {
