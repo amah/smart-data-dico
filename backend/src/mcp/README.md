@@ -17,7 +17,7 @@ a duplicate code path.
 | `listEntities` | List entities in a package (or list all packages if `packageName` is omitted). |
 | `getEntityDetails` | Read the full schema for an entity — attributes, stereotype, status. |
 | `createEntity` | Create a new entity with attributes. Creates the package directory if missing. |
-| `createRelationship` | Create a relationship between two existing entities in the same package. |
+| `createRelationship` | Create a relationship between two existing entities. Endpoints may live in the same package or in different packages (cross-package is first-class); the relationship is stored under the source's package by convention. |
 | `listStereotypes` | List the project's stereotypes (metadata schemas) and their fields. |
 
 ## Launch

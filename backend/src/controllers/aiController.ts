@@ -338,9 +338,13 @@ IMPORTANT: For createEntity and createRelationship tools, you must pass a SINGLE
 Example createEntity call:
 entityJson: '{"packageName":"e-commerce","name":"Product","description":"A product in the catalog","stereotype":"aggregate-root","attributes":[{"name":"productId","type":"string","description":"Unique product ID","required":true,"primaryKey":true},{"name":"name","type":"string","description":"Product name","required":true},{"name":"price","type":"number","description":"Product price","required":true}]}'
 
+Cross-package relationships are first-class. When source and target live in different packages, pass sourcePackage and targetPackage explicitly:
+relationshipJson: '{"sourceEntityName":"Order","sourcePackage":"order-service","targetEntityName":"User","targetPackage":"user-service","sourceCardinality":"many","targetCardinality":"one","description":"placed by"}'
+The relationship is stored under the source's package. If sourcePackage/targetPackage are omitted the resolver scans every package and errors on ambiguity.
+
 When the user asks to create a model:
 1. Infer a package name from context (e.g. "e-commerce data model" → packageName: "e-commerce").
-2. ALWAYS include packageName in every entityJson and relationshipJson.
+2. ALWAYS include packageName in every entityJson. For relationshipJson include sourcePackage/targetPackage when the endpoints span multiple packages.
 3. Create ALL entities first, then ALL relationships.
 4. After creating everything, use navigateTo to show the package page.
 
@@ -397,7 +401,7 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
   // Build tool definitions
   const allToolDefs = [
     { type: 'function' as const, function: { name: 'createEntity', description: 'Create an entity. entityJson is a JSON string with packageName, name, description, stereotype, attributes array.', parameters: { type: 'object', required: ['entityJson'], properties: { entityJson: { type: 'string', description: 'JSON: {"packageName":"pkg","name":"Entity","description":"...","attributes":[{"name":"id","type":"string","required":true,"primaryKey":true}]}' } } } } },
-    { type: 'function' as const, function: { name: 'createRelationship', description: 'Create a relationship. JSON string parameter.', parameters: { type: 'object', required: ['relationshipJson'], properties: { relationshipJson: { type: 'string', description: 'JSON: {"packageName":"pkg","sourceEntityName":"A","targetEntityName":"B","sourceCardinality":"one","targetCardinality":"many","description":"..."}' } } } } },
+    { type: 'function' as const, function: { name: 'createRelationship', description: 'Create a relationship. Endpoints may live in the same package or in different packages (cross-package is first-class). JSON string parameter.', parameters: { type: 'object', required: ['relationshipJson'], properties: { relationshipJson: { type: 'string', description: 'JSON: {"packageName":"home-pkg","sourceEntityName":"A","sourcePackage":"pkg-of-A","targetEntityName":"B","targetPackage":"pkg-of-B","sourceCardinality":"one","targetCardinality":"many","description":"..."}. sourcePackage/targetPackage are optional — if omitted the resolver scans every package and errors on ambiguity. The relationship is stored under the source\'s package.' } } } } },
     { type: 'function' as const, function: { name: 'listEntities', description: 'List packages or entities in a package', parameters: { type: 'object', properties: { packageName: { type: 'string', description: 'Package name (omit to list all)' } } } } },
     { type: 'function' as const, function: { name: 'listStereotypes', description: 'List available stereotypes', parameters: { type: 'object', properties: {} } } },
     { type: 'function' as const, function: { name: 'navigateTo', description: 'Navigate user to a page', parameters: { type: 'object', required: ['path', 'reason'], properties: { path: { type: 'string' }, reason: { type: 'string' } } } } },
@@ -439,16 +443,24 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
         let p: any;
         try { p = JSON.parse(args.relationshipJson || '{}'); } catch { return { success: false, error: 'Invalid JSON' }; }
         if (!p.sourceEntityName || !p.targetEntityName) return { success: false, error: 'Missing entity names' };
-        const pkgName = p.packageName || 'default';
-        const src = await services.serviceService.getEntitySchema(pkgName, p.sourceEntityName);
-        const tgt = await services.serviceService.getEntitySchema(pkgName, p.targetEntityName);
-        if (!src || !tgt) return { success: false, error: `Entity not found` };
-        await services.serviceService.createRelationship(pkgName, {
+        const defaultPkg = p.packageName || 'default';
+        let src, tgt;
+        try {
+          src = await services.serviceService.findEntityAcrossPackages(p.sourceEntityName, p.sourcePackage || defaultPkg);
+        } catch (e) { return { success: false, error: `Source: ${e instanceof Error ? e.message : String(e)}` }; }
+        if (!src) return { success: false, error: `Source entity "${p.sourceEntityName}" not found in any package` };
+        try {
+          tgt = await services.serviceService.findEntityAcrossPackages(p.targetEntityName, p.targetPackage || defaultPkg);
+        } catch (e) { return { success: false, error: `Target: ${e instanceof Error ? e.message : String(e)}` }; }
+        if (!tgt) return { success: false, error: `Target entity "${p.targetEntityName}" not found in any package` };
+        const homePackage = src.packageName;
+        await services.serviceService.createRelationship(homePackage, {
           uuid: crypto.randomUUID(), description: p.description || '',
-          source: { entity: src.uuid, cardinality: p.sourceCardinality || 'one' },
-          target: { entity: tgt.uuid, cardinality: p.targetCardinality || 'many' },
+          source: { entity: src.entity.uuid, cardinality: p.sourceCardinality || 'one' },
+          target: { entity: tgt.entity.uuid, cardinality: p.targetCardinality || 'many' },
         });
-        return { success: true, message: `Created relationship: ${p.sourceEntityName} -> ${p.targetEntityName}` };
+        const crossNote = src.packageName !== tgt.packageName ? ` (cross-package: ${src.packageName} → ${tgt.packageName})` : '';
+        return { success: true, message: `Created relationship: ${p.sourceEntityName} -> ${p.targetEntityName}${crossNote}` };
       }
       if (name === 'listEntities') {
         if (args.packageName) {
@@ -723,9 +735,9 @@ export const aiChat = async (req: Request, res: Response) => {
         }),
 
         createRelationship: tool({
-          description: 'Create a relationship. Pass a JSON string: {"packageName":"pkg","sourceEntityName":"Order","targetEntityName":"Customer","description":"...","sourceCardinality":"many","targetCardinality":"one"}',
+          description: 'Create a relationship between two entities. Endpoints may live in the same package or in different packages (cross-package is first-class). Pass a JSON string: {"packageName":"home-pkg","sourceEntityName":"Order","sourcePackage":"order-service","targetEntityName":"User","targetPackage":"user-service","description":"...","sourceCardinality":"many","targetCardinality":"one"}. sourcePackage/targetPackage are optional — if omitted the resolver falls back to packageName and then scans every package, erroring on ambiguity. The relationship is stored under the source\'s package by convention.',
           inputSchema: z.object({
-            relationshipJson: z.string().describe('JSON string with packageName, sourceEntityName, targetEntityName, description, sourceCardinality (one|many), targetCardinality (one|many)'),
+            relationshipJson: z.string().describe('JSON with packageName (optional, fallback), sourceEntityName, sourcePackage (optional), targetEntityName, targetPackage (optional), description, sourceCardinality (one|many), targetCardinality (one|many)'),
           }),
           execute: async (params) => {
             try {
@@ -734,23 +746,35 @@ export const aiChat = async (req: Request, res: Response) => {
               if (!p.sourceEntityName || !p.targetEntityName) {
                 return { success: false, error: 'Missing sourceEntityName or targetEntityName in JSON' };
               }
-              const pkgName = p.packageName || 'default';
-              const sourceEntity = await services.serviceService.getEntitySchema(pkgName, p.sourceEntityName);
-              const targetEntity = await services.serviceService.getEntitySchema(pkgName, p.targetEntityName);
+              const defaultPkg = p.packageName || 'default';
 
-              if (!sourceEntity || !targetEntity) {
-                return { success: false, error: `Entity not found: ${!sourceEntity ? p.sourceEntityName : p.targetEntityName}` };
+              let src, tgt;
+              try {
+                src = await services.serviceService.findEntityAcrossPackages(p.sourceEntityName, p.sourcePackage || defaultPkg);
+              } catch (e) { return { success: false, error: `Source: ${e instanceof Error ? e.message : String(e)}` }; }
+              if (!src) {
+                return { success: false, error: `Source entity "${p.sourceEntityName}" not found in any package` };
+              }
+              try {
+                tgt = await services.serviceService.findEntityAcrossPackages(p.targetEntityName, p.targetPackage || defaultPkg);
+              } catch (e) { return { success: false, error: `Target: ${e instanceof Error ? e.message : String(e)}` }; }
+              if (!tgt) {
+                return { success: false, error: `Target entity "${p.targetEntityName}" not found in any package` };
               }
 
+              const homePackage = src.packageName;
               const relationship = {
                 uuid: crypto.randomUUID(),
                 description: p.description || '',
-                source: { entity: sourceEntity.uuid, cardinality: p.sourceCardinality || 'one' },
-                target: { entity: targetEntity.uuid, cardinality: p.targetCardinality || 'many' },
+                source: { entity: src.entity.uuid, cardinality: p.sourceCardinality || 'one' },
+                target: { entity: tgt.entity.uuid, cardinality: p.targetCardinality || 'many' },
               };
-              await services.serviceService.createRelationship(pkgName, relationship);
-              logger.info(`AI created relationship: ${p.sourceEntityName} -> ${p.targetEntityName}`);
-              return { success: true, message: `Created relationship: ${p.sourceEntityName} -> ${p.targetEntityName}` };
+              await services.serviceService.createRelationship(homePackage, relationship);
+              const crossNote = src.packageName !== tgt.packageName
+                ? ` (cross-package: ${src.packageName} → ${tgt.packageName}, stored under ${homePackage})`
+                : '';
+              logger.info(`AI created relationship: ${p.sourceEntityName} -> ${p.targetEntityName}${crossNote}`);
+              return { success: true, message: `Created relationship: ${p.sourceEntityName} -> ${p.targetEntityName}${crossNote}` };
             } catch (err: any) {
               return { success: false, error: err.message };
             }
@@ -1088,11 +1112,13 @@ export const aiTools = async (_req: Request, res: Response) => {
       },
       {
         name: 'createRelationship',
-        description: 'Create a relationship between two entities',
+        description: 'Create a relationship between two entities. Endpoints may live in the same package or in different packages.',
         parameters: [
-          { name: 'packageName', type: 'string', required: true, description: 'Package name' },
+          { name: 'packageName', type: 'string', required: false, description: 'Fallback package for both endpoints when sourcePackage/targetPackage are omitted' },
           { name: 'sourceEntityName', type: 'string', required: true, description: 'Source entity name' },
+          { name: 'sourcePackage', type: 'string', required: false, description: 'Package containing the source entity (defaults to packageName)' },
           { name: 'targetEntityName', type: 'string', required: true, description: 'Target entity name' },
+          { name: 'targetPackage', type: 'string', required: false, description: 'Package containing the target entity (defaults to packageName)' },
           { name: 'description', type: 'string', required: true, description: 'Relationship description' },
           { name: 'sourceCardinality', type: 'one|many', required: true, description: 'Source cardinality' },
           { name: 'targetCardinality', type: 'one|many', required: true, description: 'Target cardinality' },

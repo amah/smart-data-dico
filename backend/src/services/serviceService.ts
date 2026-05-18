@@ -129,6 +129,39 @@ export class ServiceService {
     }
   }
 
+  /**
+   * Resolve an entity by name across all packages. Used by the
+   * relationship-creation tools (HTTP AI agent, direct-chat, MCP) so callers
+   * can reference an endpoint without forcing the caller to know which
+   * package each side lives in — cross-package relationships are first-class.
+   *
+   * Returns `{ entity, packageName }` for a unique match, `null` when the
+   * name isn't found anywhere, and throws on ambiguity so callers can ask the
+   * user to disambiguate.
+   */
+  async findEntityAcrossPackages(
+    entityName: string,
+    preferredPackage?: string,
+  ): Promise<{ entity: Entity; packageName: string } | null> {
+    if (preferredPackage) {
+      const e = await this.getEntitySchema(preferredPackage, entityName);
+      if (e) return { entity: e, packageName: preferredPackage };
+    }
+    const allPackages = await listMicroservices();
+    const matches: { entity: Entity; packageName: string }[] = [];
+    for (const p of allPackages) {
+      if (p === preferredPackage) continue;
+      const e = await this.getEntitySchema(p, entityName);
+      if (e) matches.push({ entity: e, packageName: p });
+    }
+    if (matches.length === 0) return null;
+    if (matches.length === 1) return matches[0];
+    const where = matches.map(m => m.packageName).join(', ');
+    throw new Error(
+      `Entity "${entityName}" exists in multiple packages: ${where}. Specify the package explicitly.`,
+    );
+  }
+
   async createEntity(service: string, entity: Entity): Promise<{ success: boolean; errors: string[] }> {
     logger.info(`Creating entity: ${service}.${entity.name}`);
 
