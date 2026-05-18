@@ -75,7 +75,8 @@ export type ProjectionInvalidationEvent =
   | { kind: 'rule-written'; scope: 'package' | 'case' | 'global'; ruleUuid: string; anchorLogicalPath?: LogicalPath }
   | { kind: 'rule-deleted'; scope: 'package' | 'case' | 'global'; ruleUuid: string }
   | { kind: 'case-written'; logicalPath: LogicalPath; uuid: string }
-  | { kind: 'case-deleted'; logicalPath: LogicalPath; uuid: string };
+  | { kind: 'case-deleted'; logicalPath: LogicalPath; uuid: string }
+  | { kind: 'raw-changed'; physicalPath: string; changeKind: 'add' | 'change' | 'unlink' };
 
 /** Callback invoked synchronously when an invalidation event fires. */
 export type InvalidationCallback = (event: ProjectionInvalidationEvent) => void;
@@ -181,6 +182,18 @@ function parseCasePath(p: LogicalPath): ParsedCasePath | null {
 export class LogicalProjection {
   private readonly invalidationSubscribers: InvalidationCallback[] = [];
 
+  /**
+   * Suppression bookkeeping for the raw-fs watcher (slice 6e.2).
+   *
+   * Every projection write records the physical path it touched in
+   * `suppressedPaths` with an expiry timestamp. The `RawFsWatcher` consults
+   * `isSuppressed(physicalPath)` before emitting a `raw-changed` event and
+   * skips paths whose suppression window is still open. The TTL (1500 ms by
+   * default) is long enough to cover chokidar's `awaitWriteFinish.stabilityThreshold`
+   * (~200 ms) + the watcher's 250 ms coalesce window + safety.
+   */
+  private readonly suppressedPaths = new Map<string, number>();
+
   constructor(
     private readonly backend: IStorageBackend,
     private readonly ws: WorkspaceId,
@@ -255,7 +268,7 @@ export class LogicalProjection {
         `but entity.name is "${entity.name}"`
       );
     }
-    const ok = await writeEntityFile(entity, parsed.packageName);
+    const { ok, physicalPath } = await writeEntityFile(entity, parsed.packageName);
     if (!ok) {
       throw new Error(
         `LogicalProjection.writeEntity: writeEntityFile failed for ` +
@@ -263,6 +276,7 @@ export class LogicalProjection {
         `Check backend logs for the underlying cause.`
       );
     }
+    if (physicalPath) this.suppressNextWrite(physicalPath);
     this.fireInvalidation({ kind: 'entity-written', logicalPath, uuid: entity.uuid });
   }
 
@@ -284,11 +298,12 @@ export class LogicalProjection {
     if (!parsed) {
       throw new Error(`LogicalProjection.deleteEntity: malformed path "${logicalPath}"`);
     }
-    const deleted = await deleteEntityFile(parsed.packageName, parsed.entityName);
-    if (deleted) {
+    const { ok, physicalPath } = await deleteEntityFile(parsed.packageName, parsed.entityName);
+    if (ok) {
+      if (physicalPath) this.suppressNextWrite(physicalPath);
       this.fireInvalidation({ kind: 'entity-deleted', logicalPath });
     }
-    return deleted;
+    return ok;
   }
 
   /**
@@ -308,13 +323,14 @@ export class LogicalProjection {
       throw new Error(`LogicalProjection.writeRelationships: malformed path "${packagePath}"`);
     }
     const physicalPackagePath = getPackagePath(parsedPackageName);
-    const ok = await writeRelationshipsFile(physicalPackagePath, relationships);
+    const { ok, physicalPath } = await writeRelationshipsFile(physicalPackagePath, relationships);
     if (!ok) {
       throw new Error(
         `LogicalProjection.writeRelationships: writeRelationshipsFile failed for ` +
         `"${packagePath}". Check backend logs for the underlying cause.`
       );
     }
+    if (physicalPath) this.suppressNextWrite(physicalPath);
     this.fireInvalidation({
       kind: 'relationships-written',
       packagePath,
@@ -334,13 +350,14 @@ export class LogicalProjection {
     if (!parsedPackageName) {
       throw new Error(`LogicalProjection.writePackageRules: malformed path "${packagePath}"`);
     }
-    const ok = await writePackageRules(parsedPackageName, rules);
+    const { ok, physicalPath } = await writePackageRules(parsedPackageName, rules);
     if (!ok) {
       throw new Error(
         `LogicalProjection.writePackageRules: writePackageRules failed for ` +
         `"${packagePath}". Check backend logs for the underlying cause.`
       );
     }
+    if (physicalPath) this.suppressNextWrite(physicalPath);
     // One event per rule (spec §6 AC5). The new list is the canonical state
     // after the write; subscribers needing per-rule notifications fan out here.
     for (const r of rules) {
@@ -361,13 +378,14 @@ export class LogicalProjection {
    * Fires one `{ kind: 'rule-written', scope: 'global', ... }` event per rule.
    */
   async writeGlobalRules(rules: Rule[]): Promise<void> {
-    const ok = await writeGlobalRules(rules);
+    const { ok, physicalPath } = await writeGlobalRules(rules);
     if (!ok) {
       throw new Error(
         `LogicalProjection.writeGlobalRules: writeGlobalRules failed. ` +
         `Check backend logs for the underlying cause.`
       );
     }
+    if (physicalPath) this.suppressNextWrite(physicalPath);
     // One event per rule (spec §6 AC6 wording: "one event per rule").
     for (const r of rules) {
       this.fireInvalidation({
@@ -406,7 +424,7 @@ export class LogicalProjection {
         `but case.name is "${c.name}"`
       );
     }
-    const ok = await writeCaseFile(c);
+    const { ok, physicalPath } = await writeCaseFile(c);
     if (!ok) {
       throw new Error(
         `LogicalProjection.writeCase: writeCaseFile failed for ` +
@@ -414,6 +432,7 @@ export class LogicalProjection {
         `Check backend logs for the underlying cause.`
       );
     }
+    if (physicalPath) this.suppressNextWrite(physicalPath);
     this.fireInvalidation({ kind: 'case-written', logicalPath, uuid: c.uuid });
   }
 
@@ -431,8 +450,9 @@ export class LogicalProjection {
     }
     const existing = await this.readCase(logicalPath);
     if (!existing) return false;
-    const ok = await deleteCaseFile(existing.uuid);
+    const { ok, physicalPath } = await deleteCaseFile(existing.uuid);
     if (!ok) return false;
+    if (physicalPath) this.suppressNextWrite(physicalPath);
     this.fireInvalidation({ kind: 'case-deleted', logicalPath, uuid: existing.uuid });
     return true;
   }
@@ -476,6 +496,49 @@ export class LogicalProjection {
       const idx = this.invalidationSubscribers.indexOf(callback);
       if (idx !== -1) this.invalidationSubscribers.splice(idx, 1);
     };
+  }
+
+  /**
+   * Suppression bookkeeping for the raw-fs watcher (slice 6e.2). Records
+   * that the next filesystem change on `physicalPath` (within `ttlMs` ms)
+   * was authored by the projection itself and must NOT trigger
+   * re-projection.
+   *
+   * Called automatically by every write/delete method on this class before
+   * returning. Exposed publicly so tests can drive the suppression directly
+   * without an actual write.
+   */
+  suppressNextWrite(physicalPath: string, ttlMs: number = 1500): void {
+    this.suppressedPaths.set(physicalPath, Date.now() + ttlMs);
+  }
+
+  /**
+   * True iff `physicalPath` was suppressed by a recent projection write and
+   * the suppression window has not expired. Called by RawFsWatcher before
+   * emitting `raw-changed`. The check is consuming: once a suppressed path
+   * is acknowledged, the entry is cleared so a subsequent external write
+   * (after the window) is detected normally.
+   */
+  isSuppressed(physicalPath: string): boolean {
+    const expiry = this.suppressedPaths.get(physicalPath);
+    if (expiry === undefined) return false;
+    if (Date.now() > expiry) {
+      this.suppressedPaths.delete(physicalPath);
+      return false;
+    }
+    // Consume on hit: prevents a single registered write from suppressing
+    // multiple unrelated subsequent events at the same path.
+    this.suppressedPaths.delete(physicalPath);
+    return true;
+  }
+
+  /**
+   * Fire a `raw-changed` invalidation event. Intended only for
+   * `RawFsWatcher`; not used by production code elsewhere (no enforcement
+   * at type level — convention only).
+   */
+  fireExternalInvalidation(event: Extract<ProjectionInvalidationEvent, { kind: 'raw-changed' }>): void {
+    this.fireInvalidation(event);
   }
 
   private fireInvalidation(event: ProjectionInvalidationEvent): void {

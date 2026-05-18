@@ -204,12 +204,136 @@ export class UuidIndex {
       }
       // If path is not indexed, silently no-op — a delete of an unknown
       // entity is benign; the index was already in the right state.
+    } else if (event.kind === 'raw-changed') {
+      // Slice 6e.2 — external (non-projection) filesystem mutation. Derive
+      // the affected package from the physical path and rebuild ONLY that
+      // package's slice of the index. Non-package paths (e.g. workspace-root
+      // `rules.yaml`, `.dico/schemas/**`) trigger a full rebuild — those paths
+      // can affect entity uuids only via shared-schema dependencies that the
+      // package-level rebuild does not catch.
+      await this.handleRawChanged(event);
     }
     // Slice 6e.1 introduced relationships-written / rule-written / rule-deleted /
     // case-written / case-deleted event kinds. The UuidIndex indexes only
-    // entity UUIDs (slice 6c), so all other event kinds are intentionally
+    // entity UUIDs (slice 6c), so those event kinds are intentionally
     // ignored here — see slice 6e §4.2 / §4.4 (the multi-kind UUID index is
     // explicitly out of scope, deferred to a later ticket).
+  }
+
+  /**
+   * Handler for `raw-changed` invalidation events. Maps the physical path
+   * back to its owning package and reconciles uuid→path entries for that
+   * package only. Falls back to a full rebuild when the path does not
+   * match `<pkg>/...` shape (e.g. workspace-root `rules.yaml`).
+   *
+   * Public for tests so they can drive the handler without spinning up a
+   * real chokidar watcher.
+   */
+  async handleRawChanged(event: Extract<ProjectionInvalidationEvent, { kind: 'raw-changed' }>): Promise<void> {
+    const physicalPath = event.physicalPath;
+    const packageName = this.resolvePackageFromPhysicalPath(physicalPath);
+    if (packageName === null) {
+      // Workspace-root or non-package file (rules.yaml, .dico/schemas/**, etc.).
+      // Full rebuild — the entity index could have shifted via schema migration.
+      await this.rebuild();
+      return;
+    }
+    await this.rebuildPackage(packageName);
+  }
+
+  /**
+   * Re-scan a single package and update uuid→path entries that fall under
+   * it. Entries for entities elsewhere are left untouched. Entries that
+   * previously mapped under `<packageName>/...` but are no longer present
+   * after the rescan are removed.
+   *
+   * Public for tests so a `raw-changed` handler test can assert which
+   * package was rebuilt.
+   */
+  async rebuildPackage(packageName: string): Promise<void> {
+    // Wait for any in-flight full rebuild before applying. Same serialization
+    // guarantee as `handleEvent`.
+    while (this.rebuildInFlight) {
+      await new Promise<void>(r => setTimeout(r, 0));
+    }
+
+    const packagePrefix = `packages/${packageName}/entities/`;
+    // 1) Capture existing uuid→path entries that were under this package, so
+    //    we can prune any that disappear after the rescan.
+    const previouslyMappedUuids = new Set<string>();
+    for (const [uuid, lp] of this.uuidToPath) {
+      if (lp.startsWith(packagePrefix)) previouslyMappedUuids.add(uuid);
+    }
+
+    let refs;
+    try {
+      refs = await this.projection.listEntitiesInPackage(
+        `packages/${packageName}` as LogicalPath,
+      );
+    } catch {
+      // Package read failure (e.g. package now deleted entirely): clear the
+      // previously-mapped entries and stop.
+      for (const uuid of previouslyMappedUuids) {
+        const lp = this.uuidToPath.get(uuid);
+        if (lp !== undefined && lp.startsWith(packagePrefix)) {
+          this.pathToUuid.delete(lp);
+          this.uuidToPath.delete(uuid);
+        }
+      }
+      return;
+    }
+
+    const stillPresent = new Set<string>();
+    for (const ref of refs) {
+      stillPresent.add(ref.uuid);
+      // Idempotent set — overwrites are fine for unchanged paths.
+      this.uuidToPath.set(ref.uuid, ref.logicalPath);
+      this.pathToUuid.set(ref.logicalPath, ref.uuid);
+    }
+    // Prune entries that were mapped here previously but are no longer
+    // present after the rescan.
+    for (const uuid of previouslyMappedUuids) {
+      if (stillPresent.has(uuid)) continue;
+      const oldPath = this.uuidToPath.get(uuid);
+      if (oldPath !== undefined && oldPath.startsWith(packagePrefix)) {
+        this.pathToUuid.delete(oldPath);
+        this.uuidToPath.delete(uuid);
+      }
+    }
+  }
+
+  /**
+   * Best-effort: derive the owning package name from a workspace-relative
+   * physical path. Returns `null` if the path does not look like
+   * `<pkg>/...` (e.g. `rules.yaml`, `.dico/schemas/...`, `package.json`).
+   *
+   * Mirrors the layout assumption used by `rebuild()` and the projection's
+   * `listEntitiesInPackage` (`packages/<pkg>` shape — but the physical path
+   * does NOT carry the `packages/` prefix on the git/disk backend; the
+   * top-level workspace directory is the package itself).
+   */
+  private resolvePackageFromPhysicalPath(physicalPath: string): string | null {
+    // Forward-slash normalize defensively; the watcher already does this but
+    // a test calling fireExternalInvalidation directly may not.
+    const normalized = physicalPath.replace(/\\/g, '/');
+    const segs = normalized.split('/').filter(Boolean);
+    if (segs.length === 0) return null;
+    // Workspace-root files (no slash, e.g. `rules.yaml`) → fall back to full
+    // rebuild via null.
+    if (segs.length < 2) return null;
+    const head = segs[0];
+    // Reserved directories are never packages.
+    if (RESERVED_DIRS.has(head)) return null;
+    // Subpackage support: a `package.yaml` marker can sit at any depth.
+    // For the simple-package case (the common one) the first segment is the
+    // package name. Subpackage rebuild is captured at the top-level package's
+    // rebuild scope because `listEntitiesInPackage` is non-recursive and the
+    // full UuidIndex.rebuild() walks subpackages from the top. To stay
+    // conservative — a raw-change inside a subpackage triggers a rescan of
+    // the TOP-level package, which is correct for entries directly under
+    // `<head>/entities/...`. Subpackage entries are reconciled on the next
+    // full rebuild boot. (See spec §7 — multi-kind / subpackage scope is OOS.)
+    return head;
   }
 
   /**
