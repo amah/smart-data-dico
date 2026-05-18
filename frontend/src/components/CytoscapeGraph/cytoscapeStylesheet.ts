@@ -136,8 +136,11 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
         'target-arrow-shape': 'triangle',
         'arrow-scale': 1.2,
         'curve-style': 'bezier',
-        'source-label': 'data(sourceCardinality)',
-        'target-label': 'data(targetCardinality)',
+        // Show endpoint role + cardinality glyph (`*` for many, `1` for one)
+        // rather than the raw "one"/"many" words. Pre-formatted in
+        // mapGraphDataToCytoscape.formatEndLabel().
+        'source-label': 'data(sourceEndLabel)',
+        'target-label': 'data(targetEndLabel)',
         'source-text-offset': 22,
         'target-text-offset': 22,
         'font-size': 11,
