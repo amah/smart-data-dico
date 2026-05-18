@@ -10,9 +10,11 @@ const router: Router = Router();
     const chatRoutes = (await import('./chat.routes.js')).default;
     const conversationRoutes = (await import('./conversation.routes.js')).default;
     const promptRoutes = (await import('./prompt.routes.js')).default;
+    const mcpRoutes = (await import('./mcp.routes.js')).default;
     router.use(chatRoutes);
     router.use(conversationRoutes);
     router.use(promptRoutes);
+    router.use(mcpRoutes);
   } catch {
     // AI dependencies not available (optional feature)
   }

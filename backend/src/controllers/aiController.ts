@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { streamText, generateText, tool, stepCountIs, convertToModelMessages, createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai';
+import { streamText, generateText, tool, jsonSchema, stepCountIs, convertToModelMessages, createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai';
 import { z } from 'zod';
 import { logger } from '../utils/logger.js';
 import { config } from '../kernel/config.js';
@@ -7,6 +7,7 @@ import { getConfigSection, setConfigSection, CONFIG_FILE } from '../utils/appDir
 import { conversationService } from '../services/conversationService.js';
 import { promptService } from '../services/promptService.js';
 import { EntityStatus } from '../models/EntitySchema.js';
+import { mcpClientRegistry } from '../services/mcpClientRegistry.js';
 
 // --- Tool categories (#59) ---
 //
@@ -401,7 +402,7 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
   }
 
   // Build tool definitions
-  const allToolDefs = [
+  const builtinToolDefs = [
     { type: 'function' as const, function: { name: 'createEntity', description: 'Create an entity. entityJson is a JSON string with packageName, name, description, stereotype, attributes array.', parameters: { type: 'object', required: ['entityJson'], properties: { entityJson: { type: 'string', description: 'JSON: {"packageName":"pkg","name":"Entity","description":"...","attributes":[{"name":"id","type":"string","required":true,"primaryKey":true}]}' } } } } },
     { type: 'function' as const, function: { name: 'createRelationship', description: 'Create a relationship. Endpoints may live in the same package or in different packages (cross-package is first-class). JSON string parameter.', parameters: { type: 'object', required: ['relationshipJson'], properties: { relationshipJson: { type: 'string', description: 'JSON: {"packageName":"home-pkg","sourceEntityName":"A","sourcePackage":"pkg-of-A","targetEntityName":"B","targetPackage":"pkg-of-B","sourceCardinality":"one","targetCardinality":"many","description":"..."}. sourcePackage/targetPackage are optional — if omitted the resolver scans every package and errors on ambiguity. The relationship is stored under the source\'s package.' } } } } },
     { type: 'function' as const, function: { name: 'listEntities', description: 'List packages or entities in a package', parameters: { type: 'object', properties: { packageName: { type: 'string', description: 'Package name (omit to list all)' } } } } },
@@ -409,7 +410,19 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
     { type: 'function' as const, function: { name: 'navigateTo', description: 'Navigate user to a page. The path MUST be an absolute URL beginning with "/" that matches one of the patterns returned by listRoutes — call listRoutes first if you are unsure of the exact shape.', parameters: { type: 'object', required: ['path', 'reason'], properties: { path: { type: 'string' }, reason: { type: 'string' } } } } },
     { type: 'function' as const, function: { name: 'listRoutes', description: 'List every valid URL pattern in the app with a short description and (where useful) a concrete example. Call this BEFORE navigateTo if you are unsure of the exact path shape — e.g. plural vs singular, where attribute pages live, what the case route is.', parameters: { type: 'object', properties: {} } } },
   ];
+  // #178 — merge MCP tools from enabled connections
+  const mcpToolDefs = await mcpClientRegistry.listAllTools();
+  const mcpFunctionDefs = mcpToolDefs.map((t) => ({
+    type: 'function' as const,
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.inputSchema as Record<string, unknown>,
+    },
+  }));
+  const allToolDefs = [...builtinToolDefs, ...mcpFunctionDefs];
   // #55 — drop write/navigate tools when the active mode forbids them.
+  // MCP tools are always included in designer mode; excluded from ask/review.
   const toolDefs = allToolDefs.filter(t => isToolAllowedForMode(t.function.name, mode));
 
   // Tool executor
@@ -483,6 +496,10 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
       if (name === 'listRoutes') {
         const { KNOWN_ROUTES } = await import('./routesManifest.js');
         return { routes: KNOWN_ROUTES };
+      }
+      // #178 — MCP tools are namespaced as <connectionId>.<toolName>
+      if (name.includes('.')) {
+        return await mcpClientRegistry.callTool(name, args);
       }
       return { error: `Unknown tool: ${name}` };
     } catch (err: any) {
@@ -651,6 +668,31 @@ export const aiChat = async (req: Request, res: Response) => {
       logger.warn(`AI context condensing failed; sending raw history. ${err?.message}`);
     }
     const messages = await convertToModelMessages(effectiveRawMessages);
+
+    // #178 — collect MCP tools for this request; build AI SDK tool() entries
+    const mcpTools = await mcpClientRegistry.listAllTools();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mcpToolEntries: Record<string, any> = {};
+    for (const mcpTool of mcpTools) {
+      const capturedTool = mcpTool;
+      // The AI SDK's tool() generic over the schema's inferred input type
+      // doesn't line up with our dynamic Record<string, unknown> execute
+      // shape (MCP tool args are only known at runtime). Cast through any
+      // — this is a deliberate type-erasure at the dynamic-registration
+      // boundary; the JSON-schema validation still runs on the input.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      mcpToolEntries[capturedTool.name] = tool({
+        description: capturedTool.description,
+        // Wrap JSON Schema in the AI SDK's jsonSchema() helper so it satisfies
+        // the FlexibleSchema<INPUT> constraint. The MCP SDK ships JSON Schema
+        // natively; no Zod conversion required.
+        inputSchema: jsonSchema(capturedTool.inputSchema as import('@ai-sdk/provider').JSONSchema7),
+        execute: (async (args: Record<string, unknown>) => {
+          return await mcpClientRegistry.callTool(capturedTool.name, args);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        }) as any,
+      });
+    }
 
     // Wire request lifecycle to an AbortController so client disconnect
     // (Stop button, browser close) propagates into streamText and breaks
@@ -867,6 +909,9 @@ export const aiChat = async (req: Request, res: Response) => {
             return { routes: KNOWN_ROUTES };
           },
         }),
+
+        // #178 — MCP tools merged at chat-request time
+        ...mcpToolEntries,
       }, mode),
       stopWhen: stepCountIs(20),
     });
@@ -1113,67 +1158,100 @@ export const aiTestTools = async (req: Request, res: Response) => {
 // --- Tool definitions endpoint ---
 
 export const aiTools = async (_req: Request, res: Response) => {
+  const builtinTools = [
+    {
+      name: 'createEntity',
+      description: 'Create a new entity with attributes in a package',
+      source: 'builtin' as const,
+      parameters: [
+        { name: 'packageName', type: 'string', required: true, description: 'Package/service name' },
+        { name: 'name', type: 'string', required: true, description: 'Entity name (PascalCase)' },
+        { name: 'description', type: 'string', required: true, description: 'Entity description' },
+        { name: 'stereotype', type: 'string', required: false, description: 'Stereotype: aggregate-root, reference-data, event, value-object' },
+        { name: 'attributes', type: 'array', required: true, description: 'Array of {name, type, description, required, primaryKey?, enumValues?}' },
+      ],
+    },
+    {
+      name: 'createRelationship',
+      description: 'Create a relationship between two entities. Endpoints may live in the same package or in different packages.',
+      source: 'builtin' as const,
+      parameters: [
+        { name: 'packageName', type: 'string', required: false, description: 'Fallback package for both endpoints when sourcePackage/targetPackage are omitted' },
+        { name: 'sourceEntityName', type: 'string', required: true, description: 'Source entity name' },
+        { name: 'sourcePackage', type: 'string', required: false, description: 'Package containing the source entity (defaults to packageName)' },
+        { name: 'targetEntityName', type: 'string', required: true, description: 'Target entity name' },
+        { name: 'targetPackage', type: 'string', required: false, description: 'Package containing the target entity (defaults to packageName)' },
+        { name: 'description', type: 'string', required: true, description: 'Relationship description' },
+        { name: 'sourceCardinality', type: 'one|many', required: true, description: 'Source cardinality' },
+        { name: 'targetCardinality', type: 'one|many', required: true, description: 'Target cardinality' },
+      ],
+    },
+    {
+      name: 'listEntities',
+      description: 'List all entities in a package or all packages',
+      source: 'builtin' as const,
+      parameters: [
+        { name: 'packageName', type: 'string', required: false, description: 'Package name (omit to list all packages)' },
+      ],
+    },
+    {
+      name: 'getEntityDetails',
+      description: 'Get detailed info about an entity including attributes',
+      source: 'builtin' as const,
+      parameters: [
+        { name: 'packageName', type: 'string', required: true, description: 'Package name' },
+        { name: 'entityName', type: 'string', required: true, description: 'Entity name' },
+      ],
+    },
+    {
+      name: 'listStereotypes',
+      description: 'List available stereotypes and their metadata definitions',
+      source: 'builtin' as const,
+      parameters: [],
+    },
+    {
+      name: 'navigateTo',
+      description: 'Navigate the user to a specific page. Path must match one of the patterns from listRoutes.',
+      source: 'builtin' as const,
+      parameters: [
+        { name: 'path', type: 'string', required: true, description: 'Absolute URL path beginning with "/" (e.g. /packages/order-service/entities/Order)' },
+        { name: 'reason', type: 'string', required: true, description: 'Why navigating here' },
+      ],
+    },
+    {
+      name: 'listRoutes',
+      description: 'List every valid URL pattern in the app. Call before navigateTo when unsure of the exact path shape.',
+      source: 'builtin' as const,
+      parameters: [],
+    },
+  ];
+
+  // #178 — append MCP tools with source: 'mcp' for frontend attribution
+  let mcpToolsList: Array<{
+    name: string;
+    description: string;
+    source: 'mcp';
+    connectionId: string;
+    trustLevel: string;
+    inputSchema: Record<string, unknown>;
+  }> = [];
+  try {
+    const mcpTools = await mcpClientRegistry.listAllTools();
+    mcpToolsList = mcpTools.map((t) => ({
+      name: t.name,
+      description: t.description,
+      source: 'mcp' as const,
+      connectionId: t.connectionId,
+      trustLevel: t.trustLevel,
+      inputSchema: t.inputSchema,
+    }));
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn(`[aiTools] Failed to list MCP tools: ${msg}`);
+  }
+
   res.json({
-    data: [
-      {
-        name: 'createEntity',
-        description: 'Create a new entity with attributes in a package',
-        parameters: [
-          { name: 'packageName', type: 'string', required: true, description: 'Package/service name' },
-          { name: 'name', type: 'string', required: true, description: 'Entity name (PascalCase)' },
-          { name: 'description', type: 'string', required: true, description: 'Entity description' },
-          { name: 'stereotype', type: 'string', required: false, description: 'Stereotype: aggregate-root, reference-data, event, value-object' },
-          { name: 'attributes', type: 'array', required: true, description: 'Array of {name, type, description, required, primaryKey?, enumValues?}' },
-        ],
-      },
-      {
-        name: 'createRelationship',
-        description: 'Create a relationship between two entities. Endpoints may live in the same package or in different packages.',
-        parameters: [
-          { name: 'packageName', type: 'string', required: false, description: 'Fallback package for both endpoints when sourcePackage/targetPackage are omitted' },
-          { name: 'sourceEntityName', type: 'string', required: true, description: 'Source entity name' },
-          { name: 'sourcePackage', type: 'string', required: false, description: 'Package containing the source entity (defaults to packageName)' },
-          { name: 'targetEntityName', type: 'string', required: true, description: 'Target entity name' },
-          { name: 'targetPackage', type: 'string', required: false, description: 'Package containing the target entity (defaults to packageName)' },
-          { name: 'description', type: 'string', required: true, description: 'Relationship description' },
-          { name: 'sourceCardinality', type: 'one|many', required: true, description: 'Source cardinality' },
-          { name: 'targetCardinality', type: 'one|many', required: true, description: 'Target cardinality' },
-        ],
-      },
-      {
-        name: 'listEntities',
-        description: 'List all entities in a package or all packages',
-        parameters: [
-          { name: 'packageName', type: 'string', required: false, description: 'Package name (omit to list all packages)' },
-        ],
-      },
-      {
-        name: 'getEntityDetails',
-        description: 'Get detailed info about an entity including attributes',
-        parameters: [
-          { name: 'packageName', type: 'string', required: true, description: 'Package name' },
-          { name: 'entityName', type: 'string', required: true, description: 'Entity name' },
-        ],
-      },
-      {
-        name: 'listStereotypes',
-        description: 'List available stereotypes and their metadata definitions',
-        parameters: [],
-      },
-      {
-        name: 'navigateTo',
-        description: 'Navigate the user to a specific page. Path must match one of the patterns from listRoutes.',
-        parameters: [
-          { name: 'path', type: 'string', required: true, description: 'Absolute URL path beginning with "/" (e.g. /packages/order-service/entities/Order)' },
-          { name: 'reason', type: 'string', required: true, description: 'Why navigating here' },
-        ],
-      },
-      {
-        name: 'listRoutes',
-        description: 'List every valid URL pattern in the app. Call before navigateTo when unsure of the exact path shape.',
-        parameters: [],
-      },
-    ],
+    data: [...builtinTools, ...mcpToolsList],
   });
 };
 
