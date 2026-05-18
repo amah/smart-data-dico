@@ -78,6 +78,15 @@ const SEVERITY_TONE: Record<RuleSeverityValue, 'danger' | 'warning' | 'info'> = 
 };
 
 const ATTR_COL_KEY = 'attribute-list-columns-v2';
+const ATTR_OPTIONAL_COL_KEY = 'attribute-list-optional-columns-v1';
+
+/**
+ * Standard columns that are rendered as inline decorators on the name
+ * cell by default (type chip + required asterisk + primary-key icon).
+ * The user can still surface them as separate columns from the Column
+ * chooser — opt-in, persisted per browser.
+ */
+const OPTIONAL_STD_COLS = new Set<string>(['type', 'required']);
 
 interface DraftAttribute {
   id: string;
@@ -115,6 +124,20 @@ const AttributeList = ({
     } catch { /* ignore */ }
     return new Set<string>();
   });
+
+  // Standard columns the user has opted to surface (type / required).
+  // Default is empty → both render as inline decorators on the name cell.
+  const [optionalVisible, setOptionalVisible] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem(ATTR_OPTIONAL_COL_KEY);
+      if (saved) return new Set(JSON.parse(saved));
+    } catch { /* ignore */ }
+    return new Set<string>();
+  });
+
+  useEffect(() => {
+    localStorage.setItem(ATTR_OPTIONAL_COL_KEY, JSON.stringify([...optionalVisible]));
+  }, [optionalVisible]);
 
   useEffect(() => {
     if (attributes.length > 0 && allColumns.length > 0 && metaVisible.size === 0) {
@@ -350,12 +373,31 @@ const AttributeList = ({
         filterable: true,
         width: 'minmax(160px, 1.4fr)',
         accessor: (a) => a.name,
-        render: (a) => (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, overflow: 'hidden', minWidth: 0 }}>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{a.name}</span>
-            {a.primaryKey && <Icon name="key" size={11} style={{ color: 'var(--warning)' }} />}
-          </span>
-        ),
+        render: (a) => {
+          // Decorators: type chip (when not surfaced as its own column) +
+          // required asterisk (likewise) + primary-key icon. The chooser
+          // lets the user promote type/required back into dedicated
+          // columns; the decorators hide when the column is shown so
+          // information isn't duplicated.
+          const showTypeDecorator    = !optionalVisible.has('type');
+          const showRequiredDecorator = !optionalVisible.has('required');
+          return (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, overflow: 'hidden', minWidth: 0 }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{a.name}</span>
+              {showRequiredDecorator && a.required && (
+                <span
+                  aria-label="required"
+                  title="Required"
+                  style={{ color: 'var(--error, var(--danger))', fontWeight: 700, fontSize: 'var(--fs-sm)', lineHeight: 1 }}
+                >
+                  *
+                </span>
+              )}
+              {a.primaryKey && <Icon name="key" size={11} style={{ color: 'var(--warning)' }} />}
+              {showTypeDecorator && <TypeChip type={a.type} title={`Type: ${a.type}`} />}
+            </span>
+          );
+        },
       },
       {
         key: 'type',
@@ -473,27 +515,35 @@ const AttributeList = ({
     }));
 
     return [...std, ...meta];
-  }, [activeMetaColumns, rulesByAttrUuid]);
+  }, [activeMetaColumns, rulesByAttrUuid, optionalVisible]);
 
   // ──────────────── Render ────────────────
 
   const chooserCols = useMemo(() => columns as unknown as ColumnDef<unknown>[], [columns]);
   const allVisibleKeys = useMemo(() => {
-    // Standard columns are always on; metadata toggles flow through metaVisible.
+    // Standard columns are on by default EXCEPT the opt-in ones
+    // (`type`, `required`) — those flow through `optionalVisible` and
+    // surface as decorators on the name cell when hidden.
+    // Metadata toggles flow through `metaVisible`.
     const set = new Set<string>();
     for (const c of columns) {
-      if ((c.group ?? 'standard') === 'standard') set.add(c.key);
+      if ((c.group ?? 'standard') !== 'standard') continue;
+      if (OPTIONAL_STD_COLS.has(c.key) && !optionalVisible.has(c.key)) continue;
+      set.add(c.key);
     }
     for (const name of metaVisible) set.add(`meta:${name}`);
     return set;
-  }, [columns, metaVisible]);
+  }, [columns, metaVisible, optionalVisible]);
 
   const handleVisibleChange = useCallback((next: Set<string>) => {
     const nextMeta = new Set<string>();
+    const nextOptional = new Set<string>();
     next.forEach((key) => {
       if (key.startsWith('meta:')) nextMeta.add(key.slice(5));
+      else if (OPTIONAL_STD_COLS.has(key)) nextOptional.add(key);
     });
     setMetaVisible(nextMeta);
+    setOptionalVisible(nextOptional);
   }, []);
 
   return (
