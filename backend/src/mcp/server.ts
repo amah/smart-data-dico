@@ -274,11 +274,22 @@ export function createMcpServer(): McpServer {
     {
       title: 'Create relationship',
       description:
-        'Create a relationship between two entities in the same package. Both entities must already exist.',
+        'Create a relationship between two entities. Endpoints may live in the same package or in different packages — cross-package is first-class. The relationship is stored under the source entity\'s package by convention.',
       inputSchema: {
-        packageName: z.string().describe('Package name.'),
+        packageName: z
+          .string()
+          .optional()
+          .describe('Fallback package for both endpoints when sourcePackage/targetPackage are omitted.'),
         sourceEntityName: z.string().describe('Source entity name.'),
+        sourcePackage: z
+          .string()
+          .optional()
+          .describe('Package containing the source entity (defaults to packageName, then auto-discovered).'),
         targetEntityName: z.string().describe('Target entity name.'),
+        targetPackage: z
+          .string()
+          .optional()
+          .describe('Package containing the target entity (defaults to packageName, then auto-discovered).'),
         description: z.string().optional().describe('Relationship description.'),
         sourceCardinality: z
           .enum(['one', 'many'])
@@ -293,39 +304,59 @@ export function createMcpServer(): McpServer {
     async ({
       packageName,
       sourceEntityName,
+      sourcePackage,
       targetEntityName,
+      targetPackage,
       description,
       sourceCardinality,
       targetCardinality,
     }) => {
       try {
         const { serviceService } = await loadServices();
-        const src = await serviceService.getEntitySchema(packageName, sourceEntityName);
-        const tgt = await serviceService.getEntitySchema(packageName, targetEntityName);
-        if (!src) return asErrorContent(`Source entity not found: ${sourceEntityName}`);
-        if (!tgt) return asErrorContent(`Target entity not found: ${targetEntityName}`);
+        let src, tgt;
+        try {
+          src = await serviceService.findEntityAcrossPackages(sourceEntityName, sourcePackage || packageName);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return asErrorContent(`Source: ${msg}`);
+        }
+        if (!src) return asErrorContent(`Source entity "${sourceEntityName}" not found in any package`);
+        try {
+          tgt = await serviceService.findEntityAcrossPackages(targetEntityName, targetPackage || packageName);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return asErrorContent(`Target: ${msg}`);
+        }
+        if (!tgt) return asErrorContent(`Target entity "${targetEntityName}" not found in any package`);
         const toCardinality = (v: 'one' | 'many'): Cardinality =>
           v === 'one' ? Cardinality.ONE : Cardinality.MANY;
+        const homePackage = src.packageName;
         const relationship = {
           uuid: crypto.randomUUID(),
           description: description || '',
           source: {
-            entity: src.uuid,
+            entity: src.entity.uuid,
             cardinality: toCardinality(sourceCardinality || 'one'),
           },
           target: {
-            entity: tgt.uuid,
+            entity: tgt.entity.uuid,
             cardinality: toCardinality(targetCardinality || 'many'),
           },
         };
-        const result = await serviceService.createRelationship(packageName, relationship);
+        const result = await serviceService.createRelationship(homePackage, relationship);
         if (!result.success) {
           return asErrorContent(`createRelationship failed: ${result.errors.join('; ')}`);
         }
+        const crossNote = src.packageName !== tgt.packageName
+          ? ` (cross-package: ${src.packageName} → ${tgt.packageName}, stored under ${homePackage})`
+          : '';
         return asJsonContent({
           success: true,
-          message: `Created relationship: ${sourceEntityName} -> ${targetEntityName}`,
+          message: `Created relationship: ${sourceEntityName} -> ${targetEntityName}${crossNote}`,
           uuid: relationship.uuid,
+          homePackage,
+          sourcePackage: src.packageName,
+          targetPackage: tgt.packageName,
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
