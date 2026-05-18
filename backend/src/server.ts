@@ -100,6 +100,26 @@ async function mountFrameworkRoutes() {
       uuidIndex.start();
       registerUuidIndex(dictWs, uuidIndex);
       logger.info('UuidIndex initialized (slice 6c) + LogicalProjection registered (slice 6d)');
+
+      // Slice 6e.2 — start the raw-fs watcher. Opt-out via DICO_WATCH_RAW=0
+      // (the test harness sets this; production leaves it unset → watcher on).
+      if (process.env.DICO_WATCH_RAW !== '0') {
+        try {
+          const { RawFsWatcher } = await import('./storage/projection/RawFsWatcher.js');
+          const watcher = new RawFsWatcher({
+            dataDir: config.dataDir,
+            ws: dictWs,
+            projection,
+            index: uuidIndex,
+          });
+          await watcher.start();
+          logger.info('RawFsWatcher started (slice 6e.2)');
+        } catch (watchError) {
+          logger.warn(`RawFsWatcher initialization failed: ${watchError instanceof Error ? watchError.message : String(watchError)}`);
+        }
+      } else {
+        logger.info('RawFsWatcher disabled (DICO_WATCH_RAW=0)');
+      }
     } catch (e) {
       logger.warn(`Projection/UuidIndex initialization failed: ${e instanceof Error ? e.message : String(e)}`);
     }

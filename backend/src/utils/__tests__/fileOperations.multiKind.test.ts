@@ -56,7 +56,7 @@ describe('fileOperations multi-kind preservation (#106)', () => {
 
     // Write a modified entity — only description changes
     const result = await writeEntityFile({ ...originalEntity, description: 'updated' }, 'order-service');
-    expect(result).toBe(true);
+    expect(result.ok).toBe(true);
 
     // Read back the FILE and assert rules + relationships are untouched
     const after = await backend.read(WS, 'order-service/Order.model.yaml' as any);
@@ -99,7 +99,7 @@ describe('fileOperations multi-kind preservation (#106)', () => {
       targets: [],
     };
     const result = await writeEntityRules('catalog', 'a1b2c3d4-e5f6-4a7b-89ab-000000000020', [newRule] as any);
-    expect(result).toBe(true);
+    expect(result.ok).toBe(true);
 
     // The relationships section must still be there
     const after = await backend.read(WS, 'catalog/Product.model.yaml' as any);
@@ -141,7 +141,7 @@ describe('fileOperations multi-kind preservation (#106)', () => {
     };
     // writeRelationshipsFile takes packagePath (which uses path.basename internally)
     const result = await writeRelationshipsFile('crm', [existingRel, newRel]);
-    expect(result).toBe(true);
+    expect(result.ok).toBe(true);
 
     // The entity must still be there in the consolidated file
     const after = await backend.read(WS, 'crm/Customer.model.yaml' as any);
@@ -169,7 +169,7 @@ describe('fileOperations multi-kind preservation (#106)', () => {
 
     // Delete the sole entity — the file should be removed
     const result = await deleteEntityFile('solo-service', 'Solo');
-    expect(result).toBe(true);
+    expect(result.ok).toBe(true);
 
     // File should no longer exist
     const ws = backend.files.get('dictionaries');

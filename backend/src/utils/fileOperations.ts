@@ -613,16 +613,16 @@ export async function readEntityFile(packageName: string, entityName: string): P
  * owning file in-place; the owning file is always looked up by uuid to
  * handle the rename case.
  */
-export async function writeEntityFile(entity: Entity, packageName?: string): Promise<boolean> {
+export async function writeEntityFile(entity: Entity, packageName?: string): Promise<{ ok: boolean; physicalPath?: string }> {
   try {
     const validation = validateEntity(entity);
     if (!validation.valid) {
       logger.error(`Invalid entity: ${validation.errors.join(', ')}`);
-      return false;
+      return { ok: false };
     }
     if (!packageName) {
       logger.error('Package name is required to write entity file');
-      return false;
+      return { ok: false };
     }
 
     await ensurePackageDirectoryStructure(packageName);
@@ -652,7 +652,7 @@ export async function writeEntityFile(entity: Entity, packageName?: string): Pro
       await writeSectionsToStorage(ownerFile, ownerSections);
       logger.info(`Entity written: ${entity.name} → ${String(ownerFile)}`);
       await commitChanges(String(ownerFile), `Updated entity: ${entity.name} (${entity.uuid})`);
-      return true;
+      return { ok: true, physicalPath: String(ownerFile) };
     }
 
     const newFilePath = pathOf(`${packageName}/${sanitizeFsName(entity.name)}.model.yaml`);
@@ -661,10 +661,10 @@ export async function writeEntityFile(entity: Entity, packageName?: string): Pro
     });
     logger.info(`Entity written to new file: ${String(newFilePath)}`);
     await commitChanges(String(newFilePath), `Added entity: ${entity.name} (${entity.uuid})`);
-    return true;
+    return { ok: true, physicalPath: String(newFilePath) };
   } catch (error) {
     logger.error(`Error writing entity file: ${error}`);
-    return false;
+    return { ok: false };
   }
 }
 
@@ -672,7 +672,7 @@ export async function writeEntityFile(entity: Entity, packageName?: string): Pro
  * Deletes an entity from its owning file. If that was the only content
  * in the file, `writeSectionsToStorage` removes the file itself.
  */
-export async function deleteEntityFile(packageName: string, entityName: string): Promise<boolean> {
+export async function deleteEntityFile(packageName: string, entityName: string): Promise<{ ok: boolean; physicalPath?: string }> {
   try {
     const files = await listPackageYamlFilePaths(packageName);
     for (const f of files) {
@@ -683,14 +683,14 @@ export async function deleteEntityFile(packageName: string, entityName: string):
         await writeSectionsToStorage(f, s);
         logger.info(`Entity deleted from: ${String(f)}`);
         await commitChanges(String(f), `Deleted entity: ${entityName}`);
-        return true;
+        return { ok: true, physicalPath: String(f) };
       }
     }
     logger.warn(`Entity not found for deletion: ${packageName}.${entityName}`);
-    return false;
+    return { ok: false };
   } catch (error) {
     logger.error(`Error deleting entity file: ${error}`);
-    return false;
+    return { ok: false };
   }
 }
 
@@ -754,7 +754,7 @@ export async function readRelationshipsFile(packagePath: string): Promise<Relati
  * relationship sections. Falls back to `relationships.model.yaml` if no
  * file currently owns relationships.
  */
-export async function writeRelationshipsFile(packagePath: string, relationships: Relationship[]): Promise<boolean> {
+export async function writeRelationshipsFile(packagePath: string, relationships: Relationship[]): Promise<{ ok: boolean; physicalPath?: string }> {
   try {
     const packageName = path.basename(packagePath);
     await ensurePackageDirectoryStructure(packageName);
@@ -785,10 +785,10 @@ export async function writeRelationshipsFile(packagePath: string, relationships:
     await writeSectionsToStorage(targetFile, existing);
     logger.info(`Relationships written to: ${String(targetFile)}`);
     await commitChanges(String(targetFile), `Updated relationships in ${packageName}`);
-    return true;
+    return { ok: true, physicalPath: String(targetFile) };
   } catch (error) {
     logger.error(`Error writing relationships file: ${error}`);
-    return false;
+    return { ok: false };
   }
 }
 
@@ -841,7 +841,8 @@ export async function writeComments(service: string, entityUuid: string, comment
       return false;
     }
     entity.reviewComments = comments.length > 0 ? comments : undefined;
-    return await writeEntityFile(entity, service);
+    const { ok } = await writeEntityFile(entity, service);
+    return ok;
   } catch (error) {
     logger.error(`Error writing comments: ${error}`);
     return false;
@@ -865,19 +866,19 @@ export async function readEntityRules(service: string, entityUuid: string): Prom
 }
 
 /** Write entity-scoped rules inline on the entity; persists via writeEntityFile. */
-export async function writeEntityRules(service: string, entityUuid: string, rules: Rule[]): Promise<boolean> {
+export async function writeEntityRules(service: string, entityUuid: string, rules: Rule[]): Promise<{ ok: boolean; physicalPath?: string }> {
   try {
     const pkg = await loadPackage(service);
     const entity = pkg.entities.find(e => e.uuid === entityUuid);
     if (!entity) {
       logger.warn(`Entity not found for rules: ${service}.${entityUuid}`);
-      return false;
+      return { ok: false };
     }
     entity.rules = rules.length > 0 ? rules : undefined;
     return await writeEntityFile(entity, service);
   } catch (error) {
     logger.error(`Error writing entity rules: ${error}`);
-    return false;
+    return { ok: false };
   }
 }
 
@@ -896,7 +897,7 @@ export async function readPackageRules(service: string): Promise<Rule[]> {
  * Write package-scoped rules. Consolidates to the first file that currently
  * owns any rule (clearing others) or creates `rules.model.yaml` if none.
  */
-export async function writePackageRules(service: string, rules: Rule[]): Promise<boolean> {
+export async function writePackageRules(service: string, rules: Rule[]): Promise<{ ok: boolean; physicalPath?: string }> {
   try {
     await ensurePackageDirectoryStructure(service);
     const files = await listPackageYamlFilePaths(service);
@@ -923,10 +924,10 @@ export async function writePackageRules(service: string, rules: Rule[]): Promise
     await writeSectionsToStorage(targetFile, existing);
     logger.info(`Package rules written to: ${String(targetFile)}`);
     await commitChanges(String(targetFile), `Updated rules in ${service}`);
-    return true;
+    return { ok: true, physicalPath: String(targetFile) };
   } catch (error) {
     logger.error(`Error writing package rules: ${error}`);
-    return false;
+    return { ok: false };
   }
 }
 
@@ -987,16 +988,16 @@ export async function readCaseRules(caseUuid: string): Promise<Rule[]> {
 }
 
 /** Write rules embedded in a case (preserves the rest of the case). */
-export async function writeCaseRules(caseUuid: string, rules: Rule[]): Promise<boolean> {
+export async function writeCaseRules(caseUuid: string, rules: Rule[]): Promise<{ ok: boolean; physicalPath?: string }> {
   try {
     const c = await readCaseFile(caseUuid);
-    if (!c) return false;
+    if (!c) return { ok: false };
     c.rules = rules;
     c.updatedAt = new Date().toISOString();
     return await writeCaseFile(c);
   } catch (error) {
     logger.error(`Error writing case rules: ${error}`);
-    return false;
+    return { ok: false };
   }
 }
 
@@ -1015,17 +1016,17 @@ export async function readGlobalRules(): Promise<Rule[]> {
   }
 }
 
-export async function writeGlobalRules(rules: Rule[]): Promise<boolean> {
+export async function writeGlobalRules(rules: Rule[]): Promise<{ ok: boolean; physicalPath?: string }> {
   try {
     if (rules.length === 0) {
       await deleteIfExists(pathOf('rules.yaml'));
-      return true;
+      return { ok: true, physicalPath: 'rules.yaml' };
     }
     await getStorage().write(WS, pathOf('rules.yaml'), YAML.stringify(rules));
-    return true;
+    return { ok: true, physicalPath: 'rules.yaml' };
   } catch (error) {
     logger.error(`Error writing global rules: ${error}`);
-    return false;
+    return { ok: false };
   }
 }
 
@@ -1093,7 +1094,7 @@ export async function readCaseFile(uuid: string): Promise<Case | null> {
  *   3. If no root-entity package can be resolved, fall back to the first
  *      package on disk so the write doesn't silently fail.
  */
-export async function writeCaseFile(c: Case): Promise<boolean> {
+export async function writeCaseFile(c: Case): Promise<{ ok: boolean; physicalPath?: string }> {
   try {
     const owner = await findCaseOwner(c.uuid);
     if (owner) {
@@ -1103,13 +1104,13 @@ export async function writeCaseFile(c: Case): Promise<boolean> {
       sections.cases.push(c);
       await writeSectionsToStorage(ownerPath, sections);
       await commitChanges(owner.filePath, `Updated case: ${c.name}`);
-      return true;
+      return { ok: true, physicalPath: owner.filePath };
     }
 
     const targetPackage = await resolveCaseHomePackage(c);
     if (!targetPackage) {
       logger.error(`Cannot write case ${c.uuid}: no package found`);
-      return false;
+      return { ok: false };
     }
     await ensurePackageDirectoryStructure(targetPackage);
     const filename = `${sanitizeFsName(c.name || c.uuid)}.case.yaml`;
@@ -1119,10 +1120,10 @@ export async function writeCaseFile(c: Case): Promise<boolean> {
     sections.cases.push(c);
     await writeSectionsToStorage(filePath, sections);
     await commitChanges(String(filePath), `Added case: ${c.name}`);
-    return true;
+    return { ok: true, physicalPath: String(filePath) };
   } catch (error) {
     logger.error(`Error writing case: ${error}`);
-    return false;
+    return { ok: false };
   }
 }
 
@@ -1141,19 +1142,19 @@ async function resolveCaseHomePackage(c: Case): Promise<string | null> {
   return packages[0] || null;
 }
 
-export async function deleteCaseFile(uuid: string): Promise<boolean> {
+export async function deleteCaseFile(uuid: string): Promise<{ ok: boolean; physicalPath?: string }> {
   try {
     const owner = await findCaseOwner(uuid);
-    if (!owner) return false;
+    if (!owner) return { ok: false };
     const ownerPath = pathOf(owner.filePath);
     const sections = await parseSectionsFromStorage(ownerPath, owner.filePath);
     sections.cases = sections.cases.filter(p => p.uuid !== uuid);
     await writeSectionsToStorage(ownerPath, sections);
     await commitChanges(owner.filePath, `Deleted case ${uuid}`);
-    return true;
+    return { ok: true, physicalPath: owner.filePath };
   } catch (error) {
     logger.error(`Error deleting case ${uuid}: ${error}`);
-    return false;
+    return { ok: false };
   }
 }
 
