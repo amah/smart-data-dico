@@ -28,6 +28,7 @@ const TOOL_CATEGORY_MAP: Record<string, AIToolCategory> = {
   listStereotypes: 'read',
   getEntityDetails: 'read',
   listPackages: 'read',
+  listRoutes: 'read',
   // navigate
   navigateTo: 'navigate',
   // create
@@ -321,9 +322,10 @@ You have tools to:
 - Create entities with attributes in a package
 - Search and list existing entities
 - Get entity details
-- Create relationships between entities
+- Create relationships between entities (cross-package is first-class)
 - List stereotypes (metadata schemas for entities/attributes)
-- Navigate the user to relevant pages
+- Navigate the user to relevant pages (call listRoutes first if unsure of the URL shape)
+- Discover the valid URL taxonomy (listRoutes)
 
 When creating data models:
 - Use meaningful names (PascalCase for entities, camelCase for attributes)
@@ -404,7 +406,8 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
     { type: 'function' as const, function: { name: 'createRelationship', description: 'Create a relationship. Endpoints may live in the same package or in different packages (cross-package is first-class). JSON string parameter.', parameters: { type: 'object', required: ['relationshipJson'], properties: { relationshipJson: { type: 'string', description: 'JSON: {"packageName":"home-pkg","sourceEntityName":"A","sourcePackage":"pkg-of-A","targetEntityName":"B","targetPackage":"pkg-of-B","sourceCardinality":"one","targetCardinality":"many","description":"..."}. sourcePackage/targetPackage are optional — if omitted the resolver scans every package and errors on ambiguity. The relationship is stored under the source\'s package.' } } } } },
     { type: 'function' as const, function: { name: 'listEntities', description: 'List packages or entities in a package', parameters: { type: 'object', properties: { packageName: { type: 'string', description: 'Package name (omit to list all)' } } } } },
     { type: 'function' as const, function: { name: 'listStereotypes', description: 'List available stereotypes', parameters: { type: 'object', properties: {} } } },
-    { type: 'function' as const, function: { name: 'navigateTo', description: 'Navigate user to a page', parameters: { type: 'object', required: ['path', 'reason'], properties: { path: { type: 'string' }, reason: { type: 'string' } } } } },
+    { type: 'function' as const, function: { name: 'navigateTo', description: 'Navigate user to a page. The path MUST be an absolute URL beginning with "/" that matches one of the patterns returned by listRoutes — call listRoutes first if you are unsure of the exact shape.', parameters: { type: 'object', required: ['path', 'reason'], properties: { path: { type: 'string' }, reason: { type: 'string' } } } } },
+    { type: 'function' as const, function: { name: 'listRoutes', description: 'List every valid URL pattern in the app with a short description and (where useful) a concrete example. Call this BEFORE navigateTo if you are unsure of the exact path shape — e.g. plural vs singular, where attribute pages live, what the case route is.', parameters: { type: 'object', properties: {} } } },
   ];
   // #55 — drop write/navigate tools when the active mode forbids them.
   const toolDefs = allToolDefs.filter(t => isToolAllowedForMode(t.function.name, mode));
@@ -476,6 +479,10 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
       }
       if (name === 'navigateTo') {
         return { navigate: args.path, reason: args.reason };
+      }
+      if (name === 'listRoutes') {
+        const { KNOWN_ROUTES } = await import('./routesManifest.js');
+        return { routes: KNOWN_ROUTES };
       }
       return { error: `Unknown tool: ${name}` };
     } catch (err: any) {
@@ -842,13 +849,22 @@ export const aiChat = async (req: Request, res: Response) => {
         }),
 
         navigateTo: tool({
-          description: 'Navigate the user to a specific page in the application',
+          description: 'Navigate the user to a specific page in the application. The path MUST be an absolute URL beginning with "/" that matches one of the patterns returned by listRoutes — call listRoutes first if you are unsure of the exact shape. Common drift: singular vs plural ("/package/foo" → "/packages/foo"), entity URL is "/packages/<pkg>/entities/<Name>".',
           inputSchema: z.object({
-            path: z.string().describe('The URL path to navigate to, e.g. /packages/e-commerce or /diagram'),
+            path: z.string().describe('Absolute URL path beginning with "/", matching a pattern from listRoutes. Example: /packages/order-service/entities/Order'),
             reason: z.string().describe('Why navigating here'),
           }),
           execute: async (params) => {
             return { navigate: params.path, reason: params.reason };
+          },
+        }),
+
+        listRoutes: tool({
+          description: 'List every valid URL pattern in the app with a short description and (where useful) a concrete example. Call this BEFORE navigateTo if you are unsure of the exact path shape — turning navigation into a lookup rather than a guess.',
+          inputSchema: z.object({}),
+          execute: async () => {
+            const { KNOWN_ROUTES } = await import('./routesManifest.js');
+            return { routes: KNOWN_ROUTES };
           },
         }),
       }, mode),
@@ -1146,11 +1162,16 @@ export const aiTools = async (_req: Request, res: Response) => {
       },
       {
         name: 'navigateTo',
-        description: 'Navigate the user to a specific page',
+        description: 'Navigate the user to a specific page. Path must match one of the patterns from listRoutes.',
         parameters: [
-          { name: 'path', type: 'string', required: true, description: 'URL path (e.g. /packages/e-commerce)' },
+          { name: 'path', type: 'string', required: true, description: 'Absolute URL path beginning with "/" (e.g. /packages/order-service/entities/Order)' },
           { name: 'reason', type: 'string', required: true, description: 'Why navigating here' },
         ],
+      },
+      {
+        name: 'listRoutes',
+        description: 'List every valid URL pattern in the app. Call before navigateTo when unsure of the exact path shape.',
+        parameters: [],
       },
     ],
   });
