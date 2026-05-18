@@ -23,6 +23,7 @@ import {
   PiiChip,
   Toolbar,
   TypeChip,
+  TypeIcon,
 } from './ui';
 import type { ColumnDef } from './ui';
 
@@ -394,7 +395,7 @@ const AttributeList = ({
                 </span>
               )}
               {a.primaryKey && <Icon name="key" size={11} style={{ color: 'var(--warning)' }} />}
-              {showTypeDecorator && <TypeChip type={a.type} title={`Type: ${a.type}`} />}
+              {showTypeDecorator && <TypeIcon type={a.type} />}
             </span>
           );
         },

@@ -10,6 +10,9 @@ export type { ChipProps, ChipTone } from './Chip';
 export { default as TypeChip } from './TypeChip';
 export type { TypeChipProps } from './TypeChip';
 
+export { default as TypeIcon } from './TypeIcon';
+export type { TypeIconProps } from './TypeIcon';
+
 export { default as PiiChip } from './PiiChip';
 export type { PiiChipProps } from './PiiChip';
 
