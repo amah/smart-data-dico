@@ -4,18 +4,14 @@ import type { GraphNode, GraphEdge } from '../../types';
 /**
  * Format the label shown at one end of a relationship edge.
  *
- * UML/ER convention: render the role (endpoint name) plus a cardinality
- * glyph (`*` for many, `1` for one). When the role is unset we still show
- * the glyph alone so the edge multiplicity stays legible. The old
- * behaviour was to render the word "many" / "one", which was wordy and
- * hid the role.
+ * Rule: many → `*` (alone, or "<role> *"). one → role only, or empty
+ * when the role is unset. The "1" glyph is implicit; only multiplicity
+ * deserves visual weight on the edge.
  */
 export function formatEndLabel(name?: string, cardinality?: string): string {
-  const glyph = cardinality === 'many' ? '*' : cardinality ? '1' : '';
-  const role = name?.trim();
-  if (role && glyph) return `${role} ${glyph}`;
-  if (role) return role;
-  return glyph;
+  const role = name?.trim() ?? '';
+  if (cardinality === 'many') return role ? `${role} *` : '*';
+  return role;
 }
 
 export function mapGraphDataToCytoscape(

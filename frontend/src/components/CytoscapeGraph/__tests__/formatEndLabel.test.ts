@@ -12,21 +12,22 @@ import { formatEndLabel } from '../mapGraphDataToCytoscape';
 
 describe('formatEndLabel', () => {
   it.each([
-    ['items',  'many',      'items *'],
-    ['order',  'one',       'order 1'],
-    ['',       'many',      '*'],
-    ['',       'one',       '1'],
-    [undefined,'many',      '*'],
-    [undefined,'one',       '1'],
-    ['items',  undefined,   'items'],
-    [undefined,undefined,   ''],
-    ['  trimmed  ', 'many', 'trimmed *'],
+    ['items',     'many',      'items *'],
+    ['order',     'one',       'order'],
+    ['',          'many',      '*'],
+    ['',          'one',       ''],
+    [undefined,   'many',      '*'],
+    [undefined,   'one',       ''],
+    ['items',     undefined,   'items'],
+    [undefined,   undefined,   ''],
+    ['  trimmed ','many',      'trimmed *'],
   ])('name=%p, cardinality=%p → %p', (name, card, expected) => {
     expect(formatEndLabel(name as string | undefined, card as string | undefined)).toBe(expected);
   });
 
-  it('treats any non-"many" cardinality as one-glyph', () => {
-    expect(formatEndLabel('x', 'ONE')).toBe('x 1');
-    expect(formatEndLabel('x', 'one')).toBe('x 1');
+  it('treats any non-"many" cardinality as one (role-only / empty)', () => {
+    expect(formatEndLabel('x', 'ONE')).toBe('x');
+    expect(formatEndLabel('x', 'one')).toBe('x');
+    expect(formatEndLabel(undefined, 'ONE')).toBe('');
   });
 });
