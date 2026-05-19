@@ -90,6 +90,19 @@ export interface AIToolDef {
   name: string;
   description: string;
   parameters: Array<{ name: string; type: string; required: boolean; description: string }>;
+  /**
+   * #178 — `'builtin'` for tools hardcoded in `aiController.ts`,
+   * `'mcp'` for tools surfaced via the MCP client registry. When the
+   * endpoint comes back without `source` (older backend), the tool is
+   * treated as `'builtin'`.
+   */
+  source?: 'builtin' | 'mcp';
+  /** MCP-only: id of the upstream connection (also the prefix in `name`). */
+  connectionId?: string;
+  /** MCP-only: human-readable connection label for chat-card attribution. */
+  connectionLabel?: string;
+  /** MCP-only: connection's `trustLevel` ('auto' | 'review' | 'block'). */
+  trustLevel?: string;
 }
 
 export interface AIMentionsResult {
