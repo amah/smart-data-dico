@@ -4,6 +4,7 @@ import { authApi, modelMetadataApi, stereotypeApi } from '../services/api';
 import { User, MetadataEntry, Stereotype } from '../types';
 import { useKeyboardShortcutsEnabled } from '../hooks/useKeyboardShortcuts';
 import MetadataEditor from '../components/MetadataEditor';
+import McpServersSection from '../components/McpServersSection';
 import axios from 'axios';
 import {
   AIToolCategory,
@@ -574,6 +575,11 @@ const Settings = () => {
                     Reset to defaults
                   </button>
                 </div>
+              </div>
+
+              {/* MCP servers — #178 slice 2 */}
+              <div className="md:col-span-2">
+                <McpServersSection />
               </div>
 
               {/* Keyboard Shortcuts */}
