@@ -46,6 +46,12 @@ await build({
     'mysql2/promise',
     'pg',
     'mssql',
+    // fsevents is a macOS-only native module pulled in transitively by
+    // chokidar (RawFsWatcher slice 6e.2). esbuild can't bundle a `.node`
+    // binary; chokidar's own loader is `try { require('fsevents') }
+    // catch {}`, so leaving it external is safe — npm installs it on
+    // darwin and skips it elsewhere.
+    'fsevents',
   ],
 
   // Shim import.meta.url so path resolution still works in the bundle
