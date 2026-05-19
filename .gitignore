@@ -50,5 +50,11 @@ coverage/
 .claude/scheduled_tasks.lock
 .claude/worktrees/
 
+# Claude Code session artifacts under .claude/work/ — slice audit
+# dirs, walkthrough captures, etc. Not deliverables. The handoff doc
+# `NEXT-SESSION-PROMPT.md` sits at the top level of `.claude/work/`
+# and stays tracked because it's a file (no trailing slash match).
+.claude/work/*/
+
 # Local diagrams in sample projects (user-generated layouts)
 samples/*/.dico/diagrams/
