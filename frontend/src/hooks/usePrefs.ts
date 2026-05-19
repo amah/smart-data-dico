@@ -77,41 +77,61 @@ export interface PrefsApi {
 }
 
 /**
+ * Module-level pub-sub.
+ *
+ * Every `usePrefs()` call mounts a fresh React component with its own
+ * `useState`. Without coordination, multiple consumers (Navbar +
+ * AIChatPanel + DesignSystemPage) end up with independent React
+ * states; when Navbar's `setTheme('dark')` flips `data-theme` on
+ * <html>, the other consumers still hold `theme: 'light'` in their
+ * closure. Pre-fix, those consumers had their own MutationObserver
+ * which fought back to "correct" the attribute, producing an
+ * infinite ping-pong loop that froze the tab.
+ *
+ * Now: setters notify ALL subscribers, so every instance re-reads
+ * localStorage and re-renders with the new value in lock-step.
+ */
+const subscribers = new Set<() => void>();
+
+function broadcast(): void {
+  subscribers.forEach(fn => fn());
+}
+
+/**
  * Hook version — used in components. Re-renders on change.
  *
- * The hook intentionally stays small; there's no Redux or context
- * involved. localStorage is the shared store across all consumers,
- * and a `storage` event listener keeps tabs in sync.
+ * Multiple `usePrefs()` consumers stay in sync via the module-level
+ * `subscribers` set. localStorage is the durable source of truth;
+ * React state is a per-instance cache. Cross-tab sync still works
+ * via the `storage` event (only fires in OTHER windows).
  */
 export function usePrefs(): PrefsApi {
   const [theme, setThemeState]     = useState<Theme>(readTheme);
   const [variant, setVariantState] = useState<Variant>(readVariant);
   const [density, setDensityState] = useState<Density>(readDensity);
 
-  // Apply on mount + whenever values change. A MutationObserver also
-  // re-applies if something else (e.g. the @hamak shell plugin's
-  // 'system'-mode theme sync) clobbers our attributes after first
-  // render — the previous useTheme hook did the same thing.
+  // Apply attribute on every change to this instance's state. Other
+  // instances learn about the change through the subscriber broadcast,
+  // not through a MutationObserver — see comment on `subscribers`.
   useEffect(() => {
     applyAttributes(theme, variant, density);
-    const el = document.documentElement;
-    const observer = new MutationObserver(() => {
-      if (
-        el.getAttribute('data-theme') !== theme ||
-        el.getAttribute('data-variant') !== variant ||
-        el.getAttribute('data-density') !== density
-      ) {
-        applyAttributes(theme, variant, density);
-      }
-    });
-    observer.observe(el, {
-      attributes: true,
-      attributeFilter: ['data-theme', 'data-variant', 'data-density'],
-    });
-    return () => observer.disconnect();
   }, [theme, variant, density]);
 
-  // Cross-tab sync via the storage event
+  // Subscribe to cross-instance updates. Any other `usePrefs()`'s
+  // setter calls `broadcast()`, which fires `onUpdate` here; we
+  // re-read from localStorage and bring this instance's state into
+  // line. No-op if the read values match current state.
+  useEffect(() => {
+    const onUpdate = () => {
+      setThemeState(readTheme());
+      setVariantState(readVariant());
+      setDensityState(readDensity());
+    };
+    subscribers.add(onUpdate);
+    return () => { subscribers.delete(onUpdate); };
+  }, []);
+
+  // Cross-tab sync via the storage event (only fires in OTHER tabs).
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key === KEY_THEME)   setThemeState(readTheme());
@@ -125,22 +145,30 @@ export function usePrefs(): PrefsApi {
   const setTheme = useCallback((t: Theme) => {
     window.localStorage.setItem(KEY_THEME, t);
     setThemeState(t);
+    broadcast();
   }, []);
 
   const setVariant = useCallback((v: Variant) => {
     window.localStorage.setItem(KEY_VARIANT, v);
     setVariantState(v);
+    broadcast();
   }, []);
 
   const setDensity = useCallback((d: Density) => {
     window.localStorage.setItem(KEY_DENSITY, d);
     setDensityState(d);
+    broadcast();
   }, []);
 
   const toggleTheme = useCallback(() => {
     setThemeState(prev => {
       const next = prev === 'dark' ? 'light' : 'dark';
       window.localStorage.setItem(KEY_THEME, next);
+      // Defer the broadcast until after this functional updater commits
+      // its own state — otherwise other subscribers may read localStorage
+      // before this instance has settled, which is fine here but a habit
+      // worth keeping for any subsequent dependent setters.
+      queueMicrotask(broadcast);
       return next;
     });
   }, []);
