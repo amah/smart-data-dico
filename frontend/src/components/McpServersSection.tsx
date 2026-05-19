@@ -30,6 +30,7 @@ import {
   type McpTestResult,
   type McpConnectionTool,
 } from '../plugins/ai-assistance/services/McpService';
+import { mcpRegistry, type McpRegistryEntry } from '../plugins/ai-assistance/data/mcpRegistry';
 
 // ---------------------------------------------------------------------------
 // Form-state shape — separate from `McpConnection` so unsaved string
@@ -79,6 +80,22 @@ function pairsToRecord(pairs: KvPair[]): Record<string, string> | undefined {
   const out: Record<string, string> = {};
   for (const p of trimmed) out[p.key] = p.value;
   return out;
+}
+
+function registryEntryToForm(entry: McpRegistryEntry): FormState {
+  return {
+    id: entry.id,
+    label: entry.label,
+    transport: entry.transport,
+    command: entry.command ?? '',
+    argsText: (entry.args ?? []).join('\n'),
+    env: recordToPairs(entry.env),
+    url: entry.url ?? '',
+    headers: [],
+    enabled: true,
+    trustLevel: 'review',
+    timeout: '',
+  };
 }
 
 function connectionToForm(conn: McpConnection): FormState {
@@ -159,6 +176,10 @@ const McpServersSection = ({ service = mcpService }: McpServersSectionProps) => 
   const [toolLists, setToolLists] = useState<Record<string, McpConnectionTool[] | 'pending' | { error: string }>>({});
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
 
+  // Phase 6 — "Browse catalog" pane. The catalog is static so we
+  // don't fetch anything; opening just lifts the modal.
+  const [browseOpen, setBrowseOpen] = useState(false);
+
   const refresh = useCallback(async () => {
     setLoadState('loading');
     try {
@@ -179,6 +200,20 @@ const McpServersSection = ({ service = mcpService }: McpServersSectionProps) => 
     setEditing({ mode: 'add' });
     setForm(EMPTY_FORM);
     setFormErrors([]);
+  };
+
+  /**
+   * Phase 6 — one-click install from the catalog. Pre-fills the
+   * standard add-form with the entry's defaults (incl. `${VAR}` env
+   * refs, which the user can leave alone if they already export
+   * those tokens). The form stays editable so the user can override
+   * before saving.
+   */
+  const startAddFromEntry = (entry: McpRegistryEntry) => {
+    setEditing({ mode: 'add' });
+    setForm(registryEntryToForm(entry));
+    setFormErrors([]);
+    setBrowseOpen(false);
   };
 
   const startEdit = (conn: McpConnection) => {
@@ -281,6 +316,9 @@ const McpServersSection = ({ service = mcpService }: McpServersSectionProps) => 
           External tool sources the AI agent can call alongside its built-ins.
         </span>
         <div style={{ flex: 1 }} />
+        <Button size="sm" variant="secondary" onClick={() => setBrowseOpen(true)} data-testid="mcp-browse-button">
+          Browse catalog
+        </Button>
         <Button size="sm" variant="primary" icon="plus" onClick={startAdd} data-testid="mcp-add-button">
           Add server
         </Button>
@@ -602,6 +640,85 @@ const McpServersSection = ({ service = mcpService }: McpServersSectionProps) => 
           <Button size="md" variant="primary" onClick={handleSave} disabled={saving} data-testid="mcp-form-save">
             {saving ? 'Saving…' : 'Save'}
           </Button>
+        </div>
+      </Modal>
+
+      <Modal
+        open={browseOpen}
+        title={`Browse MCP servers — ${mcpRegistry.entries.length} known`}
+        onClose={() => setBrowseOpen(false)}
+        width={680}
+      >
+        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+          Curated subset of the official reference servers. One-click prefill drops
+          the entry into the add-form — secrets stay yours to provide, either as
+          literal values or as <code>${'${VAR}'}</code> references the backend
+          resolves from <code>process.env</code> at connect time.
+        </div>
+        <div data-testid="mcp-catalog-list" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {mcpRegistry.entries.map((entry) => {
+            const alreadyInstalled = connections.some((c) => c.id === entry.id);
+            return (
+              <div
+                key={entry.id}
+                data-testid={`mcp-catalog-entry-${entry.id}`}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                  padding: '10px 12px',
+                  background: 'var(--bg-subtle)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-md)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <span style={{ fontWeight: 600, color: 'var(--text)' }}>{entry.label}</span>
+                  <Chip mono tone="info" soft>{entry.id}</Chip>
+                  <a
+                    href={entry.homepage}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ fontSize: 'var(--fs-xs)', color: 'var(--accent)', marginLeft: 'auto' }}
+                  >
+                    docs ↗
+                  </a>
+                </div>
+                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
+                  {entry.description}
+                </div>
+                {entry.envHints.length > 0 && (
+                  <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>
+                    <strong style={{ color: 'var(--text-muted)' }}>Needs:</strong>{' '}
+                    {entry.envHints.map((h, i) => (
+                      <span key={h.key}>
+                        <code style={{ color: 'var(--accent)' }}>{h.key}</code>
+                        <span> — {h.description}</span>
+                        {i < entry.envHints.length - 1 && '; '}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  {alreadyInstalled ? (
+                    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)', fontStyle: 'italic' }}>
+                      Already installed
+                    </span>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      icon="plus"
+                      onClick={() => startAddFromEntry(entry)}
+                      data-testid={`mcp-catalog-install-${entry.id}`}
+                    >
+                      Install
+                    </Button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </Modal>
     </div>

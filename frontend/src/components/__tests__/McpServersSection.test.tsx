@@ -289,6 +289,67 @@ describe('McpServersSection', () => {
     });
   });
 
+  it('opens the catalog, prefills the add-form from an entry, and round-trips the entry to upsert', async () => {
+    const service = makeFakeService();
+    render(<McpServersSection service={service as any} />);
+
+    await waitFor(() => expect(screen.getByText(/No MCP servers yet/i)).toBeInTheDocument());
+
+    await userEvent.click(screen.getByTestId('mcp-browse-button'));
+
+    // Catalog renders every registry entry.
+    expect(screen.getByTestId('mcp-catalog-list')).toBeInTheDocument();
+    const slackEntry = screen.getByTestId('mcp-catalog-entry-slack');
+    expect(slackEntry.textContent).toMatch(/Slack/);
+    expect(slackEntry.textContent).toMatch(/SLACK_BOT_TOKEN/);
+
+    // Install pre-fills the standard add-form with the entry's defaults.
+    await userEvent.click(screen.getByTestId('mcp-catalog-install-slack'));
+
+    const idField = screen.getByTestId('mcp-form-id') as HTMLInputElement;
+    const labelField = screen.getByTestId('mcp-form-label') as HTMLInputElement;
+    expect(idField.value).toBe('slack');
+    expect(labelField.value).toBe('Slack');
+
+    // The env defaults pre-fill as ${VAR} refs so the user can either
+    // leave them alone or replace with literals.
+    const tokenValue = screen.getByTestId('mcp-form-env-value-0') as HTMLInputElement;
+    expect(tokenValue.value).toBe('${SLACK_BOT_TOKEN}');
+
+    // Save round-trips the entry to upsert untouched.
+    await userEvent.click(screen.getByTestId('mcp-form-save'));
+
+    await waitFor(() => expect(service.upsert).toHaveBeenCalledTimes(1));
+    const sent = service.calls.upsert[0];
+    expect(sent.id).toBe('slack');
+    expect(sent.label).toBe('Slack');
+    expect(sent.transport).toBe('stdio');
+    expect(sent.command).toBe('npx');
+    expect(sent.env?.SLACK_BOT_TOKEN).toBe('${SLACK_BOT_TOKEN}');
+    expect(sent.trustLevel).toBe('review');
+  });
+
+  it('marks a catalog entry "Already installed" when its id is already a connection', async () => {
+    const service = makeFakeService();
+    service.state.connections = [{
+      id: 'slack', label: 'Slack', transport: 'stdio', command: 'npx',
+      enabled: true, trustLevel: 'auto',
+    }];
+
+    render(<McpServersSection service={service as any} />);
+    await waitFor(() => expect(screen.getByTestId('mcp-row-slack')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByTestId('mcp-browse-button'));
+
+    const slackEntry = screen.getByTestId('mcp-catalog-entry-slack');
+    expect(slackEntry.textContent).toMatch(/Already installed/i);
+    // The Install button is gone for an already-installed entry.
+    expect(screen.queryByTestId('mcp-catalog-install-slack')).not.toBeInTheDocument();
+
+    // Other entries still installable.
+    expect(screen.getByTestId('mcp-catalog-install-github')).toBeInTheDocument();
+  });
+
   it('surfaces 400 validation errors from the backend', async () => {
     const service = makeFakeService();
     // Replace upsert with one that throws a faux axios 400.
