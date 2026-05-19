@@ -28,6 +28,7 @@ import {
   MCP_SECRET_MASK,
   type McpConnection,
   type McpTestResult,
+  type McpConnectionTool,
 } from '../plugins/ai-assistance/services/McpService';
 
 // ---------------------------------------------------------------------------
@@ -152,6 +153,12 @@ const McpServersSection = ({ service = mcpService }: McpServersSectionProps) => 
 
   const [testResults, setTestResults] = useState<Record<string, McpTestResult | 'pending'>>({});
 
+  // Per-connection tool-list state. `'pending'` while a request is in
+  // flight; an array on success; a string on error. Absent = not yet
+  // expanded. Cached so the user can collapse/expand without refetching.
+  const [toolLists, setToolLists] = useState<Record<string, McpConnectionTool[] | 'pending' | { error: string }>>({});
+  const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
+
   const refresh = useCallback(async () => {
     setLoadState('loading');
     try {
@@ -226,6 +233,31 @@ const McpServersSection = ({ service = mcpService }: McpServersSectionProps) => 
     setTestResults((prev) => ({ ...prev, [id]: result }));
   };
 
+  /**
+   * Toggle the "Tools" expander on a row. First expansion triggers a
+   * fetch via the shared `/api/ai/tools` manifest (filtered to this
+   * connection's namespace); subsequent toggles read the cached
+   * result so the UI feels snappy.
+   */
+  const handleToggleTools = async (id: string) => {
+    setExpandedTools((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+    if (toolLists[id] !== undefined) return;
+    setToolLists((prev) => ({ ...prev, [id]: 'pending' }));
+    try {
+      const tools = await service.listToolsForConnection(id);
+      setToolLists((prev) => ({ ...prev, [id]: tools }));
+    } catch (err) {
+      setToolLists((prev) => ({
+        ...prev,
+        [id]: { error: err instanceof Error ? err.message : String(err) },
+      }));
+    }
+  };
+
   const handleToggleEnabled = async (conn: McpConnection) => {
     try {
       // Round-trip the masked env/headers as-is; the backend's
@@ -277,21 +309,28 @@ const McpServersSection = ({ service = mcpService }: McpServersSectionProps) => 
         <div data-testid="mcp-connections-list" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {connections.map((conn) => {
             const test = testResults[conn.id];
+            const toolListExpanded = expandedTools.has(conn.id);
+            const toolListState = toolLists[conn.id];
             return (
               <div
                 key={conn.id}
                 data-testid={`mcp-row-${conn.id}`}
                 style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'minmax(0, 1fr) auto auto auto auto auto',
+                  display: 'flex',
+                  flexDirection: 'column',
                   gap: 8,
-                  alignItems: 'center',
                   padding: '8px 10px',
                   background: 'var(--bg-raised)',
                   border: '1px solid var(--border)',
                   borderRadius: 'var(--radius-md)',
                 }}
               >
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0, 1fr) auto auto auto auto auto auto',
+                gap: 8,
+                alignItems: 'center',
+              }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span style={{ fontWeight: 600, color: 'var(--text)' }}>{conn.label}</span>
@@ -329,6 +368,15 @@ const McpServersSection = ({ service = mcpService }: McpServersSectionProps) => 
                 <Button
                   size="sm"
                   variant="ghost"
+                  onClick={() => handleToggleTools(conn.id)}
+                  data-testid={`mcp-tools-toggle-${conn.id}`}
+                  aria-expanded={toolListExpanded}
+                >
+                  {toolListExpanded ? 'Hide tools' : 'Show tools'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
                   onClick={() => handleTest(conn.id)}
                   disabled={test === 'pending'}
                   data-testid={`mcp-test-${conn.id}`}
@@ -341,6 +389,45 @@ const McpServersSection = ({ service = mcpService }: McpServersSectionProps) => 
                 <Button size="sm" variant="danger" onClick={() => handleDelete(conn.id)} data-testid={`mcp-delete-${conn.id}`}>
                   Delete
                 </Button>
+              </div>
+              {toolListExpanded && (
+                <div
+                  data-testid={`mcp-tools-list-${conn.id}`}
+                  style={{
+                    paddingTop: 8,
+                    borderTop: '1px dashed var(--border)',
+                    fontSize: 'var(--fs-xs)',
+                  }}
+                >
+                  {toolListState === 'pending' && (
+                    <div style={{ color: 'var(--text-muted)' }}>Loading tools…</div>
+                  )}
+                  {toolListState && typeof toolListState === 'object' && 'error' in toolListState && (
+                    <div style={{ color: 'var(--danger)' }}>Failed to load tools — {toolListState.error}</div>
+                  )}
+                  {Array.isArray(toolListState) && toolListState.length === 0 && (
+                    <div style={{ color: 'var(--text-subtle)' }}>
+                      No tools available — connection is disabled, blocked, unreachable, or genuinely empty.
+                    </div>
+                  )}
+                  {Array.isArray(toolListState) && toolListState.length > 0 && (
+                    <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {toolListState.map((t) => (
+                        <li
+                          key={t.name}
+                          data-testid={`mcp-tool-${conn.id}-${t.rawName}`}
+                          style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}
+                        >
+                          <code style={{ color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>{t.rawName}</code>
+                          {t.description && (
+                            <span style={{ color: 'var(--text-muted)' }}>{t.description}</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
               </div>
             );
           })}

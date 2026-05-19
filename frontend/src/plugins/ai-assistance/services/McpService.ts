@@ -39,6 +39,18 @@ export interface McpTestResult {
   error?: string;
 }
 
+/**
+ * A single MCP-sourced tool's manifest entry, filtered out of the
+ * shared `/api/ai/tools` response by `source: 'mcp'` and connection
+ * id. The wire field `name` is the namespaced `<connectionId>.<rawName>`
+ * form — `rawName` is parsed here so the UI can show the short label.
+ */
+export interface McpConnectionTool {
+  name: string;
+  rawName: string;
+  description: string;
+}
+
 export class McpService {
   private readonly http: AxiosInstance;
 
@@ -69,6 +81,29 @@ export class McpService {
 
   async remove(id: string): Promise<void> {
     await this.http.delete(`/ai/mcp/connections/${encodeURIComponent(id)}`);
+  }
+
+  /**
+   * List the tools surfaced by a single MCP connection by filtering
+   * the shared `/api/ai/tools` manifest. Returns `[]` for a connection
+   * with no live tools (disabled, blocked, unreachable, or genuinely
+   * empty). Throws on transport/auth errors so the UI can surface them.
+   */
+  async listToolsForConnection(connectionId: string): Promise<McpConnectionTool[]> {
+    const response = await this.http.get<{
+      data: Array<{ name: string; description?: string; source?: string; connectionId?: string }>;
+    }>('/ai/tools');
+    const all = response.data.data ?? [];
+    return all
+      .filter((t) => t.source === 'mcp' && t.connectionId === connectionId)
+      .map((t) => {
+        const dotIdx = t.name.indexOf('.');
+        return {
+          name: t.name,
+          rawName: dotIdx >= 0 ? t.name.slice(dotIdx + 1) : t.name,
+          description: t.description ?? '',
+        };
+      });
   }
 
   async test(id: string): Promise<McpTestResult> {
