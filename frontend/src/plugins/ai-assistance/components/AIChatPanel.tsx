@@ -2333,7 +2333,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
           <textarea
             ref={inputRef}
             rows={1}
-            className="textarea textarea-ghost textarea-xs flex-1 font-mono focus:outline-none bg-transparent pl-0 resize-none min-h-[1.5rem] py-1"
+            className="textarea textarea-ghost textarea-xs flex-1 font-mono focus:outline-none bg-transparent pl-0 resize-y min-h-[1.5rem] py-1"
             placeholder={aiAvailable ? "Ask about your data model... (⌘↵ send · ⇧↵ newline · @entity, @package)" : "AI not configured"}
             value={input}
             onChange={handleComposerChange}
