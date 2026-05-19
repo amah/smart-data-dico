@@ -1,0 +1,135 @@
+{
+  "version": 1,
+  "lastUpdated": "2026-05-19",
+  "source": "https://github.com/modelcontextprotocol/servers — curated subset",
+  "entries": [
+    {
+      "id": "filesystem",
+      "label": "Filesystem",
+      "description": "Read and write files on the host machine. The first arg scopes the server to one directory; pass multiple paths to expand the scope.",
+      "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/scope"],
+      "env": {},
+      "envHints": []
+    },
+    {
+      "id": "github",
+      "label": "GitHub",
+      "description": "Search repos, read issues, create pull requests, manage files. Requires a Personal Access Token.",
+      "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/github",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+      },
+      "envHints": [
+        {
+          "key": "GITHUB_PERSONAL_ACCESS_TOKEN",
+          "description": "PAT with repo + read:org scopes. Leave as ${GITHUB_PERSONAL_ACCESS_TOKEN} to read from process.env at connect time.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "slack",
+      "label": "Slack",
+      "description": "Post messages, list channels, read history. Requires a Slack bot token.",
+      "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/slack",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-slack"],
+      "env": {
+        "SLACK_BOT_TOKEN": "${SLACK_BOT_TOKEN}",
+        "SLACK_TEAM_ID": "${SLACK_TEAM_ID}"
+      },
+      "envHints": [
+        { "key": "SLACK_BOT_TOKEN", "description": "Bot token starting with xoxb-", "required": true },
+        { "key": "SLACK_TEAM_ID", "description": "Workspace ID (Txxxx)", "required": true }
+      ]
+    },
+    {
+      "id": "postgres",
+      "label": "Postgres",
+      "description": "Read-only SQL queries against a Postgres database. The connection URI is passed as a positional arg.",
+      "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/postgres",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres", "postgresql://user:password@host:5432/db"],
+      "env": {},
+      "envHints": []
+    },
+    {
+      "id": "sqlite",
+      "label": "SQLite",
+      "description": "Run queries against a local SQLite database file.",
+      "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/sqlite",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sqlite", "--db-path", "/path/to/database.db"],
+      "env": {},
+      "envHints": []
+    },
+    {
+      "id": "memory",
+      "label": "Memory",
+      "description": "Persistent knowledge-graph memory across conversations. No external service or token required.",
+      "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/memory",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"],
+      "env": {},
+      "envHints": []
+    },
+    {
+      "id": "fetch",
+      "label": "Fetch",
+      "description": "Retrieve arbitrary web content (HTML / JSON / text). No token; rate-limited by the upstream host.",
+      "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/fetch",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-fetch"],
+      "env": {},
+      "envHints": []
+    },
+    {
+      "id": "puppeteer",
+      "label": "Puppeteer",
+      "description": "Browser automation — navigate pages, click, screenshot. Spawns a headless Chrome.",
+      "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/puppeteer",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-puppeteer"],
+      "env": {},
+      "envHints": []
+    },
+    {
+      "id": "brave-search",
+      "label": "Brave Search",
+      "description": "Web search via the Brave Search API. Requires an API key from search.brave.com.",
+      "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/brave-search",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": {
+        "BRAVE_API_KEY": "${BRAVE_API_KEY}"
+      },
+      "envHints": [
+        { "key": "BRAVE_API_KEY", "description": "API key from api.search.brave.com", "required": true }
+      ]
+    },
+    {
+      "id": "time",
+      "label": "Time",
+      "description": "Timezone-aware time + date operations. No token; useful for scheduling and conversion.",
+      "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/time",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-time"],
+      "env": {},
+      "envHints": []
+    }
+  ]
+}
