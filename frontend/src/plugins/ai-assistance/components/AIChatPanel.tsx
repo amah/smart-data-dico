@@ -29,6 +29,7 @@ import {
   buildHelpMessage,
 } from '../utils/aiSlashCommands';
 import { runAiCommand } from '../commands';
+import type { AIToolDef } from '../services/AIService';
 
 SyntaxHighlighter.registerLanguage('ts', typescript);
 SyntaxHighlighter.registerLanguage('typescript', typescript);
@@ -224,7 +225,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   // between user clicks). #61
   const [rawShownTools, setRawShownTools] = useState<Set<string>>(new Set());
   const [selectedMsgId, setSelectedMsgId] = useState<string | null>(null);
-  const [toolDefs, setToolDefs] = useState<Array<{ name: string; description: string; parameters: Array<{ name: string; type: string; required: boolean; description: string }> }>>([]);
+  const [toolDefs, setToolDefs] = useState<AIToolDef[]>([]);
   // Granular per-category auto-approve policy (#59). Loaded once on
   // mount; the Settings page is the only place that mutates it. The
   // legacy `ai-auto-approve` boolean is migrated by loadPolicy().
@@ -290,6 +291,14 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   // AbortController for the in-flight /api/ai/chat fetch so the Stop button
   // can break out of the agentic loop mid-flight (#61).
   const abortControllerRef = useRef<AbortController | null>(null);
+  // #178 slice 3 — name → def lookup for source attribution in the
+  // tool-call card render. MCP tools have `source: 'mcp'` and a
+  // `connectionLabel`; built-ins have neither.
+  const toolDefByName = useMemo(() => {
+    const m = new Map<string, AIToolDef>();
+    for (const def of toolDefs) m.set(def.name, def);
+    return m;
+  }, [toolDefs]);
 
   // === #126 ergonomics state ===
   // Editing a previous user message: id of the message currently in
@@ -932,12 +941,16 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   }, []);
 
 
-  // Load tool definitions
+  // Load tool definitions on mount. Eager (not gated on the Tools
+  // view) because the chat-card render needs the catalog to attribute
+  // MCP tool calls to their source connection (#178 slice 3) — by the
+  // time a tool-input-start event arrives we have to already know
+  // which entries are `source: 'mcp'` and what label to render.
   useEffect(() => {
-    if (view === 'tools' && toolDefs.length === 0) {
+    if (toolDefs.length === 0) {
       runAiCommand('ai.tools.list').then(tools => setToolDefs(tools)).catch(() => {});
     }
-  }, [view]);
+  }, []);
 
   // --- Saved prompts (#123) ---
   const refreshPrompts = useCallback(() => {
@@ -1595,6 +1608,17 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                       const isCancelled = tc.status === 'cancelled';
                       const isError = !isRunning && !isCancelled && tc.output && tc.output.success === false;
                       const cleanName = tc.name.replace('functions.', '').split(':')[0];
+                      // #178 slice 3 — MCP-sourced tools render a "from <label>"
+                      // pill so the user can tell at a glance that an external
+                      // server is doing the work (not a built-in). The name is
+                      // namespaced `<connectionId>.<rawName>` so a dot in
+                      // `cleanName` is the cheap pre-filter — but only the
+                      // metadata `source === 'mcp'` actually trips the badge,
+                      // so built-ins that happen to have dotted names (none
+                      // today, but cheap to be safe) won't false-positive.
+                      const def = toolDefByName.get(cleanName);
+                      const isMcp = def?.source === 'mcp';
+                      const mcpLabel = isMcp ? (def?.connectionLabel || def?.connectionId || '') : '';
                       // Compact JSON preview of the args, truncated for the
                       // collapsed header.
                       const inputPreview = tc.input
@@ -1634,6 +1658,17 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                             <span className="font-mono text-primary/80">
                               {isRunning ? `Calling ${cleanName}…` : cleanName}
                             </span>
+                            {isMcp && mcpLabel && (
+                              <span
+                                data-testid="tool-source-badge"
+                                data-source="mcp"
+                                data-connection-label={mcpLabel}
+                                className="badge badge-xs badge-info badge-outline font-sans"
+                                title={`Tool source: ${mcpLabel} (MCP)`}
+                              >
+                                from {mcpLabel}
+                              </span>
+                            )}
                             {/* Per-category indicator (#59) — shows the
                                 user *why* a card is pending vs auto-approved.
                                 Pending cards get a warning-tinted pill so
@@ -2066,6 +2101,16 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                 <div className="px-3 py-2">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="font-mono text-primary font-bold text-xs">{tool.name}</span>
+                    {tool.source === 'mcp' && (
+                      <span
+                        data-testid="tools-view-source-badge"
+                        data-connection-label={tool.connectionLabel || tool.connectionId || ''}
+                        className="badge badge-xs badge-info badge-outline font-sans"
+                        title={`Source: ${tool.connectionLabel || tool.connectionId} (MCP)`}
+                      >
+                        from {tool.connectionLabel || tool.connectionId}
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-base-content/60 font-sans">{tool.description}</p>
                 </div>

@@ -1226,22 +1226,30 @@ export const aiTools = async (_req: Request, res: Response) => {
     },
   ];
 
-  // #178 — append MCP tools with source: 'mcp' for frontend attribution
+  // #178 — append MCP tools with source: 'mcp' for frontend attribution.
+  // connectionLabel is enriched here (not on McpToolDef) so the chat UI
+  // can render "from <label>" without an extra round-trip for the
+  // connection list. (#178 slice 3)
   let mcpToolsList: Array<{
     name: string;
     description: string;
     source: 'mcp';
     connectionId: string;
+    connectionLabel: string;
     trustLevel: string;
     inputSchema: Record<string, unknown>;
   }> = [];
   try {
     const mcpTools = await mcpClientRegistry.listAllTools();
+    const labelById = new Map(
+      mcpClientRegistry.getConnections().map((c) => [c.id, c.label]),
+    );
     mcpToolsList = mcpTools.map((t) => ({
       name: t.name,
       description: t.description,
       source: 'mcp' as const,
       connectionId: t.connectionId,
+      connectionLabel: labelById.get(t.connectionId) ?? t.connectionId,
       trustLevel: t.trustLevel,
       inputSchema: t.inputSchema,
     }));
