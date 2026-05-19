@@ -2328,12 +2328,23 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
             )}
           </div>
         )}
-        <div className="flex gap-1.5 items-end border border-base-300 rounded-md px-2 py-0.5 bg-base-100 focus-within:border-primary/50 transition-colors">
-          <span className="text-primary text-xs pb-1">&gt;</span>
+        {/*
+         * Composer layout (#178 demo prep — visible resize handle):
+         * Textarea spans the full width of the rounded box so its
+         * native diagonal-stripe resize handle lands at the visible
+         * bottom-right corner — exactly where the eye expects to
+         * grab. The `>` prompt + Send/Stop button live on the row
+         * BELOW the textarea, sharing the same wrapper border +
+         * focus ring.
+         */}
+        <div
+          className="flex flex-col border border-base-300 rounded-md bg-base-100 focus-within:border-primary/50 transition-colors"
+          data-testid="ai-composer-wrapper"
+        >
           <textarea
             ref={inputRef}
             rows={1}
-            className="textarea textarea-ghost textarea-xs flex-1 font-mono focus:outline-none bg-transparent pl-0 resize-y min-h-[1.5rem] py-1"
+            className="textarea textarea-ghost textarea-xs font-mono focus:outline-none bg-transparent resize-y min-h-[1.75rem] max-h-[60vh] w-full px-2 py-1"
             placeholder={aiAvailable ? "Ask about your data model... (⌘↵ send · ⇧↵ newline · @entity, @package)" : "AI not configured"}
             value={input}
             onChange={handleComposerChange}
@@ -2354,9 +2365,14 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
             }}
             disabled={!aiAvailable || isLoading}
             data-testid="ai-composer-input"
-            title="⌘↵ / Ctrl↵ send · ⇧↵ newline · ⌘K focus chat · @ to mention"
+            title="⌘↵ / Ctrl↵ send · ⇧↵ newline · ⌘K focus chat · @ to mention · drag bottom-right corner to resize"
           />
-          {isLoading ? (
+          <div className="flex items-center gap-1.5 px-2 py-1 border-t border-base-300/50">
+            <span className="text-primary text-xs">&gt;</span>
+            <span className="text-[10px] text-base-content/40 font-sans flex-1 truncate">
+              ⌘↵ send · ⇧↵ newline · drag bottom-right to resize
+            </span>
+            {isLoading ? (
             <button
               type="button"
               className="btn btn-xs btn-error btn-square"
@@ -2381,6 +2397,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
               </svg>
             </button>
           )}
+          </div>
         </div>
         {/* Save current input as prompt (#123) */}
         <div className="mt-1 flex justify-end">
