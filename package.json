@@ -1,6 +1,6 @@
 {
   "name": "@hamak/smart-data-dico",
-  "version": "1.1.1",
+  "version": "1.6.0",
   "description": "Collaborative data dictionary management system — model, document, and govern your data landscape",
   "type": "module",
   "bin": {
@@ -73,9 +73,17 @@
     "pg": "^8.13.0"
   },
   "peerDependenciesMeta": {
-    "mssql": { "optional": true },
-    "mysql2": { "optional": true },
-    "oracledb": { "optional": true },
-    "pg": { "optional": true }
+    "mssql": {
+      "optional": true
+    },
+    "mysql2": {
+      "optional": true
+    },
+    "oracledb": {
+      "optional": true
+    },
+    "pg": {
+      "optional": true
+    }
   }
 }
