@@ -114,13 +114,21 @@ export class GitService {
 
   /** GET /api/git/dictionaries/log/. — log is provided by the framework's
    *  HttpGitClient (`/log/<path>?maxCount=N`). The framework backend already
-   *  serves this; the legacy `/api/history` endpoint is deleted. */
+   *  serves this; the legacy `/api/history` endpoint is deleted.
+   *
+   *  The framework wraps the array in `{ commits: [...] }`. Two callers
+   *  (LogicalDiffPage, CommitHistory) treat the result as an array; both
+   *  were silently broken until LogicalDiffPage started calling `.map`
+   *  on the envelope and surfaced a TypeError. Unwrap here so callers
+   *  get what the TS signature already promises. */
   async log(limit?: number): Promise<GitLogEntryDTO[]> {
-    const response = await this.http.get<GitLogEntryDTO[]>(
+    const response = await this.http.get<{ commits?: GitLogEntryDTO[] } | GitLogEntryDTO[]>(
       '/git/dictionaries/log/.',
       { params: limit !== undefined ? { maxCount: limit } : {} },
     );
-    return response.data;
+    const body = response.data;
+    if (Array.isArray(body)) return body;
+    return body?.commits ?? [];
   }
 
   private static createDefaultHttp(): AxiosInstance {
