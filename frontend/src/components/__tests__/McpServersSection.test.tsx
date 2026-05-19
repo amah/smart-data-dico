@@ -17,6 +17,7 @@ import {
   MCP_SECRET_MASK,
   type McpConnection,
   type McpTestResult,
+  type McpConnectionTool,
 } from '../../plugins/ai-assistance/services/McpService';
 
 // Build a hand-rolled fake of the service that the component injects.
@@ -24,14 +25,19 @@ import {
 // axios or MSW.
 function makeFakeService() {
   const state: { connections: McpConnection[] } = { connections: [] };
-  const calls: { upsert: McpConnection[]; remove: string[]; test: string[] } = {
-    upsert: [], remove: [], test: [],
-  };
+  const calls: {
+    upsert: McpConnection[];
+    remove: string[];
+    test: string[];
+    listToolsForConnection: string[];
+  } = { upsert: [], remove: [], test: [], listToolsForConnection: [] };
   const testResults: Record<string, McpTestResult> = {};
+  const toolsByConnection: Record<string, McpConnectionTool[]> = {};
   return {
     state,
     calls,
     testResults,
+    toolsByConnection,
     list: vi.fn(async () => state.connections.slice()),
     upsert: vi.fn(async (conn: McpConnection) => {
       calls.upsert.push(conn);
@@ -47,6 +53,10 @@ function makeFakeService() {
     test: vi.fn(async (id: string): Promise<McpTestResult> => {
       calls.test.push(id);
       return testResults[id] ?? { ok: true, toolCount: 0 };
+    }),
+    listToolsForConnection: vi.fn(async (id: string): Promise<McpConnectionTool[]> => {
+      calls.listToolsForConnection.push(id);
+      return toolsByConnection[id] ?? [];
     }),
   };
 }
@@ -203,6 +213,80 @@ describe('McpServersSection', () => {
     expect(service.calls.upsert[0].enabled).toBe(false);
     // Masked env round-trips on the toggle path too.
     expect(service.calls.upsert[0].env?.SLACK_TOKEN).toBe(MCP_SECRET_MASK);
+  });
+
+  it('shows tools when expanded, lazily fetched once and cached on toggle', async () => {
+    const service = makeFakeService();
+    service.state.connections = [{
+      id: 'slack', label: 'Slack', transport: 'stdio', command: 'npx',
+      enabled: true, trustLevel: 'auto',
+    }];
+    service.toolsByConnection['slack'] = [
+      { name: 'slack.sendMessage', rawName: 'sendMessage', description: 'Post to a channel' },
+      { name: 'slack.listChannels', rawName: 'listChannels', description: 'List channels' },
+    ];
+
+    render(<McpServersSection service={service as any} />);
+    await waitFor(() => expect(screen.getByTestId('mcp-row-slack')).toBeInTheDocument());
+
+    const toggle = screen.getByTestId('mcp-tools-toggle-slack');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+    await userEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mcp-tool-slack-sendMessage')).toBeInTheDocument();
+      expect(screen.getByTestId('mcp-tool-slack-listChannels')).toBeInTheDocument();
+    });
+    expect(service.listToolsForConnection).toHaveBeenCalledTimes(1);
+
+    // Collapse, then expand again — must reuse the cache.
+    await userEvent.click(toggle);
+    expect(screen.queryByTestId('mcp-tool-slack-sendMessage')).not.toBeInTheDocument();
+
+    await userEvent.click(toggle);
+    expect(screen.getByTestId('mcp-tool-slack-sendMessage')).toBeInTheDocument();
+    expect(service.listToolsForConnection).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders an empty hint when a connection has no live tools', async () => {
+    const service = makeFakeService();
+    service.state.connections = [{
+      id: 'remote', label: 'Remote', transport: 'http', url: 'https://example.com',
+      enabled: false, trustLevel: 'review',
+    }];
+    service.toolsByConnection['remote'] = [];
+
+    render(<McpServersSection service={service as any} />);
+    await waitFor(() => expect(screen.getByTestId('mcp-row-remote')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByTestId('mcp-tools-toggle-remote'));
+
+    await waitFor(() => {
+      const panel = screen.getByTestId('mcp-tools-list-remote');
+      expect(panel.textContent).toMatch(/No tools available/i);
+    });
+  });
+
+  it('surfaces a fetch error inline in the tools panel', async () => {
+    const service = makeFakeService();
+    service.state.connections = [{
+      id: 'flaky', label: 'Flaky', transport: 'stdio', command: 'npx',
+      enabled: true, trustLevel: 'auto',
+    }];
+    service.listToolsForConnection = vi.fn(async () => {
+      throw new Error('manifest endpoint returned 500');
+    });
+
+    render(<McpServersSection service={service as any} />);
+    await waitFor(() => expect(screen.getByTestId('mcp-row-flaky')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByTestId('mcp-tools-toggle-flaky'));
+
+    await waitFor(() => {
+      const panel = screen.getByTestId('mcp-tools-list-flaky');
+      expect(panel.textContent).toMatch(/manifest endpoint returned 500/);
+    });
   });
 
   it('surfaces 400 validation errors from the backend', async () => {

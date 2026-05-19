@@ -9,6 +9,7 @@ import { config } from './kernel/config.js';
 import { initializeFileSystem, getFileRouter } from './adapters/EntityFileAdapter.js';
 import { createYamlFileInfoEnricher } from './adapters/YamlFileInfoEnricher.js';
 import { registerStorageBackend } from './storage/contract/registerStorageBackend.js';
+import { mcpClientRegistry } from './services/mcpClientRegistry.js';
 export { registerStorageBackend };
 
 // Load environment variables
@@ -228,10 +229,30 @@ const isMainModule = process.argv[1] && (
 );
 
 if (isMainModule) {
-  app.listen(port, () => {
+  const httpServer = app.listen(port, () => {
     logger.info(`Server running on port ${port}`);
     logger.info(`API documentation available at http://localhost:${port}/api-docs`);
   });
+
+  // Graceful shutdown — drain HTTP first, then drop MCP child
+  // processes / HTTP transports via mcpClientRegistry.closeAll(). (#178)
+  // Without this, stdio-transport MCP servers spawned by the agent
+  // outlive the parent process on Ctrl-C.
+  let shuttingDown = false;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info(`Received ${signal} — shutting down`);
+    httpServer.close(() => { /* HTTP drained */ });
+    try {
+      await mcpClientRegistry.closeAll();
+    } catch (err) {
+      logger.warn(`mcpClientRegistry.closeAll failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    process.exit(0);
+  };
+  process.on('SIGINT', () => void shutdown('SIGINT'));
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
 }
 
 export default app;
