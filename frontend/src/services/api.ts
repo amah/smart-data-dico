@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-import { Entity, Relationship, Stereotype, StereotypeTarget, ImpactAnalysis, ReviewComment, LineageResult, MetadataEntry } from '../types';
+import { Entity, Relationship, Stereotype, StereotypeTarget, ImpactAnalysis, ReviewComment, LineageResult, MetadataEntry, Action, StateMachine } from '../types';
 import { Package } from '../types';
 
 /**
@@ -449,6 +449,52 @@ export const configApi = {
   putDerivedTypes: async (types: DerivedType[]): Promise<DerivedType[]> => {
     const response = await api.put('/config/types', types);
     return response.data.data || types;
+  },
+};
+
+// Actions API (#179)
+export const actionsApi = {
+  getForEntity: async (entityUuid: string): Promise<Action[]> => {
+    const response = await api.get(`/entities/${entityUuid}/actions`);
+    return response.data.data || [];
+  },
+  getOne: async (uuid: string): Promise<Action> => {
+    const response = await api.get(`/actions/${uuid}`);
+    return response.data.data;
+  },
+  create: async (data: Partial<Action>): Promise<Action> => {
+    const response = await api.post('/actions', data);
+    return response.data.data;
+  },
+  update: async (uuid: string, data: Partial<Action>): Promise<Action> => {
+    const response = await api.put(`/actions/${uuid}`, data);
+    return response.data.data;
+  },
+  delete: async (uuid: string): Promise<void> => {
+    await api.delete(`/actions/${uuid}`);
+  },
+};
+
+// State Machines API (#179)
+export const stateMachinesApi = {
+  getForEntity: async (entityUuid: string): Promise<StateMachine[]> => {
+    const response = await api.get(`/entities/${entityUuid}/state-machines`);
+    return response.data.data || [];
+  },
+  getOne: async (uuid: string): Promise<StateMachine> => {
+    const response = await api.get(`/state-machines/${uuid}`);
+    return response.data.data;
+  },
+  create: async (data: Partial<StateMachine>): Promise<StateMachine> => {
+    const response = await api.post('/state-machines', data);
+    return response.data.data;
+  },
+  update: async (uuid: string, data: Partial<StateMachine>): Promise<StateMachine> => {
+    const response = await api.put(`/state-machines/${uuid}`, data);
+    return response.data.data;
+  },
+  delete: async (uuid: string): Promise<void> => {
+    await api.delete(`/state-machines/${uuid}`);
   },
 };
 

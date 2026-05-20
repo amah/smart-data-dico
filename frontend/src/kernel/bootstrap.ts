@@ -30,6 +30,8 @@ import packagesReducer from '../store/slices/packagesSlice';
 import stereotypesReducer from '../store/slices/stereotypesSlice';
 import casesReducer from '../plugins/data-dictionary/slices/casesSlice';
 import rulesReducer from '../plugins/data-dictionary/slices/rulesSlice';
+import actionsReducer from '../plugins/data-dictionary/slices/actionsSlice';
+import stateMachinesReducer from '../plugins/data-dictionary/slices/stateMachinesSlice';
 
 /**
  * Create and configure the microkernel host
@@ -83,6 +85,8 @@ export function registerPlugins() {
         reducerRegistry.register('stereotypes', stereotypesReducer);
         reducerRegistry.register('cases', casesReducer);
         reducerRegistry.register('rules', rulesReducer);
+        reducerRegistry.register('actions', actionsReducer);
+        reducerRegistry.register('stateMachines', stateMachinesReducer);
       }
     },
     async activate(ctx: any) {

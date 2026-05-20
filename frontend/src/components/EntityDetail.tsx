@@ -1,13 +1,15 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { servicesApi, relationshipApi, stereotypeApi } from '../services/api';
-import { Entity, Relationship, Stereotype, ImpactAnalysis, Rule } from '../types';
+import { servicesApi, relationshipApi, stereotypeApi, actionsApi, stateMachinesApi } from '../services/api';
+import { Entity, Relationship, Stereotype, ImpactAnalysis, Rule, Action, StateMachine } from '../types';
 import ReviewComments from './ReviewComments';
 import LineageView from './LineageView';
 import MetadataEditor from './MetadataEditor';
 import AttributeList from './AttributeList';
 import RelationshipList from './RelationshipList';
 import EntityRulesList from '../plugins/data-dictionary/components/rules/EntityRulesList';
+import { EntityActionsTab } from '../plugins/data-dictionary/components/actions/EntityActionsTab';
+import { EntityStateMachinesTab } from '../plugins/data-dictionary/components/state-machines/EntityStateMachinesTab';
 import { useService } from '../kernel/useService';
 import { RULE_SERVICE_TOKEN } from '../kernel/tokens';
 import type { RuleService } from '../plugins/data-dictionary/services/RuleService';
@@ -34,7 +36,7 @@ interface EntityDetailProps {
   editMode?: boolean;
 }
 
-type TabId = 'attributes' | 'relationships' | 'metadata' | 'lineage' | 'impact' | 'comments' | 'rules';
+type TabId = 'attributes' | 'relationships' | 'metadata' | 'lineage' | 'impact' | 'comments' | 'rules' | 'actions' | 'state-machines';
 
 interface TabDef {
   id: TabId;
@@ -60,6 +62,8 @@ const EntityDetail = (props: EntityDetailProps) => {
   const [stereotypes, setStereotypes] = useState<Stereotype[]>([]);
   const [currentStereotype, setCurrentStereotype] = useState<Stereotype | null>(null);
   const [entityRules, setEntityRules] = useState<Rule[]>([]);
+  const [entityActions, setEntityActions] = useState<Action[]>([]);
+  const [entityStateMachines, setEntityStateMachines] = useState<StateMachine[]>([]);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -125,6 +129,34 @@ const EntityDetail = (props: EntityDetailProps) => {
   useEffect(() => {
     fetchEntityRules();
   }, [fetchEntityRules]);
+
+  const fetchEntityActions = useCallback(async () => {
+    if (!entityData?.uuid) return;
+    try {
+      const actions = await actionsApi.getForEntity(entityData.uuid);
+      setEntityActions(actions);
+    } catch {
+      setEntityActions([]);
+    }
+  }, [entityData?.uuid]);
+
+  useEffect(() => {
+    fetchEntityActions();
+  }, [fetchEntityActions]);
+
+  const fetchEntityStateMachines = useCallback(async () => {
+    if (!entityData?.uuid) return;
+    try {
+      const machines = await stateMachinesApi.getForEntity(entityData.uuid);
+      setEntityStateMachines(machines);
+    } catch {
+      setEntityStateMachines([]);
+    }
+  }, [entityData?.uuid]);
+
+  useEffect(() => {
+    fetchEntityStateMachines();
+  }, [fetchEntityStateMachines]);
 
   const handleCreateEntity = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -282,15 +314,19 @@ const EntityDetail = (props: EntityDetailProps) => {
   const attrCount = entityData?.attributes?.length || 0;
   const relCount = relationships.length;
   const ruleCount = entityRules.length;
+  const actionsCount = entityActions.length;
+  const smCount = entityStateMachines.length;
 
   const tabs: TabDef[] = [
-    { id: 'attributes',    label: 'Attributes',    count: attrCount },
-    { id: 'relationships', label: 'Relationships', count: relCount },
-    { id: 'metadata',      label: 'Metadata' },
-    { id: 'lineage',       label: 'Lineage' },
-    { id: 'impact',        label: 'Impact' },
-    { id: 'comments',      label: 'Comments' },
-    { id: 'rules',         label: 'Rules',         count: ruleCount },
+    { id: 'attributes',     label: 'Attributes',      count: attrCount },
+    { id: 'relationships',  label: 'Relationships',   count: relCount },
+    { id: 'metadata',       label: 'Metadata' },
+    { id: 'lineage',        label: 'Lineage' },
+    { id: 'impact',         label: 'Impact' },
+    { id: 'comments',       label: 'Comments' },
+    { id: 'rules',          label: 'Rules',           count: ruleCount },
+    { id: 'actions',        label: 'Actions',         count: actionsCount },
+    { id: 'state-machines', label: 'State Machines',  count: smCount },
   ];
 
   const statusValue = entityData?.status || 'draft';
@@ -576,6 +612,22 @@ const EntityDetail = (props: EntityDetailProps) => {
               fetchEntityRules();
               fetchEntityData(false);
             }}
+          />
+        )}
+
+        {activeTab === 'actions' && entityData && (
+          <EntityActionsTab
+            entity={entityData}
+            actions={entityActions}
+            onActionsChanged={fetchEntityActions}
+          />
+        )}
+
+        {activeTab === 'state-machines' && entityData && (
+          <EntityStateMachinesTab
+            entity={entityData}
+            machines={entityStateMachines}
+            onMachinesChanged={fetchEntityStateMachines}
           />
         )}
       </div>

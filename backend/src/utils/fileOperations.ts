@@ -3,6 +3,8 @@ import YAML from 'yaml';
 import { logger } from './logger.js';
 import { Entity, Relationship, Case, ReviewComment, validateEntity } from '../models/EntitySchema.js';
 import { Rule } from '../models/Rule.js';
+import { Action } from '../models/Action.js';
+import { StateMachine } from '../models/StateMachine.js';
 import { Dictionary } from '../models/Dictionary.js';
 import { sanitizeFsName } from './uuid.js';
 import { config } from '../kernel/config.js';
@@ -224,6 +226,10 @@ export interface PackageModel {
   rules: Rule[];
   /** Cases owned by this package. */
   cases: Case[];
+  /** Actions owned by entities in this package (#179). */
+  actions: Action[];
+  /** State machines owned by entities in this package (#179). */
+  stateMachines: StateMachine[];
   /** Ownership maps (absolute file path) so writes can find the owning file. */
   ownership: {
     entityByName: Map<string, string>;
@@ -231,6 +237,11 @@ export interface PackageModel {
     relationshipByUuid: Map<string, string>;
     ruleByUuid: Map<string, string>;
     caseByUuid: Map<string, string>;
+    actionByUuid: Map<string, string>;
+    stateMachineByUuid: Map<string, string>;
+    /** Key: `${ownerRef}::${name}` — prevents duplicate (owner, name) pairs */
+    actionByOwnerAndName: Map<string, string>;
+    stateMachineByOwnerAndName: Map<string, string>;
   };
 }
 
@@ -243,6 +254,10 @@ export interface SectionsFile {
   relationships: Relationship[];
   rules: Rule[];
   cases: Case[];
+  /** Actions (#179) */
+  actions: Action[];
+  /** State machines (#179) */
+  stateMachines: StateMachine[];
 }
 
 /**
@@ -264,7 +279,7 @@ export interface SectionsFile {
 export function parseSectionsFromString(raw: string, label: string, filename?: string): SectionsFile {
   try {
     const parsed = YAML.parse(raw);
-    if (!parsed) return { entities: [], relationships: [], rules: [], cases: [] };
+    if (!parsed) return { entities: [], relationships: [], rules: [], cases: [], actions: [], stateMachines: [] };
 
     // Legacy pre-#106: single-entity file (unwrapped `{ uuid, name, attributes }`).
     // Check FIRST because pre-#100 entity files also carried a top-level
@@ -272,15 +287,17 @@ export function parseSectionsFromString(raw: string, label: string, filename?: s
     // collide with the multi-kind detector below.
     if (typeof parsed === 'object' && !Array.isArray(parsed)
       && typeof parsed.uuid === 'string' && Array.isArray(parsed.attributes)) {
-      return { entities: [parsed as Entity], relationships: [], rules: [], cases: [] };
+      return { entities: [parsed as Entity], relationships: [], rules: [], cases: [], actions: [], stateMachines: [] };
     }
 
     // Multi-kind sections format (#106 — current). Prefers `cases:` (#121)
     // and falls back to the legacy `perspectives:` key with a deprecation
     // warning so existing YAML keeps loading for one release.
+    // Also recognizes `actions:` and `stateMachines:` (#179).
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && (
       'entities' in parsed || 'relationships' in parsed ||
-      'rules' in parsed || 'cases' in parsed || 'perspectives' in parsed
+      'rules' in parsed || 'cases' in parsed || 'perspectives' in parsed ||
+      'actions' in parsed || 'stateMachines' in parsed
     )) {
       let cases: Case[] = [];
       if (Array.isArray(parsed.cases)) {
@@ -294,23 +311,25 @@ export function parseSectionsFromString(raw: string, label: string, filename?: s
         relationships: Array.isArray(parsed.relationships) ? parsed.relationships : [],
         rules: Array.isArray(parsed.rules) ? parsed.rules : [],
         cases,
+        actions: Array.isArray(parsed.actions) ? parsed.actions : [],
+        stateMachines: Array.isArray(parsed.stateMachines) ? parsed.stateMachines : [],
       };
     }
 
     // Legacy pre-#106: top-level YAML array. Route by filename.
     if (Array.isArray(parsed) && filename) {
       if (filename === 'relationships.yaml') {
-        return { entities: [], relationships: parsed, rules: [], cases: [] };
+        return { entities: [], relationships: parsed, rules: [], cases: [], actions: [], stateMachines: [] };
       }
       if (filename === 'rules.yaml' || filename.endsWith('.rules.yaml')) {
-        return { entities: [], relationships: [], rules: parsed, cases: [] };
+        return { entities: [], relationships: [], rules: parsed, cases: [], actions: [], stateMachines: [] };
       }
     }
 
-    return { entities: [], relationships: [], rules: [], cases: [] };
+    return { entities: [], relationships: [], rules: [], cases: [], actions: [], stateMachines: [] };
   } catch (e) {
     logger.warn(`Failed to parse YAML: ${label}: ${e}`);
-    return { entities: [], relationships: [], rules: [], cases: [] };
+    return { entities: [], relationships: [], rules: [], cases: [], actions: [], stateMachines: [] };
   }
 }
 
@@ -321,7 +340,7 @@ export function parseSectionsFromString(raw: string, label: string, filename?: s
 async function parseSectionsFromStorage(p: Path, label: string): Promise<SectionsFile> {
   const content = await readOrNull(p);
   if (content === null) {
-    return { entities: [], relationships: [], rules: [], cases: [] };
+    return { entities: [], relationships: [], rules: [], cases: [], actions: [], stateMachines: [] };
   }
   // path.basename works on both abs and workspace-rel since both use '/'
   const filename = path.basename(String(p));
@@ -357,12 +376,18 @@ export function mergePackageSections(
     relationships: [],
     rules: [],
     cases: [],
+    actions: [],
+    stateMachines: [],
     ownership: {
       entityByName: new Map(),
       entityByUuid: new Map(),
       relationshipByUuid: new Map(),
       ruleByUuid: new Map(),
       caseByUuid: new Map(),
+      actionByUuid: new Map(),
+      stateMachineByUuid: new Map(),
+      actionByOwnerAndName: new Map(),
+      stateMachineByOwnerAndName: new Map(),
     },
   };
 
@@ -422,6 +447,48 @@ export function mergePackageSections(
       model.ownership.caseByUuid.set(c.uuid, label);
       model.cases.push(c);
     }
+
+    // Actions (#179)
+    for (const action of (sections.actions || [])) {
+      if (!action?.uuid || !action?.name || !action?.ownerRef) continue;
+      const byUuid = model.ownership.actionByUuid.get(action.uuid);
+      if (byUuid) {
+        throw new Error(
+          `Duplicate action uuid '${action.uuid}' in package '${packageName}': ${byUuid} and ${label}`,
+        );
+      }
+      const ownerNameKey = `${action.ownerRef}::${action.name}`;
+      const byOwnerAndName = model.ownership.actionByOwnerAndName.get(ownerNameKey);
+      if (byOwnerAndName) {
+        throw new Error(
+          `Duplicate action name '${action.name}' for ownerRef '${action.ownerRef}' in package '${packageName}': ${byOwnerAndName} and ${label}`,
+        );
+      }
+      model.ownership.actionByUuid.set(action.uuid, label);
+      model.ownership.actionByOwnerAndName.set(ownerNameKey, label);
+      model.actions.push(action);
+    }
+
+    // State machines (#179)
+    for (const sm of (sections.stateMachines || [])) {
+      if (!sm?.uuid || !sm?.name || !sm?.ownerRef) continue;
+      const byUuid = model.ownership.stateMachineByUuid.get(sm.uuid);
+      if (byUuid) {
+        throw new Error(
+          `Duplicate stateMachine uuid '${sm.uuid}' in package '${packageName}': ${byUuid} and ${label}`,
+        );
+      }
+      const ownerNameKey = `${sm.ownerRef}::${sm.name}`;
+      const byOwnerAndName = model.ownership.stateMachineByOwnerAndName.get(ownerNameKey);
+      if (byOwnerAndName) {
+        throw new Error(
+          `Duplicate stateMachine name '${sm.name}' for ownerRef '${sm.ownerRef}' in package '${packageName}': ${byOwnerAndName} and ${label}`,
+        );
+      }
+      model.ownership.stateMachineByUuid.set(sm.uuid, label);
+      model.ownership.stateMachineByOwnerAndName.set(ownerNameKey, label);
+      model.stateMachines.push(sm);
+    }
   }
 
   return model;
@@ -444,6 +511,8 @@ async function writeSectionsToStorage(p: Path, sections: SectionsFile): Promise<
   if (sections.relationships.length > 0) payload.relationships = sections.relationships;
   if (sections.rules.length > 0) payload.rules = sections.rules;
   if (sections.cases.length > 0) payload.cases = sections.cases;
+  if (sections.actions.length > 0) payload.actions = sections.actions;
+  if (sections.stateMachines.length > 0) payload.stateMachines = sections.stateMachines;
 
   if (Object.keys(payload).length === 0) {
     await deleteIfExists(p);
@@ -657,7 +726,7 @@ export async function writeEntityFile(entity: Entity, packageName?: string): Pro
 
     const newFilePath = pathOf(`${packageName}/${sanitizeFsName(entity.name)}.model.yaml`);
     await writeSectionsToStorage(newFilePath, {
-      entities: [entity], relationships: [], rules: [], cases: [],
+      entities: [entity], relationships: [], rules: [], cases: [], actions: [], stateMachines: [],
     });
     logger.info(`Entity written to new file: ${String(newFilePath)}`);
     await commitChanges(String(newFilePath), `Added entity: ${entity.name} (${entity.uuid})`);
@@ -1213,5 +1282,234 @@ export async function listAllDictionaries(): Promise<string[]> {
   } catch (error) {
     logger.error(`Error listing all dictionaries: ${error}`);
     return [];
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Action CRUD (#179)
+// ────────────────────────────────────────────────────────────────────────
+
+/**
+ * Find which package and file own an action, by scanning all packages.
+ * Returns `{ packageName, filePath }` or null if not found.
+ */
+export async function findActionOwner(actionUuid: string): Promise<{ packageName: string; filePath: string } | null> {
+  const packages = await listPackages();
+  for (const pkg of packages) {
+    const files = await listPackageYamlFilePaths(pkg);
+    for (const f of files) {
+      const s = await parseSectionsFromStorage(f, String(f));
+      if (s.actions.some(a => a.uuid === actionUuid)) {
+        return { packageName: pkg, filePath: String(f) };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Read all actions for an entity UUID across all packages.
+ */
+export async function readActionsForEntity(entityUuid: string): Promise<Action[]> {
+  const packages = await listPackages();
+  const result: Action[] = [];
+  for (const pkg of packages) {
+    try {
+      const model = await loadPackage(pkg);
+      result.push(...model.actions.filter(a => a.ownerRef === entityUuid));
+    } catch { /* skip */ }
+  }
+  return result;
+}
+
+/**
+ * Write an action into its owning file. If the action already exists
+ * (matched by uuid), it is replaced in-place. Otherwise the owner entity's
+ * primary model file is used; if no model file exists a dedicated
+ * `<sanitizedName>.actions.yaml` is created.
+ */
+export async function writeAction(action: Action, packageName: string): Promise<{ ok: boolean; physicalPath?: string }> {
+  try {
+    await ensurePackageDirectoryStructure(packageName);
+
+    // Look for an existing file that already has this action
+    const files = await listPackageYamlFilePaths(packageName);
+    let ownerFile: Path | null = null;
+    let ownerSections: SectionsFile | null = null;
+
+    for (const f of files) {
+      const s = await parseSectionsFromStorage(f, String(f));
+      if (s.actions.some(a => a.uuid === action.uuid)) {
+        ownerFile = f;
+        ownerSections = s;
+        break;
+      }
+    }
+
+    if (ownerFile && ownerSections) {
+      ownerSections.actions = ownerSections.actions.filter(a => a.uuid !== action.uuid);
+      ownerSections.actions.push(action);
+      await writeSectionsToStorage(ownerFile, ownerSections);
+      await commitChanges(String(ownerFile), `Updated action: ${action.name} (${action.uuid})`);
+      return { ok: true, physicalPath: String(ownerFile) };
+    }
+
+    // New action — try to merge into the owner entity's model file
+    const entityModel = await loadPackage(packageName);
+    const ownerEntityFile = entityModel.ownership.entityByUuid.get(action.ownerRef);
+    if (ownerEntityFile) {
+      const filePath = pathOf(ownerEntityFile);
+      const s = await parseSectionsFromStorage(filePath, ownerEntityFile);
+      s.actions = s.actions.filter(a => a.uuid !== action.uuid);
+      s.actions.push(action);
+      await writeSectionsToStorage(filePath, s);
+      await commitChanges(ownerEntityFile, `Added action: ${action.name} (${action.uuid})`);
+      return { ok: true, physicalPath: ownerEntityFile };
+    }
+
+    // Fallback: create a dedicated actions file
+    const newFilePath = pathOf(`${packageName}/${sanitizeFsName(action.name)}.actions.yaml`);
+    await writeSectionsToStorage(newFilePath, {
+      entities: [], relationships: [], rules: [], cases: [],
+      actions: [action], stateMachines: [],
+    });
+    await commitChanges(String(newFilePath), `Added action: ${action.name} (${action.uuid})`);
+    return { ok: true, physicalPath: String(newFilePath) };
+  } catch (error) {
+    logger.error(`Error writing action: ${error}`);
+    return { ok: false };
+  }
+}
+
+/**
+ * Delete an action by UUID. Searches all packages.
+ */
+export async function deleteAction(uuid: string): Promise<{ ok: boolean; physicalPath?: string }> {
+  try {
+    const owner = await findActionOwner(uuid);
+    if (!owner) return { ok: false };
+    const ownerPath = pathOf(owner.filePath);
+    const s = await parseSectionsFromStorage(ownerPath, owner.filePath);
+    const before = s.actions.length;
+    s.actions = s.actions.filter(a => a.uuid !== uuid);
+    if (s.actions.length === before) return { ok: false };
+    await writeSectionsToStorage(ownerPath, s);
+    await commitChanges(owner.filePath, `Deleted action ${uuid}`);
+    return { ok: true, physicalPath: owner.filePath };
+  } catch (error) {
+    logger.error(`Error deleting action ${uuid}: ${error}`);
+    return { ok: false };
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// StateMachine CRUD (#179)
+// ────────────────────────────────────────────────────────────────────────
+
+/**
+ * Find which package and file own a state machine, by scanning all packages.
+ */
+export async function findStateMachineOwner(smUuid: string): Promise<{ packageName: string; filePath: string } | null> {
+  const packages = await listPackages();
+  for (const pkg of packages) {
+    const files = await listPackageYamlFilePaths(pkg);
+    for (const f of files) {
+      const s = await parseSectionsFromStorage(f, String(f));
+      if (s.stateMachines.some(m => m.uuid === smUuid)) {
+        return { packageName: pkg, filePath: String(f) };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Read all state machines for an entity UUID across all packages.
+ */
+export async function readStateMachinesForEntity(entityUuid: string): Promise<StateMachine[]> {
+  const packages = await listPackages();
+  const result: StateMachine[] = [];
+  for (const pkg of packages) {
+    try {
+      const model = await loadPackage(pkg);
+      result.push(...model.stateMachines.filter(m => m.ownerRef === entityUuid));
+    } catch { /* skip */ }
+  }
+  return result;
+}
+
+/**
+ * Write a state machine into its owning file.
+ */
+export async function writeStateMachine(sm: StateMachine, packageName: string): Promise<{ ok: boolean; physicalPath?: string }> {
+  try {
+    await ensurePackageDirectoryStructure(packageName);
+
+    const files = await listPackageYamlFilePaths(packageName);
+    let ownerFile: Path | null = null;
+    let ownerSections: SectionsFile | null = null;
+
+    for (const f of files) {
+      const s = await parseSectionsFromStorage(f, String(f));
+      if (s.stateMachines.some(m => m.uuid === sm.uuid)) {
+        ownerFile = f;
+        ownerSections = s;
+        break;
+      }
+    }
+
+    if (ownerFile && ownerSections) {
+      ownerSections.stateMachines = ownerSections.stateMachines.filter(m => m.uuid !== sm.uuid);
+      ownerSections.stateMachines.push(sm);
+      await writeSectionsToStorage(ownerFile, ownerSections);
+      await commitChanges(String(ownerFile), `Updated stateMachine: ${sm.name} (${sm.uuid})`);
+      return { ok: true, physicalPath: String(ownerFile) };
+    }
+
+    // New state machine — try to merge into the owner entity's model file
+    const entityModel = await loadPackage(packageName);
+    const ownerEntityFile = entityModel.ownership.entityByUuid.get(sm.ownerRef);
+    if (ownerEntityFile) {
+      const filePath = pathOf(ownerEntityFile);
+      const s = await parseSectionsFromStorage(filePath, ownerEntityFile);
+      s.stateMachines = s.stateMachines.filter(m => m.uuid !== sm.uuid);
+      s.stateMachines.push(sm);
+      await writeSectionsToStorage(filePath, s);
+      await commitChanges(ownerEntityFile, `Added stateMachine: ${sm.name} (${sm.uuid})`);
+      return { ok: true, physicalPath: ownerEntityFile };
+    }
+
+    // Fallback: create a dedicated statemachine file
+    const newFilePath = pathOf(`${packageName}/${sanitizeFsName(sm.name)}.statemachine.yaml`);
+    await writeSectionsToStorage(newFilePath, {
+      entities: [], relationships: [], rules: [], cases: [],
+      actions: [], stateMachines: [sm],
+    });
+    await commitChanges(String(newFilePath), `Added stateMachine: ${sm.name} (${sm.uuid})`);
+    return { ok: true, physicalPath: String(newFilePath) };
+  } catch (error) {
+    logger.error(`Error writing stateMachine: ${error}`);
+    return { ok: false };
+  }
+}
+
+/**
+ * Delete a state machine by UUID.
+ */
+export async function deleteStateMachine(uuid: string): Promise<{ ok: boolean; physicalPath?: string }> {
+  try {
+    const owner = await findStateMachineOwner(uuid);
+    if (!owner) return { ok: false };
+    const ownerPath = pathOf(owner.filePath);
+    const s = await parseSectionsFromStorage(ownerPath, owner.filePath);
+    const before = s.stateMachines.length;
+    s.stateMachines = s.stateMachines.filter(m => m.uuid !== uuid);
+    if (s.stateMachines.length === before) return { ok: false };
+    await writeSectionsToStorage(ownerPath, s);
+    await commitChanges(owner.filePath, `Deleted stateMachine ${uuid}`);
+    return { ok: true, physicalPath: owner.filePath };
+  } catch (error) {
+    logger.error(`Error deleting stateMachine ${uuid}: ${error}`);
+    return { ok: false };
   }
 }
