@@ -321,6 +321,89 @@ Set via `PROFILE` environment variable:
 | **team** | Basic/JWT | Remote | Small team sharing a repo |
 | **server** | Auth0/SSO | Remote | Organization-wide deployment |
 
+## AI Assistance
+
+The dictionary ships with three AI-aware surfaces, all optional. They share one set of credentials stored at `~/.dico-app/dico-app.json` (mode 0600 — never checked into git):
+
+| Surface | What it is | Where to find it |
+|---|---|---|
+| **In-app AI chat panel** | Sidebar chat that grounds against the live dictionary — list packages, describe entities, generate docs, propose edits | Toolbar button **AI Assistant** in the running web app |
+| **Slash commands** | Built-in chat shortcuts (`/list`, `/quality`, `/describe`, `/create`, `/relate`, `/export`, `/diagram`, `/help`) + your own saved prompts | Type `/` in the chat composer |
+| **MCP server** (`dico-mcp`) | A [Model Context Protocol](https://modelcontextprotocol.io) stdio server that exposes the same operations to external clients — Claude Desktop, Cursor, Roo Code, Claude Code | `npx @hamak/smart-data-dico-mcp` or `node bin/dico-mcp.js` from source |
+
+### Configure the in-app chat (one-time)
+
+1. Start the app (Option A, B, or C above).
+2. Open **Settings → AI** (or click the AI Assistant button → ⚙ icon).
+3. Pick a **provider** (`anthropic`, `openai`, or `openai-compatible`), paste an API key, and choose a **model** (e.g. `claude-opus-4-7`, `gpt-4o`, or any model your `openai-compatible` endpoint exposes).
+4. Save. The config writes to `~/.dico-app/dico-app.json` with mode `0600`; no env vars are required.
+
+Alternatively, if you set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` before launching the server, the provider is auto-detected for the first session — but the **Settings dialog is the source of truth**; saving overrides env-var defaults.
+
+Conversations and saved prompts live under `~/.dico-app/storage/` as JSON files — portable, diffable, deletable.
+
+### Slash commands
+
+| Command | What it does |
+|---|---|
+| `/help` | List all available slash commands |
+| `/list` | List every package and its entity count |
+| `/describe` | Describe the current entity in detail (uses page context) |
+| `/quality` | Quality review of the current package (severity-grouped findings) |
+| `/create` | Skeleton: create a new entity with suggested attributes |
+| `/relate` | Skeleton: create a relationship between two entities |
+| `/export` | Generate Markdown documentation for the current package |
+| `/diagram` | Navigate to the organization diagram |
+
+The `pageContext` placeholder is filled automatically from the current route (entity / package / etc.). User-saved prompts (via **Prompts** tab in the chat panel) appear in the same slash-command picker.
+
+### MCP server (`dico-mcp`)
+
+The MCP server reuses the same backend services as the web app — it's a different **transport** for the same operations, not a duplicate code path. You can run the web UI and the MCP server side-by-side against the same project folder.
+
+**Tools exposed:** `listPackages`, `listEntities`, `getEntityDetails`, `createEntity`, `createRelationship`, `listStereotypes`, `listRoutes`.
+
+**Launch (from npm):**
+
+```bash
+# stdio server — talks JSON-RPC over stdin/stdout
+npx @hamak/smart-data-dico --data-dir /path/to/your/project   # web UI
+# (the MCP entrypoint is bin/dico-mcp.js inside the package)
+node "$(npm root -g)/@hamak/smart-data-dico/bin/dico-mcp.js" --data-dir /path/to/your/project
+```
+
+**Register with Claude Desktop** — edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+
+```json
+{
+  "mcpServers": {
+    "smart-data-dico": {
+      "command": "npx",
+      "args": ["-y", "@hamak/smart-data-dico", "dico-mcp", "--data-dir", "/absolute/path/to/your/project"]
+    }
+  }
+}
+```
+
+Or, if installed from source, point at the bin script directly:
+
+```json
+{
+  "command": "node",
+  "args": ["/absolute/path/to/smart-data-dico/bin/dico-mcp.js", "--data-dir", "/absolute/path/to/your/project"]
+}
+```
+
+**Register with Cursor** — `.cursor/mcp.json` (project-level) or `~/.cursor/mcp.json` (global): identical shape.
+
+**Register with Roo Code** — `.roo/mcp.json`: identical shape.
+
+The MCP process speaks JSON-RPC on stdio and stays attached to its parent; all logging goes to stderr so it doesn't corrupt the stream. Git auto-commit honours the same `GIT_AUTO_COMMIT` env var as the web backend.
+
+### Connect external MCP servers *to* the in-app chat
+
+The flip side of the above: the in-app chat can also consume external MCP servers (Filesystem, GitHub, etc.). Go to **Settings → MCP** for a curated registry — pick a server, paste any required tokens, save. The chat will then surface those server's tools alongside the built-in ones.
+
 ## Technologies
 
 | Layer | Stack |
