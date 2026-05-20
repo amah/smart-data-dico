@@ -184,11 +184,12 @@ mountFrameworkRoutes().catch((err) => {
 // Serve frontend static files in production (BEFORE error handler)
 if (config.isProduction) {
   // Check multiple possible frontend dist locations.
-  // __dirname equivalent for ESM. The `import.meta` syntax is hidden from
-  // CJS parsers (used by ts-jest in CommonJS mode for tests) via `new Function`,
-  // since this branch only runs in production and is unreachable from tests.
-  const getServerDir = new Function('return new URL(import.meta.url).pathname') as () => string;
-  const serverDir = path.dirname(getServerDir());
+  // __dirname equivalent for ESM. `import.meta.url` is hidden from CJS
+  // parsers (ts-jest in CommonJS mode for tests) via `eval`, which — unlike
+  // `new Function` — preserves the enclosing module scope at runtime, so
+  // import.meta is actually accessible in the ESM production bundle.
+  const serverUrl = eval('import.meta.url') as string;
+  const serverDir = path.dirname(new URL(serverUrl).pathname);
   const candidates = [
     path.join(serverDir, '..', '..', 'frontend', 'dist'),  // npm package (server is at backend/src/)
     path.join(process.cwd(), 'public'),                     // Docker (copied to public/)
