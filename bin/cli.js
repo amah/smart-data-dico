@@ -114,6 +114,7 @@ const child = spawn(bin, binArgs, {
     NODE_ENV: 'production',
     PROFILE: process.env.PROFILE || 'local',
     DATA_DIR: dataDir,
+    SDD_FRONTEND_DIST: frontendDist,
   },
   stdio: 'inherit',
 });
