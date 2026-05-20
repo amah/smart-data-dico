@@ -183,19 +183,17 @@ mountFrameworkRoutes().catch((err) => {
 
 // Serve frontend static files in production (BEFORE error handler)
 if (config.isProduction) {
-  // Check multiple possible frontend dist locations.
-  // __dirname equivalent for ESM. `import.meta.url` is hidden from CJS
-  // parsers (ts-jest in CommonJS mode for tests) via `eval`, which — unlike
-  // `new Function` — preserves the enclosing module scope at runtime, so
-  // import.meta is actually accessible in the ESM production bundle.
-  const serverUrl = eval('import.meta.url') as string;
-  const serverDir = path.dirname(new URL(serverUrl).pathname);
+  // Locate the frontend dist directory. The CLI launcher (bin/cli.js) passes
+  // the absolute path as SDD_FRONTEND_DIST when it spawns this process. The
+  // remaining candidates cover Docker / monorepo dev layouts. We deliberately
+  // avoid `import.meta.url` here so the file stays parseable by ts-jest in
+  // CJS mode (`new Function` / `eval` don't preserve module scope at runtime).
   const candidates = [
-    path.join(serverDir, '..', '..', 'frontend', 'dist'),  // npm package (server is at backend/src/)
+    process.env.SDD_FRONTEND_DIST || '',                    // npm package (set by bin/cli.js)
     path.join(process.cwd(), 'public'),                     // Docker (copied to public/)
     path.join(process.cwd(), '..', 'frontend', 'dist'),     // monorepo dev
     path.join(process.cwd(), 'frontend', 'dist'),            // alt layout
-  ];
+  ].filter(Boolean);
   const publicDir = candidates.find(d => {
     try { return fs.statSync(d).isDirectory(); } catch { return false; }
   });
