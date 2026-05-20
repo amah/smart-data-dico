@@ -38,6 +38,18 @@ import {
 
 type SortKey = 'name' | 'entities' | 'rels' | 'quality';
 
+interface PackageCardEntity {
+  name: string;
+  stereotype?: string;
+  description?: string;
+}
+
+interface PackageCardCase {
+  uuid: string;
+  name: string;
+  description?: string;
+}
+
 interface PackageCard {
   name: string;
   description?: string;
@@ -46,7 +58,14 @@ interface PackageCard {
   attributeCount: number;
   relationshipCount: number;
   qualityScore?: number;
+  /** Lightweight entity descriptors used by the home-page chip row (#180). */
+  entities: PackageCardEntity[];
+  /** Lightweight case descriptors used by the home-page chip row (#180). */
+  cases: PackageCardCase[];
 }
+
+/** Total visible tier chips on a package card before overflow kicks in (#180). */
+const CHIP_BUDGET = 8;
 
 interface Kpis {
   quality: number | null;     // overall %, 0-100
@@ -89,6 +108,7 @@ const HomePage = () => {
               const pkg = await packageApi.getPackageByPath(name, []);
               const entities = pkg.entities || [];
               const rels = pkg.relationships || [];
+              const cases = pkg.cases || [];
               const attrCount = entities.reduce(
                 (s: number, e: any) => s + (e.attributes?.length || 0),
                 0,
@@ -100,9 +120,26 @@ const HomePage = () => {
                 entityCount: entities.length,
                 attributeCount: attrCount,
                 relationshipCount: rels.length,
+                entities: entities.map(e => ({
+                  name: e.name,
+                  stereotype: e.stereotype,
+                  description: e.description,
+                })),
+                cases: cases.map(c => ({
+                  uuid: c.uuid,
+                  name: c.name,
+                  description: c.description,
+                })),
               } as PackageCard;
             } catch {
-              return { name, entityCount: 0, attributeCount: 0, relationshipCount: 0 };
+              return {
+                name,
+                entityCount: 0,
+                attributeCount: 0,
+                relationshipCount: 0,
+                entities: [],
+                cases: [],
+              };
             }
           })),
           run('data-dictionary.quality.getReport', { service: undefined }).catch(() => null),
@@ -497,8 +534,109 @@ const SortSelect = ({ value, onChange }: { value: SortKey; onChange: (v: SortKey
 
 // ──────────────── Package card ────────────────
 
+/**
+ * Tier 1 = aggregate roots, tier 2 = cases, tier 3 = other entities.
+ * Alphabetical within tier. The order of tiers is the truncation priority
+ * (#180): aggregate roots never get pushed out by cases or other entities,
+ * cases never get pushed out by other entities.
+ */
+type ChipKind = 'aggregate-root' | 'case' | 'entity';
+
+interface ChipEntry {
+  kind: ChipKind;
+  key: string;
+  label: string;
+  to: string;
+  title?: string;
+  ariaLabel: string;
+}
+
+const DESCRIPTION_TOOLTIP_MAX = 120;
+
+const truncateDescription = (d: string | undefined): string | undefined => {
+  if (!d) return undefined;
+  const trimmed = d.trim();
+  if (!trimmed) return undefined;
+  return trimmed.length > DESCRIPTION_TOOLTIP_MAX
+    ? `${trimmed.slice(0, DESCRIPTION_TOOLTIP_MAX - 1)}…`
+    : trimmed;
+};
+
+const buildChipEntries = (pkg: PackageCard): ChipEntry[] => {
+  const byName = (a: { name: string }, b: { name: string }) =>
+    a.name.localeCompare(b.name);
+
+  const aggregates = pkg.entities
+    .filter(e => e.stereotype === 'aggregate-root')
+    .slice()
+    .sort(byName)
+    .map<ChipEntry>(e => ({
+      kind: 'aggregate-root',
+      key: `entity:${e.name}`,
+      label: e.name,
+      to: `/packages/${pkg.name}/entities/${e.name}`,
+      title: truncateDescription(e.description),
+      ariaLabel: `Open entity ${e.name}`,
+    }));
+
+  const cases = pkg.cases
+    .slice()
+    .sort(byName)
+    .map<ChipEntry>(c => ({
+      kind: 'case',
+      key: `case:${c.uuid}`,
+      label: c.name,
+      to: `/cases/${c.uuid}`,
+      title: truncateDescription(c.description),
+      ariaLabel: `Open case ${c.name}`,
+    }));
+
+  const others = pkg.entities
+    .filter(e => e.stereotype !== 'aggregate-root')
+    .slice()
+    .sort(byName)
+    .map<ChipEntry>(e => ({
+      kind: 'entity',
+      key: `entity:${e.name}`,
+      label: e.name,
+      to: `/packages/${pkg.name}/entities/${e.name}`,
+      title: truncateDescription(e.description),
+      ariaLabel: `Open entity ${e.name}`,
+    }));
+
+  return [...aggregates, ...cases, ...others];
+};
+
+const ChipForEntry = ({ entry }: { entry: ChipEntry }) => {
+  switch (entry.kind) {
+    case 'aggregate-root':
+      return (
+        <Chip tone="accent" mono title={entry.title}>
+          <span aria-hidden style={{ marginRight: 2 }}>◆</span>
+          {entry.label}
+        </Chip>
+      );
+    case 'case':
+      return (
+        <Chip tone="info" title={entry.title}>
+          <span aria-hidden style={{ marginRight: 2 }}>⊙</span>
+          {entry.label}
+        </Chip>
+      );
+    case 'entity':
+      return (
+        <Chip tone="neutral" mono title={entry.title}>
+          {entry.label}
+        </Chip>
+      );
+  }
+};
+
 const PackageCardView = ({ pkg }: { pkg: PackageCard }) => {
   const tone = pkg.qualityScore !== undefined ? scoreTone(pkg.qualityScore) : null;
+  const allChips = useMemo(() => buildChipEntries(pkg), [pkg]);
+  const visibleChips = allChips.slice(0, CHIP_BUDGET);
+  const overflow = allChips.length - visibleChips.length;
   return (
     <div
       style={{
@@ -555,6 +693,39 @@ const PackageCardView = ({ pkg }: { pkg: PackageCard }) => {
         >
           {pkg.description}
         </p>
+      )}
+
+      {allChips.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 6,
+            marginTop: 2,
+          }}
+        >
+          {visibleChips.map((c) => (
+            <Link
+              key={c.key}
+              to={c.to}
+              aria-label={c.ariaLabel}
+              style={{ display: 'inline-flex', textDecoration: 'none' }}
+            >
+              <ChipForEntry entry={c} />
+            </Link>
+          ))}
+          {overflow > 0 && (
+            <Link
+              to={`/packages/${pkg.name}`}
+              aria-label={`See ${overflow} more entities in ${pkg.name}`}
+              style={{ display: 'inline-flex', textDecoration: 'none' }}
+            >
+              <Chip tone="neutral" title={`See ${overflow} more in ${pkg.name}`}>
+                +{overflow} more
+              </Chip>
+            </Link>
+          )}
+        </div>
       )}
 
       <div

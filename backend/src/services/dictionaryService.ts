@@ -258,12 +258,16 @@ export class DictionaryService {
     // `.yaml` in the package folder via the #106 sections format.
     let entities: Entity[] = [];
     let relationships: Relationship[] = [];
-    let cases: { uuid: string; name: string }[] = [];
+    let cases: { uuid: string; name: string; description?: string }[] = [];
     try {
       const model = await loadPackage(packageName);
       entities = model.entities;
       relationships = model.relationships;
-      cases = model.cases.map(c => ({ uuid: c.uuid, name: c.name }));
+      cases = model.cases.map(c => ({
+        uuid: c.uuid,
+        name: c.name,
+        ...(c.description !== undefined ? { description: c.description } : {}),
+      }));
     } catch (e) {
       logger.warn(`Failed to load package ${packageName}: ${e}`);
     }

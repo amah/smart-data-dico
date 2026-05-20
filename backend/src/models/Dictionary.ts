@@ -20,8 +20,8 @@ export interface Package {
   entities: Entity[];
   subPackages: Package[];
   relationships: Relationship[];
-  /** Cases owned by this package — slim shape (uuid + name) for sidebar tree (#121). */
-  cases?: { uuid: string; name: string }[];
+  /** Cases owned by this package — slim shape (uuid + name + optional description) for sidebar tree (#121) and home-page chip row (#180). */
+  cases?: { uuid: string; name: string; description?: string }[];
   metadata?: MetadataEntry[];
 }
 
