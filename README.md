@@ -236,39 +236,80 @@ All files are git-tracked for versioning, branching, and collaboration.
 
 ### Prerequisites
 
-- Node.js v18+
-- npm
+| Tool | Version | Notes |
+|------|---------|-------|
+| **Node.js** | 18+ (LTS) | Hard requirement; checked via `engines` field |
+| **npm** | 9+ | Ships with Node 18+ |
+| **Git** | 2.x+ | Required — dictionaries are versioned in a git repository |
+| **Docker** | 20+ | Optional, only for the containerized deployment path |
 
-### Quick Start
+Optional database peer dependencies (only needed if you use **Physical Sync** to introspect a live database — see `peerDependencies` in `package.json`): `pg`, `mysql2`, `mssql`, or `oracledb`. Install just the one(s) you need.
+
+### Option A — Install from npm (end users)
+
+The fastest way to run the app against a fresh, empty data directory:
 
 ```bash
-# Install dependencies
-cd backend && npm install
-cd ../frontend && npm install
+# One-off run with auto-bootstrap of ./data-dictionaries
+npx @hamak/smart-data-dico
 
-# Start (two terminals)
-cd backend && npm run dev     # port 3001
-cd frontend && npm run dev    # port 3000
+# Or install globally
+npm install -g @hamak/smart-data-dico
+smart-data-dico
+```
+
+CLI flags:
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `--port <n>` | `3001` | Server port |
+| `--data-dir <path>` | `./data-dictionaries` | Project folder (the one containing `dico.config.json`) |
+| `--no-open` | — | Don't auto-open the browser |
+| `-h, --help` | — | Show help |
+
+On first run, the CLI creates `<data-dir>/dico.config.json` and `<data-dir>/.dico/` if they don't exist. Point it at an existing project folder to keep working on the data you already have.
+
+### Option B — Run from source (contributors)
+
+```bash
+# 1. Clone
+git clone https://github.com/amah/smart-data-dico.git
+cd smart-data-dico
+
+# 2. Install dependencies — root, backend, frontend
+npm install
+cd backend  && npm install && cd ..
+cd frontend && npm install && cd ..
+
+# 3. Start the dev servers in two terminals
+cd backend  && npm run dev   # port 3001
+cd frontend && npm run dev   # port 3000
 ```
 
 - Frontend: http://localhost:3000
 - Backend API: http://localhost:3001
 - API docs: http://localhost:3001/api-docs
 
-### Docker
+In dev, the backend serves the bundled sample project at `samples/eshop/` (three packages: `order-service`, `product-service`, `user-service`). Override with `DATA_DIR=/path/to/your/project npm run dev` to point at your own data.
+
+### Option C — Docker
 
 ```bash
 docker-compose up
 # App available at http://localhost:3001
 ```
 
-### Dev Credentials
+The image ships with **no bundled sample data** — `docker-compose.yml` mounts `./data-dictionaries` from the host into the container. Either place your own project there, or copy `samples/eshop/` into `./data-dictionaries/` before starting.
+
+### Dev Credentials (mock auth, dev mode only)
 
 | User | Password | Role |
 |------|----------|------|
 | admin | admin123 | ADMIN (full access) |
 | editor | editor123 | EDITOR (create/edit) |
 | viewer | viewer123 | VIEWER (read-only) |
+
+A `Bearer mock-token-for-testing` header also works for API testing.
 
 ### Configuration Profiles
 

@@ -29,8 +29,8 @@ export interface Package {
   subPackages?: Package[];
   entities?: Entity[];
   relationships?: Relationship[];
-  /** Cases owned by this package — slim shape for sidebar tree (#121). */
-  cases?: { uuid: string; name: string }[];
+  /** Cases owned by this package — slim shape for sidebar tree (#121) and home-page chip row (#180). */
+  cases?: { uuid: string; name: string; description?: string }[];
   metadata?: MetadataEntry[];
   createdAt?: string;
   updatedAt?: string;
