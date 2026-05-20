@@ -11,6 +11,8 @@ import dicoConfigRoutes from './dico-config.routes.js';
 import diffRoutes from './diff.routes.js';
 import importExportRoutes from './import-export.routes.js';
 import publishRoutes from './publish.routes.js';
+import actionRoutes from './action.routes.js';
+import stateMachineRoutes from './state-machine.routes.js';
 
 const router: Router = Router();
 // Ordering: literals before :params within /api/packages/** and /api/entities/**.
@@ -29,4 +31,6 @@ router.use(dicoConfigRoutes);
 router.use(diffRoutes);
 router.use(importExportRoutes);
 router.use(publishRoutes);
+router.use(actionRoutes);
+router.use(stateMachineRoutes);
 export default router;

@@ -560,3 +560,106 @@ export interface DiagramLayout {
   createdAt: string;
   updatedAt: string;
 }
+
+// ─── Actions & State Machines (#179) ────────────────────────────────────────
+
+/**
+ * Flow step kinds for action bodies.
+ * Stored as author-time modeling data — not executed in v1.
+ */
+export type FlowStepKind =
+  | 'assign'
+  | 'emitEvent'
+  | 'invokeAction'
+  | 'branch'
+  | 'wait'
+  | 'callExternal';
+
+export const FLOW_STEP_KINDS: FlowStepKind[] = [
+  'assign', 'emitEvent', 'invokeAction', 'branch', 'wait', 'callExternal',
+];
+
+/** assign — set an attribute/variable to a value */
+export interface AssignStep   { kind: 'assign';       target: string; value: string; }
+/** emitEvent — publish a domain event by name */
+export interface EmitStep     { kind: 'emitEvent';    name: string; }
+/** invokeAction — call another action by UUID */
+export interface InvokeStep   { kind: 'invokeAction'; actionRef: string; }
+/** branch — conditional fork */
+export interface BranchStep   { kind: 'branch';       when: string; then: FlowStep[]; else?: FlowStep[]; }
+/** wait — suspend until an event name or duration */
+export interface WaitStep     { kind: 'wait';         for: string; }
+/** callExternal — invoke an external system */
+export interface CallExtStep  { kind: 'callExternal'; target: string; args?: Record<string, string>; }
+
+/**
+ * A single step in an action's flow body (modeling only).
+ * Discriminated by `kind` so each variant carries only its own fields.
+ */
+export type FlowStep = AssignStep | EmitStep | InvokeStep | BranchStep | WaitStep | CallExtStep;
+
+export interface ActionParam {
+  name: string;
+  type: string;
+  required?: boolean;
+  description?: string;
+}
+
+export interface ActionReturn {
+  type: string;
+  description?: string;
+}
+
+/**
+ * An action owned by an entity. Modeling only — no execution in v1.
+ */
+export interface Action {
+  uuid: string;
+  name: string;
+  description?: string;
+  ownerRef: string;
+  internal?: boolean;
+  params?: ActionParam[];
+  returns?: ActionReturn;
+  flow?: FlowStep[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/**
+ * A single state in a state machine.
+ */
+export interface SMState {
+  name: string;
+  description?: string;
+  terminal?: boolean;
+}
+
+/**
+ * A transition between states.
+ * `from: "*"` means the transition applies from any non-terminal state.
+ */
+export interface Transition {
+  uuid: string;
+  from: string;
+  to: string;
+  on: string;
+  guard?: string;
+  invoke?: string[];  // action UUIDs
+}
+
+/**
+ * A state machine owned by an entity. Modeling only — no execution in v1.
+ */
+export interface StateMachine {
+  uuid: string;
+  name: string;
+  description?: string;
+  ownerRef: string;
+  stateAttribute?: string;
+  initialState: string;
+  states: SMState[];
+  transitions: Transition[];
+  createdAt?: string;
+  updatedAt?: string;
+}

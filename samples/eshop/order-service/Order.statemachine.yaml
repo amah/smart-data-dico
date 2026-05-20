@@ -1,0 +1,89 @@
+stateMachines:
+  - uuid: sm-order-fulfillment
+    name: fulfillment
+    ownerRef: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
+    description: Tracks the Order's delivery lifecycle
+    stateAttribute: status
+    initialState: PENDING
+    states:
+      - name: PENDING
+      - name: PROCESSING
+      - name: SHIPPED
+      - name: DELIVERED
+        terminal: true
+      - name: CANCELLED
+        terminal: true
+      - name: REFUNDED
+        terminal: true
+    transitions:
+      - uuid: tr-f-1
+        from: PENDING
+        to: PROCESSING
+        on: "payment.authorized"
+        invoke:
+          - act-order-reserveStock
+      - uuid: tr-f-2
+        from: PROCESSING
+        to: SHIPPED
+        on: "shipment.created"
+        guard: "stockAvailable"
+        invoke:
+          - act-order-notifyShipped
+      - uuid: tr-f-3
+        from: SHIPPED
+        to: DELIVERED
+        on: "delivery.confirmed"
+        invoke:
+          - act-order-notifyDelivered
+      - uuid: tr-f-4
+        from: "*"
+        to: CANCELLED
+        on: "order.cancel"
+        guard: "not terminal"
+        invoke:
+          - act-order-cancel
+      - uuid: tr-f-5
+        from: DELIVERED
+        to: REFUNDED
+        on: "order.refund"
+        invoke:
+          - act-order-refund
+
+  - uuid: sm-order-payment
+    name: payment
+    ownerRef: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
+    description: Tracks the Order's payment lifecycle
+    stateAttribute: paymentStatus
+    initialState: PENDING
+    states:
+      - name: PENDING
+      - name: AUTHORIZED
+      - name: PAID
+      - name: FAILED
+        terminal: true
+      - name: REFUNDED
+        terminal: true
+    transitions:
+      - uuid: tr-p-1
+        from: PENDING
+        to: AUTHORIZED
+        on: "gateway.authorize.ok"
+        invoke: []
+      - uuid: tr-p-2
+        from: PENDING
+        to: FAILED
+        on: "gateway.authorize.fail"
+        invoke:
+          - act-order-notifyFailure
+      - uuid: tr-p-3
+        from: AUTHORIZED
+        to: PAID
+        on: "gateway.capture.ok"
+        invoke:
+          - act-order-emitPaid
+      - uuid: tr-p-4
+        from: PAID
+        to: REFUNDED
+        on: "payment.refund"
+        invoke:
+          - act-order-refund

@@ -1,0 +1,96 @@
+actions:
+  - uuid: act-order-cancel
+    name: cancel
+    ownerRef: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
+    description: Cancel the order and optionally trigger a refund
+    params:
+      - name: reason
+        type: string
+        required: true
+    returns:
+      type: void
+    flow:
+      - kind: assign
+        target: status
+        value: CANCELLED
+      - kind: assign
+        target: updatedAt
+        value: "@now"
+      - kind: emitEvent
+        name: order.cancelled
+      - kind: branch
+        when: "paymentStatus == 'AUTHORIZED' || paymentStatus == 'PAID'"
+        then:
+          - kind: invokeAction
+            actionRef: act-order-refund
+
+  - uuid: act-order-refund
+    name: refund
+    ownerRef: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
+    description: Issue a payment refund via the payment gateway
+    params: []
+    returns:
+      type: void
+    flow:
+      - kind: callExternal
+        target: "payments.refund"
+        args:
+          orderId: "@self.id"
+      - kind: assign
+        target: paymentStatus
+        value: REFUNDED
+      - kind: emitEvent
+        name: order.refunded
+
+  - uuid: act-order-reserveStock
+    name: reserveStock
+    ownerRef: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
+    internal: true
+    flow:
+      - kind: callExternal
+        target: "inventory.reserve"
+        args:
+          orderId: "@self.id"
+      - kind: emitEvent
+        name: order.stockReserved
+
+  - uuid: act-order-notifyShipped
+    name: notifyShipped
+    ownerRef: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
+    internal: true
+    flow:
+      - kind: callExternal
+        target: "notify.email"
+        args:
+          template: shipped
+          userId: "@self.userId"
+
+  - uuid: act-order-notifyDelivered
+    name: notifyDelivered
+    ownerRef: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
+    internal: true
+    flow:
+      - kind: callExternal
+        target: "notify.email"
+        args:
+          template: delivered
+          userId: "@self.userId"
+
+  - uuid: act-order-notifyFailure
+    name: notifyPaymentFailed
+    ownerRef: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
+    internal: true
+    flow:
+      - kind: callExternal
+        target: "notify.email"
+        args:
+          template: payment-failed
+          userId: "@self.userId"
+
+  - uuid: act-order-emitPaid
+    name: emitPaid
+    ownerRef: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
+    internal: true
+    flow:
+      - kind: emitEvent
+        name: order.paid
