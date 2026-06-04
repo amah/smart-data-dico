@@ -385,6 +385,33 @@ Saved visualization layouts, stored as JSON under `.dico/diagrams/<id>.json`. Co
 
 ---
 
+## Validating a project
+
+Before opening a project in the app, you can check it for the errors the
+loader would otherwise raise at load time (collisions, unresolved
+relationship endpoints, malformed UUIDs, circular derived types, dangling
+action/state-machine references) with the standalone validator:
+
+```bash
+cd backend
+npm run validate:dico -- /path/to/your-project      # folder with dico.config.json
+# or, against the bundled sample:
+npm run validate:dico -- ../samples/eshop
+# defaults to $DATA_DIR / the dev sample when no path is given:
+npm run validate:dico
+npm run validate:dico -- --help
+```
+
+It runs the **same** loader and validators the application uses
+(`mergePackageSections`, `validateEntity`, `normalizeRelationship`,
+`validateRule`, the derived-types graph check) and adds explicit
+cross-reference resolution. Findings are grouped into **errors** and
+**warnings** with file paths and identifiers; the command exits non-zero
+when any error is found (warnings alone exit 0). Script:
+`backend/src/scripts/validateDico.ts`.
+
+---
+
 ## See also
 
 - `CLAUDE.md` — architecture overview and the concept-level rationale (#85, #106, #107).
