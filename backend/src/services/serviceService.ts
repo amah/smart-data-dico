@@ -1,4 +1,4 @@
-import { Entity, Relationship, Cardinality, EntityStatus, ReviewComment, LineageNode, LineageResult } from '../models/EntitySchema.js';
+import { Entity, Relationship, EntityStatus, ReviewComment, LineageResult } from '../models/EntitySchema.js';
 import { stereotypeService } from './stereotypeService.js';
 import { logger } from '../utils/logger.js';
 import { metadataValueToSearchString } from './metadata/metadataValueToSearchString.js';

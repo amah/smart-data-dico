@@ -1,6 +1,5 @@
 import { listMicroservices, loadPackage, readRelationshipsFile, getPackagePath } from '../utils/fileOperations.js';
 import { stereotypeService } from './stereotypeService.js';
-import { logger } from '../utils/logger.js';
 
 interface EntityQuality {
   name: string;
@@ -40,7 +39,7 @@ class QualityService {
       const pkg = await loadPackage(svc);
       const entities: EntityQuality[] = [];
 
-      let relEntityUuids = new Set<string>();
+      const relEntityUuids = new Set<string>();
       try {
         const rels = await readRelationshipsFile(getPackagePath(svc));
         for (const rel of rels) {
