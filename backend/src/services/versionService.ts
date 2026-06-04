@@ -20,6 +20,26 @@ async function getGitService() {
 }
 
 /**
+ * Render an unknown thrown value as a readable string. The git service
+ * rejects with plain objects (not Error instances), so `${error}` /
+ * `String(error)` would both yield "[object Object]" — JSON.stringify
+ * recovers the actual detail.
+ */
+function describeError(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return String(e);
+  }
+}
+
+/** Expected, benign failure: the project folder is not a git repository. */
+function isNotAGitRepo(detail: string): boolean {
+  return /not a git repo|could not find .*git repo|NotGitRepo|NOT_A_REPO|fatal: not a git/i.test(detail);
+}
+
+/**
  * Service for version control operations using @hamak/ui-remote-git-fs-backend.
  *
  * Slimmed to two methods in #160:
@@ -47,7 +67,14 @@ export class VersionService {
         .filter((p: string) => p.startsWith(ddPrefix));
       return { clean: ddFiles.length === 0, files: ddFiles };
     } catch (error) {
-      logger.warn(`getWorkingTreeStatus failed: ${error}`);
+      const detail = describeError(error);
+      // Git is optional — a non-git project folder is an expected state, not a
+      // problem. Report it at debug level so it doesn't surface as a warning.
+      if (isNotAGitRepo(detail)) {
+        logger.debug(`getWorkingTreeStatus: project is not a git repository — treating as clean (${detail})`);
+      } else {
+        logger.warn(`getWorkingTreeStatus failed: ${detail}`);
+      }
       return { clean: true, files: [] };
     }
   }
