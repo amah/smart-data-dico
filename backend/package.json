@@ -8,6 +8,7 @@
     "start": "node dist/server.js",
     "dev": "nodemon --exec tsx src/server.ts",
     "mcp": "tsx src/mcp/cli.ts",
+    "validate:dico": "tsx src/scripts/validateDico.ts",
     "build": "tsc",
     "test": "jest",
     "lint": "eslint . --ext .ts",
