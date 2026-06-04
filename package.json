@@ -11,6 +11,7 @@
     "build:frontend": "cd frontend && npm run build",
     "build:backend": "node scripts/build-backend.mjs",
     "start": "node bin/cli.js",
+    "install:skill": "bash scripts/install-skill.sh",
     "prepublishOnly": "npm run build"
   },
   "files": [

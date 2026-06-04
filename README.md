@@ -425,3 +425,17 @@ The flip side of the above: the in-app chat can also consume external MCP server
 | [Deployment](docs/deployment.md) | Desktop vs. server modes, file layout, configuration |
 | [Migration plan](docs/migration-plan.md) | @hamak/app-framework migration notes |
 | [ADRs](docs/adr/) | Architecture decision records |
+
+### Claude Code skill
+
+The `docs/` folder doubles as a [Claude Code](https://claude.com/claude-code) skill
+(`docs/SKILL.md` + the format reference) for authoring and validating dictionary files in
+any project. Install it by copying `docs/` into your skills directory as `smart-data-dico`:
+
+```bash
+npm run install:skill                          # → ~/.claude/skills/smart-data-dico
+# or into a specific project:
+scripts/install-skill.sh /path/to/project/.claude/skills
+```
+
+Claude then loads it automatically whenever you work in a folder containing `dico.config.json`.
