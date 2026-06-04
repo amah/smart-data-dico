@@ -1,7 +1,7 @@
 import path from 'path';
 import YAML from 'yaml';
 import { logger } from './logger.js';
-import { Entity, Relationship, Case, ReviewComment, validateEntity } from '../models/EntitySchema.js';
+import { Entity, Relationship, Case, ReviewComment, validateEntity, normalizeRelationship } from '../models/EntitySchema.js';
 import { Rule } from '../models/Rule.js';
 import { Action } from '../models/Action.js';
 import { StateMachine } from '../models/StateMachine.js';
@@ -810,7 +810,16 @@ export async function readRelationshipsFile(packagePath: string): Promise<Relati
   try {
     const packageName = path.basename(packagePath);
     const pkg = await loadPackage(packageName);
-    return pkg.relationships;
+    // Guarantee every relationship carries both the symmetric `ends[]` and the
+    // legacy `source`/`target` so downstream readers (graph, lists, lineage)
+    // never hit `undefined.entity`. Skip any that have neither shape.
+    const normalized: Relationship[] = [];
+    for (const rel of pkg.relationships) {
+      const n = normalizeRelationship(rel);
+      if (n) normalized.push(n);
+      else logger.warn(`Skipping malformed relationship ${rel.uuid} in package '${packageName}': no ends and no source/target`);
+    }
+    return normalized;
   } catch (error) {
     logger.error(`Error reading relationships file: ${error}`);
     return [];

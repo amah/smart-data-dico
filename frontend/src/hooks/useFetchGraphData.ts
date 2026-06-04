@@ -45,6 +45,7 @@ export function useFetchGraphData(service?: string, entity?: string): FetchGraph
             // Fetch related entities
             const relatedUuids = new Set<string>();
             rels.forEach((rel) => {
+              if (!rel.source || !rel.target) return; // skip malformed (no source/target)
               if (rel.source.entity === mainEntity.uuid) relatedUuids.add(rel.target.entity);
               if (rel.target.entity === mainEntity.uuid) relatedUuids.add(rel.source.entity);
             });
@@ -122,7 +123,7 @@ export function useFetchGraphData(service?: string, entity?: string): FetchGraph
         // Build graph edges
         const entityUuids = new Set(allEntities.map((e) => e.uuid));
         const graphEdges: GraphEdge[] = allRelationships
-          .filter((rel) => entityUuids.has(rel.source.entity) && entityUuids.has(rel.target.entity))
+          .filter((rel) => rel.source && rel.target && entityUuids.has(rel.source.entity) && entityUuids.has(rel.target.entity))
           .map((rel) => {
             const srcEntity = allEntities.find((e) => e.uuid === rel.source.entity);
             const tgtEntity = allEntities.find((e) => e.uuid === rel.target.entity);
