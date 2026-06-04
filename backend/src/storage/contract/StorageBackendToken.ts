@@ -8,8 +8,18 @@ export const DICTIONARY_QUERY_TOKEN: unique symbol = Symbol('DICTIONARY_QUERY');
 class StorageRegistry {
   private backend?: IStorageBackend;
   private query?: IDictionaryQuery;
+  private changeListeners: Array<() => void> = [];
 
-  setBackend(b: IStorageBackend): void { this.backend = b; }
+  /**
+   * Subscribe to backend swaps/resets. Caches keyed on backend contents
+   * (e.g. the loadPackage cache) register here so they clear when the
+   * backend changes — chiefly so tests that install a fresh in-memory
+   * backend per case don't read stale cached data.
+   */
+  onBackendChange(fn: () => void): void { this.changeListeners.push(fn); }
+  private notifyChange(): void { for (const fn of this.changeListeners) fn(); }
+
+  setBackend(b: IStorageBackend): void { this.backend = b; this.notifyChange(); }
   getBackend(): IStorageBackend {
     if (!this.backend) throw new Error('STORAGE_BACKEND not registered. server.ts must call storageRegistry.setBackend() at startup.');
     return this.backend;
@@ -18,7 +28,7 @@ class StorageRegistry {
   getQuery(): IDictionaryQuery | undefined { return this.query; }
 
   /** Test helper. */
-  reset(): void { this.backend = undefined; this.query = undefined; }
+  reset(): void { this.backend = undefined; this.query = undefined; this.notifyChange(); }
 }
 
 export const storageRegistry = new StorageRegistry();

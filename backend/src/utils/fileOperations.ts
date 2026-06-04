@@ -514,6 +514,11 @@ async function writeSectionsToStorage(p: Path, sections: SectionsFile): Promise<
   if (sections.actions.length > 0) payload.actions = sections.actions;
   if (sections.stateMachines.length > 0) payload.stateMachines = sections.stateMachines;
 
+  // Invalidate the loadPackage cache for the owning package (first path
+  // segment) on every write/delete, so reads see fresh data immediately.
+  const pkgSeg = String(p).replace(/^\/+/, '').split('/')[0];
+  if (pkgSeg) invalidatePackageCache(pkgSeg);
+
   if (Object.keys(payload).length === 0) {
     await deleteIfExists(p);
     return;
@@ -543,7 +548,33 @@ async function listPackageYamlFilePaths(packageName: string): Promise<Path[]> {
  * the git-ref loader in `modelSnapshotLoader` calls the same merger with
  * contents fetched via `git show`.
  */
+// ── loadPackage cache (perf) ──────────────────────────────────────────────
+// loadPackage reads + parses EVERY file in a package; on the git backend that
+// is tens of ms, and several endpoints call it repeatedly for the same package
+// within one request — per-entity `readEntityFile` loops (flat tables, quality
+// report), graph (entities + relationships), etc. — which was O(n²) and took
+// ~160s for 2000 entities. This short-TTL memo collapses those redundant loads
+// to a single read. It is invalidated immediately on any in-process write (via
+// writeSectionsToStorage), and the TTL bounds staleness from external edits
+// (git pull, manual edit, another user) to PACKAGE_CACHE_TTL_MS.
+const PACKAGE_CACHE_TTL_MS = 2000;
+const _packageCache = new Map<string, { model: PackageModel; expires: number }>();
+
+/** Drop cached package model(s). Pass a name to clear one, or nothing to clear all. */
+export function invalidatePackageCache(packageName?: string): void {
+  if (packageName === undefined) _packageCache.clear();
+  else _packageCache.delete(packageName);
+}
+
+// The cache reflects the current storage backend's contents; clear it whenever
+// the backend is swapped or reset (notably tests installing a fresh in-memory
+// backend per case, which bypasses the write-path invalidation).
+storageRegistry.onBackendChange(() => invalidatePackageCache());
+
 export async function loadPackage(packageName: string): Promise<PackageModel> {
+  const cached = _packageCache.get(packageName);
+  if (cached && cached.expires > Date.now()) return cached.model;
+
   const files = await listPackageYamlFilePaths(packageName);
   const parsed: ParsedSections[] = await Promise.all(
     files.map(async (p) => ({
@@ -551,7 +582,9 @@ export async function loadPackage(packageName: string): Promise<PackageModel> {
       sections: await parseSectionsFromStorage(p, String(p)),
     })),
   );
-  return mergePackageSections(packageName, parsed);
+  const model = mergePackageSections(packageName, parsed);
+  _packageCache.set(packageName, { model, expires: Date.now() + PACKAGE_CACHE_TTL_MS });
+  return model;
 }
 
 // ────────────────────────────────────────────────────────────────────────

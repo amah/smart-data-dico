@@ -1,4 +1,4 @@
-import { listMicroservices, listMicroserviceEntities, readEntityFile, readRelationshipsFile, getPackagePath } from '../utils/fileOperations.js';
+import { listMicroservices, loadPackage, readRelationshipsFile, getPackagePath } from '../utils/fileOperations.js';
 import { stereotypeService } from './stereotypeService.js';
 import { logger } from '../utils/logger.js';
 
@@ -35,7 +35,9 @@ class QualityService {
     const packages: PackageQuality[] = [];
 
     for (const svc of services) {
-      const entityNames = await listMicroserviceEntities(svc);
+      // Load the package once instead of a per-entity readEntityFile loop,
+      // which re-ran loadPackage for every entity (O(n²) on the git backend).
+      const pkg = await loadPackage(svc);
       const entities: EntityQuality[] = [];
 
       let relEntityUuids = new Set<string>();
@@ -47,9 +49,7 @@ class QualityService {
         }
       } catch { /* ok */ }
 
-      for (const rawName of entityNames) {
-        const name = rawName.includes('_') ? rawName.split('_').slice(1).join('_') : rawName;
-        const entity = await readEntityFile(svc, name);
+      for (const entity of pkg.entities) {
         if (!entity) continue;
 
         const descFilled = !!entity.description;

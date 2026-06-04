@@ -3,7 +3,7 @@ import YAML from 'yaml';
 
 import { Dictionary, Package } from '../models/Dictionary.js';
 import { Entity, Relationship } from '../models/EntitySchema.js';
-import { listAllDictionaries, listMicroserviceEntities, listMicroservices, loadPackage, readEntityFile, readRelationshipsFile, writeDictionaryMetadata } from '../utils/fileOperations.js';
+import { listAllDictionaries, listMicroservices, loadPackage, readEntityFile, readRelationshipsFile, writeDictionaryMetadata } from '../utils/fileOperations.js';
 import { logger } from '../utils/logger.js';
 import { config } from '../kernel/config.js';
 import { storageRegistry } from '../storage/contract/StorageBackendToken.js';
@@ -360,22 +360,19 @@ export class DictionaryService {
     try {
       if (id.startsWith('microservices/')) {
         const microservice = id.replace('microservices/', '');
-        const entityNames = await listMicroserviceEntities(microservice);
+        const pkg = await loadPackage(microservice); // one load, not per-entity (O(n²))
         const entries: any[] = [];
 
-        for (const entityName of entityNames) {
-          const entity = await readEntityFile(microservice, entityName);
-          if (entity) {
-            for (const attr of entity.attributes || []) {
-              entries.push({
-                id: `${entity.uuid || ''}_${attr.name}`,
-                name: attr.name,
-                description: attr.description || '',
-                type: attr.type || 'string',
-                format: attr.validation?.format,
-                required: attr.required || false
-              });
-            }
+        for (const entity of pkg.entities) {
+          for (const attr of entity.attributes || []) {
+            entries.push({
+              id: `${entity.uuid || ''}_${attr.name}`,
+              name: attr.name,
+              description: attr.description || '',
+              type: attr.type || 'string',
+              format: attr.validation?.format,
+              required: attr.required || false
+            });
           }
         }
 
@@ -553,11 +550,13 @@ export class DictionaryService {
       const result: any[] = [];
 
       for (const microservice of microservices) {
-        const entityNames = await listMicroserviceEntities(microservice);
+        // Load the whole package ONCE. The previous code called
+        // listMicroserviceEntities() + readEntityFile() per entity, and each
+        // of those re-runs loadPackage() (parsing every file in the package) —
+        // O(n²) package loads, ~159s for 2000 entities on the git backend.
+        const pkg = await loadPackage(microservice);
 
-        for (const entityName of entityNames) {
-          const entity = await readEntityFile(microservice, entityName);
-
+        for (const entity of pkg.entities) {
           if (!entity) continue;
 
           if (filters.name && !entity.name.toLowerCase().includes(filters.name.toLowerCase())) {
@@ -665,13 +664,9 @@ export class DictionaryService {
   }
 
   private async getServiceEntities(service: string): Promise<Entity[]> {
-    const entityNames = await listMicroserviceEntities(service);
-    const entities: Entity[] = [];
-    for (const name of entityNames) {
-      const entity = await readEntityFile(service, name);
-      if (entity) entities.push(entity);
-    }
-    return entities;
+    // Single package load instead of a per-entity readEntityFile loop (O(n²)).
+    const pkg = await loadPackage(service);
+    return pkg.entities;
   }
 }
 
