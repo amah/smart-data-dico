@@ -386,6 +386,29 @@ export function normalizeRelationshipEnds(rel: Relationship): [RelationshipEndNa
   ];
 }
 
+/**
+ * Return a relationship guaranteed to carry BOTH shapes — the symmetric
+ * `ends[]` (#99) and the legacy `source`/`target` — by synthesizing whichever
+ * is missing from the other. Consumers (graph builder, relationship lists,
+ * lineage) can then read either shape without null-checking.
+ *
+ * Returns `null` for a malformed relationship that has neither shape, so
+ * callers can skip it instead of crashing on `rel.source.entity`.
+ */
+export function normalizeRelationship(rel: Relationship): Relationship | null {
+  const hasEnds = !!(rel.ends && rel.ends.length >= 2);
+  const hasLegacy = !!(rel.source && rel.target);
+  if (!hasEnds && !hasLegacy) return null;
+
+  const [a, b] = normalizeRelationshipEnds(rel); // safe: at least one shape present
+  return {
+    ...rel,
+    ends: hasEnds ? rel.ends : [a, b],
+    source: rel.source ?? { entity: a.entity, cardinality: a.cardinality, name: a.role, referenceAttributes: a.referenceAttributes },
+    target: rel.target ?? { entity: b.entity, cardinality: b.cardinality, name: b.role, referenceAttributes: b.referenceAttributes },
+  };
+}
+
 export interface LineageNode {
   entityUuid: string;
   entityName: string;
