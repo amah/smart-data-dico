@@ -20,10 +20,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import {
-  servicesApi,
-  packageApi,
-} from '../services/api';
+import { entityApi } from '../services/api';
 import { useCommand } from '../kernel/useCommand';
 import { getRecentPackages } from '../hooks/useRecentPackages';
 import {
@@ -99,51 +96,42 @@ const HomePage = () => {
     let cancelled = false;
     const load = async () => {
       try {
-        const res = await servicesApi.getAllServices();
-        const services: string[] = res.data || [];
-
-        const [pkgResults, qualityReport] = await Promise.all([
-          Promise.all(services.map(async (name) => {
-            try {
-              const pkg = await packageApi.getPackageByPath(name, []);
-              const entities = pkg.entities || [];
-              const rels = pkg.relationships || [];
-              const cases = pkg.cases || [];
-              const attrCount = entities.reduce(
-                (s: number, e: any) => s + (e.attributes?.length || 0),
-                0,
-              );
-              return {
-                name,
-                description: pkg.description,
-                type: (pkg.type as string) || undefined,
-                entityCount: entities.length,
-                attributeCount: attrCount,
-                relationshipCount: rels.length,
-                entities: entities.map(e => ({
-                  name: e.name,
-                  stereotype: e.stereotype,
-                  description: e.description,
-                })),
-                cases: cases.map(c => ({
-                  uuid: c.uuid,
-                  name: c.name,
-                  description: c.description,
-                })),
-              } as PackageCard;
-            } catch {
-              return {
-                name,
-                entityCount: 0,
-                attributeCount: 0,
-                relationshipCount: 0,
-                entities: [],
-                cases: [],
-              };
-            }
-          })),
+        // One bulk /packages/all call instead of getAllServices + an N+1 fan-out
+        // of per-package getPackageByPath fetches (was 1 + 20 round-trips for a
+        // 20-package project). /packages/all returns the same per-package
+        // entities/relationships/cases the cards need, in a single request.
+        const [allPackages, qualityReport] = await Promise.all([
+          entityApi.getAllPackages(),
           run('data-dictionary.quality.getReport', { service: undefined }).catch(() => null),
         ]);
+
+        const pkgResults: PackageCard[] = (allPackages || []).map((pkg) => {
+          const entities = pkg.entities || [];
+          const rels = pkg.relationships || [];
+          const cases = pkg.cases || [];
+          const attrCount = entities.reduce(
+            (s: number, e: any) => s + (e.attributes?.length || 0),
+            0,
+          );
+          return {
+            name: pkg.name,
+            description: pkg.description,
+            type: (pkg.type as string) || undefined,
+            entityCount: entities.length,
+            attributeCount: attrCount,
+            relationshipCount: rels.length,
+            entities: entities.map(e => ({
+              name: e.name,
+              stereotype: e.stereotype,
+              description: e.description,
+            })),
+            cases: (cases as Array<{ uuid: string; name: string; description?: string }>).map(c => ({
+              uuid: c.uuid,
+              name: c.name,
+              description: c.description,
+            })),
+          } as PackageCard;
+        });
 
         if (cancelled) return;
 
