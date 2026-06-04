@@ -430,7 +430,10 @@ The flip side of the above: the in-app chat can also consume external MCP server
 
 The `docs/` folder doubles as a [Claude Code](https://claude.com/claude-code) skill
 (`docs/SKILL.md` + the format reference) for authoring and validating dictionary files in
-any project. Install it by copying `docs/` into your skills directory as `smart-data-dico`:
+any project. Installing it means copying `docs/` into a skills directory as `smart-data-dico`.
+Claude then loads it automatically whenever you work in a folder containing `dico.config.json`.
+
+**From a local checkout of this repo:**
 
 ```bash
 npm run install:skill                          # → ~/.claude/skills/smart-data-dico
@@ -438,4 +441,16 @@ npm run install:skill                          # → ~/.claude/skills/smart-data
 scripts/install-skill.sh /path/to/project/.claude/skills
 ```
 
-Claude then loads it automatically whenever you work in a folder containing `dico.config.json`.
+**From another repo / machine (no checkout):** this repo is private, so use the
+authenticated GitHub CLI ([`gh`](https://cli.github.com)) to pull just `docs/`:
+
+```bash
+# global → ~/.claude/skills/smart-data-dico
+tmp=$(mktemp -d) && gh api repos/amah/smart-data-dico/tarball/main | tar -xz -C "$tmp" \
+  && rm -rf ~/.claude/skills/smart-data-dico \
+  && cp -R "$tmp"/*/docs ~/.claude/skills/smart-data-dico && rm -rf "$tmp"
+```
+
+Swap the destination for `<project>/.claude/skills/smart-data-dico` to scope it to one project.
+Re-run either command to update. (If the repo is ever made public, you can instead use
+`npx degit amah/smart-data-dico/docs ~/.claude/skills/smart-data-dico` — no auth needed.)
