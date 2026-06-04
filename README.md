@@ -459,3 +459,20 @@ tmp=$(mktemp -d) && curl -fsSL https://codeload.github.com/amah/smart-data-dico/
 
 Swap the destination for `<project>/.claude/skills/smart-data-dico` to scope it to one project.
 Re-run either command to update.
+
+**Behind a proxy:** `degit` reads the lowercase `https_proxy` env var (not the CLI), while
+`curl` takes an explicit `--proxy` flag — the curl form is usually the more reliable in
+locked-down networks:
+
+```bash
+# degit
+https_proxy=http://proxy.example.com:8080 npx degit amah/smart-data-dico/docs ~/.claude/skills/smart-data-dico
+
+# curl
+tmp=$(mktemp -d) && curl -fsSL --proxy http://proxy.example.com:8080 https://codeload.github.com/amah/smart-data-dico/tar.gz/refs/heads/main | tar -xz -C "$tmp" \
+  && rm -rf ~/.claude/skills/smart-data-dico \
+  && cp -R "$tmp"/*/docs ~/.claude/skills/smart-data-dico && rm -rf "$tmp"
+```
+
+If the proxy does TLS interception, point Node/curl at your CA bundle (`NODE_EXTRA_CA_CERTS=…`
+for degit, `--cacert …` for curl).
