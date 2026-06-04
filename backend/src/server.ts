@@ -146,6 +146,20 @@ async function mountFrameworkRoutes() {
       });
       enricherRegistry.register(gitEnricher);
 
+      // Git is optional for a data-dictionary project. When the data dir is
+      // NOT a git repo, the framework's status route answers 400 — harmless,
+      // but the frontend polls it (home page, GitStatusIndicator every 30s),
+      // so it spams the browser console. Short-circuit the status poll with a
+      // benign "clean" response in that case; delegate to the framework when
+      // the project IS a repo so real git status still works.
+      app.use('/api/git/dictionaries/status', (_req: Request, res: Response, next) => {
+        if (!fs.existsSync(path.join(config.dataDir, '.git'))) {
+          res.json({ files: [], hasUncommittedChanges: false });
+          return;
+        }
+        next();
+      });
+
       const gitRoutes = gitModule.createGitRoutes({ gitService, debug: !config.isProduction });
       app.use('/api/git', gitRoutes as any);
       app.use('/api/git', gitModule.gitErrorHandler as any);
