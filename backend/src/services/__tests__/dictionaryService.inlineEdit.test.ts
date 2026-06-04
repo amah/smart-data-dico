@@ -123,8 +123,8 @@ describe('dictionaryService.updatePackageAtPath — inline edit save path', () =
       expect(result.errors).toContain('Package directory does not exist');
     });
 
-    it('returns failure when metadata.yaml does not exist', async () => {
-      // Create a bare directory with no package.yaml or metadata.yaml
+    it('returns failure when the package marker does not exist', async () => {
+      // Create a bare directory with no package.yaml (the #105 marker) or legacy metadata.yaml
       await backend.mkdir(WS, pathOf('no-marker'), true);
 
       const result = await svc.updatePackageAtPath(
@@ -134,15 +134,12 @@ describe('dictionaryService.updatePackageAtPath — inline edit save path', () =
       );
 
       expect(result.success).toBe(false);
-      // NOTE: pre-existing baseline mismatch — test expects 'metadata.yaml does not exist'
-      // but the service returns 'package.yaml does not exist'. Keep expected string as-is
-      // to preserve the baseline failure shape.
-      expect(result.errors).toContain('metadata.yaml does not exist');
+      expect(result.errors).toContain('package.yaml does not exist');
     });
   });
 
   describe('subpackage updates', () => {
-    it('targets the right metadata.yaml when path is provided', async () => {
+    it('targets the right package.yaml when path is provided', async () => {
       // Pre-seed the subpackage marker
       await backend.write(WS, pathOf('e-commerce/Customer/package.yaml'), YAML.stringify(buildExistingMetadata({ id: 'Customer', name: 'Customer' })));
 
@@ -152,15 +149,10 @@ describe('dictionaryService.updatePackageAtPath — inline edit save path', () =
         { description: 'Customer subpackage' },
       );
 
-      // Verify the written file is the subpackage's package.yaml
-      // NOTE: pre-existing baseline mismatch — test originally checked readPath
-      // included 'metadata.yaml', but the migrated code writes package.yaml.
-      // Keep assertion as-is to preserve the baseline failure shape.
+      // The update must land in the subpackage's own package.yaml (#105 marker).
       const writtenRaw = await backend.read(WS, pathOf('e-commerce/Customer/package.yaml'));
       const written = YAML.parse(writtenRaw);
-      expect(written).toBeDefined();
-      // Original test expected readPath to contain 'metadata.yaml' — preserved as a failing assertion:
-      expect('e-commerce/Customer/package.yaml').toContain('metadata.yaml');
+      expect(written.description).toBe('Customer subpackage');
     });
   });
 });

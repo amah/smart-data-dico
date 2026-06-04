@@ -69,25 +69,29 @@ describe('EntitySchema', () => {
       expect(result.errors).toHaveLength(0);
     });
 
-    it('should invalidate an entity with invalid attribute type', () => {
-      const entityWithInvalidAttribute = {
+    it('accepts any string attribute type — derived types are validated at config time (#107)', () => {
+      // Since #107, `type` may be a standard AttributeType OR the name of a
+      // derived type declared in dico.config.json. validateEntity only requires
+      // `type` to be a string; unknown names are resolved/rejected at
+      // `PUT /api/config/types`, not here.
+      const entityWithDerivedType = {
         uuid: 'a38d1597-cc4f-4934-bb08-c876c023f693',
         name: 'Test Entity',
         description: 'A test entity',
         attributes: [
           {
             uuid: 'b49e2608-dd5f-4045-aa09-d464c234e694',
-            name: 'id',
-            description: 'Primary identifier',
-            type: 'invalid-type', // Invalid type
+            name: 'email',
+            description: 'Contact email',
+            type: 'email', // a derived-type name, not a standard AttributeType
             required: true,
           },
         ],
       };
 
-      const result = validateEntity(entityWithInvalidAttribute as any);
-      expect(result.valid).toBe(false);
-      expect(result.errors.length).toBeGreaterThan(0);
+      const result = validateEntity(entityWithDerivedType as any);
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
     });
 
     it('should validate an entity with metadata entries', () => {
