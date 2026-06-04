@@ -414,3 +414,14 @@ The flip side of the above: the in-app chat can also consume external MCP server
 | Visualization | Cytoscape.js (dagre + fcose layouts) |
 | Auth | JWT + Auth0 (mock mode for dev) |
 | Deployment | Docker (multi-stage build) |
+
+## Documentation
+
+| Doc | What it covers |
+|-----|----------------|
+| [Format reference](docs/format-reference.md) | Authoritative spec for the on-disk format — project layout, `dico.config.json`, entities, validation, constraints, relationships, stereotypes, rules, cases, actions, state machines |
+| [User guide](docs/user-guide.md) | Task-oriented walkthrough of the app |
+| [API reference](docs/api-reference.md) | REST endpoints (live Swagger UI at `/api-docs` when the backend is running) |
+| [Deployment](docs/deployment.md) | Desktop vs. server modes, file layout, configuration |
+| [Migration plan](docs/migration-plan.md) | @hamak/app-framework migration notes |
+| [ADRs](docs/adr/) | Architecture decision records |
