@@ -81,7 +81,8 @@ export class UuidIndex {
     }
     this.rebuildInFlight = true;
     try {
-      const { listPackages } = await import('../../utils/fileOperations.js');
+      const { listPackages, invalidatePackageCache } = await import('../../utils/fileOperations.js');
+      invalidatePackageCache(); // full rescan must read fresh disk state
       const top = await listPackages();
       const allPackages: string[] = [];
       for (const pkg of top) {
@@ -235,9 +236,11 @@ export class UuidIndex {
     if (packageName === null) {
       // Workspace-root or non-package file (rules.yaml, .dico/schemas/**, etc.).
       // Full rebuild — the entity index could have shifted via schema migration.
+      // rebuild() drops the whole loadPackage cache so the rescan reads fresh.
       await this.rebuild();
       return;
     }
+    // rebuildPackage() invalidates the affected package's cached model itself.
     await this.rebuildPackage(packageName);
   }
 
@@ -256,6 +259,11 @@ export class UuidIndex {
     while (this.rebuildInFlight) {
       await new Promise<void>(r => setTimeout(r, 0));
     }
+
+    // A rescan must reflect current disk state, so drop any cached package
+    // model first (the projection reads entities via the cached loadPackage).
+    const { invalidatePackageCache } = await import('../../utils/fileOperations.js');
+    invalidatePackageCache(packageName);
 
     const packagePrefix = `packages/${packageName}/entities/`;
     // 1) Capture existing uuid→path entries that were under this package, so

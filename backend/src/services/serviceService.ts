@@ -4,7 +4,7 @@ import { logger } from '../utils/logger.js';
 import { metadataValueToSearchString } from './metadata/metadataValueToSearchString.js';
 import {
   listMicroservices,
-  listMicroserviceEntities,
+  loadPackage,
   readEntityFile,
   listAllEntities,
   readRelationshipsFile,
@@ -85,34 +85,15 @@ export class ServiceService {
   }
 
   async getServiceEntities(service: string): Promise<Entity[]> {
-    logger.info(`Getting entities for service: ${service}`);
     const startTime = process.hrtime();
-
     try {
-      const listStartTime = process.hrtime();
-      const entityNames = await listMicroserviceEntities(service);
-      const listEndTime = process.hrtime(listStartTime);
-      const listTimeMs = Number((listEndTime[0] * 1e3 + listEndTime[1] / 1e6).toFixed(2));
-      logger.info(`Listed ${entityNames.length} entity names for service ${service} in ${listTimeMs}ms`);
-
-      const entities: Entity[] = [];
-
-      const readStartTime = process.hrtime();
-      for (const entityName of entityNames) {
-        const entity = await readEntityFile(service, entityName);
-        if (entity) {
-          entities.push(entity);
-        }
-      }
-      const readEndTime = process.hrtime(readStartTime);
-      const readTimeMs = Number((readEndTime[0] * 1e3 + readEndTime[1] / 1e6).toFixed(2));
-      logger.info(`Read ${entities.length} entity files for service ${service} in ${readTimeMs}ms`);
-
+      // Load the whole package once. The previous per-entity readEntityFile
+      // loop re-ran loadPackage for every entity (O(n²) on the git backend).
+      const pkg = await loadPackage(service);
       const endTime = process.hrtime(startTime);
       const totalTimeMs = Number((endTime[0] * 1e3 + endTime[1] / 1e6).toFixed(2));
-      logger.info(`Total time to get entities for service ${service}: ${totalTimeMs}ms (list: ${listTimeMs}ms, read: ${readTimeMs}ms)`);
-
-      return entities;
+      logger.info(`Got ${pkg.entities.length} entities for service ${service} in ${totalTimeMs}ms`);
+      return pkg.entities;
     } catch (error) {
       logger.error(`Error getting service entities: ${error}`);
       return [];
