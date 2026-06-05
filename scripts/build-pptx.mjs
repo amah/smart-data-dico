@@ -11,7 +11,9 @@ const OUT = process.argv[2] || join(__dir, '..', 'docs', 'presentation', 'smart-
 // BNP Paribas brand palette (green on white, per their guidelines)
 const GREEN='00965E', GREEN_DARK='007348', GREEN_MID='008755', GREEN2='39A87B';
 const SOFT='F4F9F6', LINE='E3EEE8', INK='15241D', MUTED='5B6B63', TAGBG='E2F3EA', WHITE='FFFFFF';
-const FONT='Segoe UI';
+// Arial renders as a clean sans on both macOS and Windows. (Segoe UI is
+// Windows-only and falls back to a serif on macOS.)
+const FONT='Arial';
 
 const p = new pptxgen();
 p.defineLayout({ name:'W', width:13.33, height:7.5 });
@@ -131,7 +133,7 @@ steps.forEach((st,idx)=>{
 s.addShape(p.ShapeType.roundRect, { x:ML, y:4.85, w:CW, h:1.25, rectRadius:0.14, fill:{ color:GREEN } });
 s.addText([
   { text:'Try it in one command   ', options:{ color:WHITE, fontSize:18, bold:true } },
-  { text:'npx @hamak/smart-data-dico', options:{ color:'EAFFF5', fontSize:16, fontFace:'Consolas' } },
+  { text:'npx @hamak/smart-data-dico', options:{ color:'EAFFF5', fontSize:16, fontFace:'Courier New' } },
 ], { x:ML+0.5, y:4.95, w:CW-1, h:0.55, fontFace:FONT, valign:'middle' });
 s.addText('Bring visibility, governance and shared understanding to BNP Paribas’s complex systems.',
   { x:ML+0.5, y:5.5, w:CW-1, h:0.45, fontFace:FONT, fontSize:13.5, color:'DFF7EC', valign:'middle' });
