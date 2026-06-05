@@ -58,3 +58,5 @@ coverage/
 
 # Local diagrams in sample projects (user-generated layouts)
 samples/*/.dico/diagrams/
+# Dev project-switch restart trigger (nodemon-watched)
+backend/.dico-restart.json

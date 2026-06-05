@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import routes from './routes/index.js';
@@ -14,6 +15,22 @@ export { registerStorageBackend };
 
 // Load environment variables
 dotenv.config();
+
+// Dev (nodemon) project-switch parity: nodemon re-runs the same command with
+// the same env on restart, so it can't carry a new DATA_DIR. Instead the active
+// project is tracked in the handoff file (written by /api/project/open), and we
+// honor it here at boot. Managed (CLI) and production are unaffected — they
+// receive DATA_DIR directly and never set SDD_DEV.
+if (process.env.SDD_DEV === '1') {
+  try {
+    const handoff = path.join(os.homedir(), '.dico-app', 'active-project');
+    const dir = fs.readFileSync(handoff, 'utf8').trim();
+    if (dir && fs.existsSync(dir)) {
+      config.dataDir = dir;
+      logger.info(`Dev: active project from handoff → ${dir}`);
+    }
+  } catch { /* no handoff yet — use DATA_DIR / default */ }
+}
 
 // Initialize Express app
 const app = express();
