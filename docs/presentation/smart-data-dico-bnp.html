@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Smart Data Dictionary — for BNP Paribas</title>
+<!--
+  Self-contained presentation deck. Open in any browser.
+  Navigate: → / Space / click = next · ← = previous · F = fullscreen.
+  Export to PDF: browser Print → "Save as PDF", Landscape, margins None,
+  enable "Background graphics". Each slide prints on its own page.
+
+  Palette is BNP Paribas brand green (#00965E + the corporate green gradient)
+  on white, per their guidelines. The rising 4-point stars are a decorative
+  nod to BNP's identity — not a reproduction of the trademarked logo.
+-->
+<style>
+  :root{
+    --green:#00965E; --green-dark:#007348; --green-mid:#008755;
+    --green-2:#39A87B; --green-3:#6ABB97; --green-4:#8BC8AA;
+    --ink:#15241d; --muted:#5b6b63; --line:#e3eee8;
+    --bg:#ffffff; --bg-soft:#f4f9f6;
+    --grad:linear-gradient(135deg,#007348 0%,#00965E 45%,#39A87B 100%);
+    --sans:"Segoe UI",-apple-system,BlinkMacSystemFont,Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:var(--sans); color:var(--ink); background:#0c1712;
+    -webkit-font-smoothing:antialiased; overflow:hidden;
+  }
+  /* ---- deck / slide framing ---- */
+  .deck{position:relative;width:100vw;height:100vh}
+  .slide{
+    position:absolute;inset:0;display:none;flex-direction:column;
+    width:100%;height:100%;background:var(--bg);
+    padding:64px 84px 56px; overflow:hidden;
+  }
+  .slide.active{display:flex}
+  .eyebrow{
+    font-size:14px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--green);margin-bottom:14px;
+  }
+  h1{font-size:60px;line-height:1.04;font-weight:800;letter-spacing:-.02em}
+  h2{font-size:40px;line-height:1.08;font-weight:800;letter-spacing:-.01em;margin-bottom:6px}
+  .lead{font-size:21px;line-height:1.5;color:var(--muted);max-width:60ch;margin-top:14px}
+  .accent{color:var(--green)}
+  /* footer strip */
+  .foot{
+    position:absolute;left:84px;right:84px;bottom:26px;display:flex;
+    align-items:center;justify-content:space-between;
+    font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);padding-top:12px;
+  }
+  .foot .brand{font-weight:700;color:var(--ink)}
+  .foot .brand b{color:var(--green)}
+  .pagenum{font-variant-numeric:tabular-nums}
+  /* progress + nav dots */
+  .progress{position:absolute;top:0;left:0;height:4px;background:var(--grad);transition:width .35s ease;z-index:5}
+  .dots{position:absolute;bottom:24px;left:50%;transform:translateX(-50%);display:flex;gap:9px;z-index:6}
+  .dots button{width:9px;height:9px;border-radius:50%;border:none;background:var(--green-4);opacity:.5;cursor:pointer;padding:0}
+  .dots button.on{opacity:1;background:var(--green);transform:scale(1.25)}
+
+  /* ---- title slide ---- */
+  .title{background:var(--grad);color:#fff;justify-content:center;padding:84px}
+  .title .eyebrow{color:#cfeede}
+  .title h1{font-size:74px;max-width:18ch;color:#fff}
+  .title .tag{font-size:24px;line-height:1.45;color:#eafff5;margin-top:22px;max-width:46ch;font-weight:500}
+  .title .meta{margin-top:54px;display:flex;align-items:center;gap:16px;font-size:15px;color:#dff7ec}
+  .title .pill{border:1px solid rgba(255,255,255,.5);border-radius:999px;padding:7px 16px;font-weight:600}
+  .stars{position:absolute;inset:0;pointer-events:none;opacity:.9}
+  .stars svg{position:absolute}
+
+  /* ---- generic content layout ---- */
+  .body{flex:1;display:flex;flex-direction:column;justify-content:center}
+  .cols{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;margin-top:30px}
+  .card{
+    background:var(--bg-soft);border:1px solid var(--line);border-radius:16px;
+    padding:24px 22px;position:relative;overflow:hidden;
+  }
+  .card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--grad)}
+  .card .ic{width:38px;height:38px;border-radius:10px;background:var(--green);display:grid;place-items:center;margin-bottom:14px}
+  .card h3{font-size:19px;font-weight:800;margin-bottom:7px}
+  .card p{font-size:14.5px;line-height:1.5;color:var(--muted)}
+  .card .tags{margin-top:12px;display:flex;flex-wrap:wrap;gap:6px}
+  .tag{font-size:11.5px;font-weight:700;color:var(--green-dark);background:#e2f3ea;border-radius:6px;padding:3px 9px}
+
+  /* two-column problem→goal */
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:46px;margin-top:26px;align-items:start}
+  .split h3{font-size:16px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;margin-bottom:16px}
+  .split.left h3{color:var(--muted)} .split .goal h3{color:var(--green)}
+  ul.clean{list-style:none;display:flex;flex-direction:column;gap:13px}
+  ul.clean li{font-size:17.5px;line-height:1.4;padding-left:30px;position:relative;color:var(--ink)}
+  ul.clean li::before{content:"";position:absolute;left:0;top:7px;width:14px;height:14px;border-radius:4px;background:var(--green)}
+  ul.muted li{color:var(--muted)} ul.muted li::before{background:#c7d6ce}
+
+  /* feature grid (slide 4) */
+  .feat{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:28px}
+  .feat .f{display:flex;gap:13px;align-items:flex-start;padding:16px;border:1px solid var(--line);border-radius:12px;background:#fff}
+  .feat .f .ic{flex:0 0 auto;width:34px;height:34px;border-radius:9px;background:#e2f3ea;display:grid;place-items:center}
+  .feat .f h4{font-size:15.5px;font-weight:800;margin-bottom:3px}
+  .feat .f p{font-size:13px;line-height:1.45;color:var(--muted)}
+
+  /* closing slide */
+  .closing{background:var(--bg-soft)}
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:30px}
+  .step{background:#fff;border:1px solid var(--line);border-radius:16px;padding:24px}
+  .step .n{font-size:13px;font-weight:800;color:var(--green);letter-spacing:.1em}
+  .step h3{font-size:18px;font-weight:800;margin:8px 0 6px}
+  .step p{font-size:14px;color:var(--muted);line-height:1.5}
+  code{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;background:#0c1712;color:#7fe3b6;
+    padding:3px 8px;border-radius:6px;font-size:13.5px}
+  .cta{margin-top:30px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .cta .big{background:var(--grad);color:#fff;border-radius:12px;padding:16px 22px;font-size:16px;font-weight:600}
+  .cta .big code{background:rgba(255,255,255,.16);color:#eafff5}
+
+  /* hint */
+  .hint{position:fixed;right:14px;top:12px;font-size:11px;color:#9fb6ab;z-index:7}
+
+  svg .s{fill:#fff}
+
+  /* ---- print / PDF ---- */
+  @media print{
+    @page{size:1280px 720px;margin:0}
+    body{overflow:visible;background:#fff}
+    .deck{width:auto;height:auto}
+    .slide{position:relative;display:flex !important;width:1280px;height:720px;page-break-after:always;break-after:page}
+    .progress,.dots,.hint{display:none !important}
+  }
+</style>
+</head>
+<body>
+<div class="hint">→ / space &nbsp;·&nbsp; ← back &nbsp;·&nbsp; F fullscreen</div>
+<div class="progress" id="progress"></div>
+
+<div class="deck" id="deck">
+
+  <!-- 1 · TITLE -->
+  <section class="slide title active">
+    <div class="stars" id="stars"></div>
+    <div class="eyebrow">Data modelling &amp; governance platform</div>
+    <h1>Smart Data&nbsp;Dictionary</h1>
+    <div class="tag">See the whole system — capture the data model, the use cases,
+      and the processes behind it, in one living, shared, governed model.</div>
+    <div class="meta">
+      <span class="pill">Prepared for BNP&nbsp;Paribas</span>
+      <span>Visibility into complex systems</span>
+    </div>
+  </section>
+
+  <!-- 2 · PROBLEM → GOAL -->
+  <section class="slide">
+    <div class="eyebrow">The challenge &amp; the goal</div>
+    <h2>Complex systems lose their shared picture</h2>
+    <div class="body">
+      <div class="split">
+        <div class="left">
+          <h3>Today</h3>
+          <ul class="clean muted">
+            <li>Knowledge scattered across services, schemas, slides &amp; people</li>
+            <li>No single source of truth — diagrams drift from reality</li>
+            <li>Hard to see how data, rules &amp; lifecycles connect</li>
+            <li>Governance &amp; impact analysis are manual and slow</li>
+          </ul>
+        </div>
+        <div class="goal">
+          <h3>With Smart Data Dictionary</h3>
+          <ul class="clean">
+            <li>One <span class="accent">living model</span> of the whole landscape</li>
+            <li>Version-controlled in git — auditable, reviewable, shareable</li>
+            <li>Data, business rules and processes captured <span class="accent">together</span></li>
+            <li>Visibility &amp; impact at a glance, for every stakeholder</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 · CAPTURE THE FULL PICTURE -->
+  <section class="slide">
+    <div class="eyebrow">One model, three connected facets</div>
+    <h2>Capture the full picture of a system</h2>
+    <p class="lead">Most tools stop at boxes and lines. Smart Data Dictionary models
+      <span class="accent">what the data is</span>, <span class="accent">how the business uses it</span>,
+      and <span class="accent">how it behaves over time</span>.</p>
+    <div class="cols">
+      <div class="card">
+        <div class="ic">
+          <svg width="20" height="20" viewBox="0 0 24 24"><path class="s" d="M3 5h18v4H3zM3 11h18v3H3zM3 16h12v3H3z"/></svg>
+        </div>
+        <h3>Data model</h3>
+        <p>Packages, entities &amp; typed attributes with validation, relationships,
+          DB-enforced constraints and reusable derived types.</p>
+        <div class="tags"><span class="tag">Entities</span><span class="tag">Relationships</span><span class="tag">Validation</span><span class="tag">Constraints</span></div>
+      </div>
+      <div class="card">
+        <div class="ic">
+          <svg width="20" height="20" viewBox="0 0 24 24"><path class="s" d="M12 2l2.5 5.2L20 8l-4 3.9.9 5.6L12 15l-4.9 2.5L8 11.9 4 8l5.5-.8z"/></svg>
+        </div>
+        <h3>Use cases &amp; views</h3>
+        <p>Business "cases" and perspectives resolve a focused sub-model from any
+          starting point — the view each audience actually needs.</p>
+        <div class="tags"><span class="tag">Cases</span><span class="tag">Perspectives</span><span class="tag">Business rules</span></div>
+      </div>
+      <div class="card">
+        <div class="ic">
+          <svg width="20" height="20" viewBox="0 0 24 24"><circle class="s" cx="6" cy="7" r="3"/><circle class="s" cx="18" cy="17" r="3"/><path class="s" d="M8.7 8.3l7 7-1.4 1.4-7-7z"/></svg>
+        </div>
+        <h3>Process &amp; state machines</h3>
+        <p>Model an entity's lifecycle — states, transitions, guards and the
+          actions/events fired along the way. Behaviour, not just structure.</p>
+        <div class="tags"><span class="tag">State machines</span><span class="tag">Transitions</span><span class="tag">Actions</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 · MORE THAN A DIAGRAM (other features) -->
+  <section class="slide">
+    <div class="eyebrow">A platform, not a drawing</div>
+    <h2>Built for governance at scale</h2>
+    <div class="feat">
+      <div class="f"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="#00965E"><circle cx="5" cy="6" r="2.4"/><circle cx="19" cy="6" r="2.4"/><circle cx="12" cy="18" r="2.4"/><path d="M5 8v3a3 3 0 003 3h8a3 3 0 003-3V8" fill="none" stroke="#00965E" stroke-width="1.8"/></svg></div>
+        <div><h4>Interactive visualization</h4><p>Explore entities &amp; relationships as a live graph, by package or across the whole model.</p></div></div>
+      <div class="f"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="#00965E"><path d="M6 3v12a3 3 0 003 3h6"/><circle cx="6" cy="4" r="2.6"/><circle cx="18" cy="18" r="2.6"/></svg></div>
+        <div><h4>Git versioning</h4><p>Every change tracked, diffed, reviewed and published — full history, no database.</p></div></div>
+      <div class="f"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00965E" stroke-width="2"><path d="M12 3l8 4v5c0 4.5-3.2 7.7-8 9-4.8-1.3-8-4.5-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg></div>
+        <div><h4>Quality &amp; integrity</h4><p>Validation, constraints and business rules in one pane; documentation scoring.</p></div></div>
+      <div class="f"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00965E" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h10"/></svg></div>
+        <div><h4>Import &amp; export</h4><p>Export JSON&nbsp;Schema for code-gen; capture physical constraints from SQL&nbsp;DDL / live DBs.</p></div></div>
+      <div class="f"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00965E" stroke-width="2"><path d="M12 3a5 5 0 015 5c0 2-1 3-1 5H8c0-2-1-3-1-5a5 5 0 015-5z"/><path d="M9 18h6M10 21h4"/></svg></div>
+        <div><h4>AI assistance</h4><p>In-app chat grounded in your model — author, search and explain, with MCP tools.</p></div></div>
+      <div class="f"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00965E" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12l3 3 5-6"/></svg></div>
+        <div><h4>CI validation</h4><p><code style="font-size:11px">npx … --validate</code> catches model errors before they ever reach the app.</p></div></div>
+    </div>
+  </section>
+
+  <!-- 5 · HOW IT WORKS / GET STARTED -->
+  <section class="slide closing">
+    <div class="eyebrow">How it works</div>
+    <h2>Lightweight to run, ready to scale</h2>
+    <div class="steps">
+      <div class="step"><div class="n">01 · STORE</div><h3>File-based &amp; git-native</h3>
+        <p>The model lives as YAML/JSON in a project folder, versioned with git. No database to operate.</p></div>
+      <div class="step"><div class="n">02 · RUN</div><h3>Desktop or server</h3>
+        <p>Single-user desktop, or a shared multi-user server with roles (admin / editor / viewer).</p></div>
+      <div class="step"><div class="n">03 · GOVERN</div><h3>Review &amp; publish</h3>
+        <p>Draft → review → approve workflows, quality &amp; integrity gates, impact analysis.</p></div>
+    </div>
+    <div class="cta">
+      <div class="big">Try it in one command &nbsp; <code>npx @hamak/smart-data-dico</code></div>
+      <div class="lead" style="margin:0">Bring visibility, governance and shared understanding to BNP&nbsp;Paribas's complex systems.</div>
+    </div>
+  </section>
+
+</div>
+
+<div class="dots" id="dots"></div>
+
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  const dotsWrap=document.getElementById('dots');
+  const progress=document.getElementById('progress');
+  let i=0;
+  slides.forEach((_,n)=>{const b=document.createElement('button');b.onclick=()=>go(n);dotsWrap.appendChild(b);});
+  const dots=[...dotsWrap.children];
+  function go(n){
+    i=Math.max(0,Math.min(slides.length-1,n));
+    slides.forEach((s,k)=>s.classList.toggle('active',k===i));
+    dots.forEach((d,k)=>d.classList.toggle('on',k===i));
+    progress.style.width=((i+1)/slides.length*100)+'%';
+  }
+  function next(){go(i+1)} function prev(){go(i-1)}
+  document.addEventListener('keydown',e=>{
+    if(['ArrowRight',' ','PageDown','Enter'].includes(e.key)){e.preventDefault();next();}
+    else if(['ArrowLeft','PageUp'].includes(e.key)){e.preventDefault();prev();}
+    else if(e.key==='Home')go(0); else if(e.key==='End')go(slides.length-1);
+    else if(e.key.toLowerCase()==='f'){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}
+  });
+  document.getElementById('deck').addEventListener('click',e=>{if(!e.target.closest('a,button,code'))next();});
+  // decorative rising stars on the title slide
+  const star=(x,y,s,o)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" style="left:${x}%;top:${y}%;opacity:${o}"><path class="s" d="M12 0l3 9 9 3-9 3-3 9-3-9-9-3 9-3z"/></svg>`;
+  document.getElementById('stars').innerHTML=[
+    [72,18,46,.35],[83,40,26,.5],[64,62,18,.4],[90,72,34,.28],[55,30,14,.45],[78,82,20,.35]
+  ].map(a=>star(...a)).join('');
+  go(0);
+</script>
+</body>
+</html>
