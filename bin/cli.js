@@ -2,7 +2,8 @@
 
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'node:path';
-import { existsSync, mkdirSync, cpSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, cpSync, writeFileSync, readFileSync } from 'fs';
+import { homedir } from 'node:os';
 import { spawn, spawnSync } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -140,56 +141,86 @@ if (existsSync(bundledServer)) {
 
 const frontendDist = join(PKG_ROOT, 'frontend', 'dist');
 
-console.log(`
+// In-app "Open project" can't hot-swap the boot-time data dir, so the server
+// persists the new project here and exits with RESTART_EXIT_CODE; we respawn
+// it with DATA_DIR set to that path. SDD_MANAGED=1 tells the server it's safe
+// to use this restart path.
+const RESTART_EXIT_CODE = 75;
+const ACTIVE_PROJECT_FILE = join(homedir(), '.dico-app', 'active-project');
+
+let currentChild = null;
+let browserOpened = false;
+
+function startServer(dir) {
+  console.log(`
   Smart Data Dictionary
 
   Port:       ${port}
-  Data:       ${dataDir}
+  Data:       ${dir}
   Profile:    ${process.env.PROFILE || 'local'}
   Frontend:   ${existsSync(frontendDist) ? 'bundled' : 'dev (use frontend dev server on :3000)'}
 `);
 
-const child = spawn(bin, binArgs, {
-  cwd: PKG_ROOT,
-  env: {
-    ...process.env,
-    PORT: port,
-    NODE_ENV: 'production',
-    PROFILE: process.env.PROFILE || 'local',
-    DATA_DIR: dataDir,
-    SDD_FRONTEND_DIST: frontendDist,
-  },
-  stdio: 'inherit',
-});
+  const child = spawn(bin, binArgs, {
+    cwd: PKG_ROOT,
+    env: {
+      ...process.env,
+      PORT: port,
+      NODE_ENV: 'production',
+      PROFILE: process.env.PROFILE || 'local',
+      DATA_DIR: dir,
+      SDD_FRONTEND_DIST: frontendDist,
+      SDD_MANAGED: '1',
+    },
+    stdio: 'inherit',
+  });
+  currentChild = child;
 
-child.on('error', (err) => {
-  console.error('Failed to start server:', err.message);
-  process.exit(1);
-});
+  child.on('error', (err) => {
+    console.error('Failed to start server:', err.message);
+    process.exit(1);
+  });
 
-child.on('exit', (code) => process.exit(code || 0));
-
-// Open browser after short delay
-if (!flags.noOpen) {
-  setTimeout(async () => {
-    const url = `http://localhost:${port}`;
-    console.log(`Opening ${url} ...`);
-    try {
-      const { exec } = await import('child_process');
-      const cmd = process.platform === 'darwin' ? 'open' :
-                  process.platform === 'win32' ? 'start' : 'xdg-open';
-      exec(`${cmd} ${url}`);
-    } catch {
-      console.log(`Open ${url} in your browser`);
+  child.on('exit', (code) => {
+    if (code === RESTART_EXIT_CODE) {
+      // Project switch requested — read the new dir and respawn.
+      let nextDir = dir;
+      try {
+        const persisted = readFileSync(ACTIVE_PROJECT_FILE, 'utf-8').trim();
+        if (persisted) nextDir = persisted;
+      } catch { /* keep current dir */ }
+      console.log(`\nSwitching project → ${nextDir}\n`);
+      startServer(nextDir);
+      return;
     }
-  }, 3000);
+    process.exit(code || 0);
+  });
+
+  // Open the browser once, on the first start only (not on project-switch restarts).
+  if (!flags.noOpen && !browserOpened) {
+    browserOpened = true;
+    setTimeout(async () => {
+      const url = `http://localhost:${port}`;
+      console.log(`Opening ${url} ...`);
+      try {
+        const { exec } = await import('child_process');
+        const cmd = process.platform === 'darwin' ? 'open' :
+                    process.platform === 'win32' ? 'start' : 'xdg-open';
+        exec(`${cmd} ${url}`);
+      } catch {
+        console.log(`Open ${url} in your browser`);
+      }
+    }, 3000);
+  }
 }
+
+startServer(dataDir);
 
 process.on('SIGINT', () => {
   console.log('\nShutting down...');
-  child.kill('SIGINT');
+  if (currentChild) currentChild.kill('SIGINT');
 });
 
 process.on('SIGTERM', () => {
-  child.kill('SIGTERM');
+  if (currentChild) currentChild.kill('SIGTERM');
 });

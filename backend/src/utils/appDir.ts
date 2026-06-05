@@ -25,6 +25,10 @@ import { logger } from './logger.js';
 
 export const APP_DIR = path.join(os.homedir(), '.dico-app');
 export const CONFIG_FILE = path.join(APP_DIR, 'dico-app.json');
+// Handoff file for managed project switching: the server writes the target
+// project dir here and exits with the restart sentinel; bin/cli.js reads it
+// and respawns the server with DATA_DIR set to it. (#open-project)
+export const ACTIVE_PROJECT_FILE = path.join(APP_DIR, 'active-project');
 export const STORAGE_DIR = path.join(APP_DIR, 'storage');
 export const CONVERSATIONS_DIR = path.join(STORAGE_DIR, 'conversations');
 export const PROMPTS_DIR = path.join(STORAGE_DIR, 'prompts');

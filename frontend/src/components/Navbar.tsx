@@ -28,6 +28,9 @@ const Navbar = ({ toggleSidebar, toggleChat, chatOpen }: NavbarProps) => {
   const [showPathInput, setShowPathInput] = useState<'open' | 'init' | null>(null);
   const [pathInput, setPathInput] = useState('');
   const [projectError, setProjectError] = useState('');
+  // When set, a project switch is in progress — show a blocking overlay until
+  // the (possibly restarting) backend is back and the page reloads.
+  const [switching, setSwitching] = useState<string | null>(null);
   const [recentProjects, setRecentProjects] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch { return []; }
   });
@@ -64,54 +67,72 @@ const Navbar = ({ toggleSidebar, toggleChat, chatOpen }: NavbarProps) => {
     }
   };
 
+  // After a managed project-switch, the backend exits and is respawned with the
+  // new DATA_DIR. Poll /api/status until it answers, then reload into the new
+  // project. (Outside managed mode the server doesn't restart and we reload
+  // immediately — see switchProject.)
+  const waitForBackendThenReload = async () => {
+    const deadline = Date.now() + 30000;
+    await new Promise(r => setTimeout(r, 500)); // let the old server begin exiting
+    while (Date.now() < deadline) {
+      try {
+        const r = await fetch('/api/status', { cache: 'no-store' });
+        if (r.ok) { window.location.reload(); return; }
+      } catch { /* server is restarting */ }
+      await new Promise(r => setTimeout(r, 500));
+    }
+    window.location.reload(); // timed out — reload anyway; home page surfaces any error
+  };
+
+  // Shared open/init/close/recent flow: show a blocking overlay, run the action,
+  // and wait for the restart (if any) before reloading.
+  const switchProject = async (label: string, action: () => Promise<any>) => {
+    setProjectError('');
+    setSwitching(label);
+    try {
+      const res = await action();
+      if (res?.restarting) {
+        await waitForBackendThenReload();
+      } else {
+        loadProject();
+        window.location.reload();
+      }
+    } catch (e: any) {
+      setSwitching(null);
+      setProjectError(e?.response?.data?.message || 'Failed to switch project');
+    }
+  };
+
   const handleOpenProject = async () => {
     setProjectError('');
     if (!(await confirmIfDirty('Opening a different project'))) return;
-    try {
-      await projectApi.open(pathInput);
-      addRecent(pathInput);
-      setShowPathInput(null);
-      setPathInput('');
-      loadProject();
-      window.location.reload();
-    } catch (e: any) {
-      setProjectError(e.response?.data?.message || 'Failed to open project');
-    }
+    const target = pathInput;
+    addRecent(target);            // persisted to localStorage → survives the reload
+    setShowPathInput(null);
+    setPathInput('');
+    await switchProject(`Opening ${target} …`, () => projectApi.open(target));
   };
 
   const handleInitProject = async () => {
     setProjectError('');
     if (!(await confirmIfDirty('Initializing a new project'))) return;
-    try {
-      await projectApi.init(pathInput);
-      addRecent(pathInput);
-      setShowPathInput(null);
-      setPathInput('');
-      loadProject();
-      window.location.reload();
-    } catch (e: any) {
-      setProjectError(e.response?.data?.message || 'Failed to init project');
-    }
+    const target = pathInput;
+    addRecent(target);
+    setShowPathInput(null);
+    setPathInput('');
+    await switchProject(`Initializing ${target} …`, () => projectApi.init(target));
   };
 
   const handleCloseProject = async () => {
     if (!(await confirmIfDirty('Closing the project'))) return;
-    try {
-      await projectApi.close();
-      loadProject();
-      window.location.reload();
-    } catch { /* ignore */ }
+    await switchProject('Closing project …', () => projectApi.close());
   };
 
   const handleOpenRecent = async (p: string) => {
     if (!(await confirmIfDirty('Switching project'))) return;
-    try {
-      await projectApi.open(p);
-      addRecent(p);
-      setShowProjectMenu(false);
-      loadProject();
-      window.location.reload();
-    } catch { /* ignore */ }
+    addRecent(p);
+    setShowProjectMenu(false);
+    await switchProject(`Opening ${p} …`, () => projectApi.open(p));
   };
 
   const handleLogout = () => {
@@ -134,6 +155,39 @@ const Navbar = ({ toggleSidebar, toggleChat, chatOpen }: NavbarProps) => {
         flexShrink: 0,
       }}
     >
+      {/* Blocking overlay shown while switching projects (covers the restart +
+          reload, so the app never just looks frozen). position:fixed → covers
+          the viewport regardless of where it sits in the tree. */}
+      {switching && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <div
+            style={{
+              background: 'var(--bg-raised)', color: 'var(--text)',
+              border: '1px solid var(--border)', borderRadius: 8,
+              padding: '20px 28px', display: 'flex', alignItems: 'center', gap: 12,
+              fontSize: 'var(--fs-sm)', boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+            }}
+          >
+            <span
+              style={{
+                width: 18, height: 18, borderRadius: '50%',
+                border: '2px solid var(--border)', borderTopColor: 'var(--accent, #6366f1)',
+                display: 'inline-block', animation: 'sdd-nav-spin 0.8s linear infinite',
+              }}
+            />
+            <span>{switching}</span>
+          </div>
+          <style>{`@keyframes sdd-nav-spin{to{transform:rotate(360deg)}}`}</style>
+        </div>
+      )}
       {/* Mobile sidebar toggle */}
       <button
         className="md:hidden"
