@@ -43,7 +43,30 @@ function applyProjectSwitch(req: Request, res: Response, dataDir: string, messag
     setTimeout(() => process.exit(RESTART_EXIT_CODE), 250);
     return;
   }
-  // Best-effort in-process fallback (dev / unmanaged).
+  if (process.env.SDD_DEV === '1') {
+    // Dev parity: nodemon can't change env on restart, so persist the target in
+    // the handoff file (server.ts reads it at boot) and touch a nodemon-watched
+    // trigger file to force a restart.
+    try {
+      fs.mkdirSync(path.dirname(ACTIVE_PROJECT_FILE), { recursive: true });
+      fs.writeFileSync(ACTIVE_PROJECT_FILE, dataDir, 'utf-8');
+    } catch (e) {
+      logger.error(`Project switch: failed to persist target dir: ${e}`);
+      res.status(500).json({ message: 'Failed to switch project (could not persist target).' });
+      return;
+    }
+    res.json({ message, data: { path: dataDir, name: path.basename(path.dirname(dataDir)) }, restarting: true });
+    logger.info(`Project switch (dev) → restarting nodemon to load ${dataDir}`);
+    setTimeout(() => {
+      try {
+        fs.writeFileSync(path.join(process.cwd(), '.dico-restart.json'), JSON.stringify({ ts: Date.now(), dir: dataDir }));
+      } catch (e) {
+        logger.error(`Project switch (dev): failed to touch restart trigger: ${e}`);
+      }
+    }, 250);
+    return;
+  }
+  // Best-effort in-process fallback (unmanaged, non-dev).
   config.dataDir = dataDir;
   const roots = (req.app as { __workspaceRoots?: Map<string, string> }).__workspaceRoots;
   if (roots) roots.set('dictionaries', dataDir);
