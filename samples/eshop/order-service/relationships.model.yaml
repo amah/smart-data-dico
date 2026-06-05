@@ -1,6 +1,13 @@
 relationships:
   - uuid: rel-order-item-001
     description: Order has OrderItems
+    metadata:
+      - name: jpa.fetch
+        value: LAZY
+      - name: jpa.cascade
+        value: ALL
+      - name: jpa.orphanRemoval
+        value: true
     ends:
       - entity: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
         cardinality: one

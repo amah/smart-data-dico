@@ -53,6 +53,7 @@ import {
   normalizeRelationship,
   type Entity,
   type Attribute,
+  type MetadataEntry,
 } from '../models/EntitySchema.js';
 import { isValidUUID } from '../utils/uuid.js';
 import { validateRule } from '../models/Rule.js';
@@ -278,10 +279,103 @@ function collectAttributes(attrs: unknown, acc: Attribute[]): void {
  *     so the validator stays faithful and passes on a healthy project while
  *     still surfacing quality issues.
  */
+// ── JPA reserved-metadata vocabulary (jpa.* keys) ────────────────────────────
+// Mirrors the `physical.*` prefix convention: JPA mapping info is carried as
+// reserved `jpa.*` entries on the existing metadata[] arrays so the dico can
+// bear full JPA mapping (the exporter itself is out of scope). Validated here
+// so bad values are caught up front. See docs/format-reference.md.
+const JPA_ENUM_VALUES: Record<string, readonly string[]> = {
+  'jpa.generatedValue': ['IDENTITY', 'SEQUENCE', 'TABLE', 'UUID', 'AUTO', 'NONE'],
+  'jpa.enumerated': ['STRING', 'ORDINAL'],
+  'jpa.temporal': ['DATE', 'TIME', 'TIMESTAMP'],
+  'jpa.inheritanceStrategy': ['SINGLE_TABLE', 'JOINED', 'TABLE_PER_CLASS'],
+  'jpa.fetch': ['LAZY', 'EAGER'],
+};
+const JPA_CASCADE_VALUES = ['ALL', 'PERSIST', 'MERGE', 'REMOVE', 'REFRESH', 'DETACH'];
+const JPA_FLAG_KEYS = new Set([
+  'jpa.embeddable', 'jpa.mappedSuperclass', 'jpa.version', 'jpa.transient',
+  'jpa.lob', 'jpa.elementCollection', 'jpa.embedded', 'jpa.orphanRemoval', 'jpa.optional',
+]);
+const JPA_KEYS: Record<'entity' | 'attribute' | 'relationship', Set<string>> = {
+  entity: new Set(['jpa.package', 'jpa.className', 'jpa.embeddable', 'jpa.mappedSuperclass',
+    'jpa.extends', 'jpa.inheritanceStrategy', 'jpa.discriminatorColumn', 'jpa.discriminatorValue',
+    'jpa.idClass', 'jpa.embeddedId']),
+  attribute: new Set(['jpa.javaType', 'jpa.generatedValue', 'jpa.sequenceName', 'jpa.allocationSize',
+    'jpa.enumerated', 'jpa.enumType', 'jpa.version', 'jpa.transient', 'jpa.lob', 'jpa.temporal',
+    'jpa.converter', 'jpa.elementCollection', 'jpa.embedded']),
+  relationship: new Set(['jpa.fetch', 'jpa.cascade', 'jpa.orphanRemoval', 'jpa.optional',
+    'jpa.mappedBy', 'jpa.owningEnd', 'jpa.joinTable', 'jpa.joinColumns', 'jpa.inverseJoinColumns']),
+};
+
+interface JpaCtx {
+  globalEntityUuids: Set<string>;
+  globalEntityNames: Set<string>;
+  /** Attribute scope only — the AttributeType, for the jpa.enumerated sanity check. */
+  attrType?: string;
+}
+
+/** Validate the reserved `jpa.*` metadata on one element. No-op when there are none. */
+function checkJpaMetadata(
+  scope: 'entity' | 'attribute' | 'relationship',
+  metadata: MetadataEntry[] | undefined,
+  ownerDesc: string,
+  label: string,
+  identifier: string | undefined,
+  report: Report,
+  ctx: JpaCtx,
+): void {
+  const entries = (metadata || []).filter(m => m.name.startsWith('jpa.'));
+  if (entries.length === 0) return;
+  const byName = new Map(entries.map(e => [e.name, e.value]));
+
+  for (const m of entries) {
+    const key = m.name;
+    if (!JPA_KEYS[scope].has(key)) {
+      report.warn('jpa.unknownKey', `Unknown or misplaced JPA key '${key}' on ${ownerDesc} (not a known ${scope}-level jpa.* key)`, label, identifier);
+      continue;
+    }
+    const v = m.value;
+    if (key === 'jpa.cascade') {
+      const tokens = Array.isArray(v) ? v.map(String) : String(v).split(',').map(s => s.trim()).filter(Boolean);
+      for (const tok of tokens) {
+        if (!JPA_CASCADE_VALUES.includes(tok)) {
+          report.error('jpa.value', `JPA '${key}' on ${ownerDesc}: '${tok}' is not a valid cascade type (${JPA_CASCADE_VALUES.join('|')})`, label, identifier);
+        }
+      }
+    } else if (JPA_ENUM_VALUES[key]) {
+      if (!JPA_ENUM_VALUES[key].includes(String(v))) {
+        report.error('jpa.value', `JPA '${key}' on ${ownerDesc}: '${v}' is not one of ${JPA_ENUM_VALUES[key].join('|')}`, label, identifier);
+      }
+    } else if (JPA_FLAG_KEYS.has(key) && typeof v !== 'boolean') {
+      report.warn('jpa.flag', `JPA flag '${key}' on ${ownerDesc} should be a boolean, got '${v}'`, label, identifier);
+    }
+  }
+
+  // jpa.extends must resolve to an entity (by uuid or name) somewhere in the project.
+  if (scope === 'entity' && byName.has('jpa.extends')) {
+    const ref = String(byName.get('jpa.extends'));
+    if (ref && !ctx.globalEntityUuids.has(ref) && !ctx.globalEntityNames.has(ref)) {
+      report.error('jpa.reference', `JPA 'jpa.extends' on ${ownerDesc} references '${ref}', which is not an entity in the project`, label, identifier);
+    }
+  }
+  // Mutually exclusive declarations.
+  if (scope === 'attribute' && byName.get('jpa.version') === true && byName.get('jpa.transient') === true) {
+    report.error('jpa.conflict', `${ownerDesc} marks both jpa.version and jpa.transient`, label, identifier);
+  }
+  if (scope === 'entity' && byName.get('jpa.embeddable') === true && byName.has('jpa.extends')) {
+    report.error('jpa.conflict', `${ownerDesc} is jpa.embeddable but also declares jpa.extends (an @Embeddable cannot extend an @Entity)`, label, identifier);
+  }
+  // jpa.enumerated only makes sense on enum-typed attributes.
+  if (scope === 'attribute' && byName.has('jpa.enumerated') && ctx.attrType && ctx.attrType !== 'enum') {
+    report.warn('jpa.enumerated', `jpa.enumerated on ${ownerDesc} but the attribute type is '${ctx.attrType}', not 'enum'`, label, identifier);
+  }
+}
+
 function checkPackageModel(
   pkg: string,
   model: PackageModel,
   globalEntityUuids: Set<string>,
+  globalEntityNames: Set<string>,
   globalAttrUuids: Map<string, string>,
   report: Report,
 ): void {
@@ -319,6 +413,13 @@ function checkPackageModel(
       } else {
         globalAttrUuids.set(attr.uuid, `${label} (entity '${entity.name}', attribute '${attr.name}')`);
       }
+    }
+
+    // JPA reserved metadata on the entity and each of its attributes.
+    const jpaCtx = { globalEntityUuids, globalEntityNames };
+    checkJpaMetadata('entity', entity.metadata, `entity '${entity.name}'`, label, entity.uuid, report, jpaCtx);
+    for (const attr of allAttrs) {
+      checkJpaMetadata('attribute', attr.metadata, `attribute '${attr.name}' on entity '${entity.name}'`, label, attr.uuid, report, { ...jpaCtx, attrType: String(attr.type) });
     }
   }
 
@@ -360,6 +461,7 @@ function checkPackageModel(
         );
       }
     }
+    checkJpaMetadata('relationship', rel.metadata, `relationship '${rel.uuid}'`, label, rel.uuid, report, { globalEntityUuids, globalEntityNames });
   }
 
   // ── Check 6: rules validate; entity-scoped targets resolve ──
@@ -603,12 +705,16 @@ export async function validateProject(root: string, report: Report): Promise<voi
   // Build the project-wide entity-uuid set so cross-package references
   // (relationship endpoints, action/sm ownerRef, rule targets) resolve.
   const globalEntityUuids = new Set<string>();
+  const globalEntityNames = new Set<string>();
   for (const { model } of models) {
-    for (const e of model.entities) if (e.uuid) globalEntityUuids.add(e.uuid);
+    for (const e of model.entities) {
+      if (e.uuid) globalEntityUuids.add(e.uuid);
+      if (e.name) globalEntityNames.add(e.name);
+    }
   }
 
   for (const { pkg, model } of models) {
-    checkPackageModel(pkg, model, globalEntityUuids, globalAttrUuids, report);
+    checkPackageModel(pkg, model, globalEntityUuids, globalEntityNames, globalAttrUuids, report);
   }
 }
 

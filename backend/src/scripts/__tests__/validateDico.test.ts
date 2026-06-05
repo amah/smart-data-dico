@@ -207,4 +207,82 @@ describe('validateDico', () => {
       storageRegistry.reset();
     }
   });
+
+  it('flags bad jpa.* metadata (enum value, ghost extends, conflicting flags, unknown key)', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dico-jpa-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'dico.config.json'), JSON.stringify({ version: 1 }));
+      const pkg = path.join(dir, 'shop');
+      fs.mkdirSync(pkg, { recursive: true });
+      fs.writeFileSync(path.join(pkg, 'package.yaml'), 'name: shop\n');
+      fs.writeFileSync(path.join(pkg, 'Order.model.yaml'), [
+        'entities:',
+        '  - uuid: 11111111-1111-4111-8111-111111111111',
+        '    name: Order',
+        '    description: order',
+        '    metadata:',
+        '      - name: jpa.package',
+        '        value: com.x.order',
+        '      - name: jpa.extends',          // → jpa.reference (no such entity)
+        '        value: GhostParent',
+        '    attributes:',
+        '      - uuid: aaaaaaaa-1111-4111-8111-111111111111',
+        '        name: id',
+        '        description: id',
+        '        type: string',
+        '        required: true',
+        '        metadata:',
+        '          - name: jpa.generatedValue', // → jpa.value (bad enum)
+        '            value: BOGUS',
+        '      - uuid: aaaaaaaa-2222-4222-8222-222222222222',
+        '        name: lockver',
+        '        description: ver',
+        '        type: integer',
+        '        required: false',
+        '        metadata:',
+        '          - name: jpa.version',         // version + transient → jpa.conflict
+        '            value: true',
+        '          - name: jpa.transient',
+        '            value: true',
+        '      - uuid: aaaaaaaa-3333-4333-8333-333333333333',
+        '        name: misc',
+        '        description: misc',
+        '        type: string',
+        '        required: false',
+        '        metadata:',
+        '          - name: jpa.bogusKey',        // → jpa.unknownKey (warning)
+        '            value: x',
+        '',
+      ].join('\n'));
+      // Valid self-relationship endpoints; only the jpa.fetch value is bad.
+      fs.writeFileSync(path.join(pkg, 'relationships.model.yaml'), [
+        'relationships:',
+        '  - uuid: rel-jpa-001',
+        '    description: self',
+        '    metadata:',
+        '      - name: jpa.fetch',               // → jpa.value (bad enum)
+        '        value: BOGUS',
+        '    ends:',
+        '      - entity: 11111111-1111-4111-8111-111111111111',
+        '        cardinality: one',
+        '      - entity: 11111111-1111-4111-8111-111111111111',
+        '        cardinality: many',
+        '',
+      ].join('\n'));
+
+      const report = new Report();
+      await validateProject(dir, report);
+      const codes = report.findings.map(f => f.code);
+      expect(codes).toContain('jpa.value');       // bad enum (generatedValue + fetch)
+      expect(codes).toContain('jpa.reference');    // ghost jpa.extends
+      expect(codes).toContain('jpa.conflict');     // version + transient
+      const unknown = report.findings.find(f => f.code === 'jpa.unknownKey');
+      expect(unknown).toBeDefined();
+      expect(unknown!.severity).toBe('warning');
+      expect(report.errorCount).toBeGreaterThan(0);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+      storageRegistry.reset();
+    }
+  });
 });

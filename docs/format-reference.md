@@ -385,6 +385,77 @@ Saved visualization layouts, stored as JSON under `.dico/diagrams/<id>.json`. Co
 
 ---
 
+## 14. JPA mapping metadata (reserved `jpa.*` keys)
+
+The model already carries everything a JPA (Java Persistence) mapping needs *structurally* — entity/table names, column names + DB types + nullability (the `physical.*` keys, §5/§7), `primaryKey`, one/many cardinality (§6 → `@OneToMany`/`@ManyToOne`), foreign keys with `ON DELETE/UPDATE` (`PhysicalConstraint`), and validation (→ Bean Validation). The **Java-specific** bits that can't be derived from structure are carried as a reserved **`jpa.*` metadata namespace** on the existing `metadata[]` arrays — exactly the prefix convention used by `physical.*`. It is **additive and optional**: a model with no `jpa.*` keys is unaffected.
+
+These keys let the dico *bear* a full JPA mapping (a JPA exporter/code-generator is a separate concern and not part of the format). Anything not set falls back to conventions: package inferred from the package/service name, table/column names from `physical.*` or `snake_case`, Java type from a standard `AttributeType`→Java table (e.g. `uuid`→`UUID`, `timestamp`→`Instant`, `number`+scale→`BigDecimal`).
+
+**Entity `metadata[]`**
+
+| key | value | maps to |
+|---|---|---|
+| `jpa.package` | string | class package (`@Entity` FQN) |
+| `jpa.className` | string | class-name override (default: entity name) |
+| `jpa.embeddable` / `jpa.mappedSuperclass` | flag | `@Embeddable` / `@MappedSuperclass` |
+| `jpa.extends` | entity name or uuid | supertype (inheritance) — must resolve to an entity |
+| `jpa.inheritanceStrategy` | `SINGLE_TABLE` \| `JOINED` \| `TABLE_PER_CLASS` | `@Inheritance` (on the root) |
+| `jpa.discriminatorColumn` / `jpa.discriminatorValue` | string | `@DiscriminatorColumn` / `@DiscriminatorValue` |
+| `jpa.idClass` / `jpa.embeddedId` | string / attr name | composite key |
+
+**Attribute `metadata[]`**
+
+| key | value | maps to |
+|---|---|---|
+| `jpa.javaType` | string | explicit Java type override |
+| `jpa.generatedValue` | `IDENTITY` \| `SEQUENCE` \| `TABLE` \| `UUID` \| `AUTO` \| `NONE` | `@GeneratedValue` |
+| `jpa.sequenceName` / `jpa.allocationSize` | string / int | `@SequenceGenerator` |
+| `jpa.enumerated` / `jpa.enumType` | `STRING` \| `ORDINAL` / class | `@Enumerated` (only on `type: enum`) |
+| `jpa.version` / `jpa.transient` / `jpa.lob` | flag | `@Version` / `@Transient` / `@Lob` (`version`+`transient` are mutually exclusive) |
+| `jpa.temporal` | `DATE` \| `TIME` \| `TIMESTAMP` | `@Temporal` |
+| `jpa.converter` | class | `@Convert` |
+| `jpa.elementCollection` / `jpa.embedded` | flag | `@ElementCollection` / `@Embedded` |
+
+**Relationship `metadata[]`**
+
+| key | value | maps to |
+|---|---|---|
+| `jpa.fetch` | `LAZY` \| `EAGER` | fetch type |
+| `jpa.cascade` | list of `ALL`/`PERSIST`/`MERGE`/`REMOVE`/`REFRESH`/`DETACH` (comma-separated or YAML list) | cascade |
+| `jpa.orphanRemoval` / `jpa.optional` | flag | orphanRemoval / optional |
+| `jpa.mappedBy` / `jpa.owningEnd` | string | owning side when no backing FK constraint |
+| `jpa.joinTable` / `jpa.joinColumns` / `jpa.inverseJoinColumns` | string(s) | `@JoinTable` for `many`/`many` |
+
+```yaml
+entities:
+  - name: Order
+    metadata:
+      - { name: jpa.package, value: com.eshop.order }
+    attributes:
+      - name: id
+        type: string
+        metadata:
+          - { name: jpa.generatedValue, value: UUID }
+      - name: status
+        type: enum
+        validation: { enumValues: [PENDING, SHIPPED, DELIVERED] }
+        metadata:
+          - { name: jpa.enumerated, value: STRING }
+          - { name: jpa.enumType,   value: OrderStatus }
+# relationships.model.yaml
+relationships:
+  - uuid: rel-order-item-001
+    metadata:
+      - { name: jpa.fetch,         value: LAZY }
+      - { name: jpa.cascade,       value: ALL }
+      - { name: jpa.orphanRemoval, value: true }
+    ends: [ … ]
+```
+
+`validate:dico` (below) checks `jpa.*` values: enum membership (`jpa.fetch`/`cascade`/`generatedValue`/`enumerated`/`temporal`/`inheritanceStrategy`), `jpa.extends` resolves to an entity, mutually-exclusive flags, and `jpa.enumerated` only on `enum` attributes. Unknown `jpa.*` keys are flagged as warnings.
+
+---
+
 ## Validating a project
 
 Before opening a project in the app, you can check it for the errors the

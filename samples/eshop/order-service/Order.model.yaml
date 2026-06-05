@@ -4,6 +4,9 @@ entities:
     description: Order entity representing a customer purchase
     microservice: order-service
     version: 1.0.0
+    metadata:
+      - name: jpa.package
+        value: com.eshop.order
     constraints:
       - kind: unique
         name: uq_orders_order_number
@@ -29,6 +32,8 @@ entities:
         metadata:
           - name: isPrimaryKey
             value: true
+          - name: jpa.generatedValue
+            value: UUID
         uuid: d1a14e8a-745d-4997-8b7a-dc4fa49025d9
       - name: orderNumber
         description: Human-readable order number
@@ -62,6 +67,11 @@ entities:
             - DELIVERED
             - CANCELLED
             - REFUNDED
+        metadata:
+          - name: jpa.enumerated
+            value: STRING
+          - name: jpa.enumType
+            value: OrderStatus
       - name: totalAmount
         description: Total order amount in cents
         type: number
