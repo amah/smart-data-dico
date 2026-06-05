@@ -22,9 +22,8 @@ const root = join(__dirname, '..');
 // Clean previous build
 rmSync(join(root, 'backend', 'dist'), { recursive: true, force: true });
 
-await build({
-  entryPoints: [join(root, 'backend', 'src', 'server.ts')],
-  outfile: join(root, 'backend', 'dist', 'server.mjs'),
+// Shared esbuild options for every backend entry point we bundle.
+const common = {
   bundle: true,
   platform: 'node',
   format: 'esm',
@@ -54,7 +53,6 @@ await build({
     'fsevents',
   ],
 
-  // Shim import.meta.url so path resolution still works in the bundle
   define: {},
 
   banner: {
@@ -69,6 +67,21 @@ await build({
   },
 
   logLevel: 'info',
-});
+};
 
+// 1) The HTTP server — the package's main runtime entry.
+await build({
+  ...common,
+  entryPoints: [join(root, 'backend', 'src', 'server.ts')],
+  outfile: join(root, 'backend', 'dist', 'server.mjs'),
+});
 console.log('\n✓ Backend bundled to backend/dist/server.mjs');
+
+// 2) The standalone project validator — spawned by `bin/cli.js --validate`
+//    so `npx @hamak/smart-data-dico --validate <folder>` works with no tsx.
+await build({
+  ...common,
+  entryPoints: [join(root, 'backend', 'src', 'scripts', 'validateDico.ts')],
+  outfile: join(root, 'backend', 'dist', 'validate.mjs'),
+});
+console.log('✓ Validator bundled to backend/dist/validate.mjs');
