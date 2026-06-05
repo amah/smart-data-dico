@@ -627,8 +627,11 @@ async function main(): Promise<void> {
   process.exit(report.errorCount > 0 ? 1 : 0);
 }
 
-// Run only when invoked directly (not when imported by tests).
-const invokedDirectly = process.argv[1] && process.argv[1].endsWith('validateDico.ts');
+// Run only when invoked directly (not when imported by tests). Matches both
+// the TS source (dev / `npm run validate:dico`) and the esbuild bundle
+// (`backend/dist/validate.mjs`, shipped in the npm package and spawned by
+// `bin/cli.js --validate`).
+const invokedDirectly = !!process.argv[1] && /(?:validateDico\.ts|validate\.mjs)$/.test(process.argv[1]);
 if (invokedDirectly) {
   main().catch((e) => {
     console.error(`validateDico crashed: ${e?.stack || e}`);

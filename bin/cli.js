@@ -3,7 +3,7 @@
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'node:path';
 import { existsSync, mkdirSync, cpSync, writeFileSync } from 'fs';
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -16,6 +16,10 @@ for (let i = 0; i < args.length; i++) {
   if (args[i] === '--port' && args[i + 1]) { flags.port = args[++i]; }
   else if (args[i] === '--data-dir' && args[i + 1]) { flags.dataDir = args[++i]; }
   else if (args[i] === '--no-open') { flags.noOpen = true; }
+  else if (args[i] === '--validate') {
+    // `--validate [folder]` — folder is optional; defaults to the data dir.
+    flags.validate = (args[i + 1] && !args[i + 1].startsWith('-')) ? args[++i] : true;
+  }
   else if (args[i] === '--help' || args[i] === '-h') { flags.help = true; }
 }
 
@@ -30,6 +34,8 @@ if (flags.help) {
   Options:
     --port <number>     Server port (default: 3001)
     --data-dir <path>   Data directory path (default: ./data-dictionaries)
+    --validate [path]   Validate a project folder and exit (no server).
+                        Defaults to the data dir. Exit code 1 on errors.
     --no-open           Don't open browser automatically
     -h, --help          Show this help
 
@@ -37,8 +43,45 @@ if (flags.help) {
     smart-data-dico
     smart-data-dico --port 4000
     smart-data-dico --data-dir ~/my-dictionaries
+    smart-data-dico --validate ./my-project
+    npx @hamak/smart-data-dico --validate ./my-project
   `);
   process.exit(0);
+}
+
+// --validate: run the standalone project validator and exit (no server).
+// Mirrors the server's bundled/source dual-mode resolution below.
+if (flags.validate !== undefined) {
+  const folder = resolve(
+    typeof flags.validate === 'string'
+      ? flags.validate
+      : (flags.dataDir || process.env.DATA_DIR || './data-dictionaries'),
+  );
+  const bundledValidator = join(PKG_ROOT, 'backend', 'dist', 'validate.mjs');
+  const sourceValidator = join(PKG_ROOT, 'backend', 'src', 'scripts', 'validateDico.ts');
+
+  let vbin, vargs;
+  if (existsSync(bundledValidator)) {
+    vbin = process.execPath; // node — bundle has all deps inlined
+    vargs = [bundledValidator, '--data-dir', folder];
+  } else if (existsSync(sourceValidator)) {
+    const tsx = [
+      join(PKG_ROOT, 'node_modules', '.bin', 'tsx'),
+      join(PKG_ROOT, 'backend', 'node_modules', '.bin', 'tsx'),
+    ].find(p => existsSync(p));
+    vbin = tsx || 'npx';
+    vargs = tsx ? [sourceValidator, '--data-dir', folder] : ['tsx', sourceValidator, '--data-dir', folder];
+  } else {
+    console.error('Error: validator not found (neither bundled nor source).');
+    process.exit(1);
+  }
+
+  const r = spawnSync(vbin, vargs, { cwd: PKG_ROOT, stdio: 'inherit', env: process.env });
+  if (r.error) {
+    console.error('Failed to run validator:', r.error.message);
+    process.exit(1);
+  }
+  process.exit(r.status ?? 0);
 }
 
 const port = flags.port || process.env.PORT || '3001';
