@@ -259,6 +259,7 @@ const RelationshipDetailPage = () => {
         <PhysicalSection rel={rel} />
         <OrmMappingSection
           scope="relationship"
+          defaultEditing
           metadata={rel.metadata}
           onSave={(next) => saveRelationship(r => ({ ...r, metadata: next }))}
         />
