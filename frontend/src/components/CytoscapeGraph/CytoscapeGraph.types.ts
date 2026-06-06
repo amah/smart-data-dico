@@ -1,5 +1,5 @@
 import type { Core } from 'cytoscape';
-import type { Attribute, Package } from '../../types';
+import type { Attribute, Package, PhysicalConstraint } from '../../types';
 import type { ViewMode } from './viewMode';
 
 export type GraphMode = 'service' | 'organization';
@@ -37,6 +37,10 @@ export interface InfoPanelData {
   service?: string;
   description?: string;
   attributes?: Attribute[];
+  /** Active diagram view mode — drives the per-mode node detail (#188). */
+  viewMode?: ViewMode;
+  /** Entity physical constraints, for the physical-view node detail (#188). */
+  constraints?: PhysicalConstraint[];
   sourceLabel?: string;
   targetLabel?: string;
   sourceCardinality?: string;
