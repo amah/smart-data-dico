@@ -1,7 +1,10 @@
-import { useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { servicesApi, relationshipApi, stereotypeApi, actionsApi, stateMachinesApi } from '../services/api';
-import { Entity, Relationship, Stereotype, ImpactAnalysis, Rule, Action, StateMachine } from '../types';
+import { servicesApi, relationshipApi, stereotypeApi, actionsApi, stateMachinesApi, entityApi } from '../services/api';
+import { Entity, Relationship, Stereotype, ImpactAnalysis, Rule, Action, StateMachine, type Package } from '../types';
+import JpaMappingSection from './JpaMappingSection';
+import JpaInheritancePanel, { type EntityRef } from './JpaInheritancePanel';
+import { deriveEntityJpa } from './jpaDerive';
 import ReviewComments from './ReviewComments';
 import LineageView from './LineageView';
 import MetadataEditor from './MetadataEditor';
@@ -50,6 +53,8 @@ const EntityDetail = (props: EntityDetailProps) => {
   const service = props.serviceProp || params.service;
   const entity = props.entityProp || params.entity;
   const [entityData, setEntityData] = useState<Entity | null>(null);
+  // All entities across packages — for the jpa.extends picker + inheritance panel.
+  const [jpaEntities, setJpaEntities] = useState<EntityRef[]>([]);
   const [relationships, setRelationships] = useState<Relationship[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -224,6 +229,34 @@ const EntityDetail = (props: EntityDetailProps) => {
       setEntityData(r.data);
     } catch { /* ignore */ }
   };
+
+  // All entities (for the jpa.extends picker + inheritance panel).
+  useEffect(() => {
+    let cancelled = false;
+    entityApi.getAllPackages().then((pkgs) => {
+      if (cancelled) return;
+      const refs: EntityRef[] = [];
+      const walk = (list: Package[]) => {
+        for (const p of list || []) {
+          for (const e of p.entities || []) refs.push({ entity: e, service: p.name });
+          if (p.subPackages?.length) walk(p.subPackages);
+        }
+      };
+      walk(pkgs);
+      setJpaEntities(refs);
+    }).catch(() => { /* best effort */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  // uuid→name and name→name, so jpa.extends (either form) resolves in the preview.
+  const jpaNameByRef = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of jpaEntities) {
+      if (r.entity.uuid) m.set(r.entity.uuid, r.entity.name);
+      if (r.entity.name) m.set(r.entity.name, r.entity.name);
+    }
+    return m;
+  }, [jpaEntities]);
 
   // ──────────────── Early returns ────────────────
 
@@ -537,6 +570,25 @@ const EntityDetail = (props: EntityDetailProps) => {
               stereotype={currentStereotype}
               onChange={(entries) => setEntityData({ ...entityData, metadata: entries })}
             />
+            <JpaMappingSection
+              scope="entity"
+              metadata={entityData.metadata}
+              entities={jpaEntities.map(r => ({ uuid: r.entity.uuid, name: r.entity.name }))}
+              onSave={async (next) => {
+                if (!service || !entityData) return;
+                await servicesApi.updateEntity(service, entityData.name, { ...entityData, metadata: next });
+                await refreshEntity();
+              }}
+              preview={
+                <div>
+                  <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)', marginBottom: 4 }}>Derived JPA (preview)</div>
+                  <pre style={{ margin: 0, padding: 12, background: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--fs-xs)', overflowX: 'auto' }}>
+                    {deriveEntityJpa(entityData, jpaNameByRef).join('\n')}
+                  </pre>
+                </div>
+              }
+            />
+            <JpaInheritancePanel current={entityData} all={jpaEntities} />
           </div>
         )}
 
