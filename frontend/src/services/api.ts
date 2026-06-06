@@ -321,6 +321,29 @@ export const projectApi = {
   },
 };
 
+// ── JPA mapping vocabulary (reserved jpa.* keys) ─────────────────────────────
+// Mirrors backend models/jpaVocabulary.ts; served via GET /api/jpa/vocabulary
+// so the typed JPA editor and the validator share one source of truth.
+export type JpaKind = 'string' | 'int' | 'flag' | 'enum' | 'enumList' | 'entityRef';
+export interface JpaKeyDef {
+  key: string;
+  kind: JpaKind;
+  values?: string[];
+  label: string;
+  mapsTo: string;
+}
+export interface JpaVocabulary {
+  prefix: string;
+  scopes: { entity: JpaKeyDef[]; attribute: JpaKeyDef[]; relationship: JpaKeyDef[] };
+}
+
+export const jpaApi = {
+  getVocabulary: async (): Promise<JpaVocabulary> => {
+    const response = await api.get('/jpa/vocabulary');
+    return response.data.data;
+  },
+};
+
 // Model-level metadata (#94)
 export const modelApi = {
   getMetadata: async () => {
