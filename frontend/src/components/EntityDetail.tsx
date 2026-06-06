@@ -571,6 +571,23 @@ const EntityDetail = (props: EntityDetailProps) => {
 
         {activeTab === 'orm' && entityData && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {(() => {
+              const md = entityData.metadata || [];
+              const tableName = md.find(m => m.name === 'physical.tableName')?.value;
+              const schema = md.find(m => m.name === 'physical.schema')?.value;
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 'var(--fs-sm)' }}>
+                  <span style={{ color: 'var(--text-subtle)' }}>Maps to table</span>
+                  {tableName ? (
+                    <Chip mono soft>{schema ? `${String(schema)}.${String(tableName)}` : String(tableName)}</Chip>
+                  ) : (
+                    <span style={{ color: 'var(--text-subtle)' }}>
+                      — not set (table/column names live in <code>physical.*</code>; edit on the Metadata tab)
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
             {(entityData.metadata || []).some(m => m.name.startsWith('orm.')) || showOrm ? (
               <>
                 <OrmMappingSection

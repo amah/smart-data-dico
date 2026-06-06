@@ -5,6 +5,8 @@ entities:
     microservice: order-service
     version: 1.0.0
     metadata:
+      - name: physical.tableName
+        value: orders
       - name: orm.package
         value: com.eshop.order
       - name: orm.className
