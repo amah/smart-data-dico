@@ -227,6 +227,7 @@ const AttributeDetailPage = () => {
         />
         <OrmMappingSection
           scope="attribute"
+          defaultEditing
           metadata={attribute.metadata}
           onSave={(next) => saveAttribute(a => ({ ...a, metadata: next }))}
         />
