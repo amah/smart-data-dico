@@ -15,6 +15,7 @@
 import type { ElementDefinition } from 'cytoscape';
 import type { GraphNode, GraphEdge } from '../../types';
 import { readMetaString } from './elementMeta';
+import { detectDrift, buildDriftEdges, pairKey } from './physicalDrift';
 
 /** Table name shown on a physical node — `physical.tableName` else the entity name. */
 export function physicalTableName(node: GraphNode): string {
@@ -45,10 +46,15 @@ export function buildTableIndex(nodes: GraphNode[]): Map<string, string> {
   return index;
 }
 
-/** FK edges from each entity's `foreignKey` constraints (#186). */
+/**
+ * FK edges from each entity's `foreignKey` constraints (#186). An FK whose
+ * entity pair is in `inDbMissingKeys` (no matching logical relationship, #187)
+ * is flagged as drift so the stylesheet renders it as a warning.
+ */
 export function buildFkEdges(
   nodes: GraphNode[],
   tableIndex: Map<string, string>,
+  inDbMissingKeys: Set<string> = new Set(),
 ): ElementDefinition[] {
   const edges: ElementDefinition[] = [];
   for (const node of nodes) {
@@ -60,7 +66,8 @@ export function buildFkEdges(
       if (!targetId || targetId === node.id) return; // off-canvas / self — skip
       const localCols = (fk.columns ?? []).join(', ');
       const refCols = (fk.references?.columns ?? []).join(', ');
-      const label = localCols && refCols ? `${localCols} → ${refCols}` : localCols || refCols || 'FK';
+      const baseLabel = localCols && refCols ? `${localCols} → ${refCols}` : localCols || refCols || 'FK';
+      const driftInDb = inDbMissingKeys.has(pairKey(node.id, targetId));
       edges.push({
         group: 'edges',
         data: {
@@ -69,8 +76,11 @@ export function buildFkEdges(
           target: targetId,
           edgeKind: 'fk',
           viewMode: 'physical',
-          label,
+          label: driftInDb ? `${baseLabel}\nin DB, missing from model` : baseLabel,
           constraintName: fk.name ?? '',
+          // #187 drift flag: FK present in DB with no logical relationship.
+          driftInDb,
+          ...(driftInDb ? { driftKind: 'in-db-missing' } : {}),
           sourceEndLabel: '',
           targetEndLabel: '',
         },
@@ -178,8 +188,18 @@ export function buildPhysicalElements(
   }
 
   const tableIndex = buildTableIndex(nodes);
-  elements.push(...buildFkEdges(nodes, tableIndex));
+
+  // Logical↔physical drift overlay (#187), computed once and applied both ways:
+  // FK-without-relationship flags the FK edge; relationship-without-FK adds a
+  // dashed warning edge.
+  const drift = detectDrift(nodes, edges, tableIndex);
+  const inDbMissingKeys = new Set(
+    drift.inDbMissing.map((p) => pairKey(p.sourceId, p.targetId)),
+  );
+
+  elements.push(...buildFkEdges(nodes, tableIndex, inDbMissingKeys));
   elements.push(...buildJoinTables(edges, nodes));
+  elements.push(...buildDriftEdges(drift));
 
   return elements;
 }
