@@ -245,6 +245,39 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
         height: 40,
       } as any,
     },
+    // ── Logical↔physical drift overlay (#187) ─────────────────────────────
+    // "not enforced in DB": a logical relationship with no backing FK — dashed
+    // amber warning edge.
+    {
+      selector: 'edge[edgeKind = "drift"]',
+      style: {
+        label: 'data(label)',
+        'line-color': '#f59e0b',
+        'line-style': 'dashed',
+        'line-opacity': 0.9,
+        width: 2,
+        'target-arrow-shape': 'none',
+        'source-label': '',
+        'target-label': '',
+        'font-size': 9,
+        color: '#b45309',
+        'text-background-color': bg,
+        'text-background-opacity': 0.9,
+        'text-background-padding': '2px',
+      } as any,
+    },
+    // "in DB, missing from model": an FK with no logical relationship — recolour
+    // the FK edge as an amber warning.
+    {
+      selector: 'edge[?driftInDb]',
+      style: {
+        'line-color': '#f59e0b',
+        'line-style': 'dashed',
+        'target-arrow-color': '#f59e0b',
+        width: 2,
+        color: '#b45309',
+      } as any,
+    },
     // Selected
     {
       selector: ':selected',

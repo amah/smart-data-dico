@@ -207,6 +207,7 @@ export default function CytoscapeGraph({
           <CytoscapeLegend
             serviceColorMap={serviceColorMap}
             showCaseStates={!!caseId}
+            viewMode={viewMode}
           />
         )}
 
