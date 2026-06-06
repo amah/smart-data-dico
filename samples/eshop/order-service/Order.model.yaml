@@ -5,12 +5,14 @@ entities:
     microservice: order-service
     version: 1.0.0
     metadata:
-      - name: physical.tableName
-        value: orders
       - name: orm.package
         value: com.eshop.order
       - name: orm.className
         value: Order
+      - name: physical.tableName
+        value: orders
+      - name: physical.schema
+        value: commerce
     constraints:
       - kind: unique
         name: uq_orders_order_number
@@ -276,4 +278,4 @@ entities:
         required: true
         uuid: 62d1bfdb-c92c-4a7a-9749-75fd0959212b
     uuid: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
-    updatedAt: 2025-05-28T18:03:59.062Z
+    updatedAt: 2026-06-06T05:58:24.882Z
