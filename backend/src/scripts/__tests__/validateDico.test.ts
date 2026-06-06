@@ -285,4 +285,54 @@ describe('validateDico', () => {
       storageRegistry.reset();
     }
   });
+
+  it('flags a jpa.extends inheritance cycle and strategy-on-subclass', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dico-jpa-inh-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'dico.config.json'), JSON.stringify({ version: 1 }));
+      const pkg = path.join(dir, 'shop');
+      fs.mkdirSync(pkg, { recursive: true });
+      fs.writeFileSync(path.join(pkg, 'package.yaml'), 'name: shop\n');
+      // A extends B
+      fs.writeFileSync(path.join(pkg, 'A.model.yaml'), [
+        'entities:',
+        '  - uuid: aaaaaaaa-1111-4111-8111-111111111111',
+        '    name: A',
+        '    description: a',
+        '    metadata:',
+        '      - name: jpa.extends',
+        '        value: B',
+        '    attributes: []',
+        '',
+      ].join('\n'));
+      // B extends A  → cycle; B also (wrongly) declares a strategy while being a subclass
+      fs.writeFileSync(path.join(pkg, 'B.model.yaml'), [
+        'entities:',
+        '  - uuid: bbbbbbbb-2222-4222-8222-222222222222',
+        '    name: B',
+        '    description: b',
+        '    metadata:',
+        '      - name: jpa.extends',
+        '        value: A',
+        '      - name: jpa.inheritanceStrategy',
+        '        value: SINGLE_TABLE',
+        '    attributes: []',
+        '',
+      ].join('\n'));
+
+      const report = new Report();
+      await validateProject(dir, report);
+      const codes = report.findings.map(f => f.code);
+      expect(codes).toContain('jpa.inheritanceCycle');
+      const cyc = report.findings.find(f => f.code === 'jpa.inheritanceCycle');
+      expect(cyc!.severity).toBe('error');
+      const strat = report.findings.find(f => f.code === 'jpa.inheritance');
+      expect(strat).toBeDefined();
+      expect(strat!.severity).toBe('warning');
+      expect(report.errorCount).toBeGreaterThan(0);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+      storageRegistry.reset();
+    }
+  });
 });

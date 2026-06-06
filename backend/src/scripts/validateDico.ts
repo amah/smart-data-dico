@@ -371,6 +371,93 @@ function checkJpaMetadata(
   }
 }
 
+/**
+ * Project-wide JPA inheritance guardrails (cross-entity, so run once after all
+ * packages are loaded): cycle detection along the `jpa.extends` chain, strategy
+ * placed on a subclass, extending an `@Embeddable`, and `jpa.discriminatorValue`
+ * with no ancestor declaring `jpa.discriminatorColumn`.
+ */
+function checkJpaInheritance(
+  models: Array<{ pkg: string; model: PackageModel }>,
+  report: Report,
+): void {
+  interface Node { entity: Entity; label: string; }
+  const byUuid = new Map<string, Node>();
+  const byName = new Map<string, Node>();
+  for (const { pkg, model } of models) {
+    const fileOf = model.ownership;
+    for (const e of model.entities) {
+      const label = fileOf.entityByName.get(e.name) || fileOf.entityByUuid.get(e.uuid) || pkg;
+      const node: Node = { entity: e, label };
+      if (e.uuid) byUuid.set(e.uuid, node);
+      if (e.name) byName.set(e.name, node);
+    }
+  }
+  const meta = (e: Entity, key: string): unknown => (e.metadata || []).find(m => m.name === key)?.value;
+  const idOf = (e: Entity): string => e.uuid || e.name;
+  const parentOf = (e: Entity): Node | undefined => {
+    const ref = meta(e, 'jpa.extends');
+    if (ref === undefined || ref === null || ref === '') return undefined;
+    const s = String(ref);
+    return byUuid.get(s) || byName.get(s); // unresolved → already flagged as jpa.reference
+  };
+
+  const reportedCycle = new Set<string>();
+  for (const node of new Set([...byUuid.values(), ...byName.values()])) {
+    const e = node.entity;
+    if (meta(e, 'jpa.extends') === undefined) continue;
+
+    // (1) cycle along the extends chain
+    const path = new Set<string>([idOf(e)]);
+    let cur: Entity | undefined = e;
+    let steps = 0;
+    while (cur && steps++ < 100) {
+      const p = parentOf(cur);
+      if (!p) break;
+      const pid = idOf(p.entity);
+      if (path.has(pid)) {
+        if (!reportedCycle.has(pid)) {
+          reportedCycle.add(pid);
+          report.error('jpa.inheritanceCycle',
+            `JPA inheritance cycle via jpa.extends through entity '${p.entity.name}'`, p.label, p.entity.uuid);
+        }
+        break;
+      }
+      path.add(pid);
+      cur = p.entity;
+    }
+
+    // (2) strategy belongs on the root, not a subclass
+    if (meta(e, 'jpa.inheritanceStrategy') !== undefined) {
+      report.warn('jpa.inheritance',
+        `Entity '${e.name}' declares both jpa.extends and jpa.inheritanceStrategy — the strategy belongs on the root supertype`, node.label, e.uuid);
+    }
+
+    // (3) cannot extend an @Embeddable
+    const parent = parentOf(e);
+    if (parent && meta(parent.entity, 'jpa.embeddable') === true) {
+      report.error('jpa.conflict',
+        `Entity '${e.name}' jpa.extends '${parent.entity.name}', which is jpa.embeddable (an @Embeddable cannot be a superclass)`, node.label, e.uuid);
+    }
+
+    // (4) discriminatorValue needs an ancestor that declares discriminatorColumn
+    if (meta(e, 'jpa.discriminatorValue') !== undefined) {
+      let hasDisc = false;
+      let a = parentOf(e);
+      const guard = new Set<string>([idOf(e)]);
+      while (a && !guard.has(idOf(a.entity))) {
+        guard.add(idOf(a.entity));
+        if (meta(a.entity, 'jpa.discriminatorColumn') !== undefined) { hasDisc = true; break; }
+        a = parentOf(a.entity);
+      }
+      if (!hasDisc) {
+        report.warn('jpa.inheritance',
+          `Entity '${e.name}' sets jpa.discriminatorValue but no ancestor declares jpa.discriminatorColumn`, node.label, e.uuid);
+      }
+    }
+  }
+}
+
 function checkPackageModel(
   pkg: string,
   model: PackageModel,
@@ -716,6 +803,9 @@ export async function validateProject(root: string, report: Report): Promise<voi
   for (const { pkg, model } of models) {
     checkPackageModel(pkg, model, globalEntityUuids, globalEntityNames, globalAttrUuids, report);
   }
+
+  // Cross-entity JPA inheritance guardrails (cycles, strategy placement, …).
+  checkJpaInheritance(models, report);
 }
 
 async function main(): Promise<void> {
