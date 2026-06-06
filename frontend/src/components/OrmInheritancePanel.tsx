@@ -1,6 +1,6 @@
 /**
- * JpaInheritancePanel — shows an entity's JPA inheritance tree, derived from the
- * reserved `jpa.extends` metadata: the ancestor chain (this → … → root) and the
+ * OrmInheritancePanel — shows an entity's ORM inheritance tree, derived from the
+ * reserved `orm.extends` metadata: the ancestor chain (this → … → root) and the
  * direct subclasses. Read-only; no model concept beyond the metadata reference.
  */
 import { Link } from 'react-router-dom';
@@ -12,11 +12,11 @@ export interface EntityRef { entity: Entity; service: string; }
 const meta = (md: MetadataEntry[] | undefined, key: string): MetadataValue | undefined =>
   (md || []).find(m => m.name === key)?.value;
 const extendsRef = (e: Entity): string => {
-  const v = meta(e.metadata, 'jpa.extends');
+  const v = meta(e.metadata, 'orm.extends');
   return v === undefined || v === null ? '' : String(v);
 };
 
-export default function JpaInheritancePanel({ current, all }: { current: Entity; all: EntityRef[] }) {
+export default function OrmInheritancePanel({ current, all }: { current: Entity; all: EntityRef[] }) {
   const byUuid = new Map(all.map(r => [r.entity.uuid, r]));
   const byName = new Map(all.map(r => [r.entity.name, r]));
   const resolve = (ref: string): EntityRef | undefined => byUuid.get(ref) || byName.get(ref);
@@ -37,7 +37,7 @@ export default function JpaInheritancePanel({ current, all }: { current: Entity;
     cur = p.entity;
   }
 
-  // Direct subclasses (entities whose jpa.extends resolves to current).
+  // Direct subclasses (entities whose orm.extends resolves to current).
   const curIds = new Set([current.uuid, current.name].filter(Boolean));
   const children = all.filter(r => {
     const ref = extendsRef(r.entity);
@@ -59,7 +59,7 @@ export default function JpaInheritancePanel({ current, all }: { current: Entity;
       <header style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'var(--bg-subtle)', borderBottom: '1px solid var(--border)' }}>
         <Icon name="link" size={12} style={{ color: 'var(--text-subtle)' }} />
         <h2 className="uppercase" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)', letterSpacing: '0.06em', fontWeight: 600, margin: 0 }}>
-          JPA inheritance
+          ORM inheritance
         </h2>
       </header>
       <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: 12 }}>

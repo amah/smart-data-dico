@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { servicesApi, relationshipApi, stereotypeApi, actionsApi, stateMachinesApi, entityApi } from '../services/api';
 import { Entity, Relationship, Stereotype, ImpactAnalysis, Rule, Action, StateMachine, type Package } from '../types';
-import JpaMappingSection from './JpaMappingSection';
-import JpaInheritancePanel, { type EntityRef } from './JpaInheritancePanel';
+import OrmMappingSection from './OrmMappingSection';
+import OrmInheritancePanel, { type EntityRef } from './OrmInheritancePanel';
 import ReviewComments from './ReviewComments';
 import LineageView from './LineageView';
 import MetadataEditor from './MetadataEditor';
@@ -52,8 +52,8 @@ const EntityDetail = (props: EntityDetailProps) => {
   const service = props.serviceProp || params.service;
   const entity = props.entityProp || params.entity;
   const [entityData, setEntityData] = useState<Entity | null>(null);
-  // All entities across packages — for the jpa.extends picker + inheritance panel.
-  const [jpaEntities, setJpaEntities] = useState<EntityRef[]>([]);
+  // All entities across packages — for the orm.extends picker + inheritance panel.
+  const [ormEntities, setOrmEntities] = useState<EntityRef[]>([]);
   const [relationships, setRelationships] = useState<Relationship[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -229,7 +229,7 @@ const EntityDetail = (props: EntityDetailProps) => {
     } catch { /* ignore */ }
   };
 
-  // All entities (for the jpa.extends picker + inheritance panel).
+  // All entities (for the orm.extends picker + inheritance panel).
   useEffect(() => {
     let cancelled = false;
     entityApi.getAllPackages().then((pkgs) => {
@@ -242,7 +242,7 @@ const EntityDetail = (props: EntityDetailProps) => {
         }
       };
       walk(pkgs);
-      setJpaEntities(refs);
+      setOrmEntities(refs);
     }).catch(() => { /* best effort */ });
     return () => { cancelled = true; };
   }, []);
@@ -559,17 +559,17 @@ const EntityDetail = (props: EntityDetailProps) => {
               stereotype={currentStereotype}
               onChange={(entries) => setEntityData({ ...entityData, metadata: entries })}
             />
-            <JpaMappingSection
+            <OrmMappingSection
               scope="entity"
               metadata={entityData.metadata}
-              entities={jpaEntities.map(r => ({ uuid: r.entity.uuid, name: r.entity.name }))}
+              entities={ormEntities.map(r => ({ uuid: r.entity.uuid, name: r.entity.name }))}
               onSave={async (next) => {
                 if (!service || !entityData) return;
                 await servicesApi.updateEntity(service, entityData.name, { ...entityData, metadata: next });
                 await refreshEntity();
               }}
             />
-            <JpaInheritancePanel current={entityData} all={jpaEntities} />
+            <OrmInheritancePanel current={entityData} all={ormEntities} />
           </div>
         )}
 

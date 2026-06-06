@@ -59,7 +59,7 @@ import { isValidUUID } from '../utils/uuid.js';
 import { validateRule } from '../models/Rule.js';
 import { FLOW_STEP_KINDS, type FlowStep } from '../models/Action.js';
 import { validateDerivedTypes, type DerivedType } from '../services/dicoConfigService.js';
-import { JPA_KEYS, JPA_ENUM_VALUES, JPA_CASCADE_VALUES, JPA_FLAG_KEYS } from '../models/jpaVocabulary.js';
+import { ORM_KEYS, ORM_ENUM_VALUES, ORM_CASCADE_VALUES, ORM_FLAG_KEYS } from '../models/ormVocabulary.js';
 
 const WS = wsId('dictionaries');
 
@@ -280,83 +280,83 @@ function collectAttributes(attrs: unknown, acc: Attribute[]): void {
  *     so the validator stays faithful and passes on a healthy project while
  *     still surfacing quality issues.
  */
-// ── JPA reserved-metadata vocabulary (jpa.* keys) ────────────────────────────
+// ── ORM reserved-metadata vocabulary (orm.* keys) ────────────────────────────
 // The allowed keys/values come from the single source of truth in
-// models/jpaVocabulary.ts (also served to the frontend via GET /api/jpa/vocabulary),
+// models/ormVocabulary.ts (also served to the frontend via GET /api/orm/vocabulary),
 // so the validator and the editor never drift. Mirrors the `physical.*` prefix
 // convention; validated here so bad values are caught up front.
 
-interface JpaCtx {
+interface OrmCtx {
   globalEntityUuids: Set<string>;
   globalEntityNames: Set<string>;
-  /** Attribute scope only — the AttributeType, for the jpa.enumerated sanity check. */
+  /** Attribute scope only — the AttributeType, for the orm.enumerated sanity check. */
   attrType?: string;
 }
 
-/** Validate the reserved `jpa.*` metadata on one element. No-op when there are none. */
-function checkJpaMetadata(
+/** Validate the reserved `orm.*` metadata on one element. No-op when there are none. */
+function checkOrmMetadata(
   scope: 'entity' | 'attribute' | 'relationship',
   metadata: MetadataEntry[] | undefined,
   ownerDesc: string,
   label: string,
   identifier: string | undefined,
   report: Report,
-  ctx: JpaCtx,
+  ctx: OrmCtx,
 ): void {
-  const entries = (metadata || []).filter(m => m.name.startsWith('jpa.'));
+  const entries = (metadata || []).filter(m => m.name.startsWith('orm.'));
   if (entries.length === 0) return;
   const byName = new Map(entries.map(e => [e.name, e.value]));
 
   for (const m of entries) {
     const key = m.name;
-    if (!JPA_KEYS[scope].has(key)) {
-      report.warn('jpa.unknownKey', `Unknown or misplaced JPA key '${key}' on ${ownerDesc} (not a known ${scope}-level jpa.* key)`, label, identifier);
+    if (!ORM_KEYS[scope].has(key)) {
+      report.warn('orm.unknownKey', `Unknown or misplaced ORM key '${key}' on ${ownerDesc} (not a known ${scope}-level orm.* key)`, label, identifier);
       continue;
     }
     const v = m.value;
-    if (key === 'jpa.cascade') {
+    if (key === 'orm.cascade') {
       const tokens = Array.isArray(v) ? v.map(String) : String(v).split(',').map(s => s.trim()).filter(Boolean);
       for (const tok of tokens) {
-        if (!JPA_CASCADE_VALUES.includes(tok)) {
-          report.error('jpa.value', `JPA '${key}' on ${ownerDesc}: '${tok}' is not a valid cascade type (${JPA_CASCADE_VALUES.join('|')})`, label, identifier);
+        if (!ORM_CASCADE_VALUES.includes(tok)) {
+          report.error('orm.value', `ORM '${key}' on ${ownerDesc}: '${tok}' is not a valid cascade type (${ORM_CASCADE_VALUES.join('|')})`, label, identifier);
         }
       }
-    } else if (JPA_ENUM_VALUES[key]) {
-      if (!JPA_ENUM_VALUES[key].includes(String(v))) {
-        report.error('jpa.value', `JPA '${key}' on ${ownerDesc}: '${v}' is not one of ${JPA_ENUM_VALUES[key].join('|')}`, label, identifier);
+    } else if (ORM_ENUM_VALUES[key]) {
+      if (!ORM_ENUM_VALUES[key].includes(String(v))) {
+        report.error('orm.value', `ORM '${key}' on ${ownerDesc}: '${v}' is not one of ${ORM_ENUM_VALUES[key].join('|')}`, label, identifier);
       }
-    } else if (JPA_FLAG_KEYS.has(key) && typeof v !== 'boolean') {
-      report.warn('jpa.flag', `JPA flag '${key}' on ${ownerDesc} should be a boolean, got '${v}'`, label, identifier);
+    } else if (ORM_FLAG_KEYS.has(key) && typeof v !== 'boolean') {
+      report.warn('orm.flag', `ORM flag '${key}' on ${ownerDesc} should be a boolean, got '${v}'`, label, identifier);
     }
   }
 
-  // jpa.extends must resolve to an entity (by uuid or name) somewhere in the project.
-  if (scope === 'entity' && byName.has('jpa.extends')) {
-    const ref = String(byName.get('jpa.extends'));
+  // orm.extends must resolve to an entity (by uuid or name) somewhere in the project.
+  if (scope === 'entity' && byName.has('orm.extends')) {
+    const ref = String(byName.get('orm.extends'));
     if (ref && !ctx.globalEntityUuids.has(ref) && !ctx.globalEntityNames.has(ref)) {
-      report.error('jpa.reference', `JPA 'jpa.extends' on ${ownerDesc} references '${ref}', which is not an entity in the project`, label, identifier);
+      report.error('orm.reference', `ORM 'orm.extends' on ${ownerDesc} references '${ref}', which is not an entity in the project`, label, identifier);
     }
   }
   // Mutually exclusive declarations.
-  if (scope === 'attribute' && byName.get('jpa.version') === true && byName.get('jpa.transient') === true) {
-    report.error('jpa.conflict', `${ownerDesc} marks both jpa.version and jpa.transient`, label, identifier);
+  if (scope === 'attribute' && byName.get('orm.version') === true && byName.get('orm.transient') === true) {
+    report.error('orm.conflict', `${ownerDesc} marks both orm.version and orm.transient`, label, identifier);
   }
-  if (scope === 'entity' && byName.get('jpa.embeddable') === true && byName.has('jpa.extends')) {
-    report.error('jpa.conflict', `${ownerDesc} is jpa.embeddable but also declares jpa.extends (an @Embeddable cannot extend an @Entity)`, label, identifier);
+  if (scope === 'entity' && byName.get('orm.embeddable') === true && byName.has('orm.extends')) {
+    report.error('orm.conflict', `${ownerDesc} is orm.embeddable but also declares orm.extends (an @Embeddable cannot extend an @Entity)`, label, identifier);
   }
-  // jpa.enumerated only makes sense on enum-typed attributes.
-  if (scope === 'attribute' && byName.has('jpa.enumerated') && ctx.attrType && ctx.attrType !== 'enum') {
-    report.warn('jpa.enumerated', `jpa.enumerated on ${ownerDesc} but the attribute type is '${ctx.attrType}', not 'enum'`, label, identifier);
+  // orm.enumerated only makes sense on enum-typed attributes.
+  if (scope === 'attribute' && byName.has('orm.enumerated') && ctx.attrType && ctx.attrType !== 'enum') {
+    report.warn('orm.enumerated', `orm.enumerated on ${ownerDesc} but the attribute type is '${ctx.attrType}', not 'enum'`, label, identifier);
   }
 }
 
 /**
- * Project-wide JPA inheritance guardrails (cross-entity, so run once after all
- * packages are loaded): cycle detection along the `jpa.extends` chain, strategy
- * placed on a subclass, extending an `@Embeddable`, and `jpa.discriminatorValue`
- * with no ancestor declaring `jpa.discriminatorColumn`.
+ * Project-wide ORM inheritance guardrails (cross-entity, so run once after all
+ * packages are loaded): cycle detection along the `orm.extends` chain, strategy
+ * placed on a subclass, extending an `@Embeddable`, and `orm.discriminatorValue`
+ * with no ancestor declaring `orm.discriminatorColumn`.
  */
-function checkJpaInheritance(
+function checkOrmInheritance(
   models: Array<{ pkg: string; model: PackageModel }>,
   report: Report,
 ): void {
@@ -375,16 +375,16 @@ function checkJpaInheritance(
   const meta = (e: Entity, key: string): unknown => (e.metadata || []).find(m => m.name === key)?.value;
   const idOf = (e: Entity): string => e.uuid || e.name;
   const parentOf = (e: Entity): Node | undefined => {
-    const ref = meta(e, 'jpa.extends');
+    const ref = meta(e, 'orm.extends');
     if (ref === undefined || ref === null || ref === '') return undefined;
     const s = String(ref);
-    return byUuid.get(s) || byName.get(s); // unresolved → already flagged as jpa.reference
+    return byUuid.get(s) || byName.get(s); // unresolved → already flagged as orm.reference
   };
 
   const reportedCycle = new Set<string>();
   for (const node of new Set([...byUuid.values(), ...byName.values()])) {
     const e = node.entity;
-    if (meta(e, 'jpa.extends') === undefined) continue;
+    if (meta(e, 'orm.extends') === undefined) continue;
 
     // (1) cycle along the extends chain
     const path = new Set<string>([idOf(e)]);
@@ -397,8 +397,8 @@ function checkJpaInheritance(
       if (path.has(pid)) {
         if (!reportedCycle.has(pid)) {
           reportedCycle.add(pid);
-          report.error('jpa.inheritanceCycle',
-            `JPA inheritance cycle via jpa.extends through entity '${p.entity.name}'`, p.label, p.entity.uuid);
+          report.error('orm.inheritanceCycle',
+            `ORM inheritance cycle via orm.extends through entity '${p.entity.name}'`, p.label, p.entity.uuid);
         }
         break;
       }
@@ -407,31 +407,31 @@ function checkJpaInheritance(
     }
 
     // (2) strategy belongs on the root, not a subclass
-    if (meta(e, 'jpa.inheritanceStrategy') !== undefined) {
-      report.warn('jpa.inheritance',
-        `Entity '${e.name}' declares both jpa.extends and jpa.inheritanceStrategy — the strategy belongs on the root supertype`, node.label, e.uuid);
+    if (meta(e, 'orm.inheritanceStrategy') !== undefined) {
+      report.warn('orm.inheritance',
+        `Entity '${e.name}' declares both orm.extends and orm.inheritanceStrategy — the strategy belongs on the root supertype`, node.label, e.uuid);
     }
 
     // (3) cannot extend an @Embeddable
     const parent = parentOf(e);
-    if (parent && meta(parent.entity, 'jpa.embeddable') === true) {
-      report.error('jpa.conflict',
-        `Entity '${e.name}' jpa.extends '${parent.entity.name}', which is jpa.embeddable (an @Embeddable cannot be a superclass)`, node.label, e.uuid);
+    if (parent && meta(parent.entity, 'orm.embeddable') === true) {
+      report.error('orm.conflict',
+        `Entity '${e.name}' orm.extends '${parent.entity.name}', which is orm.embeddable (an @Embeddable cannot be a superclass)`, node.label, e.uuid);
     }
 
     // (4) discriminatorValue needs an ancestor that declares discriminatorColumn
-    if (meta(e, 'jpa.discriminatorValue') !== undefined) {
+    if (meta(e, 'orm.discriminatorValue') !== undefined) {
       let hasDisc = false;
       let a = parentOf(e);
       const guard = new Set<string>([idOf(e)]);
       while (a && !guard.has(idOf(a.entity))) {
         guard.add(idOf(a.entity));
-        if (meta(a.entity, 'jpa.discriminatorColumn') !== undefined) { hasDisc = true; break; }
+        if (meta(a.entity, 'orm.discriminatorColumn') !== undefined) { hasDisc = true; break; }
         a = parentOf(a.entity);
       }
       if (!hasDisc) {
-        report.warn('jpa.inheritance',
-          `Entity '${e.name}' sets jpa.discriminatorValue but no ancestor declares jpa.discriminatorColumn`, node.label, e.uuid);
+        report.warn('orm.inheritance',
+          `Entity '${e.name}' sets orm.discriminatorValue but no ancestor declares orm.discriminatorColumn`, node.label, e.uuid);
       }
     }
   }
@@ -481,11 +481,11 @@ function checkPackageModel(
       }
     }
 
-    // JPA reserved metadata on the entity and each of its attributes.
-    const jpaCtx = { globalEntityUuids, globalEntityNames };
-    checkJpaMetadata('entity', entity.metadata, `entity '${entity.name}'`, label, entity.uuid, report, jpaCtx);
+    // ORM reserved metadata on the entity and each of its attributes.
+    const ormCtx = { globalEntityUuids, globalEntityNames };
+    checkOrmMetadata('entity', entity.metadata, `entity '${entity.name}'`, label, entity.uuid, report, ormCtx);
     for (const attr of allAttrs) {
-      checkJpaMetadata('attribute', attr.metadata, `attribute '${attr.name}' on entity '${entity.name}'`, label, attr.uuid, report, { ...jpaCtx, attrType: String(attr.type) });
+      checkOrmMetadata('attribute', attr.metadata, `attribute '${attr.name}' on entity '${entity.name}'`, label, attr.uuid, report, { ...ormCtx, attrType: String(attr.type) });
     }
   }
 
@@ -527,7 +527,7 @@ function checkPackageModel(
         );
       }
     }
-    checkJpaMetadata('relationship', rel.metadata, `relationship '${rel.uuid}'`, label, rel.uuid, report, { globalEntityUuids, globalEntityNames });
+    checkOrmMetadata('relationship', rel.metadata, `relationship '${rel.uuid}'`, label, rel.uuid, report, { globalEntityUuids, globalEntityNames });
   }
 
   // ── Check 6: rules validate; entity-scoped targets resolve ──
@@ -783,8 +783,8 @@ export async function validateProject(root: string, report: Report): Promise<voi
     checkPackageModel(pkg, model, globalEntityUuids, globalEntityNames, globalAttrUuids, report);
   }
 
-  // Cross-entity JPA inheritance guardrails (cycles, strategy placement, …).
-  checkJpaInheritance(models, report);
+  // Cross-entity ORM inheritance guardrails (cycles, strategy placement, …).
+  checkOrmInheritance(models, report);
 }
 
 async function main(): Promise<void> {

@@ -1,14 +1,14 @@
 /**
- * JpaMappingSection — typed editor for the reserved `jpa.*` metadata, mirroring
+ * OrmMappingSection — typed editor for the reserved `orm.*` metadata, mirroring
  * the "Physical" section on the detail pages. Keys/values come from the backend
- * vocabulary (GET /api/jpa/vocabulary via useJpaVocabulary), so the editor can't
+ * vocabulary (GET /api/orm/vocabulary via useOrmVocabulary), so the editor can't
  * drift from the validator. Pure metadata — saving just rewrites metadata[].
  */
 import { useMemo, useState, type ReactNode } from 'react';
 import { Button, Chip, Icon } from './ui';
 import type { MetadataEntry, MetadataValue } from '../types';
-import { useJpaVocabulary } from '../hooks/useJpaVocabulary';
-import type { JpaKeyDef } from '../services/api';
+import { useOrmVocabulary } from '../hooks/useOrmVocabulary';
+import type { OrmKeyDef } from '../services/api';
 
 type Scope = 'entity' | 'attribute' | 'relationship';
 type Draft = Record<string, string | boolean | string[]>;
@@ -17,14 +17,14 @@ interface Props {
   scope: Scope;
   metadata: MetadataEntry[] | undefined;
   onSave: (next: MetadataEntry[]) => void | Promise<void>;
-  /** For the `entityRef` picker (jpa.extends). */
+  /** For the `entityRef` picker (orm.extends). */
   entities?: Array<{ uuid: string; name: string }>;
 }
 
 const labelOf = (md: MetadataEntry[] | undefined, key: string): MetadataValue | undefined =>
   (md || []).find(m => m.name === key)?.value;
 
-function toDraft(defs: JpaKeyDef[], md: MetadataEntry[] | undefined): Draft {
+function toDraft(defs: OrmKeyDef[], md: MetadataEntry[] | undefined): Draft {
   const d: Draft = {};
   for (const def of defs) {
     const v = labelOf(md, def.key);
@@ -38,9 +38,9 @@ function toDraft(defs: JpaKeyDef[], md: MetadataEntry[] | undefined): Draft {
   return d;
 }
 
-export default function JpaMappingSection({ scope, metadata, onSave, entities }: Props) {
-  const vocab = useJpaVocabulary();
-  const defs = useMemo<JpaKeyDef[]>(() => vocab?.scopes[scope] ?? [], [vocab, scope]);
+export default function OrmMappingSection({ scope, metadata, onSave, entities }: Props) {
+  const vocab = useOrmVocabulary();
+  const defs = useMemo<OrmKeyDef[]>(() => vocab?.scopes[scope] ?? [], [vocab, scope]);
   const [open, setOpen] = useState(true);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Draft>({});
@@ -58,7 +58,7 @@ export default function JpaMappingSection({ scope, metadata, onSave, entities }:
   const save = async () => {
     setSaving(true);
     try {
-      // Preserve everything except the known jpa.* keys, then re-add from draft.
+      // Preserve everything except the known orm.* keys, then re-add from draft.
       const next: MetadataEntry[] = (metadata || []).filter(m => !knownKeys.has(m.name));
       for (const def of defs) {
         const v = draft[def.key];
@@ -87,7 +87,7 @@ export default function JpaMappingSection({ scope, metadata, onSave, entities }:
     border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', minWidth: 180,
   };
 
-  const renderField = (def: JpaKeyDef) => {
+  const renderField = (def: OrmKeyDef) => {
     const v = draft[def.key];
     if (def.kind === 'flag') {
       return (
@@ -154,9 +154,9 @@ export default function JpaMappingSection({ scope, metadata, onSave, entities }:
           <Icon name="chevron" size={10} style={{ transform: isOpen ? 'rotate(0deg)' : 'rotate(-90deg)' }} />
         </button>
         <h2 className="uppercase" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)', letterSpacing: '0.06em', fontWeight: 600, margin: 0 }}>
-          JPA mapping
+          ORM mapping
         </h2>
-        <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>metadata.jpa.*</span>
+        <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>metadata.orm.*</span>
         <div style={{ flex: 1 }} />
         {!editing && <Button size="sm" variant="ghost" icon="edit" onClick={beginEdit}>Edit</Button>}
         {editing && (
@@ -177,7 +177,7 @@ export default function JpaMappingSection({ scope, metadata, onSave, entities }:
             </div>
           ) : setEntries.length === 0 ? (
             <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)', margin: 0 }}>
-              No JPA mapping set — defaults are derived by convention. Click Edit to override.
+              No ORM mapping set — defaults are derived by convention. Click Edit to override.
             </p>
           ) : (
             <dl style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '6px 14px', margin: 0 }}>
@@ -194,7 +194,7 @@ export default function JpaMappingSection({ scope, metadata, onSave, entities }:
   );
 }
 
-function FieldRow({ def, children }: { def: JpaKeyDef; children: ReactNode }) {
+function FieldRow({ def, children }: { def: OrmKeyDef; children: ReactNode }) {
   return (
     <>
       <label title={def.mapsTo} style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)' }}>{def.label}</label>

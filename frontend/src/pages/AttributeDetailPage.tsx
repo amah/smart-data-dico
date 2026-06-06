@@ -23,7 +23,7 @@ import {
   servicesApi,
   relationshipApi,
 } from '../services/api';
-import JpaMappingSection from '../components/JpaMappingSection';
+import OrmMappingSection from '../components/OrmMappingSection';
 import { useService } from '../kernel/useService';
 import { RULE_SERVICE_TOKEN } from '../kernel/tokens';
 import type { RuleService } from '../plugins/data-dictionary/services/RuleService';
@@ -225,7 +225,7 @@ const AttributeDetailPage = () => {
             ),
           }))}
         />
-        <JpaMappingSection
+        <OrmMappingSection
           scope="attribute"
           metadata={attribute.metadata}
           onSave={(next) => saveAttribute(a => ({ ...a, metadata: next }))}
