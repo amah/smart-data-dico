@@ -57,7 +57,9 @@ export function useCytoscapeInteractions(
       const oe = evt.originalEvent;
       const modifierHeld = !!(oe && (oe.altKey || oe.metaKey));
 
-      if (onNodeClick && !modifierHeld) {
+      // Synthetic nodes (e.g. physical join tables) have no backing entity /
+      // service — always show the info panel rather than trying to navigate.
+      if (onNodeClick && !modifierHeld && service) {
         onNodeClick(service, label);
       } else {
         setInfoPanel({
@@ -66,6 +68,8 @@ export function useCytoscapeInteractions(
           service,
           description: node.data('description'),
           attributes,
+          viewMode: node.data('viewMode'),
+          constraints: node.data('constraints'),
         });
       }
     };
