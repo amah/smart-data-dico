@@ -23,6 +23,7 @@ import CreateEntityModal from './CreateEntityModal';
 export default function CytoscapeGraph({
   service: serviceProp,
   mode = 'service',
+  viewMode = 'structural',
   packages,
   initialLayoutId,
   caseId,
@@ -55,9 +56,12 @@ export default function CytoscapeGraph({
       compoundNodes = result.compoundNodes;
     }
 
+    // #182: every view mode currently renders the structural graph. #183
+    // swaps this for a mode-aware element builder selected by `viewMode`.
+    void viewMode;
     const entityElements = mapGraphDataToCytoscape(nodes, edges, parentMapping);
     return [...compoundNodes, ...entityElements];
-  }, [nodes, edges, mode, packages]);
+  }, [nodes, edges, mode, packages, viewMode]);
 
   // Styles (theme-aware)
   const { stylesheet, serviceColorMap } = useCytoscapeStyles(

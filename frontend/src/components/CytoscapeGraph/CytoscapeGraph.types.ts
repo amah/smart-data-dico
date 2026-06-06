@@ -1,5 +1,6 @@
 import type { Core } from 'cytoscape';
 import type { Attribute, Package } from '../../types';
+import type { ViewMode } from './viewMode';
 
 export type GraphMode = 'service' | 'organization';
 
@@ -10,6 +11,12 @@ export type LayoutDirection = 'TB' | 'LR' | 'BT' | 'RL';
 export interface CytoscapeGraphProps {
   service?: string;
   mode?: GraphMode;
+  /**
+   * Diagram view mode (#181). Distinct from {@link GraphMode} (`mode`, which
+   * means service vs organization grouping): `viewMode` selects which element
+   * builder + stylesheet variant renders the graph. Defaults to `structural`.
+   */
+  viewMode?: ViewMode;
   packages?: Package[];
   initialLayoutId?: string;
   caseId?: string;
