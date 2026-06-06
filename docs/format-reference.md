@@ -430,7 +430,10 @@ The model already carries the *structural* facts (entity/table names, column nam
 entities:
   - name: Order
     metadata:
-      - { name: orm.package, value: com.eshop.order }
+      - { name: physical.tableName, value: orders }        # @Table — owned by physical.*
+      - { name: physical.schema,    value: commerce }
+      - { name: orm.package,        value: com.eshop.order }
+      - { name: orm.className,      value: Order }
     attributes:
       - name: id
         type: string
@@ -453,6 +456,22 @@ relationships:
 ```
 
 `validate:dico` (below) checks `orm.*` values: enum membership (`orm.fetch`/`cascade`/`generatedValue`/`enumerated`/`temporal`/`inheritanceStrategy`), `orm.extends` resolves to an entity, mutually-exclusive flags, and `orm.enumerated` only on `enum` attributes. Unknown `orm.*` keys are flagged as warnings.
+
+### Editing in the app
+
+You normally don't hand-edit these keys — the app provides typed editors driven by the **same vocabulary** the validator uses (`GET /api/orm/vocabulary`, sourced from `backend/src/models/ormVocabulary.ts`), so the UI and validation can't drift. Inputs are typed per key: enum → dropdown, flag → checkbox, `orm.cascade` → multi-select, `orm.extends` → entity picker.
+
+- **Entity** — a dedicated **ORM** tab on the entity page (between *Metadata* and *Lineage*). It shows, top to bottom:
+  - a **Physical** section — a typed editor for `physical.tableName` / `physical.schema` (the `@Table` mapping; table/column names stay owned by `physical.*`, kept distinct from `orm.*`);
+  - the **ORM mapping** form — the entity-scope keys above, rendered up-front and prefilled;
+  - an **inheritance** panel (ancestor/subclass chain resolved from `orm.extends`);
+  - a read-only **Relationships (ORM)** overview listing each relationship's `orm.*` (fetch / cascade / mappedBy …) with a link to edit it.
+
+  Entities with no `orm.*` show an **Enable ORM mapping** affordance instead of the form.
+- **Attribute** — an **ORM mapping** section on the attribute detail page (after its *Physical* section), rendering the attribute-scope keys.
+- **Relationship** — an **ORM mapping** section on the relationship detail page (after its *Physical* section), rendering the relationship-scope keys.
+
+All three open as the full typed form and persist by rewriting the element's `metadata[]` (every non-`orm.*` key is preserved). Saving an attribute/relationship/entity round-trips through the normal write path, so the YAML reflects the change immediately.
 
 ---
 
