@@ -152,6 +152,34 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
         'text-background-shape': 'roundrectangle',
       } as any,
     },
+    // ── Logical (ORM) view ────────────────────────────────────────────────
+    // Association edge: show the ORM annotation (fetch/cascade/orphan) as a
+    // mid-edge label, in addition to the cardinality glyphs on each end.
+    {
+      selector: 'edge[edgeKind = "association"]',
+      style: {
+        label: 'data(label)',
+        'text-rotation': 'autorotate',
+        'text-margin-y': -8,
+        'font-size': 10,
+        'font-style': 'italic',
+        color: fg,
+        'text-background-color': bg,
+        'text-background-opacity': 0.9,
+        'text-background-padding': '2px',
+      } as any,
+    },
+    // Owning side: when the target end owns the mapping, draw the navigability
+    // arrow at the source end instead of the default target end.
+    {
+      selector: 'edge[?arrowAtSource]',
+      style: {
+        'target-arrow-shape': 'none',
+        'source-arrow-shape': 'triangle',
+        'source-arrow-color': neutral,
+        'arrow-scale': 1.2,
+      } as any,
+    },
     // Selected
     {
       selector: ':selected',

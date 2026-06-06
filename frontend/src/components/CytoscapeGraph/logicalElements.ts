@@ -1,18 +1,155 @@
 /**
  * Logical (ORM) view element builder (#184/#185).
  *
- * Stub for the foundation slice (#183): delegates to the structural builder so
- * the Logical tab is wired and renders. #184 adds ORM class labels, badges and
- * annotated association edges; #185 adds the inheritance is-a edge.
+ * Renders a compact class/object model derived from `orm.*`:
+ *   - Node = class. Label = `orm.className` (fallback entity name), with the
+ *     `orm.package` as a namespace subtitle and a `«@Embeddable»` /
+ *     `«@MappedSuperclass»` stereotype line. Compact — no inline attribute
+ *     lists; per-attribute ORM facts surface in the info panel (#188).
+ *   - Association edges = relationships annotated with ORM runtime semantics:
+ *     fetch (LAZY/EAGER), cascade, orphanRemoval, owning side and cardinality.
+ *   - Inheritance (`orm.extends`) is rendered as a SEPARATE is-a edge (#185),
+ *     never an association.
+ *
+ * Pure function of (nodes, edges, parentMapping) — unit-tested in isolation.
  */
 import type { ElementDefinition } from 'cytoscape';
 import type { GraphNode, GraphEdge } from '../../types';
-import { mapGraphDataToCytoscape } from './mapGraphDataToCytoscape';
+import { formatEndLabel } from './mapGraphDataToCytoscape';
+import { readMetaString, readMetaFlag, readMetaList } from './elementMeta';
+
+/** Class name shown on a logical node — `orm.className` else the entity name. */
+export function logicalClassName(node: GraphNode): string {
+  return readMetaString(node.data?.metadata, 'orm.className') || node.label;
+}
+
+/** Stereotype badges from `orm.embeddable` / `orm.mappedSuperclass`. */
+export function logicalBadges(node: GraphNode): string[] {
+  const badges: string[] = [];
+  if (readMetaFlag(node.data?.metadata, 'orm.embeddable')) badges.push('@Embeddable');
+  if (readMetaFlag(node.data?.metadata, 'orm.mappedSuperclass')) badges.push('@MappedSuperclass');
+  return badges;
+}
+
+/** Compact multi-line node label: stereotype line · class name · package. */
+function logicalNodeLabel(className: string, badges: string[], pkg?: string): string {
+  const lines: string[] = [];
+  if (badges.length) lines.push(`«${badges.join(', ')}»`);
+  lines.push(className);
+  if (pkg) lines.push(pkg);
+  return lines.join('\n');
+}
+
+/**
+ * Resolve which end of an association owns the mapping (the FK / non-inverse
+ * side), so the diagram can point the navigability arrow from it.
+ *
+ *   - `orm.owningEnd` names the owning end's role → that side owns.
+ *   - else `orm.mappedBy` names the inverse end's role → the OTHER side owns.
+ *
+ * Returns `''` when the data doesn't pin it down (arrow stays at the target,
+ * matching the structural default).
+ */
+export function logicalOwningSide(edge: GraphEdge): '' | 'source' | 'target' {
+  const owningEnd = readMetaString(edge.metadata, 'orm.owningEnd');
+  const mappedBy = readMetaString(edge.metadata, 'orm.mappedBy');
+  const sourceRole = edge.sourceName;
+  const targetRole = edge.targetName;
+
+  if (owningEnd) {
+    if (owningEnd === sourceRole) return 'source';
+    if (owningEnd === targetRole) return 'target';
+  }
+  if (mappedBy) {
+    // mappedBy names the inverse end → the opposite end owns.
+    if (mappedBy === sourceRole) return 'target';
+    if (mappedBy === targetRole) return 'source';
+  }
+  return '';
+}
+
+/** Compact ORM annotation for an association edge ("LAZY · cascade: ALL · orphan"). */
+export function logicalEdgeAnnotation(edge: GraphEdge): string {
+  const parts: string[] = [];
+  const fetch = readMetaString(edge.metadata, 'orm.fetch');
+  if (fetch) parts.push(fetch);
+  const cascade = readMetaList(edge.metadata, 'orm.cascade');
+  if (cascade.length) parts.push(`cascade: ${cascade.join(', ')}`);
+  if (readMetaFlag(edge.metadata, 'orm.orphanRemoval')) parts.push('orphanRemoval');
+  return parts.join(' · ');
+}
 
 export function buildLogicalElements(
   nodes: GraphNode[],
   edges: GraphEdge[],
   parentMapping?: Record<string, string>,
 ): ElementDefinition[] {
-  return mapGraphDataToCytoscape(nodes, edges, parentMapping);
+  const elements: ElementDefinition[] = [];
+
+  for (const node of nodes) {
+    const entity = node.data;
+    const className = logicalClassName(node);
+    const badges = logicalBadges(node);
+    const pkg = readMetaString(entity?.metadata, 'orm.package');
+    const pkCount = entity?.attributes?.filter((a) => a.primaryKey).length ?? 0;
+
+    elements.push({
+      group: 'nodes',
+      data: {
+        id: node.id,
+        // `label` stays the entity name so node-click navigation still resolves
+        // /packages/<svc>/entities/<name>; `displayLabel` carries the rendered text.
+        label: node.label,
+        displayLabel: logicalNodeLabel(className, badges, pkg),
+        service: node.service,
+        type: 'entity',
+        viewMode: 'logical',
+        className,
+        ormPackage: pkg ?? '',
+        badges,
+        attrCount: entity?.attributes?.length ?? 0,
+        pkCount,
+        description: entity?.description ?? '',
+        // Carried for the info panel (#188): attributes keep their orm.* metadata.
+        attributes: entity?.attributes ?? [],
+        constraints: entity?.constraints ?? [],
+        expanded: false,
+        ...(parentMapping?.[node.id] ? { parent: parentMapping[node.id] } : {}),
+      },
+    });
+  }
+
+  for (const edge of edges) {
+    const owningSide = logicalOwningSide(edge);
+    const cascade = readMetaList(edge.metadata, 'orm.cascade');
+    elements.push({
+      group: 'edges',
+      data: {
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        edgeKind: 'association',
+        viewMode: 'logical',
+        label: logicalEdgeAnnotation(edge),
+        sourceCardinality: edge.sourceCardinality ?? '',
+        targetCardinality: edge.targetCardinality ?? '',
+        sourceName: edge.sourceName ?? '',
+        targetName: edge.targetName ?? '',
+        sourceEndLabel: formatEndLabel(edge.sourceName, edge.sourceCardinality),
+        targetEndLabel: formatEndLabel(edge.targetName, edge.targetCardinality),
+        // ORM runtime semantics for the info panel / styling.
+        fetch: readMetaString(edge.metadata, 'orm.fetch') ?? '',
+        cascade: cascade.join(', '),
+        orphanRemoval: readMetaFlag(edge.metadata, 'orm.orphanRemoval'),
+        optional: readMetaFlag(edge.metadata, 'orm.optional'),
+        owningEnd: readMetaString(edge.metadata, 'orm.owningEnd') ?? '',
+        mappedBy: readMetaString(edge.metadata, 'orm.mappedBy') ?? '',
+        owningSide,
+        // When the target end owns, draw the arrow at the source instead.
+        arrowAtSource: owningSide === 'target',
+      },
+    });
+  }
+
+  return elements;
 }
