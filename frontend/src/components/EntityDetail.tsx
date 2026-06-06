@@ -38,7 +38,7 @@ interface EntityDetailProps {
   editMode?: boolean;
 }
 
-type TabId = 'attributes' | 'relationships' | 'metadata' | 'lineage' | 'impact' | 'comments' | 'rules' | 'actions' | 'state-machines';
+type TabId = 'attributes' | 'relationships' | 'metadata' | 'orm' | 'lineage' | 'impact' | 'comments' | 'rules' | 'actions' | 'state-machines';
 
 interface TabDef {
   id: TabId;
@@ -349,6 +349,7 @@ const EntityDetail = (props: EntityDetailProps) => {
     { id: 'attributes',     label: 'Attributes',      count: attrCount },
     { id: 'relationships',  label: 'Relationships',   count: relCount },
     { id: 'metadata',       label: 'Metadata' },
+    { id: 'orm',            label: 'ORM' },
     { id: 'lineage',        label: 'Lineage' },
     { id: 'impact',         label: 'Impact' },
     { id: 'comments',       label: 'Comments' },
@@ -565,6 +566,11 @@ const EntityDetail = (props: EntityDetailProps) => {
               stereotype={currentStereotype}
               onChange={(entries) => setEntityData({ ...entityData, metadata: entries })}
             />
+          </div>
+        )}
+
+        {activeTab === 'orm' && entityData && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {(entityData.metadata || []).some(m => m.name.startsWith('orm.')) || showOrm ? (
               <>
                 <OrmMappingSection
@@ -580,9 +586,15 @@ const EntityDetail = (props: EntityDetailProps) => {
                 <OrmInheritancePanel current={entityData} all={ormEntities} />
               </>
             ) : (
-              <Button variant="soft" onClick={() => setShowOrm(true)} style={{ alignSelf: 'flex-start' }}>
-                Enable ORM mapping
-              </Button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
+                <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)', margin: 0 }}>
+                  No ORM mapping set for this entity. ORM mappings carry JPA-derived, language-neutral
+                  persistence details (<code>metadata.orm.*</code>) on the entity, its attributes and relationships.
+                </p>
+                <Button variant="soft" onClick={() => setShowOrm(true)}>
+                  Enable ORM mapping
+                </Button>
+              </div>
             )}
           </div>
         )}
