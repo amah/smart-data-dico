@@ -143,6 +143,10 @@ export function useFetchGraphData(service?: string, entity?: string): FetchGraph
               targetCardinality: rel.target.cardinality,
               sourceName,
               targetName,
+              // Carry the relationship's metadata through to the diagram (#183).
+              // Logical/physical views read `orm.*` keys and match against FK
+              // constraints; the structural view ignores it.
+              metadata: rel.metadata,
             };
           });
 

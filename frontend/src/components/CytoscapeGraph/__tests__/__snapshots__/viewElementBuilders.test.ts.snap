@@ -1,0 +1,77 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`buildViewElements > structural output is snapshot-stable 1`] = `
+[
+  {
+    "data": {
+      "attrCount": 2,
+      "attributes": [
+        {
+          "description": "",
+          "name": "id",
+          "primaryKey": true,
+          "required": true,
+          "type": "string",
+          "uuid": "a1",
+        },
+        {
+          "description": "",
+          "name": "total",
+          "required": true,
+          "type": "number",
+          "uuid": "a2",
+        },
+      ],
+      "description": "A customer order",
+      "displayLabel": "Order",
+      "expanded": false,
+      "id": "order-uuid",
+      "label": "Order",
+      "parent": "pkg:order-service",
+      "pkCount": 1,
+      "service": "order-service",
+      "type": "entity",
+    },
+    "group": "nodes",
+  },
+  {
+    "data": {
+      "attrCount": 1,
+      "attributes": [
+        {
+          "description": "",
+          "name": "qty",
+          "required": true,
+          "type": "number",
+          "uuid": "b1",
+        },
+      ],
+      "description": "",
+      "displayLabel": "OrderItem",
+      "expanded": false,
+      "id": "item-uuid",
+      "label": "OrderItem",
+      "parent": "pkg:order-service",
+      "pkCount": 0,
+      "service": "order-service",
+      "type": "entity",
+    },
+    "group": "nodes",
+  },
+  {
+    "data": {
+      "id": "rel-1",
+      "label": "Order has items",
+      "source": "order-uuid",
+      "sourceCardinality": "one",
+      "sourceEndLabel": "items",
+      "sourceName": "items",
+      "target": "item-uuid",
+      "targetCardinality": "many",
+      "targetEndLabel": "order *",
+      "targetName": "order",
+    },
+    "group": "edges",
+  },
+]
+`;
