@@ -19,8 +19,6 @@ interface Props {
   onSave: (next: MetadataEntry[]) => void | Promise<void>;
   /** For the `entityRef` picker (jpa.extends). */
   entities?: Array<{ uuid: string; name: string }>;
-  /** Optional read-only preview (e.g. derived annotations) shown under the fields. */
-  preview?: ReactNode;
 }
 
 const labelOf = (md: MetadataEntry[] | undefined, key: string): MetadataValue | undefined =>
@@ -40,7 +38,7 @@ function toDraft(defs: JpaKeyDef[], md: MetadataEntry[] | undefined): Draft {
   return d;
 }
 
-export default function JpaMappingSection({ scope, metadata, onSave, entities, preview }: Props) {
+export default function JpaMappingSection({ scope, metadata, onSave, entities }: Props) {
   const vocab = useJpaVocabulary();
   const defs = useMemo<JpaKeyDef[]>(() => vocab?.scopes[scope] ?? [], [vocab, scope]);
   const [open, setOpen] = useState(true);
@@ -190,7 +188,6 @@ export default function JpaMappingSection({ scope, metadata, onSave, entities, p
               ))}
             </dl>
           )}
-          {preview && <div style={{ marginTop: 14 }}>{preview}</div>}
         </div>
       )}
     </section>
