@@ -59,6 +59,7 @@ import { isValidUUID } from '../utils/uuid.js';
 import { validateRule } from '../models/Rule.js';
 import { FLOW_STEP_KINDS, type FlowStep } from '../models/Action.js';
 import { validateDerivedTypes, type DerivedType } from '../services/dicoConfigService.js';
+import { JPA_KEYS, JPA_ENUM_VALUES, JPA_CASCADE_VALUES, JPA_FLAG_KEYS } from '../models/jpaVocabulary.js';
 
 const WS = wsId('dictionaries');
 
@@ -280,32 +281,10 @@ function collectAttributes(attrs: unknown, acc: Attribute[]): void {
  *     still surfacing quality issues.
  */
 // ── JPA reserved-metadata vocabulary (jpa.* keys) ────────────────────────────
-// Mirrors the `physical.*` prefix convention: JPA mapping info is carried as
-// reserved `jpa.*` entries on the existing metadata[] arrays so the dico can
-// bear full JPA mapping (the exporter itself is out of scope). Validated here
-// so bad values are caught up front. See docs/format-reference.md.
-const JPA_ENUM_VALUES: Record<string, readonly string[]> = {
-  'jpa.generatedValue': ['IDENTITY', 'SEQUENCE', 'TABLE', 'UUID', 'AUTO', 'NONE'],
-  'jpa.enumerated': ['STRING', 'ORDINAL'],
-  'jpa.temporal': ['DATE', 'TIME', 'TIMESTAMP'],
-  'jpa.inheritanceStrategy': ['SINGLE_TABLE', 'JOINED', 'TABLE_PER_CLASS'],
-  'jpa.fetch': ['LAZY', 'EAGER'],
-};
-const JPA_CASCADE_VALUES = ['ALL', 'PERSIST', 'MERGE', 'REMOVE', 'REFRESH', 'DETACH'];
-const JPA_FLAG_KEYS = new Set([
-  'jpa.embeddable', 'jpa.mappedSuperclass', 'jpa.version', 'jpa.transient',
-  'jpa.lob', 'jpa.elementCollection', 'jpa.embedded', 'jpa.orphanRemoval', 'jpa.optional',
-]);
-const JPA_KEYS: Record<'entity' | 'attribute' | 'relationship', Set<string>> = {
-  entity: new Set(['jpa.package', 'jpa.className', 'jpa.embeddable', 'jpa.mappedSuperclass',
-    'jpa.extends', 'jpa.inheritanceStrategy', 'jpa.discriminatorColumn', 'jpa.discriminatorValue',
-    'jpa.idClass', 'jpa.embeddedId']),
-  attribute: new Set(['jpa.javaType', 'jpa.generatedValue', 'jpa.sequenceName', 'jpa.allocationSize',
-    'jpa.enumerated', 'jpa.enumType', 'jpa.version', 'jpa.transient', 'jpa.lob', 'jpa.temporal',
-    'jpa.converter', 'jpa.elementCollection', 'jpa.embedded']),
-  relationship: new Set(['jpa.fetch', 'jpa.cascade', 'jpa.orphanRemoval', 'jpa.optional',
-    'jpa.mappedBy', 'jpa.owningEnd', 'jpa.joinTable', 'jpa.joinColumns', 'jpa.inverseJoinColumns']),
-};
+// The allowed keys/values come from the single source of truth in
+// models/jpaVocabulary.ts (also served to the frontend via GET /api/jpa/vocabulary),
+// so the validator and the editor never drift. Mirrors the `physical.*` prefix
+// convention; validated here so bad values are caught up front.
 
 interface JpaCtx {
   globalEntityUuids: Set<string>;

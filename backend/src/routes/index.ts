@@ -6,6 +6,7 @@ import searchRoutes from './search.routes.js';
 import visualizationRoutes from './visualization.routes.js';
 import statusRoutes from './status.routes.js';
 import projectRoutes from './project.routes.js';
+import jpaRoutes from './jpa.routes.js';
 
 const router: Router = Router();
 router.use(statusRoutes);
@@ -13,6 +14,7 @@ router.use(authRoutes);
 router.use(searchRoutes);          // mounted before data-dictionary so `/api/entities/flat` is visible at the same level
 router.use(visualizationRoutes);
 router.use(projectRoutes);
+router.use(jpaRoutes);
 router.use(dataDictionaryRoutes);
 router.use(aiRoutes);
 export default router;
