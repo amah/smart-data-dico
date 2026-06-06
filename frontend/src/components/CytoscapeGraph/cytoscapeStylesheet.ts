@@ -205,6 +205,46 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
         'text-background-opacity': 0.9,
       } as any,
     },
+    // ── Physical (table) view ─────────────────────────────────────────────
+    // FK edge: a solid arrow to the referenced table, labelled with the join
+    // column(s). No cardinality glyphs.
+    {
+      selector: 'edge[edgeKind = "fk"]',
+      style: {
+        label: 'data(label)',
+        'line-color': neutral,
+        'line-opacity': 0.7,
+        'target-arrow-shape': 'triangle',
+        'target-arrow-color': neutral,
+        'source-label': '',
+        'target-label': '',
+        'font-size': 9,
+        color: fg,
+        'text-background-color': bg,
+        'text-background-opacity': 0.9,
+        'text-background-padding': '2px',
+      } as any,
+    },
+    // Join-table node (synthetic, for many-to-many): a distinct cut-corner
+    // rectangle so it reads apart from real tables.
+    {
+      selector: 'node[type = "jointable"]',
+      style: {
+        label: 'data(displayLabel)',
+        'text-valign': 'center',
+        'text-halign': 'center',
+        'background-color': bgRaised,
+        'border-width': 2,
+        'border-style': 'dashed',
+        'border-color': accent,
+        color: fg,
+        'font-size': 11,
+        'font-style': 'italic',
+        shape: 'cutrectangle',
+        width: 120,
+        height: 40,
+      } as any,
+    },
     // Selected
     {
       selector: ':selected',
