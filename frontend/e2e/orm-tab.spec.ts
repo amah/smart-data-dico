@@ -52,6 +52,20 @@ test.describe('entity ORM tab', () => {
     await expect(page.locator('option', { hasText: 'SINGLE_TABLE' })).toHaveCount(1);
   });
 
+  test('Relationships (ORM) overview surfaces fetch/cascade per relationship', async ({ page }) => {
+    await page.goto(ORDER);
+    await openTab(page, 'ORM');
+    const overview = page.locator('section', { has: page.getByRole('heading', { name: 'RELATIONSHIPS (ORM)' }) });
+    await expect(overview).toBeVisible();
+    // the Order→OrderItem relationship shows its fetch/cascade and links to edit
+    await expect(overview.getByText('Order → OrderItem')).toBeVisible();
+    await expect(overview.getByText(/Fetch:\s*LAZY/).first()).toBeVisible();
+    await expect(overview.getByText(/Cascade:\s*ALL/)).toBeVisible();
+    await expect(
+      overview.getByRole('link', { name: 'Edit' }).first()
+    ).toHaveAttribute('href', /relationships\/rel-order-item-001$/);
+  });
+
   test('entity without orm.* shows the enable affordance, not the form', async ({ page }) => {
     await page.goto(USER);
     await openTab(page, 'ORM');

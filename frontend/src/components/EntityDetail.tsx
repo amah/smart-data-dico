@@ -5,6 +5,7 @@ import { Entity, Relationship, Stereotype, ImpactAnalysis, Rule, Action, StateMa
 import OrmMappingSection from './OrmMappingSection';
 import OrmInheritancePanel, { type EntityRef } from './OrmInheritancePanel';
 import EntityPhysicalSection from './EntityPhysicalSection';
+import RelationshipOrmOverview from './RelationshipOrmOverview';
 import ReviewComments from './ReviewComments';
 import LineageView from './LineageView';
 import MetadataEditor from './MetadataEditor';
@@ -606,6 +607,12 @@ const EntityDetail = (props: EntityDetailProps) => {
                 </Button>
               </div>
             )}
+            <RelationshipOrmOverview
+              relationships={relationships}
+              service={service || ''}
+              entityName={entityData.name}
+              nameOf={(uuid) => ormEntities.find(r => r.entity.uuid === uuid)?.entity.name || uuid.slice(0, 8)}
+            />
           </div>
         )}
 
