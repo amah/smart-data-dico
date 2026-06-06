@@ -4,7 +4,7 @@
  * vocabulary (GET /api/orm/vocabulary via useOrmVocabulary), so the editor can't
  * drift from the validator. Pure metadata — saving just rewrites metadata[].
  */
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Button, Chip, Icon } from './ui';
 import type { MetadataEntry, MetadataValue } from '../types';
 import { useOrmVocabulary } from '../hooks/useOrmVocabulary';
@@ -19,6 +19,8 @@ interface Props {
   onSave: (next: MetadataEntry[]) => void | Promise<void>;
   /** For the `entityRef` picker (orm.extends). */
   entities?: Array<{ uuid: string; name: string }>;
+  /** Render the full typed form (all inputs) up-front instead of the read view. */
+  defaultEditing?: boolean;
 }
 
 const labelOf = (md: MetadataEntry[] | undefined, key: string): MetadataValue | undefined =>
@@ -38,13 +40,20 @@ function toDraft(defs: OrmKeyDef[], md: MetadataEntry[] | undefined): Draft {
   return d;
 }
 
-export default function OrmMappingSection({ scope, metadata, onSave, entities }: Props) {
+export default function OrmMappingSection({ scope, metadata, onSave, entities, defaultEditing }: Props) {
   const vocab = useOrmVocabulary();
   const defs = useMemo<OrmKeyDef[]>(() => vocab?.scopes[scope] ?? [], [vocab, scope]);
   const [open, setOpen] = useState(true);
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(!!defaultEditing);
   const [draft, setDraft] = useState<Draft>({});
   const [saving, setSaving] = useState(false);
+
+  // In default-editing mode, (re)hydrate the draft once the vocabulary loads and
+  // whenever the saved metadata changes (e.g. after a save → refresh round-trip).
+  useEffect(() => {
+    if (defaultEditing && vocab) setDraft(toDraft(defs, metadata));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultEditing, vocab, metadata]);
 
   if (!vocab) return null; // vocabulary not loaded (or endpoint unavailable) — hide gracefully
 
@@ -53,7 +62,10 @@ export default function OrmMappingSection({ scope, metadata, onSave, entities }:
   const isOpen = editing ? true : open;
 
   const beginEdit = () => { setDraft(toDraft(defs, metadata)); setEditing(true); };
-  const cancel = () => setEditing(false);
+  const cancel = () => {
+    if (defaultEditing) setDraft(toDraft(defs, metadata)); // reset, stay in the form
+    else setEditing(false);
+  };
 
   const save = async () => {
     setSaving(true);
@@ -73,7 +85,7 @@ export default function OrmMappingSection({ scope, metadata, onSave, entities }:
         }
       }
       await onSave(next);
-      setEditing(false);
+      if (!defaultEditing) setEditing(false);
     } finally {
       setSaving(false);
     }

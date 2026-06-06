@@ -575,6 +575,7 @@ const EntityDetail = (props: EntityDetailProps) => {
               <>
                 <OrmMappingSection
                   scope="entity"
+                  defaultEditing
                   metadata={entityData.metadata}
                   entities={ormEntities.map(r => ({ uuid: r.entity.uuid, name: r.entity.name }))}
                   onSave={async (next) => {
