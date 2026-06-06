@@ -7,6 +7,8 @@ entities:
     metadata:
       - name: orm.package
         value: com.eshop.order
+      - name: orm.className
+        value: Order
     constraints:
       - kind: unique
         name: uq_orders_order_number
@@ -77,6 +79,9 @@ entities:
         type: number
         required: true
         uuid: 74dda811-a63f-4067-9c50-f441318bd2f4
+        metadata:
+          - name: orm.javaType
+            value: java.math.BigDecimal
         validation:
           minimum: 0
           precision: 10
@@ -87,6 +92,9 @@ entities:
         required: true
         defaultValue: USD
         uuid: 86c8ea76-ca77-4c41-a207-279b295a4bbb
+        metadata:
+          - name: orm.javaType
+            value: java.util.Currency
         validation:
           minLength: 3
           maxLength: 3
@@ -95,6 +103,11 @@ entities:
         type: enum
         required: true
         uuid: 30b23724-1831-40c6-8f2f-1b709685dcec
+        metadata:
+          - name: orm.enumerated
+            value: STRING
+          - name: orm.enumType
+            value: PaymentMethod
         validation:
           enumValues:
             - CREDIT_CARD
@@ -108,6 +121,11 @@ entities:
         required: true
         defaultValue: PENDING
         uuid: b5939da2-3559-4697-a0fe-842e6148739e
+        metadata:
+          - name: orm.enumerated
+            value: STRING
+          - name: orm.enumType
+            value: PaymentStatus
         validation:
           enumValues:
             - PENDING
@@ -163,6 +181,9 @@ entities:
             required: true
             uuid: 6949d323-6b89-4a08-883b-5a03aaed1ccc
         uuid: 7e87e904-ef8e-488b-bbfd-7f065daaceef
+        metadata:
+          - name: orm.embedded
+            value: true
       - name: billingAddress
         description: Billing address for the order
         type: object
@@ -205,11 +226,17 @@ entities:
             required: true
             uuid: a92a2a00-b2d3-45cf-9e48-62939de29170
         uuid: 6626801a-4864-44b8-94a4-ac1e3323abcb
+        metadata:
+          - name: orm.embedded
+            value: true
       - name: notes
         description: Additional notes for the order
         type: string
         required: false
         uuid: 9b32a287-e6a8-4c32-a30a-2b9bb9e10a0c
+        metadata:
+          - name: orm.lob
+            value: true
         validation:
           maxLength: 1000
       - name: createdAt
@@ -217,11 +244,19 @@ entities:
         type: datetime
         required: true
         uuid: cd605ee0-da90-4919-aa42-d4751786ce5f
+        metadata:
+          - name: orm.temporal
+            value: TIMESTAMP
       - name: updatedAt
         description: Timestamp when the order was last updated
         type: datetime
         required: true
         uuid: a640d223-d18e-417a-b7c2-b396ddc18903
+        metadata:
+          - name: orm.temporal
+            value: TIMESTAMP
+          - name: orm.version
+            value: true
     relationships:
       - name: user
         description: User who placed the order

@@ -8,6 +8,8 @@ relationships:
         value: ALL
       - name: orm.orphanRemoval
         value: true
+      - name: orm.mappedBy
+        value: order
     ends:
       - entity: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
         cardinality: one
@@ -42,6 +44,13 @@ relationships:
       name: quote
   - uuid: 638ccf12-7ee3-4055-b130-2b9776df1b76
     description: Order placed by a user
+    metadata:
+      - name: orm.fetch
+        value: LAZY
+      - name: orm.optional
+        value: false
+      - name: orm.owningEnd
+        value: order
     source:
       entity: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
       cardinality: many
