@@ -527,6 +527,14 @@ export interface GraphEdge {
   sourceName?: string;
   /** Role / endpoint name at the target end (e.g. "order"). */
   targetName?: string;
+  /**
+   * Relationship metadata carried through to the diagram (#183). The
+   * structural view ignores it; the logical (ORM) view reads `orm.*` keys
+   * (fetch / cascade / orphanRemoval / owningEnd / mappedBy / joinTable) and
+   * the physical view uses it to match relationships against FK constraints
+   * for drift detection. Mirrors `Relationship.metadata`.
+   */
+  metadata?: MetadataEntry[];
 }
 
 /**

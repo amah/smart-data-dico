@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import type { ElementDefinition } from 'cytoscape';
 import type { CytoscapeGraphProps, LayoutName, LayoutDirection } from './CytoscapeGraph.types';
 import { useFetchGraphData } from '../../hooks/useFetchGraphData';
-import { mapGraphDataToCytoscape } from './mapGraphDataToCytoscape';
+import { buildViewElements } from './viewElementBuilders';
 import { mapPackagesToCompoundNodes } from './mapPackagesToCompoundNodes';
 import { useCytoscapeInstance } from './useCytoscapeInstance';
 import { useCytoscapeLayout } from './useCytoscapeLayout';
@@ -56,10 +56,8 @@ export default function CytoscapeGraph({
       compoundNodes = result.compoundNodes;
     }
 
-    // #182: every view mode currently renders the structural graph. #183
-    // swaps this for a mode-aware element builder selected by `viewMode`.
-    void viewMode;
-    const entityElements = mapGraphDataToCytoscape(nodes, edges, parentMapping);
+    // Mode-aware element builder (#183) — structural / logical / physical.
+    const entityElements = buildViewElements(viewMode, nodes, edges, parentMapping);
     return [...compoundNodes, ...entityElements];
   }, [nodes, edges, mode, packages, viewMode]);
 
