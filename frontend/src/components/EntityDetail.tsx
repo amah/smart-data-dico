@@ -54,6 +54,9 @@ const EntityDetail = (props: EntityDetailProps) => {
   const [entityData, setEntityData] = useState<Entity | null>(null);
   // All entities across packages — for the orm.extends picker + inheritance panel.
   const [ormEntities, setOrmEntities] = useState<EntityRef[]>([]);
+  // The ORM mapping form is shown only when ORM is "enabled" on the entity
+  // (it already has orm.* metadata) or the user clicked Enable for this entity.
+  const [showOrm, setShowOrm] = useState(false);
   const [relationships, setRelationships] = useState<Relationship[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -246,6 +249,9 @@ const EntityDetail = (props: EntityDetailProps) => {
     }).catch(() => { /* best effort */ });
     return () => { cancelled = true; };
   }, []);
+
+  // Reset the "enable ORM" reveal when switching to another entity.
+  useEffect(() => { setShowOrm(false); }, [entity]);
 
   // ──────────────── Early returns ────────────────
 
@@ -559,17 +565,25 @@ const EntityDetail = (props: EntityDetailProps) => {
               stereotype={currentStereotype}
               onChange={(entries) => setEntityData({ ...entityData, metadata: entries })}
             />
-            <OrmMappingSection
-              scope="entity"
-              metadata={entityData.metadata}
-              entities={ormEntities.map(r => ({ uuid: r.entity.uuid, name: r.entity.name }))}
-              onSave={async (next) => {
-                if (!service || !entityData) return;
-                await servicesApi.updateEntity(service, entityData.name, { ...entityData, metadata: next });
-                await refreshEntity();
-              }}
-            />
-            <OrmInheritancePanel current={entityData} all={ormEntities} />
+            {(entityData.metadata || []).some(m => m.name.startsWith('orm.')) || showOrm ? (
+              <>
+                <OrmMappingSection
+                  scope="entity"
+                  metadata={entityData.metadata}
+                  entities={ormEntities.map(r => ({ uuid: r.entity.uuid, name: r.entity.name }))}
+                  onSave={async (next) => {
+                    if (!service || !entityData) return;
+                    await servicesApi.updateEntity(service, entityData.name, { ...entityData, metadata: next });
+                    await refreshEntity();
+                  }}
+                />
+                <OrmInheritancePanel current={entityData} all={ormEntities} />
+              </>
+            ) : (
+              <Button variant="soft" onClick={() => setShowOrm(true)} style={{ alignSelf: 'flex-start' }}>
+                Enable ORM mapping
+              </Button>
+            )}
           </div>
         )}
 
