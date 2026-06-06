@@ -180,6 +180,31 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
         'arrow-scale': 1.2,
       } as any,
     },
+    // Inheritance ("is-a") edge (#185) — UML generalization: a solid line with a
+    // hollow triangle pointing at the superclass. Distinct from associations,
+    // with no cardinality glyphs; labelled with the root's inheritance strategy.
+    {
+      selector: 'edge[edgeKind = "inheritance"]',
+      style: {
+        label: 'data(label)',
+        'line-color': fg,
+        'line-opacity': 0.8,
+        'line-style': 'solid',
+        width: 1.5,
+        'target-arrow-shape': 'triangle',
+        'target-arrow-fill': 'hollow',
+        'target-arrow-color': fg,
+        'source-arrow-shape': 'none',
+        'arrow-scale': 1.6,
+        'source-label': '',
+        'target-label': '',
+        'font-size': 9,
+        'font-style': 'italic',
+        color: fg,
+        'text-background-color': bg,
+        'text-background-opacity': 0.9,
+      } as any,
+    },
     // Selected
     {
       selector: ':selected',

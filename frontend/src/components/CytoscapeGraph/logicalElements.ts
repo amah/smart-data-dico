@@ -31,13 +31,66 @@ export function logicalBadges(node: GraphNode): string[] {
   return badges;
 }
 
-/** Compact multi-line node label: stereotype line · class name · package. */
-function logicalNodeLabel(className: string, badges: string[], pkg?: string): string {
+/**
+ * Inheritance strategy declared on a class (the `@Inheritance` on the root).
+ * Surfaced on the node that declares it (#185).
+ */
+export function logicalInheritanceStrategy(node: GraphNode): string {
+  return readMetaString(node.data?.metadata, 'orm.inheritanceStrategy') || '';
+}
+
+/** Compact multi-line node label: stereotype line · class name · package · strategy. */
+function logicalNodeLabel(
+  className: string,
+  badges: string[],
+  pkg?: string,
+  inheritanceStrategy?: string,
+): string {
   const lines: string[] = [];
   if (badges.length) lines.push(`«${badges.join(', ')}»`);
   lines.push(className);
   if (pkg) lines.push(pkg);
+  // The root of an inheritance hierarchy shows its strategy (#185).
+  if (inheritanceStrategy) lines.push(`{${inheritanceStrategy}}`);
   return lines.join('\n');
+}
+
+/**
+ * Build the diagram-only inheritance ("is-a") edges from `orm.extends` (#185).
+ *
+ * Decision 5: inheritance is NOT a relationship — these edges are generated
+ * here, never promoted to a relationship `type`, and never mixed with
+ * associations. `orm.extends` is an entityRef (a uuid or an entity name); it is
+ * resolved against the nodes by id first, then by name. Edges that can't be
+ * resolved (parent off-canvas) are dropped.
+ */
+export function buildInheritanceEdges(nodes: GraphNode[]): ElementDefinition[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const byName = new Map(nodes.map((n) => [n.label, n]));
+  const edges: ElementDefinition[] = [];
+
+  for (const child of nodes) {
+    const ext = readMetaString(child.data?.metadata, 'orm.extends');
+    if (!ext) continue;
+    const parent = byId.get(ext) || byName.get(ext);
+    if (!parent || parent.id === child.id) continue;
+    edges.push({
+      group: 'edges',
+      data: {
+        id: `isa:${child.id}->${parent.id}`,
+        source: child.id,
+        target: parent.id,
+        edgeKind: 'inheritance',
+        viewMode: 'logical',
+        // No association annotation / cardinality on an is-a edge; the root's
+        // strategy (if any) labels the edge so it reads at the superclass end.
+        label: logicalInheritanceStrategy(parent),
+        sourceEndLabel: '',
+        targetEndLabel: '',
+      },
+    });
+  }
+  return edges;
 }
 
 /**
@@ -91,6 +144,7 @@ export function buildLogicalElements(
     const className = logicalClassName(node);
     const badges = logicalBadges(node);
     const pkg = readMetaString(entity?.metadata, 'orm.package');
+    const inheritanceStrategy = logicalInheritanceStrategy(node);
     const pkCount = entity?.attributes?.filter((a) => a.primaryKey).length ?? 0;
 
     elements.push({
@@ -100,13 +154,14 @@ export function buildLogicalElements(
         // `label` stays the entity name so node-click navigation still resolves
         // /packages/<svc>/entities/<name>; `displayLabel` carries the rendered text.
         label: node.label,
-        displayLabel: logicalNodeLabel(className, badges, pkg),
+        displayLabel: logicalNodeLabel(className, badges, pkg, inheritanceStrategy),
         service: node.service,
         type: 'entity',
         viewMode: 'logical',
         className,
         ormPackage: pkg ?? '',
         badges,
+        inheritanceStrategy,
         attrCount: entity?.attributes?.length ?? 0,
         pkCount,
         description: entity?.description ?? '',
@@ -150,6 +205,10 @@ export function buildLogicalElements(
       },
     });
   }
+
+  // Inheritance is-a edges (#185) — a distinct, diagram-only edge type, kept
+  // separate from associations (Decision 5).
+  elements.push(...buildInheritanceEdges(nodes));
 
   return elements;
 }
