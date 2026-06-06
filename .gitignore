@@ -60,3 +60,9 @@ coverage/
 samples/*/.dico/diagrams/
 # Dev project-switch restart trigger (nodemon-watched)
 backend/.dico-restart.json
+
+# Playwright
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/.playwright/

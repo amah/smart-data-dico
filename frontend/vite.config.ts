@@ -34,6 +34,15 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     css: true,
+    // Playwright e2e specs live in ./e2e and use @playwright/test, not Vitest.
+    // Keep Vitest's defaults and just add the e2e dir so `npm test` ignores them.
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/.{idea,git,cache,output,temp}/**',
+      '**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build}.config.*',
+      'e2e/**',
+    ],
     // Use forks pool so each test file runs in its own subprocess. OS
     // reclaims memory on process exit, eliminating the cumulative-heap
     // OOM that hits ~50+ files when running with the default threads pool.
