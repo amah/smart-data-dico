@@ -45,7 +45,7 @@ import {
   RelationshipKindChip,
 } from '../components/ui';
 import Breadcrumbs from '../components/Breadcrumbs';
-import JpaMappingSection from '../components/JpaMappingSection';
+import OrmMappingSection from '../components/OrmMappingSection';
 
 interface EntityLookupEntry {
   name: string;
@@ -257,7 +257,7 @@ const RelationshipDetailPage = () => {
           currentEntity={entityName}
         />
         <PhysicalSection rel={rel} />
-        <JpaMappingSection
+        <OrmMappingSection
           scope="relationship"
           metadata={rel.metadata}
           onSave={(next) => saveRelationship(r => ({ ...r, metadata: next }))}

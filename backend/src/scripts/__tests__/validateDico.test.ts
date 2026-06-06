@@ -208,8 +208,8 @@ describe('validateDico', () => {
     }
   });
 
-  it('flags bad jpa.* metadata (enum value, ghost extends, conflicting flags, unknown key)', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dico-jpa-'));
+  it('flags bad orm.* metadata (enum value, ghost extends, conflicting flags, unknown key)', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dico-orm-'));
     try {
       fs.writeFileSync(path.join(dir, 'dico.config.json'), JSON.stringify({ version: 1 }));
       const pkg = path.join(dir, 'shop');
@@ -221,9 +221,9 @@ describe('validateDico', () => {
         '    name: Order',
         '    description: order',
         '    metadata:',
-        '      - name: jpa.package',
+        '      - name: orm.package',
         '        value: com.x.order',
-        '      - name: jpa.extends',          // → jpa.reference (no such entity)
+        '      - name: orm.extends',          // → orm.reference (no such entity)
         '        value: GhostParent',
         '    attributes:',
         '      - uuid: aaaaaaaa-1111-4111-8111-111111111111',
@@ -232,7 +232,7 @@ describe('validateDico', () => {
         '        type: string',
         '        required: true',
         '        metadata:',
-        '          - name: jpa.generatedValue', // → jpa.value (bad enum)
+        '          - name: orm.generatedValue', // → orm.value (bad enum)
         '            value: BOGUS',
         '      - uuid: aaaaaaaa-2222-4222-8222-222222222222',
         '        name: lockver',
@@ -240,9 +240,9 @@ describe('validateDico', () => {
         '        type: integer',
         '        required: false',
         '        metadata:',
-        '          - name: jpa.version',         // version + transient → jpa.conflict
+        '          - name: orm.version',         // version + transient → orm.conflict
         '            value: true',
-        '          - name: jpa.transient',
+        '          - name: orm.transient',
         '            value: true',
         '      - uuid: aaaaaaaa-3333-4333-8333-333333333333',
         '        name: misc',
@@ -250,17 +250,17 @@ describe('validateDico', () => {
         '        type: string',
         '        required: false',
         '        metadata:',
-        '          - name: jpa.bogusKey',        // → jpa.unknownKey (warning)
+        '          - name: orm.bogusKey',        // → orm.unknownKey (warning)
         '            value: x',
         '',
       ].join('\n'));
-      // Valid self-relationship endpoints; only the jpa.fetch value is bad.
+      // Valid self-relationship endpoints; only the orm.fetch value is bad.
       fs.writeFileSync(path.join(pkg, 'relationships.model.yaml'), [
         'relationships:',
-        '  - uuid: rel-jpa-001',
+        '  - uuid: rel-orm-001',
         '    description: self',
         '    metadata:',
-        '      - name: jpa.fetch',               // → jpa.value (bad enum)
+        '      - name: orm.fetch',               // → orm.value (bad enum)
         '        value: BOGUS',
         '    ends:',
         '      - entity: 11111111-1111-4111-8111-111111111111',
@@ -273,10 +273,10 @@ describe('validateDico', () => {
       const report = new Report();
       await validateProject(dir, report);
       const codes = report.findings.map(f => f.code);
-      expect(codes).toContain('jpa.value');       // bad enum (generatedValue + fetch)
-      expect(codes).toContain('jpa.reference');    // ghost jpa.extends
-      expect(codes).toContain('jpa.conflict');     // version + transient
-      const unknown = report.findings.find(f => f.code === 'jpa.unknownKey');
+      expect(codes).toContain('orm.value');       // bad enum (generatedValue + fetch)
+      expect(codes).toContain('orm.reference');    // ghost orm.extends
+      expect(codes).toContain('orm.conflict');     // version + transient
+      const unknown = report.findings.find(f => f.code === 'orm.unknownKey');
       expect(unknown).toBeDefined();
       expect(unknown!.severity).toBe('warning');
       expect(report.errorCount).toBeGreaterThan(0);
@@ -286,8 +286,8 @@ describe('validateDico', () => {
     }
   });
 
-  it('flags a jpa.extends inheritance cycle and strategy-on-subclass', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dico-jpa-inh-'));
+  it('flags a orm.extends inheritance cycle and strategy-on-subclass', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dico-orm-inh-'));
     try {
       fs.writeFileSync(path.join(dir, 'dico.config.json'), JSON.stringify({ version: 1 }));
       const pkg = path.join(dir, 'shop');
@@ -300,7 +300,7 @@ describe('validateDico', () => {
         '    name: A',
         '    description: a',
         '    metadata:',
-        '      - name: jpa.extends',
+        '      - name: orm.extends',
         '        value: B',
         '    attributes: []',
         '',
@@ -312,9 +312,9 @@ describe('validateDico', () => {
         '    name: B',
         '    description: b',
         '    metadata:',
-        '      - name: jpa.extends',
+        '      - name: orm.extends',
         '        value: A',
-        '      - name: jpa.inheritanceStrategy',
+        '      - name: orm.inheritanceStrategy',
         '        value: SINGLE_TABLE',
         '    attributes: []',
         '',
@@ -323,10 +323,10 @@ describe('validateDico', () => {
       const report = new Report();
       await validateProject(dir, report);
       const codes = report.findings.map(f => f.code);
-      expect(codes).toContain('jpa.inheritanceCycle');
-      const cyc = report.findings.find(f => f.code === 'jpa.inheritanceCycle');
+      expect(codes).toContain('orm.inheritanceCycle');
+      const cyc = report.findings.find(f => f.code === 'orm.inheritanceCycle');
       expect(cyc!.severity).toBe('error');
-      const strat = report.findings.find(f => f.code === 'jpa.inheritance');
+      const strat = report.findings.find(f => f.code === 'orm.inheritance');
       expect(strat).toBeDefined();
       expect(strat!.severity).toBe('warning');
       expect(report.errorCount).toBeGreaterThan(0);

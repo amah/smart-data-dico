@@ -5,7 +5,7 @@ entities:
     microservice: order-service
     version: 1.0.0
     metadata:
-      - name: jpa.package
+      - name: orm.package
         value: com.eshop.order
     constraints:
       - kind: unique
@@ -32,7 +32,7 @@ entities:
         metadata:
           - name: isPrimaryKey
             value: true
-          - name: jpa.generatedValue
+          - name: orm.generatedValue
             value: UUID
         uuid: d1a14e8a-745d-4997-8b7a-dc4fa49025d9
       - name: orderNumber
@@ -68,9 +68,9 @@ entities:
             - CANCELLED
             - REFUNDED
         metadata:
-          - name: jpa.enumerated
+          - name: orm.enumerated
             value: STRING
-          - name: jpa.enumType
+          - name: orm.enumType
             value: OrderStatus
       - name: totalAmount
         description: Total order amount in cents
