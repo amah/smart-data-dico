@@ -1,0 +1,45 @@
+entities:
+  - uuid: e833bfe9-c84c-4369-b5b3-3553f438e962
+    name: Address
+    description: Postal address value object, embedded in orders (shipping & billing)
+    metadata:
+      - name: orm.package
+        value: com.eshop.order
+      - name: orm.embeddable
+        value: true
+    attributes:
+      - name: fullName
+        description: Recipient's full name
+        type: string
+        required: true
+        uuid: 12b79feb-225a-408d-9f55-6cf5ddbfcfa4
+      - name: street
+        description: Street address
+        type: string
+        required: true
+        uuid: 8f5d2de4-57e8-4eaa-aa45-15e20203507b
+      - name: city
+        description: City
+        type: string
+        required: true
+        uuid: de95d1a8-98a0-4d5d-baf9-e429a7f529f2
+      - name: state
+        description: State or province
+        type: string
+        required: true
+        uuid: cdbbca7c-2570-4842-b57c-0684d4c72abd
+      - name: postalCode
+        description: Postal or ZIP code
+        type: string
+        required: true
+        uuid: 92300ed5-2c4e-4ae7-927f-0ee8f7335db1
+      - name: country
+        description: Country
+        type: string
+        required: true
+        uuid: 9221205d-2a6c-4e79-b098-ddd1305c6427
+      - name: phoneNumber
+        description: Contact phone number (shipping only)
+        type: string
+        required: false
+        uuid: 032f19e4-79e4-40a5-b0a3-02032251d052

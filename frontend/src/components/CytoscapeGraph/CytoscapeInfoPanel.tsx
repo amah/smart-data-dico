@@ -208,7 +208,9 @@ function NodeDetail({ data }: { data: InfoPanelData }) {
             {attr.primaryKey && <span className="badge badge-primary badge-xs">PK</span>}
             <span className="font-mono">{attr.name}</span>
             <span className="opacity-50 ml-auto">{attr.type}</span>
-            {attr.required && <span className="text-error">*</span>}
+            {/* Always reserve the required-marker slot so the type column aligns
+                whether or not the field is required. */}
+            <span className="text-error w-2 shrink-0 text-center">{attr.required ? '*' : ''}</span>
           </div>
         ))}
       </div>
