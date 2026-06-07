@@ -51,7 +51,10 @@ export function useCytoscapeInstance(
       elements,
       style: stylesheet,
       layout: { name: 'preset' }, // We'll run layout separately
-      minZoom: 0.1,
+      // Floor the zoom so a large graph's fit-to-screen can't shrink nodes below
+      // a readable size — with many entities they stay visible (pan to see more)
+      // rather than collapsing to dots. Node box is 180×60, so 0.3 ≈ 54px min.
+      minZoom: 0.3,
       maxZoom: 4,
       wheelSensitivity: 0.3,
       boxSelectionEnabled: false,
