@@ -92,8 +92,12 @@ export default function CytoscapeLegend({
           <div className="opacity-60 mb-1">Edges</div>
           <ul className="space-y-1">
             <li className="flex items-center gap-2">
-              <LegendLine />
-              <span>Association (fetch / cascade)</span>
+              <LegendLine arrow="◆" />
+              <span>Composition (owns; ◆ at the whole)</span>
+            </li>
+            <li className="flex items-center gap-2">
+              <LegendLine arrow="›" />
+              <span>Reference (› = navigable; none = both ways)</span>
             </li>
             <li className="flex items-center gap-2">
               <LegendLine arrow="▷" />

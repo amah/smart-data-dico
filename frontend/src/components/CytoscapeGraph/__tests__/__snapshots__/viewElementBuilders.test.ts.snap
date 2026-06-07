@@ -60,15 +60,15 @@ exports[`buildViewElements > structural output is snapshot-stable 1`] = `
   },
   {
     "data": {
-      "arrowAtSource": true,
-      "arrowAtTarget": true,
       "id": "rel-1",
       "label": "Order has items",
       "source": "order-uuid",
+      "sourceArrow": "none",
       "sourceCardinality": "one",
       "sourceEndLabel": "items",
       "sourceName": "items",
       "target": "item-uuid",
+      "targetArrow": "none",
       "targetCardinality": "many",
       "targetEndLabel": "order *",
       "targetName": "order",
