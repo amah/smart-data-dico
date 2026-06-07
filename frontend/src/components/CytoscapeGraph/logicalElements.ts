@@ -19,6 +19,7 @@ import { formatEndLabel } from './mapGraphDataToCytoscape';
 import { readMetaString, readMetaFlag, readMetaList } from './elementMeta';
 import { mergeRelationshipEdges } from './mergeEdges';
 import { associationArrows } from './arrowShapes';
+import { buildEmbeddedEdges } from './embeddedEdges';
 
 export interface LogicalOptions {
   /** Show the ORM annotation (fetch · cascade · orphanRemoval) on association edges. */
@@ -231,6 +232,9 @@ export function buildLogicalElements(
   // Inheritance is-a edges (#185) — a distinct, diagram-only edge type, kept
   // separate from associations (Decision 5).
   elements.push(...buildInheritanceEdges(nodes));
+
+  // Composition edges for @Embedded value objects (owner ◆— embeddable) (#embed).
+  elements.push(...buildEmbeddedEdges(nodes, 'logical'));
 
   return elements;
 }

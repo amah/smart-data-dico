@@ -2,6 +2,7 @@ import type { ElementDefinition } from 'cytoscape';
 import type { GraphNode, GraphEdge } from '../../types';
 import { mergeRelationshipEdges } from './mergeEdges';
 import { referenceArrows } from './arrowShapes';
+import { buildEmbeddedEdges } from './embeddedEdges';
 
 /**
  * Format the label shown at one end of a relationship edge.
@@ -77,6 +78,9 @@ export function mapGraphDataToCytoscape(
       },
     });
   }
+
+  // Composition edges for @Embedded value objects (owner ◆— embeddable) (#embed).
+  elements.push(...buildEmbeddedEdges(nodes, 'structural'));
 
   return elements;
 }
