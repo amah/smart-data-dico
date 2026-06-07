@@ -13,7 +13,7 @@
  * consumed by CytoscapeInfoPanel.
  */
 import type { Attribute, PhysicalConstraint } from '../../types';
-import type { ViewMode } from './viewMode';
+import type { DetailMode } from './CytoscapeGraph.types';
 import { readMetaString, readMetaFlag } from './elementMeta';
 
 export interface StructuralAttrRow {
@@ -144,7 +144,7 @@ function embeddedFieldsFor(
 }
 
 export function buildNodeInfo(
-  viewMode: ViewMode | undefined,
+  viewMode: DetailMode | undefined,
   attributes: Attribute[] = [],
   constraints: PhysicalConstraint[] = [],
   embeddables: Map<string, Attribute[]> = new Map(),

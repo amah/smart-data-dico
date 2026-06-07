@@ -5,17 +5,23 @@ interface CytoscapeLegendProps {
   serviceColorMap: Record<string, string>;
   showCaseStates?: boolean;
   viewMode?: ViewMode;
+  /** ORM overlay state (structural view). */
+  orm?: boolean;
+  /** Toggle the ORM overlay; when provided, the legend shows the checkbox. */
+  onToggleOrm?: () => void;
 }
 
 export default function CytoscapeLegend({
   serviceColorMap,
   showCaseStates = false,
   viewMode = 'structural',
+  orm = false,
+  onToggleOrm,
 }: CytoscapeLegendProps) {
   const [open, setOpen] = useState(true);
 
   const services = Object.entries(serviceColorMap);
-  if (services.length === 0 && !showCaseStates && viewMode === 'structural') return null;
+  if (services.length === 0 && !showCaseStates && !onToggleOrm && viewMode === 'structural') return null;
 
   if (!open) {
     return (
@@ -43,6 +49,16 @@ export default function CytoscapeLegend({
           &times;
         </button>
       </div>
+
+      {/* ORM overlay toggle (structural view) — reveals the ORM class model. */}
+      {onToggleOrm && (
+        <div className="px-3 py-2 border-t border-base-300">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" className="checkbox checkbox-xs" checked={orm} onChange={onToggleOrm} />
+            <span>ORM mapping</span>
+          </label>
+        </div>
+      )}
 
       {services.length > 0 && (
         <div className="px-3 py-2 border-t border-base-300">
@@ -87,7 +103,7 @@ export default function CytoscapeLegend({
         </ul>
       </div>
 
-      {viewMode === 'logical' && (
+      {orm && (
         <div className="px-3 py-2 border-t border-base-300">
           <div className="opacity-60 mb-1">Edges</div>
           <ul className="space-y-1">

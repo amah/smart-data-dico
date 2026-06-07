@@ -23,8 +23,12 @@ import { buildLogicalElements } from './logicalElements';
 import { buildPhysicalElements } from './physicalElements';
 
 export interface ViewOptions {
-  /** Logical view: show the ORM annotation (fetch · cascade · …) on edges. */
-  showOrmAnnotations?: boolean;
+  /**
+   * Structural view: overlay the ORM class model (class names, stereotype
+   * badges, composition vs reference, inheritance is-a, embed links and the
+   * fetch/cascade annotation). Toggled from the legend.
+   */
+  orm?: boolean;
 }
 
 export function buildViewElements(
@@ -35,14 +39,13 @@ export function buildViewElements(
   options: ViewOptions = {},
 ): ElementDefinition[] {
   switch (viewMode) {
-    case 'logical':
-      return buildLogicalElements(nodes, edges, parentMapping, {
-        showAnnotations: options.showOrmAnnotations,
-      });
     case 'physical':
       return buildPhysicalElements(nodes, edges, parentMapping);
     case 'structural':
     default:
-      return mapGraphDataToCytoscape(nodes, edges, parentMapping);
+      // The ORM overlay reuses the logical builder; plain structural otherwise.
+      return options.orm
+        ? buildLogicalElements(nodes, edges, parentMapping, { showAnnotations: true })
+        : mapGraphDataToCytoscape(nodes, edges, parentMapping);
   }
 }

@@ -34,11 +34,14 @@ export function logicalClassName(node: GraphNode): string {
   return readMetaString(node.data?.metadata, 'orm.className') || node.label;
 }
 
-/** Stereotype badges from `orm.embeddable` / `orm.mappedSuperclass`. */
+/**
+ * UML stereotype badges from `orm.embeddable` / `orm.mappedSuperclass`. Rendered
+ * guillemet-style (e.g. «embeddable») rather than as JPA `@`-annotations.
+ */
 export function logicalBadges(node: GraphNode): string[] {
   const badges: string[] = [];
-  if (readMetaFlag(node.data?.metadata, 'orm.embeddable')) badges.push('@Embeddable');
-  if (readMetaFlag(node.data?.metadata, 'orm.mappedSuperclass')) badges.push('@MappedSuperclass');
+  if (readMetaFlag(node.data?.metadata, 'orm.embeddable')) badges.push('embeddable');
+  if (readMetaFlag(node.data?.metadata, 'orm.mappedSuperclass')) badges.push('mapped-super-class');
   return badges;
 }
 
@@ -50,17 +53,19 @@ export function logicalInheritanceStrategy(node: GraphNode): string {
   return readMetaString(node.data?.metadata, 'orm.inheritanceStrategy') || '';
 }
 
-/** Compact multi-line node label: stereotype line · class name · package · strategy. */
+/**
+ * Compact multi-line node label: stereotype line · class name · strategy.
+ * The `orm.package` is intentionally NOT shown per node (too noisy) — it lives
+ * in the info panel instead.
+ */
 function logicalNodeLabel(
   className: string,
   badges: string[],
-  pkg?: string,
   inheritanceStrategy?: string,
 ): string {
   const lines: string[] = [];
   if (badges.length) lines.push(`«${badges.join(', ')}»`);
   lines.push(className);
-  if (pkg) lines.push(pkg);
   // The root of an inheritance hierarchy shows its strategy (#185).
   if (inheritanceStrategy) lines.push(`{${inheritanceStrategy}}`);
   return lines.join('\n');
@@ -167,7 +172,7 @@ export function buildLogicalElements(
         // `label` stays the entity name so node-click navigation still resolves
         // /packages/<svc>/entities/<name>; `displayLabel` carries the rendered text.
         label: node.label,
-        displayLabel: logicalNodeLabel(className, badges, pkg, inheritanceStrategy),
+        displayLabel: logicalNodeLabel(className, badges, inheritanceStrategy),
         service: node.service,
         type: 'entity',
         viewMode: 'logical',
