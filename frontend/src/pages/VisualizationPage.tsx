@@ -43,7 +43,7 @@ export default function VisualizationPage() {
   const [descExpanded, setDescExpanded] = useState(false);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-6rem)]">
+    <div className="flex flex-col flex-1 min-h-0">
       {/* PageHeader suppresses the shell's duplicate breadcrumb; the chevron is
           placed inside the breadcrumb slot so it sits in front of (right after)
           the package name rather than at the far right. */}
