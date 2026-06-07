@@ -22,10 +22,7 @@ export function focusSubtitle(pkCount: number, attrCount: number): string {
   return `${pk}${attrCount} attr${attrCount === 1 ? '' : 's'}`;
 }
 
-export function useCytoscapeInteractions(
-  cy: Core | null,
-  onNodeClick?: (service: string, entityName: string) => void,
-): InteractionState {
+export function useCytoscapeInteractions(cy: Core | null): InteractionState {
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
   const [infoPanel, setInfoPanel] = useState<InfoPanelData | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
@@ -116,37 +113,14 @@ export function useCytoscapeInteractions(
       setTooltip(null);
     };
 
-    // Single/double tap disambiguation: a single tap navigates (after a short
-    // delay), a double tap focuses. The delay lets the double-tap cancel the
-    // pending navigation so focus-on-double-click works even though single tap
-    // navigates.
-    let tapTimer: ReturnType<typeof setTimeout> | null = null;
-
-    // Node tap — default: navigate to entity details (if handler provided).
-    // Alt/Option held: show inline info panel instead.
-    // Skip entirely while edge-creation connect mode is active (the edge-creation
-    // hook owns the tap in that state).
+    // Single tap → open the side panel (details). Double tap → focus.
+    // Navigation to the entity page is via the panel's "View Entity Details".
+    // Skip while edge-creation connect mode is active (that hook owns the tap).
     const onNodeTap = (evt: any) => {
       const node = evt.target;
       if (node.isParent()) return;
       if (cy.nodes('.connect-source').length > 0) return;
-      const service = node.data('service');
-      const label = node.data('label');
-      const oe = evt.originalEvent;
-      const modifierHeld = !!(oe && (oe.altKey || oe.metaKey));
-
-      // Synthetic nodes (e.g. physical join tables) have no backing entity /
-      // service, and modifier-clicks open the panel — both immediate.
-      if (modifierHeld || !service || !onNodeClick) {
-        setInfoPanel(nodePanelData(node));
-        return;
-      }
-      // Defer navigation so a double-tap (focus) can cancel it.
-      if (tapTimer) clearTimeout(tapTimer);
-      tapTimer = setTimeout(() => {
-        tapTimer = null;
-        onNodeClick(service, label);
-      }, 250);
+      setInfoPanel(nodePanelData(node));
     };
 
     // Edge tap - show relationship details
@@ -171,7 +145,6 @@ export function useCytoscapeInteractions(
     const onNodeDblTap = (evt: any) => {
       const node = evt.target;
       if (node.isParent()) return;
-      if (tapTimer) { clearTimeout(tapTimer); tapTimer = null; }
       enterFocus(node.id());
     };
 
@@ -196,9 +169,8 @@ export function useCytoscapeInteractions(
       cy.off('tap', 'edge', onEdgeTap);
       cy.off('dbltap', 'node[type = "entity"]', onNodeDblTap);
       cy.off('tap', onBgTap);
-      if (tapTimer) clearTimeout(tapTimer);
     };
-  }, [cy, onNodeClick, enterFocus, exitFocus]);
+  }, [cy, enterFocus, exitFocus]);
 
   // Esc leaves focus mode.
   useEffect(() => {

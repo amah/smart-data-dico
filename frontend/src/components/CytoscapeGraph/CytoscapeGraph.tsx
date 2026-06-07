@@ -99,7 +99,7 @@ export default function CytoscapeGraph({
   // Interactions — default tap navigates; Alt/Option click opens info panel.
   // Pass `cy` (state) so the hook re-runs when the instance is created.
   const { tooltip, infoPanel, setInfoPanel, applySearchFilter, focusedId, enterFocus, exitFocus } =
-    useCytoscapeInteractions(cy, handleNodeClick);
+    useCytoscapeInteractions(cy);
 
   // Case overlay (renamed from perspective in #121)
   useCytoscapeCaseOverlay(cyRef, caseId);
