@@ -5,9 +5,11 @@ interface CytoscapeInfoPanelProps {
   data: InfoPanelData;
   onClose: () => void;
   onNavigate?: (service: string, entity: string) => void;
+  /** Focus this entity on the canvas (zoom to its neighbourhood). */
+  onFocus?: (nodeId: string) => void;
 }
 
-export default function CytoscapeInfoPanel({ data, onClose, onNavigate }: CytoscapeInfoPanelProps) {
+export default function CytoscapeInfoPanel({ data, onClose, onNavigate, onFocus }: CytoscapeInfoPanelProps) {
   return (
     <div className="absolute right-0 top-0 h-full w-80 bg-base-100 border-l border-base-300 shadow-lg overflow-y-auto z-40">
       <div className="p-4">
@@ -29,6 +31,17 @@ export default function CytoscapeInfoPanel({ data, onClose, onNavigate }: Cytosc
             )}
             {data.description && (
               <p className="text-sm text-base-content/80 mb-3">{data.description}</p>
+            )}
+
+            {/* Focus button — zoom to this entity and its direct neighbours. */}
+            {data.id && onFocus && (
+              <button
+                className="btn btn-outline btn-sm mb-2 w-full"
+                onClick={() => onFocus(data.id!)}
+                title="Focus: zoom to this entity and its direct neighbours"
+              >
+                ◎ Focus on entity
+              </button>
             )}
 
             {/* Navigate button */}

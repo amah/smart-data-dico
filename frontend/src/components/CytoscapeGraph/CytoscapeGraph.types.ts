@@ -33,6 +33,8 @@ export interface TooltipData {
 
 export interface InfoPanelData {
   type: 'node' | 'edge';
+  /** Cytoscape node id — used to drive the Focus action (#focus). */
+  id?: string;
   label: string;
   service?: string;
   description?: string;

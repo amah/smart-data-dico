@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import type { Core } from 'cytoscape';
 import type { TooltipData, InfoPanelData } from './CytoscapeGraph.types';
 import type { Attribute } from '../../types';
@@ -8,7 +8,18 @@ interface InteractionState {
   infoPanel: InfoPanelData | null;
   setInfoPanel: (data: InfoPanelData | null) => void;
   applySearchFilter: (query: string) => void;
-  toggleNodeExpansion: (nodeId: string) => void;
+  /** Id of the currently focused node, or null. */
+  focusedId: string | null;
+  /** Focus an entity: zoom to its neighbourhood, detail it, dim the rest. */
+  enterFocus: (nodeId: string) => void;
+  /** Leave focus mode and restore the full graph. */
+  exitFocus: () => void;
+}
+
+/** Compact key-facts subtitle shown under a neighbour in focus mode. */
+export function focusSubtitle(pkCount: number, attrCount: number): string {
+  const pk = pkCount > 0 ? 'PK · ' : '';
+  return `${pk}${attrCount} attr${attrCount === 1 ? '' : 's'}`;
 }
 
 export function useCytoscapeInteractions(
@@ -17,6 +28,67 @@ export function useCytoscapeInteractions(
 ): InteractionState {
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
   const [infoPanel, setInfoPanel] = useState<InfoPanelData | null>(null);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  // Mirror the focus id in a ref so event handlers / callbacks read the latest
+  // value without re-binding.
+  const focusedIdRef = useRef<string | null>(null);
+
+  const exitFocus = useCallback(() => {
+    if (!cy || !focusedIdRef.current) return;
+    cy.batch(() => {
+      cy.elements().removeClass('focus-dim focus-root focus-neighbor');
+      cy.nodes().forEach((n) => {
+        if (n.data('expanded')) n.data('expanded', false);
+        n.removeStyle('label height width text-valign font-size');
+      });
+    });
+    cy.animate({ fit: { eles: cy.elements(), padding: 40 } }, { duration: 350 });
+    focusedIdRef.current = null;
+    setFocusedId(null);
+  }, [cy]);
+
+  const enterFocus = useCallback(
+    (nodeId: string) => {
+      if (!cy) return;
+      const node = cy.getElementById(nodeId);
+      if (!node || node.length === 0 || node.isParent?.()) return;
+
+      const hood = node.closedNeighborhood(); // node + neighbours + connecting edges
+
+      // Reset any prior focus styling first (switching focus between nodes).
+      cy.batch(() => {
+        cy.elements().removeClass('focus-dim focus-root focus-neighbor');
+        cy.nodes().forEach((n) => {
+          if (n.data('expanded')) n.data('expanded', false);
+          n.removeStyle('label height width text-valign font-size');
+        });
+
+        cy.elements().addClass('focus-dim');
+        hood.removeClass('focus-dim');
+
+        node.addClass('focus-root');
+        hood.nodes().not(node).addClass('focus-neighbor');
+
+        // Focused entity → full inline detail (attribute compartment).
+        expandNodeInline(node);
+        // Direct neighbours → compact name + key-facts subtitle.
+        hood.nodes().not(node).forEach((n) => {
+          if (n.isParent?.()) return;
+          const header = (n.data('displayLabel') as string) || (n.data('label') as string) || '';
+          const subtitle = focusSubtitle(n.data('pkCount') || 0, n.data('attrCount') || 0);
+          n.style({ label: `${header}\n${subtitle}`, 'font-size': 11 });
+        });
+      });
+
+      // Animate the camera to the neighbourhood (outside the batch).
+      cy.animate({ fit: { eles: hood, padding: 80 } }, { duration: 400 });
+
+      setInfoPanel(null); // the inline detail replaces the panel
+      focusedIdRef.current = nodeId;
+      setFocusedId(nodeId);
+    },
+    [cy],
+  );
 
   useEffect(() => {
     if (!cy) return;
@@ -43,6 +115,12 @@ export function useCytoscapeInteractions(
       setTooltip(null);
     };
 
+    // Single/double tap disambiguation: a single tap navigates (after a short
+    // delay), a double tap focuses. The delay lets the double-tap cancel the
+    // pending navigation so focus-on-double-click works even though single tap
+    // navigates.
+    let tapTimer: ReturnType<typeof setTimeout> | null = null;
+
     // Node tap — default: navigate to entity details (if handler provided).
     // Alt/Option held: show inline info panel instead.
     // Skip entirely while edge-creation connect mode is active (the edge-creation
@@ -57,13 +135,10 @@ export function useCytoscapeInteractions(
       const oe = evt.originalEvent;
       const modifierHeld = !!(oe && (oe.altKey || oe.metaKey));
 
-      // Synthetic nodes (e.g. physical join tables) have no backing entity /
-      // service — always show the info panel rather than trying to navigate.
-      if (onNodeClick && !modifierHeld && service) {
-        onNodeClick(service, label);
-      } else {
+      const showPanel = () =>
         setInfoPanel({
           type: 'node',
+          id: node.id(),
           label,
           service,
           description: node.data('description'),
@@ -71,7 +146,19 @@ export function useCytoscapeInteractions(
           viewMode: node.data('viewMode'),
           constraints: node.data('constraints'),
         });
+
+      // Synthetic nodes (e.g. physical join tables) have no backing entity /
+      // service, and modifier-clicks open the panel — both immediate.
+      if (modifierHeld || !service || !onNodeClick) {
+        showPanel();
+        return;
       }
+      // Defer navigation so a double-tap (focus) can cancel it.
+      if (tapTimer) clearTimeout(tapTimer);
+      tapTimer = setTimeout(() => {
+        tapTimer = null;
+        onNodeClick(service, label);
+      }, 250);
     };
 
     // Edge tap - show relationship details
@@ -90,38 +177,21 @@ export function useCytoscapeInteractions(
       });
     };
 
-    // Double-tap to expand/collapse node. Mark as user-toggled so the
-    // zoom-driven LOD pass leaves it alone for the rest of the session.
+    // Double-tap an entity → focus on it (zoom to its neighbourhood, detail it,
+    // dim the rest). Cancels the pending single-tap navigation. Replaces the old
+    // zoom-driven attribute expansion.
     const onNodeDblTap = (evt: any) => {
       const node = evt.target;
       if (node.isParent()) return;
-      const nodeId = node.id();
-      node.data('userToggled', true);
-      toggleNodeExpansionInternal(cy, nodeId);
+      if (tapTimer) { clearTimeout(tapTimer); tapTimer = null; }
+      enterFocus(node.id());
     };
 
-    // Clear selection on background tap
-    const onBgTap = () => {
+    // Background tap clears the info panel and leaves focus mode.
+    const onBgTap = (evt: any) => {
+      if (evt.target !== cy) return; // ignore taps that hit an element
       setInfoPanel(null);
-    };
-
-    let zoomTimer: ReturnType<typeof setTimeout> | null = null;
-    const onZoom = () => {
-      if (zoomTimer) clearTimeout(zoomTimer);
-      zoomTimer = setTimeout(() => {
-        const z = cy.zoom();
-        if (z > 1.5) {
-          cy.nodes('[type = "entity"]').forEach((n) => {
-            if (n.data('userToggled')) return;
-            if (!n.data('expanded')) toggleNodeExpansionInternal(cy, n.id());
-          });
-        } else if (z < 1.0) {
-          cy.nodes('[type = "entity"]').forEach((n) => {
-            if (n.data('userToggled')) return;
-            if (n.data('expanded')) toggleNodeExpansionInternal(cy, n.id());
-          });
-        }
-      }, 150);
+      exitFocus();
     };
 
     cy.on('mouseover', 'node[type = "entity"]', onMouseOver);
@@ -130,7 +200,6 @@ export function useCytoscapeInteractions(
     cy.on('tap', 'edge', onEdgeTap);
     cy.on('dbltap', 'node[type = "entity"]', onNodeDblTap);
     cy.on('tap', onBgTap);
-    cy.on('zoom', onZoom);
 
     return () => {
       cy.off('mouseover', 'node[type = "entity"]', onMouseOver);
@@ -139,10 +208,18 @@ export function useCytoscapeInteractions(
       cy.off('tap', 'edge', onEdgeTap);
       cy.off('dbltap', 'node[type = "entity"]', onNodeDblTap);
       cy.off('tap', onBgTap);
-      cy.off('zoom', onZoom);
-      if (zoomTimer) clearTimeout(zoomTimer);
+      if (tapTimer) clearTimeout(tapTimer);
     };
-  }, [cy, onNodeClick]);
+  }, [cy, onNodeClick, enterFocus, exitFocus]);
+
+  // Esc leaves focus mode.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') exitFocus();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [exitFocus]);
 
   const applySearchFilter = useCallback(
     (query: string) => {
@@ -169,41 +246,24 @@ export function useCytoscapeInteractions(
     [cy],
   );
 
-  const toggleNodeExpansion = useCallback(
-    (nodeId: string) => {
-      if (!cy) return;
-      toggleNodeExpansionInternal(cy, nodeId);
-    },
-    [cy],
-  );
-
-  return { tooltip, infoPanel, setInfoPanel, applySearchFilter, toggleNodeExpansion };
+  return { tooltip, infoPanel, setInfoPanel, applySearchFilter, focusedId, enterFocus, exitFocus };
 }
 
-function toggleNodeExpansionInternal(cy: Core, nodeId: string) {
-  const node = cy.getElementById(nodeId);
-  if (!node.length) return;
-
-  const expanded = !node.data('expanded');
-  node.data('expanded', expanded);
-
-  if (expanded) {
-    const attrs = (node.data('attributes') || []) as Attribute[];
-    const attrLines = attrs
-      .slice(0, 15) // Limit to avoid huge nodes
-      .map((a) => `${a.primaryKey ? 'PK ' : ''}${a.name}: ${a.type}`)
-      .join('\n');
-    const suffix = attrs.length > 15 ? `\n... +${attrs.length - 15} more` : '';
-
-    node.style({
-      label: `${node.data('label')}\n${'\u2500'.repeat(20)}\n${attrLines}${suffix}`,
-      height: Math.max(60, 40 + attrs.length * 16),
-      width: 240,
-      'text-valign': 'top',
-      'font-size': 10,
-    });
-  } else {
-    // Clear inline overrides so the base stylesheet (displayLabel, default size) reapplies
-    node.removeStyle('label height width text-valign font-size');
-  }
+/** Expand a node into a UML attribute compartment (header + separator + attrs). */
+function expandNodeInline(node: any) {
+  node.data('expanded', true);
+  const attrs = (node.data('attributes') || []) as Attribute[];
+  const attrLines = attrs
+    .slice(0, 15)
+    .map((a) => `${a.primaryKey ? 'PK ' : ''}${a.name}: ${a.type}`)
+    .join('\n');
+  const suffix = attrs.length > 15 ? `\n... +${attrs.length - 15} more` : '';
+  const header = (node.data('displayLabel') as string) || (node.data('label') as string) || '';
+  node.style({
+    label: `${header}\n${'─'.repeat(20)}\n${attrLines}${suffix}`,
+    height: Math.max(60, 44 + attrs.length * 16),
+    width: 240,
+    'text-valign': 'top',
+    'font-size': 10,
+  });
 }

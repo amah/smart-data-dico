@@ -352,6 +352,30 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
         color: fg,
       } as any,
     },
+    // ── Focus mode (double-click / Focus button) ──────────────────────────
+    // Non-neighbour elements recede; the focused entity and its direct
+    // neighbours stay prominent.
+    {
+      selector: '.focus-dim',
+      style: { opacity: 0.12 } as any,
+    },
+    {
+      selector: 'node.focus-root',
+      style: {
+        'border-color': primary,
+        'border-width': 3,
+        'background-color': bgRaised,
+        'z-index': 20,
+      } as any,
+    },
+    {
+      selector: 'node.focus-neighbor',
+      style: {
+        'border-color': accent,
+        'border-width': 2,
+        'z-index': 10,
+      } as any,
+    },
     // Case overlay styles (renamed from perspective in #121)
     {
       selector: '.case-root',
