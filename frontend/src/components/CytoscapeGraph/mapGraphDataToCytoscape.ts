@@ -2,6 +2,8 @@ import type { ElementDefinition } from 'cytoscape';
 import type { GraphNode, GraphEdge } from '../../types';
 import { mergeRelationshipEdges } from './mergeEdges';
 import { referenceArrows } from './arrowShapes';
+import { buildEmbeddedEdges } from './embeddedEdges';
+import { buildInheritanceEdges } from './inheritanceEdges';
 
 /**
  * Format the label shown at one end of a relationship edge.
@@ -78,7 +80,11 @@ export function mapGraphDataToCytoscape(
     });
   }
 
-  // Note: @Embedded composition links (owner ◆— embeddable) are part of the ORM
-  // overlay (buildLogicalElements), not the plain structural relationship view.
+  // Structure includes containment (@Embedded) and generalization (orm.extends),
+  // so they appear here too — the ORM overlay only adds annotations on top of
+  // the same connection set.
+  elements.push(...buildEmbeddedEdges(nodes, 'structural'));
+  elements.push(...buildInheritanceEdges(nodes));
+
   return elements;
 }
