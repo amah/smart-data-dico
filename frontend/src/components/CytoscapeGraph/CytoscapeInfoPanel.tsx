@@ -7,8 +7,6 @@ interface CytoscapeInfoPanelProps {
   data: InfoPanelData;
   onClose: () => void;
   onNavigate?: (service: string, entity: string) => void;
-  /** Focus this entity on the canvas (zoom to its neighbourhood). */
-  onFocus?: (nodeId: string) => void;
   /** Embeddable entities (name → attributes) for flattening @Embedded columns. */
   embeddables?: Map<string, Attribute[]>;
 }
@@ -17,7 +15,7 @@ const MIN_WIDTH = 280;
 const MAX_WIDTH = 760;
 const DEFAULT_WIDTH = 320;
 
-export default function CytoscapeInfoPanel({ data, onClose, onNavigate, onFocus, embeddables }: CytoscapeInfoPanelProps) {
+export default function CytoscapeInfoPanel({ data, onClose, onNavigate, embeddables }: CytoscapeInfoPanelProps) {
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const draggingRef = useRef(false);
 
@@ -63,51 +61,32 @@ export default function CytoscapeInfoPanel({ data, onClose, onNavigate, onFocus,
       />
       <div className="flex-1 overflow-y-auto min-w-0">
         <div className="p-4">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-bold text-lg text-base-content">{data.label}</h3>
-          <button
-            onClick={onClose}
-            className="btn btn-ghost btn-sm btn-circle"
-          >
+        {/* Header — name, a compact "view details" icon, and close. Description,
+            package badge and the Focus button are dropped to make room for the
+            attribute list (focus is still available via double-click). */}
+        <div className="flex items-center justify-between gap-1 mb-3">
+          <div className="flex items-center gap-1 min-w-0">
+            <h3 className="font-bold text-lg text-base-content truncate">{data.label}</h3>
+            {data.type === 'node' && data.service && onNavigate && (
+              <button
+                onClick={() => onNavigate(data.service!, data.label)}
+                className="btn btn-ghost btn-xs btn-circle shrink-0"
+                title="View entity details"
+                aria-label="View entity details"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M7 17 17 7M8 7h9v9" />
+                </svg>
+              </button>
+            )}
+          </div>
+          <button onClick={onClose} className="btn btn-ghost btn-sm btn-circle shrink-0">
             &times;
           </button>
         </div>
 
-        {data.type === 'node' && (
-          <>
-            {data.service && (
-              <div className="badge badge-outline badge-sm mb-2">{data.service}</div>
-            )}
-            {data.description && (
-              <p className="text-sm text-base-content/80 mb-3">{data.description}</p>
-            )}
-
-            {/* Focus button — zoom to this entity and its direct neighbours. */}
-            {data.id && onFocus && (
-              <button
-                className="btn btn-outline btn-sm mb-2 w-full"
-                onClick={() => onFocus(data.id!)}
-                title="Focus: zoom to this entity and its direct neighbours"
-              >
-                ◎ Focus on entity
-              </button>
-            )}
-
-            {/* Navigate button */}
-            {data.service && onNavigate && (
-              <button
-                className="btn btn-primary btn-sm mb-3 w-full"
-                onClick={() => onNavigate(data.service!, data.label)}
-              >
-                View Entity Details
-              </button>
-            )}
-
-            {/* Per-mode node detail (#188) — compact nodes, detail here. */}
-            <NodeDetail data={data} embeddables={embeddables} />
-          </>
-        )}
+        {/* Per-mode node detail (#188) — compact nodes, detail here. */}
+        {data.type === 'node' && <NodeDetail data={data} embeddables={embeddables} />}
 
         {data.type === 'edge' && (
           <div className="space-y-3">
