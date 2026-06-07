@@ -98,7 +98,7 @@ export default function CytoscapeGraph({
 
   // Interactions — default tap navigates; Alt/Option click opens info panel.
   // Pass `cy` (state) so the hook re-runs when the instance is created.
-  const { tooltip, infoPanel, setInfoPanel, applySearchFilter } =
+  const { tooltip, infoPanel, setInfoPanel, applySearchFilter, focusedId, enterFocus, exitFocus } =
     useCytoscapeInteractions(cy, handleNodeClick);
 
   // Case overlay (renamed from perspective in #121)
@@ -222,12 +222,23 @@ export default function CytoscapeGraph({
         {/* Tooltip overlay */}
         {tooltip && <CytoscapeTooltip data={tooltip} />}
 
+        {/* Focus mode banner — exit affordance while an entity is focused. */}
+        {focusedId && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-40 bg-base-100 border border-base-300 shadow-lg px-3 py-1.5 rounded-full flex items-center gap-3 text-sm">
+            <span className="opacity-70">Focused — direct neighbours only</span>
+            <button className="btn btn-xs btn-ghost" onClick={exitFocus}>
+              Exit focus (Esc)
+            </button>
+          </div>
+        )}
+
         {/* Info panel */}
         {infoPanel && (
           <CytoscapeInfoPanel
             data={infoPanel}
             onClose={() => setInfoPanel(null)}
             onNavigate={handleNodeClick}
+            onFocus={enterFocus}
           />
         )}
 
