@@ -5,10 +5,24 @@ const SERVICE_COLORS = [
   '#1abc9c', '#e67e22', '#34495e', '#16a085', '#d35400',
 ];
 
+/**
+ * A distinct colour for the i-th package. The first ten use a hand-picked
+ * palette; beyond that the hue is rotated by the golden angle (~137.5°) with
+ * two lightness levels, so even 100+ packages get distinguishable colours
+ * instead of cycling through the same ten. (The box label is the primary
+ * identifier; colour is a secondary cue.)
+ */
+export function packageColor(i: number): string {
+  if (i < SERVICE_COLORS.length) return SERVICE_COLORS[i];
+  const hue = Math.round((i * 137.508) % 360);
+  const lightness = i % 2 === 0 ? 45 : 58;
+  return `hsl(${hue}, 62%, ${lightness}%)`;
+}
+
 export function buildServiceColorMap(services: string[]): Record<string, string> {
   const map: Record<string, string> = {};
   services.forEach((s, i) => {
-    map[s] = SERVICE_COLORS[i % SERVICE_COLORS.length];
+    map[s] = packageColor(i);
   });
   return map;
 }
