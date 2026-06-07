@@ -141,98 +141,22 @@ entities:
         description: Shipping address for the order
         type: object
         required: true
-        properties:
-          fullName:
-            name: fullName
-            description: Recipient's full name
-            type: string
-            required: true
-            uuid: dae75b8d-a5c7-406b-b71f-a46493a1841c
-          street:
-            name: street
-            description: Street address
-            type: string
-            required: true
-            uuid: 38c8b931-8f42-4712-98a7-e85257bfd083
-          city:
-            name: city
-            description: City
-            type: string
-            required: true
-            uuid: 1749f744-453f-419a-b97e-99efa5ebad8a
-          state:
-            name: state
-            description: State or province
-            type: string
-            required: true
-            uuid: ee0d46f5-459b-43c3-8d04-ec4b288ed459
-          postalCode:
-            name: postalCode
-            description: Postal or ZIP code
-            type: string
-            required: true
-            uuid: 2667589c-86f5-4e88-a3a5-6e0c80d7a838
-          country:
-            name: country
-            description: Country
-            type: string
-            required: true
-            uuid: 962d4d9c-b3bf-4eb3-9caa-23826b07a4d3
-          phoneNumber:
-            name: phoneNumber
-            description: Contact phone number
-            type: string
-            required: true
-            uuid: 6949d323-6b89-4a08-883b-5a03aaed1ccc
         uuid: 7e87e904-ef8e-488b-bbfd-7f065daaceef
         metadata:
           - name: orm.embedded
             value: true
+          - name: orm.javaType
+            value: Address
       - name: billingAddress
         description: Billing address for the order
         type: object
         required: true
-        properties:
-          fullName:
-            name: fullName
-            description: Billing recipient's full name
-            type: string
-            required: true
-            uuid: c07fd271-3ec1-4a5d-adcb-8c25aec234f9
-          street:
-            name: street
-            description: Street address
-            type: string
-            required: true
-            uuid: c839357b-b35a-4c2a-88dc-cb4dd9d1c5c8
-          city:
-            name: city
-            description: City
-            type: string
-            required: true
-            uuid: ba1c2cd2-7485-49aa-b8db-0314fb9c4f20
-          state:
-            name: state
-            description: State or province
-            type: string
-            required: true
-            uuid: e65fd817-28f6-41de-a889-1407856a91d0
-          postalCode:
-            name: postalCode
-            description: Postal or ZIP code
-            type: string
-            required: true
-            uuid: 5da264b4-fdef-4895-b30d-b36a32f91efa
-          country:
-            name: country
-            description: Country
-            type: string
-            required: true
-            uuid: a92a2a00-b2d3-45cf-9e48-62939de29170
         uuid: 6626801a-4864-44b8-94a4-ac1e3323abcb
         metadata:
           - name: orm.embedded
             value: true
+          - name: orm.javaType
+            value: Address
       - name: notes
         description: Additional notes for the order
         type: string
@@ -278,4 +202,4 @@ entities:
         required: true
         uuid: 62d1bfdb-c92c-4a7a-9749-75fd0959212b
     uuid: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
-    updatedAt: 2026-06-06T05:58:24.882Z
+    updatedAt: 2026-06-06T06:56:23.749Z

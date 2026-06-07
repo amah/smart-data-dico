@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Attribute, PhysicalConstraint } from '../../../types';
 import { AttributeType } from '../../../types';
-import { buildNodeInfo, logicalAttrFacts, physicalColumn, columnName } from '../nodeInfo';
+import { buildNodeInfo, logicalAttrFacts, physicalColumn, columnName, structuralTypeLabel } from '../nodeInfo';
 
 const ID: Attribute = {
   uuid: 'a1',
@@ -56,6 +56,41 @@ const CONSTRAINTS: PhysicalConstraint[] = [
   { kind: 'foreignKey', name: 'fk_user', columns: ['user_id'], references: { table: 'users', columns: ['id'] } },
   { kind: 'check', name: 'chk_total', expression: 'total >= 0' },
 ];
+
+describe('structuralTypeLabel', () => {
+  const objAttr = (javaType?: string): Attribute => ({
+    uuid: 'o1',
+    name: 'shippingAddress',
+    description: '',
+    type: AttributeType.OBJECT,
+    required: true,
+    metadata: javaType ? [{ name: 'orm.javaType', value: javaType }] : [],
+  });
+
+  it('replaces object with the embeddable type from orm.javaType', () => {
+    expect(structuralTypeLabel(objAttr('Address'))).toBe('Address');
+  });
+
+  it('keeps "object" when no orm.javaType is set', () => {
+    expect(structuralTypeLabel(objAttr())).toBe('object');
+  });
+
+  it('suffixes [] for array (collection) attributes', () => {
+    const arr: Attribute = {
+      uuid: 'a',
+      name: 'lines',
+      description: '',
+      type: AttributeType.ARRAY,
+      required: true,
+      items: { uuid: 'i', name: 'item', description: '', type: AttributeType.OBJECT, required: true, metadata: [{ name: 'orm.javaType', value: 'Address' }] },
+    };
+    expect(structuralTypeLabel(arr)).toBe('Address[]');
+  });
+
+  it('leaves scalar types untouched', () => {
+    expect(structuralTypeLabel(ID)).toBe('string');
+  });
+});
 
 describe('logical facts', () => {
   it('derives ORM annotations per attribute', () => {

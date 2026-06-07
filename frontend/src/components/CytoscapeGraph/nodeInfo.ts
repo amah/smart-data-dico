@@ -58,6 +58,25 @@ export function columnName(attr: Attribute): string {
   return readMetaString(attr.metadata, 'physical.columnName') || attr.name;
 }
 
+/**
+ * Display type for a structural attribute row. An object/array attribute that
+ * carries an `orm.javaType` (e.g. an embeddable like `Address`) shows that type
+ * name instead of the bare `object`; collections (`array`) are suffixed `[]`.
+ */
+export function structuralTypeLabel(attr: Attribute): string {
+  const javaType = readMetaString(attr.metadata, 'orm.javaType');
+  if (attr.type === 'array') {
+    const itemType =
+      (attr.items && (readMetaString(attr.items.metadata, 'orm.javaType') || attr.items.type)) ||
+      javaType;
+    return `${itemType || 'object'}[]`;
+  }
+  if (attr.type === 'object') {
+    return javaType || 'object';
+  }
+  return String(attr.type);
+}
+
 /** ORM facts for one attribute in the logical view. */
 export function logicalAttrFacts(attr: Attribute): LogicalAttrRow {
   const facts: string[] = [];
@@ -133,7 +152,7 @@ export function buildNodeInfo(
     mode: 'structural',
     attributes: attributes.map((a) => ({
       name: a.name,
-      type: a.type,
+      type: structuralTypeLabel(a),
       primaryKey: a.primaryKey === true || readMetaFlag(a.metadata, 'isPrimaryKey'),
       required: a.required,
     })),
