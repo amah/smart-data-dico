@@ -10,6 +10,8 @@
 import { useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import CytoscapeGraph from '../components/CytoscapeGraph';
+import Breadcrumbs from '../components/Breadcrumbs';
+import PageHeader from '../components/ui/PageHeader';
 import {
   VIEW_MODES,
   VIEW_MODE_LABELS,
@@ -30,51 +32,53 @@ export default function VisualizationPage() {
     setSearchParams(params, { replace: true });
   };
 
-  // The package/entity name already appears in the breadcrumb, so the title
-  // block is collapsed by default to give the diagram more room.
-  const [headerExpanded, setHeaderExpanded] = useState(false);
-
-  const title = entity
-    ? `${entity} — ${service}`
+  const description = entity
+    ? `Entity graph for ${entity} and its relationships`
     : service
-      ? service
-      : 'Diagram';
+      ? `All entities in ${service}`
+      : 'All entities and relationships across all packages';
+
+  // Description is collapsed by default to give the diagram more room; the
+  // chevron sits right after the breadcrumb's package name.
+  const [descExpanded, setDescExpanded] = useState(false);
 
   return (
     <div className="flex flex-col h-[calc(100vh-6rem)]">
-      <div className="flex items-center gap-1 mb-1">
-        <button
-          type="button"
-          onClick={() => setHeaderExpanded((v) => !v)}
-          className="btn btn-ghost btn-xs btn-circle"
-          aria-expanded={headerExpanded}
-          aria-label={headerExpanded ? 'Collapse title' : 'Expand title'}
-          title={headerExpanded ? 'Collapse title' : 'Expand title'}
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{ transform: headerExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 120ms' }}
-          >
-            <path d="M9 18l6-6-6-6" />
-          </svg>
-        </button>
-        {headerExpanded && <h1 className="text-2xl font-bold leading-tight">{title}</h1>}
-      </div>
-      {headerExpanded && (
-        <p className="text-base-content/60 text-sm mb-2 ml-7">
-          {entity
-            ? `Entity graph for ${entity} and its relationships`
-            : service
-              ? `All entities in ${service}`
-              : 'All entities and relationships across all packages'}
-        </p>
+      {/* PageHeader suppresses the shell's duplicate breadcrumb; the chevron is
+          placed inside the breadcrumb slot so it sits in front of (right after)
+          the package name rather than at the far right. */}
+      <PageHeader
+        className="mb-1"
+        breadcrumb={
+          <div className="flex items-center gap-1 min-w-0">
+            <Breadcrumbs />
+            <button
+              type="button"
+              onClick={() => setDescExpanded((v) => !v)}
+              aria-expanded={descExpanded}
+              aria-label={descExpanded ? 'Hide description' : 'Show description'}
+              title={descExpanded ? 'Hide description' : 'Show description'}
+              className="btn btn-ghost btn-xs btn-circle shrink-0"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                style={{ transition: 'transform 150ms', transform: descExpanded ? 'rotate(180deg)' : 'none' }}
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </button>
+          </div>
+        }
+      />
+      {descExpanded && (
+        <p className="text-base-content/60 text-sm mb-1 ml-1">{description}</p>
       )}
 
       {/* View-mode tabs (#182) */}
