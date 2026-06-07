@@ -363,8 +363,13 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
       selector: 'node.focus-root',
       style: {
         'border-color': primary,
-        'border-width': 3,
+        'border-width': 4,
+        'border-style': 'double',
         'background-color': bgRaised,
+        // Force a readable label colour: the focused node may also be :selected
+        // (double-click selects it), whose white text would be invisible here.
+        color: fg,
+        'text-opacity': 1,
         'z-index': 20,
       } as any,
     },

@@ -59,6 +59,8 @@ export function useCytoscapeInstance(
 
     cyRef.current = instance;
     setCy(instance);
+    // Dev-only handle for debugging / e2e (no effect in production builds).
+    if (import.meta.env.DEV) (window as unknown as { __cy?: Core }).__cy = instance;
 
     return () => {
       instance.destroy();
