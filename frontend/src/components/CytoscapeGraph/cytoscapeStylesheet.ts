@@ -176,23 +176,35 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
         'text-background-padding': '2px',
       } as any,
     },
-    // Navigability arrowheads (structural + logical association edges). An end
-    // gets a triangle iff it is navigable (its role is named); both navigable →
-    // a single double-headed edge.
+    // UML edge decorations (structural + logical association edges), driven by
+    // per-edge `sourceArrow` / `targetArrow` shape data (#uml):
+    //   - 'vee'     → open navigability arrow (one-way reference);
+    //   - 'diamond' → filled diamond at the whole (composition);
+    //   - 'none'    → no decoration (e.g. a bidirectional reference = plain line).
     {
-      selector: 'edge[?arrowAtTarget]',
+      selector: 'edge[targetArrow = "vee"]',
+      style: { 'target-arrow-shape': 'vee', 'target-arrow-color': neutral, 'arrow-scale': 1.2 } as any,
+    },
+    {
+      selector: 'edge[sourceArrow = "vee"]',
+      style: { 'source-arrow-shape': 'vee', 'source-arrow-color': neutral, 'arrow-scale': 1.2 } as any,
+    },
+    {
+      selector: 'edge[targetArrow = "diamond"]',
       style: {
-        'target-arrow-shape': 'triangle',
+        'target-arrow-shape': 'diamond',
+        'target-arrow-fill': 'filled',
         'target-arrow-color': neutral,
-        'arrow-scale': 1.2,
+        'arrow-scale': 1.3,
       } as any,
     },
     {
-      selector: 'edge[?arrowAtSource]',
+      selector: 'edge[sourceArrow = "diamond"]',
       style: {
-        'source-arrow-shape': 'triangle',
+        'source-arrow-shape': 'diamond',
+        'source-arrow-fill': 'filled',
         'source-arrow-color': neutral,
-        'arrow-scale': 1.2,
+        'arrow-scale': 1.3,
       } as any,
     },
     // Inheritance ("is-a") edge (#185) — UML generalization: a solid line with a

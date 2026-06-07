@@ -1,6 +1,7 @@
 import type { ElementDefinition } from 'cytoscape';
 import type { GraphNode, GraphEdge } from '../../types';
 import { mergeRelationshipEdges } from './mergeEdges';
+import { referenceArrows } from './arrowShapes';
 
 /**
  * Format the label shown at one end of a relationship edge.
@@ -50,6 +51,9 @@ export function mapGraphDataToCytoscape(
   // arrowheads driven by navigability (an arrowhead at each named end). A
   // relationship navigable both ways → one double-headed edge (#bidi).
   for (const edge of mergeRelationshipEdges(edges)) {
+    // Navigability arrowheads: a single open arrow at the navigable end, and
+    // NO arrowheads when navigable both ways (UML plain line). (#uml)
+    const { sourceArrow, targetArrow } = referenceArrows(edge);
     elements.push({
       group: 'edges',
       data: {
@@ -67,9 +71,9 @@ export function mapGraphDataToCytoscape(
         // source-label / target-label bindings.
         sourceEndLabel: formatEndLabel(edge.sourceName, edge.sourceCardinality),
         targetEndLabel: formatEndLabel(edge.targetName, edge.targetCardinality),
-        // Navigability arrowheads (#bidi) read by the stylesheet.
-        arrowAtSource: edge.arrowAtSource,
-        arrowAtTarget: edge.arrowAtTarget,
+        // Arrowhead shapes read by the stylesheet ('none' | 'vee' | 'diamond').
+        sourceArrow,
+        targetArrow,
       },
     });
   }

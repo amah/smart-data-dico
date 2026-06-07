@@ -22,15 +22,23 @@ import { mapGraphDataToCytoscape } from './mapGraphDataToCytoscape';
 import { buildLogicalElements } from './logicalElements';
 import { buildPhysicalElements } from './physicalElements';
 
+export interface ViewOptions {
+  /** Logical view: show the ORM annotation (fetch · cascade · …) on edges. */
+  showOrmAnnotations?: boolean;
+}
+
 export function buildViewElements(
   viewMode: ViewMode,
   nodes: GraphNode[],
   edges: GraphEdge[],
   parentMapping?: Record<string, string>,
+  options: ViewOptions = {},
 ): ElementDefinition[] {
   switch (viewMode) {
     case 'logical':
-      return buildLogicalElements(nodes, edges, parentMapping);
+      return buildLogicalElements(nodes, edges, parentMapping, {
+        showAnnotations: options.showOrmAnnotations,
+      });
     case 'physical':
       return buildPhysicalElements(nodes, edges, parentMapping);
     case 'structural':

@@ -140,18 +140,37 @@ describe('logical association edges', () => {
     expect(logicalOwningSide(byOwningEnd)).toBe('target');
   });
 
-  it('draws arrowheads by navigability — both ends named → double-headed', () => {
-    // ASSOC has roles on both ends (items / order) → navigable both ways.
+  it('renders a composition (orphanRemoval / cascade ALL) as a filled diamond at the whole', () => {
+    // ASSOC: one→many with orphanRemoval + cascade ALL → composition; whole = source (the "one").
     const e = buildLogicalElements([], [ASSOC])[0];
-    expect(e.data.arrowAtSource).toBe(true);
-    expect(e.data.arrowAtTarget).toBe(true);
+    expect(e.data.edgeType).toBe('composition');
+    expect(e.data.sourceArrow).toBe('diamond');
+    expect(e.data.targetArrow).toBe('none');
   });
 
-  it('a single-named end yields one arrowhead at that end', () => {
-    const oneWay: GraphEdge = { ...ASSOC, sourceName: 'items', targetName: undefined };
+  it('renders a bidirectional reference with no arrowheads (UML plain line)', () => {
+    // both ends named, no orphan/cascade → plain bidirectional reference
+    const ref: GraphEdge = {
+      ...ASSOC,
+      metadata: [{ name: 'orm.fetch', value: 'LAZY' }], // no orphanRemoval/cascade
+    };
+    const e = buildLogicalElements([], [ref])[0];
+    expect(e.data.edgeType).toBe('reference');
+    expect(e.data.sourceArrow).toBe('none');
+    expect(e.data.targetArrow).toBe('none');
+  });
+
+  it('renders a one-way reference with a single open arrow at the navigable end', () => {
+    const oneWay: GraphEdge = {
+      ...ASSOC,
+      metadata: [], // not a composition
+      sourceName: 'items',
+      targetName: undefined, // only source navigable
+    };
     const e = buildLogicalElements([], [oneWay])[0];
-    expect(e.data.arrowAtSource).toBe(true);
-    expect(e.data.arrowAtTarget).toBe(false);
+    expect(e.data.edgeType).toBe('reference');
+    expect(e.data.sourceArrow).toBe('vee');
+    expect(e.data.targetArrow).toBe('none');
   });
 
   it('merges a reciprocal relationship pair into a single association edge', () => {
@@ -161,12 +180,18 @@ describe('logical association edges', () => {
       source: 'item-uuid',
       target: 'order-uuid',
       label: 'belongs to',
-      // no roles → not independently navigable
     };
     const edges = buildLogicalElements([], [forward, back]).filter((el) => el.group === 'edges');
     expect(edges).toHaveLength(1); // one edge for the pair, not two
-    expect(edges[0].data.arrowAtSource).toBe(true);
-    expect(edges[0].data.arrowAtTarget).toBe(true);
+  });
+
+  it('hides the ORM annotation when showAnnotations is false', () => {
+    const shown = buildLogicalElements([], [ASSOC], undefined, { showAnnotations: true })[0];
+    const hidden = buildLogicalElements([], [ASSOC], undefined, { showAnnotations: false })[0];
+    expect(shown.data.label).toBe('LAZY · cascade: ALL · orphanRemoval');
+    expect(hidden.data.label).toBe('');
+    // hiding the annotation does not change the edge decoration
+    expect(hidden.data.edgeType).toBe('composition');
   });
 
   it('leaves owning side unset when nothing pins it down', () => {

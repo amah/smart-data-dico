@@ -18,6 +18,12 @@ import type { GraphNode, GraphEdge } from '../../types';
 import { formatEndLabel } from './mapGraphDataToCytoscape';
 import { readMetaString, readMetaFlag, readMetaList } from './elementMeta';
 import { mergeRelationshipEdges } from './mergeEdges';
+import { associationArrows } from './arrowShapes';
+
+export interface LogicalOptions {
+  /** Show the ORM annotation (fetch · cascade · orphanRemoval) on association edges. */
+  showAnnotations?: boolean;
+}
 
 /** The relationship facts the ORM helpers read — satisfied by GraphEdge and MergedGraphEdge. */
 type EdgeOrmFacts = Pick<GraphEdge, 'metadata' | 'sourceName' | 'targetName'>;
@@ -140,7 +146,9 @@ export function buildLogicalElements(
   nodes: GraphNode[],
   edges: GraphEdge[],
   parentMapping?: Record<string, string>,
+  options: LogicalOptions = {},
 ): ElementDefinition[] {
+  const showAnnotations = options.showAnnotations ?? true;
   const elements: ElementDefinition[] = [];
 
   for (const node of nodes) {
@@ -184,6 +192,10 @@ export function buildLogicalElements(
   for (const edge of mergeRelationshipEdges(edges)) {
     const owningSide = logicalOwningSide(edge);
     const cascade = readMetaList(edge.metadata, 'orm.cascade');
+    // UML decoration: a filled diamond at the whole for a composition (strong
+    // ownership / lifecycle), else navigability arrows for a plain reference —
+    // bidirectional shows no arrowheads (#uml).
+    const { sourceArrow, targetArrow, edgeType } = associationArrows(edge);
     elements.push({
       group: 'edges',
       data: {
@@ -191,8 +203,10 @@ export function buildLogicalElements(
         source: edge.source,
         target: edge.target,
         edgeKind: 'association',
+        edgeType, // 'composition' | 'reference'
         viewMode: 'logical',
-        label: logicalEdgeAnnotation(edge),
+        // ORM annotation is optional (toggle) — empty hides it.
+        label: showAnnotations ? logicalEdgeAnnotation(edge) : '',
         sourceCardinality: edge.sourceCardinality ?? '',
         targetCardinality: edge.targetCardinality ?? '',
         sourceName: edge.sourceName ?? '',
@@ -207,9 +221,9 @@ export function buildLogicalElements(
         owningEnd: readMetaString(edge.metadata, 'orm.owningEnd') ?? '',
         mappedBy: readMetaString(edge.metadata, 'orm.mappedBy') ?? '',
         owningSide,
-        // Navigability arrowheads (#bidi) — an arrowhead at each named end.
-        arrowAtSource: edge.arrowAtSource,
-        arrowAtTarget: edge.arrowAtTarget,
+        // Arrowhead shapes read by the stylesheet ('none' | 'vee' | 'diamond').
+        sourceArrow,
+        targetArrow,
       },
     });
   }

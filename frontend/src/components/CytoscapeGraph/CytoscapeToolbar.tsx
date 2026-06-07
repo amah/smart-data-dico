@@ -20,6 +20,10 @@ interface CytoscapeToolbarProps {
   exportFilenameBase?: string;
   // When provided, adds a "+" button that opens the create-entity modal.
   onAddEntity?: () => void;
+  // Logical view: optional ORM-annotation toggle (only rendered when the
+  // handler is provided, i.e. in the logical view).
+  ormAnnotations?: boolean;
+  onToggleOrmAnnotations?: () => void;
 }
 
 export default function CytoscapeToolbar({
@@ -36,6 +40,8 @@ export default function CytoscapeToolbar({
   onDeleteLayout,
   exportFilenameBase,
   onAddEntity,
+  ormAnnotations,
+  onToggleOrmAnnotations,
 }: CytoscapeToolbarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSaveDialog, setShowSaveDialog] = useState(false);
@@ -139,6 +145,16 @@ export default function CytoscapeToolbar({
       <button className="btn btn-xs btn-ghost" onClick={onRunLayout} title="Re-run layout">
         Re-layout
       </button>
+
+      {onToggleOrmAnnotations && (
+        <button
+          className={`btn btn-xs ${ormAnnotations ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={onToggleOrmAnnotations}
+          title="Show ORM annotations (fetch / cascade / orphanRemoval) on association edges"
+        >
+          ORM details
+        </button>
+      )}
 
       {onAddEntity && (
         <button
