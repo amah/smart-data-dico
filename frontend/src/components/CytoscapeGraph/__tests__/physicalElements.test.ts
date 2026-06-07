@@ -88,6 +88,17 @@ describe('FK edges', () => {
   });
 });
 
+describe('embeddables', () => {
+  it('excludes @Embeddable entities from the physical view (no table of their own)', () => {
+    const address = node('addr-uuid', 'Address', [{ name: 'orm.embeddable', value: true }]);
+    const els = buildPhysicalElements([ORDER, USER, address], []);
+    const nodeIds = els.filter((e) => e.group === 'nodes').map((e) => e.data.id);
+    expect(nodeIds).toContain('order-uuid');
+    expect(nodeIds).toContain('user-uuid');
+    expect(nodeIds).not.toContain('addr-uuid'); // embeddable dropped
+  });
+});
+
 describe('many-to-many join tables', () => {
   const PRODUCT = node('prod-uuid', 'Product');
   const CATEGORY = node('cat-uuid', 'Category');

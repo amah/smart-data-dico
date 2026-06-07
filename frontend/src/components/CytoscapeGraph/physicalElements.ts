@@ -14,8 +14,16 @@
  */
 import type { ElementDefinition } from 'cytoscape';
 import type { GraphNode, GraphEdge } from '../../types';
-import { readMetaString } from './elementMeta';
+import { readMetaString, readMetaFlag } from './elementMeta';
 import { detectDrift, buildDriftEdges, pairKey } from './physicalDrift';
+
+/**
+ * Embeddable entities (`orm.embeddable`) have no table of their own — they are
+ * mapped into the owner's table — so the physical view excludes them.
+ */
+export function isEmbeddable(node: GraphNode): boolean {
+  return readMetaFlag(node.data?.metadata, 'orm.embeddable');
+}
 
 /** Table name shown on a physical node — `physical.tableName` else the entity name. */
 export function physicalTableName(node: GraphNode): string {
@@ -157,7 +165,11 @@ export function buildPhysicalElements(
 ): ElementDefinition[] {
   const elements: ElementDefinition[] = [];
 
-  for (const node of nodes) {
+  // Embeddables have no physical table — drop them from the table model entirely
+  // (nodes, FK resolution, join tables and drift).
+  const tableNodes = nodes.filter((n) => !isEmbeddable(n));
+
+  for (const node of tableNodes) {
     const entity = node.data;
     const tableName = physicalTableName(node);
     const schema = physicalSchema(node);
@@ -187,18 +199,18 @@ export function buildPhysicalElements(
     });
   }
 
-  const tableIndex = buildTableIndex(nodes);
+  const tableIndex = buildTableIndex(tableNodes);
 
   // Logical↔physical drift overlay (#187), computed once and applied both ways:
   // FK-without-relationship flags the FK edge; relationship-without-FK adds a
   // dashed warning edge.
-  const drift = detectDrift(nodes, edges, tableIndex);
+  const drift = detectDrift(tableNodes, edges, tableIndex);
   const inDbMissingKeys = new Set(
     drift.inDbMissing.map((p) => pairKey(p.sourceId, p.targetId)),
   );
 
-  elements.push(...buildFkEdges(nodes, tableIndex, inDbMissingKeys));
-  elements.push(...buildJoinTables(edges, nodes));
+  elements.push(...buildFkEdges(tableNodes, tableIndex, inDbMissingKeys));
+  elements.push(...buildJoinTables(edges, tableNodes));
   elements.push(...buildDriftEdges(drift));
 
   return elements;
