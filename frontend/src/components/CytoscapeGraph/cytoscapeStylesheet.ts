@@ -162,13 +162,17 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
       selector: 'edge[edgeKind = "association"]',
       style: {
         label: 'data(label)',
-        'text-rotation': 'autorotate',
-        'text-margin-y': -8,
+        // Keep the annotation HORIZONTAL (not autorotated): on a vertical edge
+        // autorotate ran the text down the line, overlapping the role/cardinality
+        // end labels and turning it into unreadable vertical text. Nudge it off
+        // the line so it sits beside the edge midpoint.
+        'text-rotation': 'none',
+        'text-margin-x': 6,
         'font-size': 10,
         'font-style': 'italic',
         color: fg,
         'text-background-color': bg,
-        'text-background-opacity': 0.9,
+        'text-background-opacity': 0.92,
         'text-background-padding': '2px',
       } as any,
     },
