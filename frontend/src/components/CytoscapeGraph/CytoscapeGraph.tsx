@@ -5,7 +5,6 @@ import type { Attribute } from '../../types';
 import type { CytoscapeGraphProps, LayoutName, LayoutDirection } from './CytoscapeGraph.types';
 import { useFetchGraphData } from '../../hooks/useFetchGraphData';
 import { buildViewElements } from './viewElementBuilders';
-import { mapPackagesToCompoundNodes } from './mapPackagesToCompoundNodes';
 import { useCytoscapeInstance } from './useCytoscapeInstance';
 import { useCytoscapeLayout } from './useCytoscapeLayout';
 import { useCytoscapeStyles } from './useCytoscapeStyles';
@@ -23,9 +22,7 @@ import CreateEntityModal from './CreateEntityModal';
 
 export default function CytoscapeGraph({
   service: serviceProp,
-  mode = 'service',
   viewMode = 'structural',
-  packages,
   initialLayoutId,
   caseId,
 }: CytoscapeGraphProps) {
@@ -67,10 +64,19 @@ export default function CytoscapeGraph({
     let parentMapping: Record<string, string> | undefined;
     let compoundNodes: ElementDefinition[] = [];
 
-    if (mode === 'organization' && packages && packages.length > 0) {
-      const result = mapPackagesToCompoundNodes(packages);
-      parentMapping = result.parentMapping;
-      compoundNodes = result.compoundNodes;
+    // When more than one package is on the canvas, surround each with a labelled
+    // bounding box (compound node) as a delimiter, instead of colouring every
+    // node by package.
+    const pkgServices = Array.from(new Set(nodes.map((n) => n.service).filter(Boolean)));
+    if (pkgServices.length > 1) {
+      parentMapping = {};
+      for (const n of nodes) {
+        if (n.service) parentMapping[n.id] = `pkg:${n.service}`;
+      }
+      compoundNodes = pkgServices.map((svc) => ({
+        group: 'nodes' as const,
+        data: { id: `pkg:${svc}`, label: svc, service: svc },
+      }));
     }
 
     // Mode-aware element builder (#183) — structural (± ORM overlay) / physical.
@@ -78,7 +84,7 @@ export default function CytoscapeGraph({
       orm: ormOverlay,
     });
     return [...compoundNodes, ...entityElements];
-  }, [nodes, edges, mode, packages, viewMode, ormOverlay]);
+  }, [nodes, edges, viewMode, ormOverlay]);
 
   // Styles (theme-aware)
   const { stylesheet, serviceColorMap } = useCytoscapeStyles(

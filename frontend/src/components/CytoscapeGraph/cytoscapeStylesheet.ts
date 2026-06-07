@@ -428,12 +428,15 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
     },
   ];
 
-  // Per-service color selectors
+  // Per-package colour applies to the bounding BOX (compound node), not to each
+  // entity node — packages are delimited by a labelled box, so individual nodes
+  // keep a uniform border.
   for (const [service, color] of Object.entries(serviceColorMap)) {
     sheets.push({
-      selector: `node[service = "${service}"]`,
+      selector: `:parent[service = "${service}"]`,
       style: {
         'border-color': color,
+        'border-opacity': 0.9,
         'border-width': 2,
       } as any,
     });
