@@ -1,11 +1,11 @@
 /**
  * Diagram view modes (#181/#182).
  *
- * The diagram renders the same Cytoscape canvas in one of three modes,
- * selected by a page-level tab and persisted in the URL (`?view=`):
+ * The diagram renders the same Cytoscape canvas in one of two modes, selected by
+ * a page-level tab and persisted in the URL (`?view=`):
  *
- *   - `structural` — the original entity-name graph (default, unchanged).
- *   - `logical`    — ORM class model derived from `orm.*` (#184/#185).
+ *   - `structural` — the entity/relationship graph (default). An "ORM mapping"
+ *     legend toggle overlays the ORM class model derived from `orm.*` (#184/#185).
  *   - `physical`   — DB table model derived from `physical.*` + `constraints[]` (#186/#187).
  *
  * This module is the single source of truth for the mode list, labels and the
@@ -13,16 +13,18 @@
  * unit-tested in isolation and reused by both the page and the element builder.
  */
 
-export type ViewMode = 'structural' | 'logical' | 'physical';
+export type ViewMode = 'structural' | 'physical';
 
-export const VIEW_MODES: readonly ViewMode[] = ['structural', 'logical', 'physical'] as const;
+export const VIEW_MODES: readonly ViewMode[] = ['structural', 'physical'] as const;
 
 export const DEFAULT_VIEW_MODE: ViewMode = 'structural';
 
-/** Human labels for the page tabs. */
+/**
+ * Human labels for the page tabs. The former "Logical (ORM)" view is merged into
+ * Structural behind an "ORM mapping" legend toggle, so it is no longer a tab.
+ */
 export const VIEW_MODE_LABELS: Record<ViewMode, string> = {
   structural: 'Structural',
-  logical: 'Logical (ORM)',
   physical: 'Physical',
 };
 

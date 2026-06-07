@@ -88,14 +88,14 @@ const ASSOC: GraphEdge = {
 };
 
 describe('logical node labels & badges', () => {
-  it('uses orm.className over the entity name and carries the package', () => {
+  it('uses orm.className over the entity name; package kept in data, not the label', () => {
     expect(logicalClassName(ORDER)).toBe('OrderEntity');
     const els = buildLogicalElements([ORDER], []);
     const n = els.find((e) => e.data.id === 'order-uuid')!;
     expect(n.data.className).toBe('OrderEntity');
-    expect(n.data.ormPackage).toBe('com.eshop.order');
+    expect(n.data.ormPackage).toBe('com.eshop.order'); // available for the info panel
     expect(n.data.displayLabel).toContain('OrderEntity');
-    expect(n.data.displayLabel).toContain('com.eshop.order');
+    expect(n.data.displayLabel).not.toContain('com.eshop.order'); // package not shown per node
     // label stays the entity name for navigation
     expect(n.data.label).toBe('Order');
   });
@@ -104,12 +104,12 @@ describe('logical node labels & badges', () => {
     expect(logicalClassName(ADDRESS)).toBe('Address');
   });
 
-  it('emits @Embeddable / @MappedSuperclass stereotype badges', () => {
-    expect(logicalBadges(ADDRESS)).toEqual(['@Embeddable']);
-    expect(logicalBadges(BASE)).toEqual(['@MappedSuperclass']);
+  it('emits UML stereotype badges (embeddable / mapped-super-class)', () => {
+    expect(logicalBadges(ADDRESS)).toEqual(['embeddable']);
+    expect(logicalBadges(BASE)).toEqual(['mapped-super-class']);
     const addr = buildLogicalElements([ADDRESS], []).find((e) => e.data.id === 'addr-uuid')!;
-    expect(addr.data.badges).toEqual(['@Embeddable']);
-    expect(addr.data.displayLabel).toContain('«@Embeddable»');
+    expect(addr.data.badges).toEqual(['embeddable']);
+    expect(addr.data.displayLabel).toContain('«embeddable»');
   });
 
   it('keeps nodes compact — attributes carried as data, not inline in the label', () => {

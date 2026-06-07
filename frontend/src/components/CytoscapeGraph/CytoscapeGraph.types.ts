@@ -4,6 +4,13 @@ import type { ViewMode } from './viewMode';
 
 export type GraphMode = 'service' | 'organization';
 
+/**
+ * Node-detail mode for the info panel — independent of the page {@link ViewMode}.
+ * The structural tab with the ORM overlay tags its nodes `logical` so the panel
+ * shows ORM facts, even though `logical` is no longer a page tab.
+ */
+export type DetailMode = 'structural' | 'logical' | 'physical';
+
 export type LayoutName = 'dagre' | 'fcose' | 'elk';
 
 export type LayoutDirection = 'TB' | 'LR' | 'BT' | 'RL';
@@ -39,8 +46,8 @@ export interface InfoPanelData {
   service?: string;
   description?: string;
   attributes?: Attribute[];
-  /** Active diagram view mode — drives the per-mode node detail (#188). */
-  viewMode?: ViewMode;
+  /** Node-detail mode — drives the per-mode node detail (#188). */
+  viewMode?: DetailMode;
   /** Entity physical constraints, for the physical-view node detail (#188). */
   constraints?: PhysicalConstraint[];
   sourceLabel?: string;

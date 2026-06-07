@@ -13,12 +13,12 @@
  */
 import type { ElementDefinition } from 'cytoscape';
 import type { GraphNode } from '../../types';
-import type { ViewMode } from './viewMode';
+import type { DetailMode } from './CytoscapeGraph.types';
 import { readMetaFlag, readMetaString } from './elementMeta';
 
 export function buildEmbeddedEdges(
   nodes: GraphNode[],
-  viewMode: ViewMode,
+  viewMode: DetailMode,
 ): ElementDefinition[] {
   const byName = new Map(nodes.map((n) => [n.label, n.id]));
   const edges: ElementDefinition[] = [];

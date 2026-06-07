@@ -40,8 +40,8 @@ export default function CytoscapeGraph({
   const [layoutName, setLayoutName] = useState<LayoutName>('dagre');
   const [layoutDirection, setLayoutDirection] = useState<LayoutDirection>('TB');
   const [layoutRan, setLayoutRan] = useState(false);
-  // Logical view: ORM annotation (fetch · cascade · …) on edges is optional.
-  const [showOrmAnnotations, setShowOrmAnnotations] = useState(false);
+  // Structural view: overlay the ORM class model (toggled from the legend).
+  const [ormOverlay, setOrmOverlay] = useState(false);
 
   // Fetch data
   const { nodes, edges, loading, error, services } = useFetchGraphData(service, entity);
@@ -73,12 +73,12 @@ export default function CytoscapeGraph({
       compoundNodes = result.compoundNodes;
     }
 
-    // Mode-aware element builder (#183) — structural / logical / physical.
+    // Mode-aware element builder (#183) — structural (± ORM overlay) / physical.
     const entityElements = buildViewElements(viewMode, nodes, edges, parentMapping, {
-      showOrmAnnotations,
+      orm: ormOverlay,
     });
     return [...compoundNodes, ...entityElements];
-  }, [nodes, edges, mode, packages, viewMode, showOrmAnnotations]);
+  }, [nodes, edges, mode, packages, viewMode, ormOverlay]);
 
   // Styles (theme-aware)
   const { stylesheet, serviceColorMap } = useCytoscapeStyles(
@@ -203,10 +203,6 @@ export default function CytoscapeGraph({
         onDeleteLayout={persistence.deleteLayout}
         exportFilenameBase={service}
         onAddEntity={packageOptions.length > 0 ? () => entityCreation.startCreate(service || packageOptions[0]) : undefined}
-        ormAnnotations={showOrmAnnotations}
-        onToggleOrmAnnotations={
-          viewMode === 'logical' ? () => setShowOrmAnnotations((v) => !v) : undefined
-        }
       />
 
       <div className="relative flex-1 min-h-0">
@@ -231,6 +227,8 @@ export default function CytoscapeGraph({
             serviceColorMap={serviceColorMap}
             showCaseStates={!!caseId}
             viewMode={viewMode}
+            orm={ormOverlay}
+            onToggleOrm={viewMode === 'structural' ? () => setOrmOverlay((v) => !v) : undefined}
           />
         )}
 
