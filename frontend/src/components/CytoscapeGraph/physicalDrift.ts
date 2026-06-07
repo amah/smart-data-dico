@@ -82,9 +82,17 @@ export function detectDrift(
   const fkSet = new Set(fkPairs.map((p) => pairKey(p.sourceId, p.targetId)));
   const logicalSet = new Set(logical.map((p) => pairKey(p.sourceId, p.targetId)));
 
-  const notEnforced = logical.filter((p) => !fkSet.has(pairKey(p.sourceId, p.targetId)));
+  // Dedupe both directions by pair so reciprocal relationships / compound FKs
+  // don't double-report (and don't collide on a single drift-edge id).
+  const seenNE = new Set<string>();
+  const notEnforced: DriftPair[] = [];
+  for (const p of logical) {
+    const key = pairKey(p.sourceId, p.targetId);
+    if (fkSet.has(key) || seenNE.has(key)) continue;
+    seenNE.add(key);
+    notEnforced.push(p);
+  }
 
-  // Dedupe inDbMissing by pair so a compound FK doesn't double-report.
   const seen = new Set<string>();
   const inDbMissing: DriftPair[] = [];
   for (const p of fkPairs) {

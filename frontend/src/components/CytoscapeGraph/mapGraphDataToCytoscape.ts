@@ -1,5 +1,6 @@
 import type { ElementDefinition } from 'cytoscape';
 import type { GraphNode, GraphEdge } from '../../types';
+import { mergeRelationshipEdges } from './mergeEdges';
 
 /**
  * Format the label shown at one end of a relationship edge.
@@ -45,7 +46,10 @@ export function mapGraphDataToCytoscape(
     });
   }
 
-  for (const edge of edges) {
+  // Merge reciprocal relationship records into one edge per entity pair, with
+  // arrowheads driven by navigability (an arrowhead at each named end). A
+  // relationship navigable both ways → one double-headed edge (#bidi).
+  for (const edge of mergeRelationshipEdges(edges)) {
     elements.push({
       group: 'edges',
       data: {
@@ -63,6 +67,9 @@ export function mapGraphDataToCytoscape(
         // source-label / target-label bindings.
         sourceEndLabel: formatEndLabel(edge.sourceName, edge.sourceCardinality),
         targetEndLabel: formatEndLabel(edge.targetName, edge.targetCardinality),
+        // Navigability arrowheads (#bidi) read by the stylesheet.
+        arrowAtSource: edge.arrowAtSource,
+        arrowAtTarget: edge.arrowAtTarget,
       },
     });
   }

@@ -125,7 +125,10 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
         color: fg,
       } as any,
     },
-    // Edge base
+    // Edge base. Arrowheads are NOT drawn by default — they are added per
+    // navigability (#bidi): an arrowhead sits at an end iff that end is named
+    // (navigable). A relationship navigable both ways → a single double-headed
+    // edge; reciprocal relationship records are merged into one (mergeEdges.ts).
     {
       selector: 'edge',
       style: {
@@ -133,7 +136,7 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
         'line-color': neutral,
         'line-opacity': 0.7,
         'target-arrow-color': neutral,
-        'target-arrow-shape': 'triangle',
+        'target-arrow-shape': 'none',
         'arrow-scale': 1.2,
         'curve-style': 'bezier',
         // Show endpoint role + cardinality glyph (`*` for many, `1` for one)
@@ -169,12 +172,20 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
         'text-background-padding': '2px',
       } as any,
     },
-    // Owning side: when the target end owns the mapping, draw the navigability
-    // arrow at the source end instead of the default target end.
+    // Navigability arrowheads (structural + logical association edges). An end
+    // gets a triangle iff it is navigable (its role is named); both navigable →
+    // a single double-headed edge.
+    {
+      selector: 'edge[?arrowAtTarget]',
+      style: {
+        'target-arrow-shape': 'triangle',
+        'target-arrow-color': neutral,
+        'arrow-scale': 1.2,
+      } as any,
+    },
     {
       selector: 'edge[?arrowAtSource]',
       style: {
-        'target-arrow-shape': 'none',
         'source-arrow-shape': 'triangle',
         'source-arrow-color': neutral,
         'arrow-scale': 1.2,
