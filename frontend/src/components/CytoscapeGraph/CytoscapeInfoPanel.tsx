@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { Attribute } from '../../types';
 import type { InfoPanelData } from './CytoscapeGraph.types';
 import { buildNodeInfo } from './nodeInfo';
 
@@ -8,13 +9,15 @@ interface CytoscapeInfoPanelProps {
   onNavigate?: (service: string, entity: string) => void;
   /** Focus this entity on the canvas (zoom to its neighbourhood). */
   onFocus?: (nodeId: string) => void;
+  /** Embeddable entities (name → attributes) for flattening @Embedded columns. */
+  embeddables?: Map<string, Attribute[]>;
 }
 
 const MIN_WIDTH = 280;
 const MAX_WIDTH = 760;
 const DEFAULT_WIDTH = 320;
 
-export default function CytoscapeInfoPanel({ data, onClose, onNavigate, onFocus }: CytoscapeInfoPanelProps) {
+export default function CytoscapeInfoPanel({ data, onClose, onNavigate, onFocus, embeddables }: CytoscapeInfoPanelProps) {
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const draggingRef = useRef(false);
 
@@ -102,7 +105,7 @@ export default function CytoscapeInfoPanel({ data, onClose, onNavigate, onFocus 
             )}
 
             {/* Per-mode node detail (#188) — compact nodes, detail here. */}
-            <NodeDetail data={data} />
+            <NodeDetail data={data} embeddables={embeddables} />
           </>
         )}
 
@@ -132,8 +135,14 @@ export default function CytoscapeInfoPanel({ data, onClose, onNavigate, onFocus 
  * Mode-aware node detail (#188). Nodes are compact in every view, so the
  * attribute / column / ORM detail surfaces here, varying by view mode.
  */
-function NodeDetail({ data }: { data: InfoPanelData }) {
-  const info = buildNodeInfo(data.viewMode, data.attributes ?? [], data.constraints ?? []);
+function NodeDetail({
+  data,
+  embeddables,
+}: {
+  data: InfoPanelData;
+  embeddables?: Map<string, Attribute[]>;
+}) {
+  const info = buildNodeInfo(data.viewMode, data.attributes ?? [], data.constraints ?? [], embeddables);
 
   if (info.mode === 'logical') {
     if (info.attributes.length === 0) return null;
