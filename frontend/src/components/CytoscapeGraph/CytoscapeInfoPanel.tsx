@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import type { InfoPanelData } from './CytoscapeGraph.types';
 import { buildNodeInfo } from './nodeInfo';
 
@@ -9,10 +10,56 @@ interface CytoscapeInfoPanelProps {
   onFocus?: (nodeId: string) => void;
 }
 
+const MIN_WIDTH = 280;
+const MAX_WIDTH = 760;
+const DEFAULT_WIDTH = 320;
+
 export default function CytoscapeInfoPanel({ data, onClose, onNavigate, onFocus }: CytoscapeInfoPanelProps) {
+  const [width, setWidth] = useState(DEFAULT_WIDTH);
+  const draggingRef = useRef(false);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!draggingRef.current) return;
+      // Panel is right-anchored — width grows as the cursor moves left.
+      const next = window.innerWidth - e.clientX;
+      setWidth(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, next)));
+    };
+    const onUp = () => {
+      if (!draggingRef.current) return;
+      draggingRef.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, []);
+
+  const startResize = () => {
+    draggingRef.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+
   return (
-    <div className="absolute right-0 top-0 h-full w-80 bg-base-100 border-l border-base-300 shadow-lg overflow-y-auto z-40">
-      <div className="p-4">
+    <div
+      className="absolute right-0 top-0 h-full bg-base-100 border-l border-base-300 shadow-lg z-40 flex"
+      style={{ width }}
+    >
+      {/* Drag handle — resize the panel horizontally. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        title="Drag to resize"
+        onMouseDown={startResize}
+        className="w-1.5 h-full shrink-0 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors"
+      />
+      <div className="flex-1 overflow-y-auto min-w-0">
+        <div className="p-4">
         {/* Header */}
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-bold text-lg text-base-content">{data.label}</h3>
@@ -75,6 +122,7 @@ export default function CytoscapeInfoPanel({ data, onClose, onNavigate, onFocus 
             </div>
           </div>
         )}
+        </div>
       </div>
     </div>
   );
