@@ -37,14 +37,13 @@ export function useCytoscapeInteractions(
     if (!cy || !focusedIdRef.current) return;
     cy.batch(() => {
       cy.elements().removeClass('focus-dim focus-root focus-neighbor');
-      cy.nodes().forEach((n) => {
-        if (n.data('expanded')) n.data('expanded', false);
-        n.removeStyle('label height width text-valign font-size');
-      });
+      // Clear the neighbour key-facts subtitle overrides.
+      cy.nodes().forEach((n) => { n.removeStyle('label font-size width height text-valign'); });
     });
     cy.animate({ fit: { eles: cy.elements(), padding: 40 } }, { duration: 350 });
     focusedIdRef.current = null;
     setFocusedId(null);
+    setInfoPanel(null);
   }, [cy]);
 
   const enterFocus = useCallback(
@@ -55,22 +54,22 @@ export function useCytoscapeInteractions(
 
       const hood = node.closedNeighborhood(); // node + neighbours + connecting edges
 
-      // Reset any prior focus styling first (switching focus between nodes).
       cy.batch(() => {
+        // Reset any prior focus styling first (switching focus between nodes).
         cy.elements().removeClass('focus-dim focus-root focus-neighbor');
-        cy.nodes().forEach((n) => {
-          if (n.data('expanded')) n.data('expanded', false);
-          n.removeStyle('label height width text-valign font-size');
-        });
+        cy.nodes().forEach((n) => { n.removeStyle('label font-size width height text-valign'); });
+        // Clear selection so the :selected highlight doesn't fight focus styling.
+        cy.elements().unselect();
 
         cy.elements().addClass('focus-dim');
         hood.removeClass('focus-dim');
 
         node.addClass('focus-root');
+        // Keep the focused node's name visible (compact) — its full detail is in
+        // the info panel.
+        node.style({ label: (node.data('displayLabel') as string) || (node.data('label') as string) || '' });
         hood.nodes().not(node).addClass('focus-neighbor');
 
-        // Focused entity → full inline detail (attribute compartment).
-        expandNodeInline(node);
         // Direct neighbours → compact name + key-facts subtitle.
         hood.nodes().not(node).forEach((n) => {
           if (n.isParent?.()) return;
@@ -83,7 +82,9 @@ export function useCytoscapeInteractions(
       // Animate the camera to the neighbourhood (outside the batch).
       cy.animate({ fit: { eles: hood, padding: 80 } }, { duration: 400 });
 
-      setInfoPanel(null); // the inline detail replaces the panel
+      // Focused entity → full detail in the info panel (clean, per-mode #188).
+      setTooltip(null); // drop any lingering hover tooltip
+      setInfoPanel(nodePanelData(node));
       focusedIdRef.current = nodeId;
       setFocusedId(nodeId);
     },
@@ -131,26 +132,13 @@ export function useCytoscapeInteractions(
       if (cy.nodes('.connect-source').length > 0) return;
       const service = node.data('service');
       const label = node.data('label');
-      const attributes = node.data('attributes') as Attribute[];
       const oe = evt.originalEvent;
       const modifierHeld = !!(oe && (oe.altKey || oe.metaKey));
-
-      const showPanel = () =>
-        setInfoPanel({
-          type: 'node',
-          id: node.id(),
-          label,
-          service,
-          description: node.data('description'),
-          attributes,
-          viewMode: node.data('viewMode'),
-          constraints: node.data('constraints'),
-        });
 
       // Synthetic nodes (e.g. physical join tables) have no backing entity /
       // service, and modifier-clicks open the panel — both immediate.
       if (modifierHeld || !service || !onNodeClick) {
-        showPanel();
+        setInfoPanel(nodePanelData(node));
         return;
       }
       // Defer navigation so a double-tap (focus) can cancel it.
@@ -249,21 +237,16 @@ export function useCytoscapeInteractions(
   return { tooltip, infoPanel, setInfoPanel, applySearchFilter, focusedId, enterFocus, exitFocus };
 }
 
-/** Expand a node into a UML attribute compartment (header + separator + attrs). */
-function expandNodeInline(node: any) {
-  node.data('expanded', true);
-  const attrs = (node.data('attributes') || []) as Attribute[];
-  const attrLines = attrs
-    .slice(0, 15)
-    .map((a) => `${a.primaryKey ? 'PK ' : ''}${a.name}: ${a.type}`)
-    .join('\n');
-  const suffix = attrs.length > 15 ? `\n... +${attrs.length - 15} more` : '';
-  const header = (node.data('displayLabel') as string) || (node.data('label') as string) || '';
-  node.style({
-    label: `${header}\n${'─'.repeat(20)}\n${attrLines}${suffix}`,
-    height: Math.max(60, 44 + attrs.length * 16),
-    width: 240,
-    'text-valign': 'top',
-    'font-size': 10,
-  });
+/** Build the info-panel payload for a node (shared by tap + focus). */
+function nodePanelData(node: any): InfoPanelData {
+  return {
+    type: 'node',
+    id: node.id(),
+    label: node.data('label'),
+    service: node.data('service'),
+    description: node.data('description'),
+    attributes: node.data('attributes') as Attribute[],
+    viewMode: node.data('viewMode'),
+    constraints: node.data('constraints'),
+  };
 }
