@@ -4,8 +4,10 @@
  * links from EntityDetail and CaseDetailPage to a real route.
  *
  * A page-level tab switcher (#181/#182) selects the diagram view mode
- * (structural / logical / physical), persisted in the URL as `?view=`.
+ * (structural / physical), persisted in the URL as `?view=`. The title block is
+ * collapsible (collapsed by default) since the name is already in the breadcrumb.
  */
+import { useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import CytoscapeGraph from '../components/CytoscapeGraph';
 import {
@@ -28,6 +30,10 @@ export default function VisualizationPage() {
     setSearchParams(params, { replace: true });
   };
 
+  // The package/entity name already appears in the breadcrumb, so the title
+  // block is collapsed by default to give the diagram more room.
+  const [headerExpanded, setHeaderExpanded] = useState(false);
+
   const title = entity
     ? `${entity} — ${service}`
     : service
@@ -36,18 +42,40 @@ export default function VisualizationPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-6rem)]">
-      <div className="flex items-center justify-between mb-2">
-        <div>
-          <h1 className="text-2xl font-bold">{title}</h1>
-          <p className="text-base-content/60 text-sm">
-            {entity
-              ? `Entity graph for ${entity} and its relationships`
-              : service
-                ? `All entities in ${service}`
-                : 'All entities and relationships across all packages'}
-          </p>
-        </div>
+      <div className="flex items-center gap-1 mb-1">
+        <button
+          type="button"
+          onClick={() => setHeaderExpanded((v) => !v)}
+          className="btn btn-ghost btn-xs btn-circle"
+          aria-expanded={headerExpanded}
+          aria-label={headerExpanded ? 'Collapse title' : 'Expand title'}
+          title={headerExpanded ? 'Collapse title' : 'Expand title'}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ transform: headerExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 120ms' }}
+          >
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+        </button>
+        {headerExpanded && <h1 className="text-2xl font-bold leading-tight">{title}</h1>}
       </div>
+      {headerExpanded && (
+        <p className="text-base-content/60 text-sm mb-2 ml-7">
+          {entity
+            ? `Entity graph for ${entity} and its relationships`
+            : service
+              ? `All entities in ${service}`
+              : 'All entities and relationships across all packages'}
+        </p>
+      )}
 
       {/* View-mode tabs (#182) */}
       <div
