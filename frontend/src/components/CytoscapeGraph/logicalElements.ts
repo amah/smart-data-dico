@@ -20,6 +20,10 @@ import { readMetaString, readMetaFlag, readMetaList } from './elementMeta';
 import { mergeRelationshipEdges } from './mergeEdges';
 import { associationArrows } from './arrowShapes';
 import { buildEmbeddedEdges } from './embeddedEdges';
+import { buildInheritanceEdges, logicalInheritanceStrategy } from './inheritanceEdges';
+
+// Re-exported for back-compat (tests import these from logicalElements).
+export { buildInheritanceEdges, logicalInheritanceStrategy };
 
 export interface LogicalOptions {
   /** Show the ORM annotation (fetch · cascade · orphanRemoval) on association edges. */
@@ -46,14 +50,6 @@ export function logicalBadges(node: GraphNode): string[] {
 }
 
 /**
- * Inheritance strategy declared on a class (the `@Inheritance` on the root).
- * Surfaced on the node that declares it (#185).
- */
-export function logicalInheritanceStrategy(node: GraphNode): string {
-  return readMetaString(node.data?.metadata, 'orm.inheritanceStrategy') || '';
-}
-
-/**
  * Compact multi-line node label: stereotype line · class name · strategy.
  * The `orm.package` is intentionally NOT shown per node (too noisy) — it lives
  * in the info panel instead.
@@ -69,44 +65,6 @@ function logicalNodeLabel(
   // The root of an inheritance hierarchy shows its strategy (#185).
   if (inheritanceStrategy) lines.push(`{${inheritanceStrategy}}`);
   return lines.join('\n');
-}
-
-/**
- * Build the diagram-only inheritance ("is-a") edges from `orm.extends` (#185).
- *
- * Decision 5: inheritance is NOT a relationship — these edges are generated
- * here, never promoted to a relationship `type`, and never mixed with
- * associations. `orm.extends` is an entityRef (a uuid or an entity name); it is
- * resolved against the nodes by id first, then by name. Edges that can't be
- * resolved (parent off-canvas) are dropped.
- */
-export function buildInheritanceEdges(nodes: GraphNode[]): ElementDefinition[] {
-  const byId = new Map(nodes.map((n) => [n.id, n]));
-  const byName = new Map(nodes.map((n) => [n.label, n]));
-  const edges: ElementDefinition[] = [];
-
-  for (const child of nodes) {
-    const ext = readMetaString(child.data?.metadata, 'orm.extends');
-    if (!ext) continue;
-    const parent = byId.get(ext) || byName.get(ext);
-    if (!parent || parent.id === child.id) continue;
-    edges.push({
-      group: 'edges',
-      data: {
-        id: `isa:${child.id}->${parent.id}`,
-        source: child.id,
-        target: parent.id,
-        edgeKind: 'inheritance',
-        viewMode: 'logical',
-        // No association annotation / cardinality on an is-a edge; the root's
-        // strategy (if any) labels the edge so it reads at the superclass end.
-        label: logicalInheritanceStrategy(parent),
-        sourceEndLabel: '',
-        targetEndLabel: '',
-      },
-    });
-  }
-  return edges;
 }
 
 /**
