@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import type { ElementDefinition } from 'cytoscape';
+import type { Attribute } from '../../types';
 import type { CytoscapeGraphProps, LayoutName, LayoutDirection } from './CytoscapeGraph.types';
 import { useFetchGraphData } from '../../hooks/useFetchGraphData';
 import { buildViewElements } from './viewElementBuilders';
@@ -44,6 +45,20 @@ export default function CytoscapeGraph({
 
   // Fetch data
   const { nodes, edges, loading, error, services } = useFetchGraphData(service, entity);
+
+  // Embeddable entities (orm.embeddable) by name → attributes, so the physical
+  // info panel can flatten an @Embedded field into the owner table's columns.
+  const embeddableIndex = useMemo(() => {
+    const map = new Map<string, Attribute[]>();
+    for (const n of nodes) {
+      const md = n.data?.metadata;
+      const isEmbeddable = md?.some(
+        (e) => e.name === 'orm.embeddable' && (e.value === true || e.value === 'true'),
+      );
+      if (isEmbeddable && n.data) map.set(n.data.name, n.data.attributes ?? []);
+    }
+    return map;
+  }, [nodes]);
 
   // Build Cytoscape elements
   const elements = useMemo<ElementDefinition[]>(() => {
@@ -239,6 +254,7 @@ export default function CytoscapeGraph({
             onClose={() => setInfoPanel(null)}
             onNavigate={handleNodeClick}
             onFocus={enterFocus}
+            embeddables={embeddableIndex}
           />
         )}
 

@@ -127,10 +127,27 @@ export function constraintRow(c: PhysicalConstraint): ConstraintRow {
   return { kind: c.kind, label };
 }
 
+/**
+ * Fields an attribute contributes to the owner's physical table. An `@Embedded`
+ * reference (`orm.embedded` + an `orm.javaType` resolving to a known embeddable)
+ * is flattened into the owner's table, so it returns the embeddable's attributes;
+ * otherwise null (the attribute is a plain column).
+ */
+function embeddedFieldsFor(
+  attr: Attribute,
+  embeddables: Map<string, Attribute[]>,
+): Attribute[] | null {
+  if (!readMetaFlag(attr.metadata, 'orm.embedded')) return null;
+  const target = readMetaString(attr.metadata, 'orm.javaType');
+  if (target && embeddables.has(target)) return embeddables.get(target) ?? null;
+  return null;
+}
+
 export function buildNodeInfo(
   viewMode: ViewMode | undefined,
   attributes: Attribute[] = [],
   constraints: PhysicalConstraint[] = [],
+  embeddables: Map<string, Attribute[]> = new Map(),
 ): NodeInfo {
   if (viewMode === 'logical') {
     return { mode: 'logical', attributes: attributes.map(logicalAttrFacts) };
@@ -142,9 +159,26 @@ export function buildNodeInfo(
       if (c.kind === 'foreignKey') (c.columns ?? []).forEach((col) => fkColumns.add(col));
       if (c.kind === 'unique') (c.columns ?? []).forEach((col) => uniqueColumns.add(col));
     }
+    const columns: PhysicalColumnRow[] = [];
+    for (const a of attributes) {
+      const embedded = embeddedFieldsFor(a, embeddables);
+      if (embedded) {
+        // Embeddable flattened into this table — prefix each field by the owning
+        // attribute (so shipping_* and billing_* don't collide).
+        for (const f of embedded) {
+          columns.push({
+            name: `${a.name}.${columnName(f)}`,
+            dbType: readMetaString(f.metadata, 'physical.dbType') || '',
+            flags: f.unique ? ['UQ'] : [],
+          });
+        }
+      } else {
+        columns.push(physicalColumn(a, fkColumns, uniqueColumns));
+      }
+    }
     return {
       mode: 'physical',
-      columns: attributes.map((a) => physicalColumn(a, fkColumns, uniqueColumns)),
+      columns,
       constraints: constraints.map(constraintRow),
     };
   }

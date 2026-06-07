@@ -134,6 +134,46 @@ describe('buildNodeInfo dispatch', () => {
     expect(fk.label).toContain('users');
   });
 
+  it('physical → flattens an @Embedded field into the owner table columns', () => {
+    const shipping: Attribute = {
+      uuid: 's',
+      name: 'shippingAddress',
+      description: '',
+      type: AttributeType.OBJECT,
+      required: true,
+      metadata: [
+        { name: 'orm.embedded', value: true },
+        { name: 'orm.javaType', value: 'Address' },
+      ],
+    };
+    const addressFields: Attribute[] = [
+      { uuid: 'f1', name: 'fullName', description: '', type: AttributeType.STRING, required: true },
+      { uuid: 'f2', name: 'street', description: '', type: AttributeType.STRING, required: true },
+    ];
+    const embeddables = new Map([['Address', addressFields]]);
+    const info = buildNodeInfo('physical', [ID, shipping], [], embeddables);
+    if (info.mode !== 'physical') throw new Error('mode');
+    const names = info.columns.map((c) => c.name);
+    expect(names).toContain('id'); // plain column kept
+    expect(names).toContain('shippingAddress.fullName'); // embeddable flattened + prefixed
+    expect(names).toContain('shippingAddress.street');
+    expect(names).not.toContain('shippingAddress'); // not shown as a single object column
+  });
+
+  it('physical → leaves @Embedded as a single column when the embeddable is unknown', () => {
+    const shipping: Attribute = {
+      uuid: 's',
+      name: 'shippingAddress',
+      description: '',
+      type: AttributeType.OBJECT,
+      required: true,
+      metadata: [{ name: 'orm.embedded', value: true }, { name: 'orm.javaType', value: 'Address' }],
+    };
+    const info = buildNodeInfo('physical', [shipping], [], new Map()); // no embeddable index
+    if (info.mode !== 'physical') throw new Error('mode');
+    expect(info.columns.map((c) => c.name)).toEqual(['shippingAddress']);
+  });
+
   it('structural → name · type · PK · required (unchanged shape)', () => {
     const info = buildNodeInfo('structural', attrs, CONSTRAINTS);
     if (info.mode !== 'structural') throw new Error('mode');
