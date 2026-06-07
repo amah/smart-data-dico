@@ -17,6 +17,10 @@ import type { ElementDefinition } from 'cytoscape';
 import type { GraphNode, GraphEdge } from '../../types';
 import { formatEndLabel } from './mapGraphDataToCytoscape';
 import { readMetaString, readMetaFlag, readMetaList } from './elementMeta';
+import { mergeRelationshipEdges } from './mergeEdges';
+
+/** The relationship facts the ORM helpers read — satisfied by GraphEdge and MergedGraphEdge. */
+type EdgeOrmFacts = Pick<GraphEdge, 'metadata' | 'sourceName' | 'targetName'>;
 
 /** Class name shown on a logical node — `orm.className` else the entity name. */
 export function logicalClassName(node: GraphNode): string {
@@ -103,7 +107,7 @@ export function buildInheritanceEdges(nodes: GraphNode[]): ElementDefinition[] {
  * Returns `''` when the data doesn't pin it down (arrow stays at the target,
  * matching the structural default).
  */
-export function logicalOwningSide(edge: GraphEdge): '' | 'source' | 'target' {
+export function logicalOwningSide(edge: EdgeOrmFacts): '' | 'source' | 'target' {
   const owningEnd = readMetaString(edge.metadata, 'orm.owningEnd');
   const mappedBy = readMetaString(edge.metadata, 'orm.mappedBy');
   const sourceRole = edge.sourceName;
@@ -122,7 +126,7 @@ export function logicalOwningSide(edge: GraphEdge): '' | 'source' | 'target' {
 }
 
 /** Compact ORM annotation for an association edge ("LAZY · cascade: ALL · orphan"). */
-export function logicalEdgeAnnotation(edge: GraphEdge): string {
+export function logicalEdgeAnnotation(edge: Pick<GraphEdge, 'metadata'>): string {
   const parts: string[] = [];
   const fetch = readMetaString(edge.metadata, 'orm.fetch');
   if (fetch) parts.push(fetch);
@@ -174,7 +178,10 @@ export function buildLogicalElements(
     });
   }
 
-  for (const edge of edges) {
+  // Merge reciprocal relationship records into one association edge per entity
+  // pair; arrowheads follow navigability (a named end is navigable), so a
+  // relationship navigable both ways renders as one double-headed edge (#bidi).
+  for (const edge of mergeRelationshipEdges(edges)) {
     const owningSide = logicalOwningSide(edge);
     const cascade = readMetaList(edge.metadata, 'orm.cascade');
     elements.push({
@@ -200,8 +207,9 @@ export function buildLogicalElements(
         owningEnd: readMetaString(edge.metadata, 'orm.owningEnd') ?? '',
         mappedBy: readMetaString(edge.metadata, 'orm.mappedBy') ?? '',
         owningSide,
-        // When the target end owns, draw the arrow at the source instead.
-        arrowAtSource: owningSide === 'target',
+        // Navigability arrowheads (#bidi) — an arrowhead at each named end.
+        arrowAtSource: edge.arrowAtSource,
+        arrowAtTarget: edge.arrowAtTarget,
       },
     });
   }

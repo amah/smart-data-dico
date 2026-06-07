@@ -132,22 +132,41 @@ describe('logical association edges', () => {
     expect(e.data.targetEndLabel).toBe('order *');
   });
 
-  it('resolves the owning side from mappedBy (inverse end → other side owns)', () => {
+  it('keeps the owning side available for the info panel (from mappedBy / owningEnd)', () => {
     // mappedBy: order matches the target role → target is inverse → source owns
     expect(logicalOwningSide(ASSOC)).toBe('source');
-    const e = buildLogicalElements([], [ASSOC])[0];
-    expect(e.data.owningSide).toBe('source');
-    expect(e.data.arrowAtSource).toBe(false);
+    expect(buildLogicalElements([], [ASSOC])[0].data.owningSide).toBe('source');
+    const byOwningEnd: GraphEdge = { ...ASSOC, metadata: [{ name: 'orm.owningEnd', value: 'order' }] };
+    expect(logicalOwningSide(byOwningEnd)).toBe('target');
   });
 
-  it('resolves the owning side from owningEnd, flipping the arrow when the target owns', () => {
-    const edge: GraphEdge = {
-      ...ASSOC,
-      metadata: [{ name: 'orm.owningEnd', value: 'order' }], // target role is "order"
-    };
-    expect(logicalOwningSide(edge)).toBe('target');
-    const e = buildLogicalElements([], [edge])[0];
+  it('draws arrowheads by navigability — both ends named → double-headed', () => {
+    // ASSOC has roles on both ends (items / order) → navigable both ways.
+    const e = buildLogicalElements([], [ASSOC])[0];
     expect(e.data.arrowAtSource).toBe(true);
+    expect(e.data.arrowAtTarget).toBe(true);
+  });
+
+  it('a single-named end yields one arrowhead at that end', () => {
+    const oneWay: GraphEdge = { ...ASSOC, sourceName: 'items', targetName: undefined };
+    const e = buildLogicalElements([], [oneWay])[0];
+    expect(e.data.arrowAtSource).toBe(true);
+    expect(e.data.arrowAtTarget).toBe(false);
+  });
+
+  it('merges a reciprocal relationship pair into a single association edge', () => {
+    const forward: GraphEdge = { ...ASSOC, id: 'fwd' };
+    const back: GraphEdge = {
+      id: 'back',
+      source: 'item-uuid',
+      target: 'order-uuid',
+      label: 'belongs to',
+      // no roles → not independently navigable
+    };
+    const edges = buildLogicalElements([], [forward, back]).filter((el) => el.group === 'edges');
+    expect(edges).toHaveLength(1); // one edge for the pair, not two
+    expect(edges[0].data.arrowAtSource).toBe(true);
+    expect(edges[0].data.arrowAtTarget).toBe(true);
   });
 
   it('leaves owning side unset when nothing pins it down', () => {
