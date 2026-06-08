@@ -457,6 +457,31 @@ relationships:
 
 `validate:dico` (below) checks `orm.*` values: enum membership (`orm.fetch`/`cascade`/`generatedValue`/`enumerated`/`temporal`/`inheritanceStrategy`), `orm.extends` resolves to an entity, mutually-exclusive flags, and `orm.enumerated` only on `enum` attributes. Unknown `orm.*` keys are flagged as warnings.
 
+### Embeddable value objects
+
+An `@Embeddable` value object (e.g. an `Address` reused for shipping & billing) is modelled as a normal entity that carries `orm.embeddable: true`, and is **referenced from the owner via an attribute** rather than a relationship:
+
+- the embeddable entity holds the canonical fields plus `orm.embeddable: true`;
+- the owner's attribute is `type: object` with `orm.embedded: true` and `orm.javaType: <EmbeddableName>` (the embeddable class) — instead of inlining `properties`.
+
+```yaml
+# Address.model.yaml — the embeddable
+entities:
+  - uuid: …
+    name: Address
+    metadata: [ { name: orm.embeddable, value: true } ]
+    attributes: [ … ]            # canonical fields (fullName, street, …)
+
+# Order.model.yaml — the owner references it
+- name: shippingAddress
+  type: object
+  metadata:
+    - { name: orm.embedded, value: true }
+    - { name: orm.javaType, value: Address }
+```
+
+The diagram reads this both ways: structural / ORM views draw a **composition** edge from owner to embeddable (`Order ◆— Address`), while the **physical** view gives the embeddable no table of its own — its columns are flattened into the owner's table (e.g. `shippingAddress.street`), since `@Embedded` is stored inline.
+
 ### Editing in the app
 
 You normally don't hand-edit these keys — the app provides typed editors driven by the **same vocabulary** the validator uses (`GET /api/orm/vocabulary`, sourced from `backend/src/models/ormVocabulary.ts`), so the UI and validation can't drift. Inputs are typed per key: enum → dropdown, flag → checkbox, `orm.cascade` → multi-select, `orm.extends` → entity picker.
