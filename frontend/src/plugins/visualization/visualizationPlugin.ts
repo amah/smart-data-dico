@@ -1,8 +1,7 @@
 /**
  * Visualization Plugin
  *
- * Declares ownership of /visualization/**, /diagram/** routes
- * and the diagram Redux slice.
+ * Declares ownership of /diagram/** routes and the diagram Redux slice.
  */
 
 import type { PluginModule } from '@hamak/microkernel-spi';
@@ -22,9 +21,7 @@ export function createVisualizationPlugin(options: VisualizationPluginOptions = 
     async initialize(ctx) {
       ctx.views.register('routes.visualization', () => ({
         routes: [
-          '/visualization/**',
           '/diagram/**',
-          '/organization-diagram',
         ],
       }));
     },

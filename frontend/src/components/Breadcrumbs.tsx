@@ -65,9 +65,6 @@ const Breadcrumbs = ({ items: itemsProp }: BreadcrumbsProps = {}) => {
         const label = pathSegments[1] === 'history' ? 'History' : pathSegments[1] === 'commit' ? 'Commit Changes' : pathSegments[1];
         items.push({ label, path: `/version/${pathSegments[1]}` });
       }
-    } else if (pathSegments[0] === 'visualization') {
-      items.push({ label: 'Visualization', path: '/visualization' });
-      if (pathSegments[1]) items.push({ label: pathSegments[1], path: `/visualization/${pathSegments[1]}` });
     } else if (pathSegments[0] === 'diagram') {
       items.push({ label: 'Diagram', path: '/diagram' });
       if (pathSegments[1]) items.push({ label: pathSegments[1], path: `/diagram/${pathSegments[1]}` });

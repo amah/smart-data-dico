@@ -1,7 +1,8 @@
 /**
- * Visualization page — renders CytoscapeGraph for a specific service/entity
- * or the full organization diagram. Bridges the broken `/visualization/*`
- * links from EntityDetail and CaseDetailPage to a real route.
+ * Diagram page — renders CytoscapeGraph for the full organization, a specific
+ * service, or a single entity. Mounted on `/diagram`, `/diagram/:service` and
+ * `/diagram/:service/:entity`; the EntityDetail and CaseDetailPage links target
+ * these routes.
  *
  * A page-level tab switcher (#181/#182) selects the diagram view mode
  * (structural / physical), persisted in the URL as `?view=`. The title block is
