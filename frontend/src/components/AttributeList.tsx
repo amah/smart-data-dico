@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { Attribute, AttributeType, Entity, Rule, RuleSeverityValue } from '../types';
 import {
   useStereotypeMetadata,
@@ -8,7 +9,7 @@ import {
 import type { MetadataColumn } from '../hooks/useStereotypeMetadata';
 import RulesSidePanel from '../plugins/data-dictionary/components/rules/RulesSidePanel';
 import AttributeSidePanel from './AttributeSidePanel';
-import { servicesApi } from '../services/api';
+import { servicesApi, configApi, type DerivedType, type ValueDomainKind } from '../services/api';
 import { useService } from '../kernel/useService';
 import { RULE_SERVICE_TOKEN } from '../kernel/tokens';
 import type { RuleService } from '../plugins/data-dictionary/services/RuleService';
@@ -87,7 +88,58 @@ const ATTR_OPTIONAL_COL_KEY = 'attribute-list-optional-columns-v1';
  * The user can still surface them as separate columns from the Column
  * chooser — opt-in, persisted per browser.
  */
-const OPTIONAL_STD_COLS = new Set<string>(['type', 'required']);
+const OPTIONAL_STD_COLS = new Set<string>(['type', 'required', 'default']);
+
+interface DomainInfo {
+  kind: ValueDomainKind;
+  /** The derived type that carries the domain (link target for enum/codelist). */
+  typeName: string;
+  /** Domain source — code-list / data-source name or URL (codelist & reference). */
+  source?: string;
+  /** Static values (enum & codelist) — surfaced on hover. */
+  values?: string[];
+}
+
+const isUrl = (s?: string) => !!s && /^https?:\/\//i.test(s);
+
+/**
+ * Values-column cell for a domain-bearing attribute.
+ *  - enum / codelist → the type name, linked to its definition; hover lists the values.
+ *  - reference       → the source, linked only when it is a URL or a known type
+ *                      (otherwise plain text — there is nothing to navigate to).
+ */
+const DomainSource = ({ info, known }: { info: DomainInfo; known: boolean }) => {
+  const hover = info.values && info.values.length > 0 ? info.values.join(', ') : undefined;
+
+  if (info.kind === 'reference') {
+    const src = info.source;
+    if (isUrl(src)) {
+      return (
+        <a href={src} target="_blank" rel="noopener noreferrer" className="mono"
+          style={{ color: 'var(--accent)' }} title={src} onClick={(e) => e.stopPropagation()}>
+          {src}
+        </a>
+      );
+    }
+    if (known && src) {
+      return (
+        <Link to={`/types?name=${encodeURIComponent(src)}`} className="mono"
+          style={{ color: 'var(--accent)' }} title="Open type definition" onClick={(e) => e.stopPropagation()}>
+          {src}
+        </Link>
+      );
+    }
+    return <span className="mono" style={{ color: 'var(--text-muted)' }}>{src || '—'}</span>;
+  }
+
+  // enum / codelist — always navigable to the type details; hover lists values.
+  return (
+    <Link to={`/types?name=${encodeURIComponent(info.typeName)}`} className="mono"
+      style={{ color: 'var(--accent)' }} title={hover || 'Open type definition'} onClick={(e) => e.stopPropagation()}>
+      {info.typeName}
+    </Link>
+  );
+};
 
 interface DraftAttribute {
   id: string;
@@ -139,6 +191,44 @@ const AttributeList = ({
   useEffect(() => {
     localStorage.setItem(ATTR_OPTIONAL_COL_KEY, JSON.stringify([...optionalVisible]));
   }, [optionalVisible]);
+
+  // Derived types — used to resolve an attribute's value domain (#TBD) for the
+  // Values column (enum / codelist → link to the type details + hover values;
+  // reference → link only when the source is a URL or a known type).
+  const [derivedTypes, setDerivedTypes] = useState<DerivedType[]>([]);
+  useEffect(() => {
+    configApi.getDerivedTypes().then(setDerivedTypes).catch(() => { /* project may not be open */ });
+  }, []);
+
+  const resolveDomainInfo = useMemo(() => {
+    const byName = new Map(derivedTypes.map((t) => [t.name, t] as const));
+    const STD = new Set<string>(Object.values(AttributeType));
+    const cache = new Map<string, DomainInfo | null>();
+    return (typeName: string): DomainInfo | null => {
+      if (cache.has(typeName)) return cache.get(typeName)!;
+      let result: DomainInfo | null = null;
+      const visited = new Set<string>();
+      let cursor = typeName;
+      while (!STD.has(cursor)) {
+        if (visited.has(cursor)) break;
+        visited.add(cursor);
+        const dt = byName.get(cursor);
+        if (!dt) break;
+        if (dt.domain) {
+          result = { kind: dt.domain.kind, typeName: dt.name, source: dt.domain.source, values: dt.domain.values };
+          break;
+        }
+        cursor = dt.basedOn;
+      }
+      cache.set(typeName, result);
+      return result;
+    };
+  }, [derivedTypes]);
+
+  const isKnownType = useCallback(
+    (name?: string) => !!name && derivedTypes.some((t) => t.name === name),
+    [derivedTypes],
+  );
 
   useEffect(() => {
     if (attributes.length > 0 && allColumns.length > 0 && metaVisible.size === 0) {
@@ -441,8 +531,18 @@ const AttributeList = ({
         group: 'standard',
         filterable: true,
         width: 'minmax(160px, 1.4fr)',
-        accessor: (a) => (a.validation?.enumValues || []).join(', '),
+        // For a domain-bearing type the cell shows the value *source* (the named
+        // type / code-list / data source); otherwise it falls back to the
+        // attribute's inline enum values.
+        accessor: (a) => {
+          const d = resolveDomainInfo(a.type);
+          if (d) return d.kind === 'reference' ? (d.source || '') : d.typeName;
+          return (a.validation?.enumValues || []).join(', ');
+        },
         render: (a) => {
+          const d = resolveDomainInfo(a.type);
+          if (d) return <DomainSource info={d} known={isKnownType(d.source)} />;
+
           const vals = a.validation?.enumValues || [];
           if (vals.length === 0) {
             return <span style={{ color: 'var(--text-subtle)' }}>—</span>;
@@ -516,7 +616,7 @@ const AttributeList = ({
     }));
 
     return [...std, ...meta];
-  }, [activeMetaColumns, rulesByAttrUuid, optionalVisible]);
+  }, [activeMetaColumns, rulesByAttrUuid, optionalVisible, resolveDomainInfo, isKnownType]);
 
   // ──────────────── Render ────────────────
 

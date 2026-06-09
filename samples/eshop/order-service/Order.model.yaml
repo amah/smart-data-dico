@@ -92,7 +92,7 @@ entities:
           scale: 2
       - name: currency
         description: Currency code for the order
-        type: string
+        type: currency-code
         required: true
         defaultValue: USD
         uuid: 86c8ea76-ca77-4c41-a207-279b295a4bbb
