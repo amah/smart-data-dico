@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { authApi, projectApi, filesystemApi } from '../services/api';
 import GitStatusIndicator from './GitStatusIndicator';
+import SpotlightSearch from './SpotlightSearch';
 import { useAppMode } from '../hooks/useAppMode';
 import { usePrefs } from '../hooks/usePrefs';
 import { Icon, DensitySwitcher } from './ui';
@@ -331,37 +332,9 @@ const Navbar = ({ toggleSidebar, toggleChat, chatOpen }: NavbarProps) => {
         />
       )}
 
-      {/* Center — ⌘K launcher */}
+      {/* Center — ⌘K live search */}
       <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
-        <button
-          onClick={() => navigate('/search')}
-          className="hidden md:flex"
-          style={{
-            alignItems: 'center', gap: 8,
-            padding: '4px 10px',
-            width: 360, maxWidth: '50%', height: 32,
-            background: 'var(--bg-subtle)',
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-sm)',
-            color: 'var(--text-subtle)',
-            fontSize: 'var(--fs-sm)',
-            textAlign: 'left', cursor: 'pointer',
-          }}
-        >
-          <Icon name="search" size={13} />
-          <span style={{ flex: 1 }}>Search entities, attributes, rules…</span>
-          <span
-            className="mono"
-            style={{
-              fontSize: 10, color: 'var(--text-subtle)',
-              padding: '1px 5px',
-              border: '1px solid var(--border)',
-              borderRadius: 2,
-            }}
-          >
-            ⌘K
-          </span>
-        </button>
+        <SpotlightSearch />
       </div>
 
       {/* Right-side controls */}
