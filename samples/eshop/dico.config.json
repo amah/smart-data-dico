@@ -26,6 +26,44 @@
         "precision": 12,
         "scale": 2
       }
+    },
+    {
+      "name": "order-status",
+      "basedOn": "string",
+      "description": "Lifecycle status of an order — inline closed set",
+      "domain": {
+        "kind": "enum",
+        "values": ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED", "REFUNDED"]
+      }
+    },
+    {
+      "name": "currency-code",
+      "basedOn": "string",
+      "description": "ISO-4217 currency — static code list",
+      "domain": {
+        "kind": "codelist",
+        "source": "ISO-4217",
+        "values": ["USD", "EUR", "GBP", "JPY"]
+      }
+    },
+    {
+      "name": "iso-3166",
+      "basedOn": "string",
+      "description": "ISO-3166 country codes — static code list",
+      "domain": {
+        "kind": "codelist",
+        "source": "ISO-3166",
+        "values": ["FR", "US", "GB", "DE", "JP"]
+      }
+    },
+    {
+      "name": "country-ref",
+      "basedOn": "string",
+      "description": "Country — referential, sourced from the iso-3166 code list",
+      "domain": {
+        "kind": "reference",
+        "source": "iso-3166"
+      }
     }
   ]
 }

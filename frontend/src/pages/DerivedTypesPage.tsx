@@ -13,8 +13,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
-import { configApi, entityApi, type DerivedType } from '../services/api';
+import { Link, useSearchParams } from 'react-router-dom';
+import { configApi, entityApi, type DerivedType, type ValueDomain, type ValueDomainKind } from '../services/api';
 import { AttributeType } from '../types';
 import {
   Button,
@@ -43,6 +43,7 @@ const DerivedTypesPage = () => {
   const [errors, setErrors] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   const [usedBy, setUsedBy] = useState<Record<string, UsedByRef[]>>({});
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -50,16 +51,36 @@ const DerivedTypesPage = () => {
     try {
       const list = await configApi.getDerivedTypes();
       setTypes(list);
-      setSelectedName(list[0]?.name ?? null);
+      // Honour a `?name=` deep-link (e.g. a clickable source link) when present.
+      const want = searchParams.get('name');
+      setSelectedName(want && list.some(t => t.name === want) ? want : (list[0]?.name ?? null));
       setDirty(false);
     } catch (e: any) {
       setErrors([`Failed to load: ${e?.message || e}`]);
     } finally {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Select a type and reflect it in the URL so the view is deep-linkable.
+  const selectType = useCallback((name: string | null) => {
+    setSelectedName(name);
+    const next = new URLSearchParams(searchParams);
+    if (name) next.set('name', name); else next.delete('name');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  // Honour external navigation to `/types?name=X` while the page is mounted.
+  useEffect(() => {
+    const want = searchParams.get('name');
+    if (want && want !== selectedName && types.some(t => t.name === want)) {
+      setSelectedName(want);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, types]);
 
   // Build a usedBy map: derived type name → [{service, entity, attribute}].
   useEffect(() => {
@@ -253,7 +274,7 @@ const DerivedTypesPage = () => {
                   <button
                     key={t.name}
                     type="button"
-                    onClick={() => setSelectedName(t.name)}
+                    onClick={() => selectType(t.name)}
                     style={{
                       width: '100%',
                       textAlign: 'left',
@@ -270,11 +291,11 @@ const DerivedTypesPage = () => {
                     onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'var(--bg-hover)'; }}
                     onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}
                   >
-                    <span
-                      className="mono"
-                      style={{ fontSize: 'var(--fs-sm)', fontWeight: 500 }}
-                    >
-                      {t.name || '(unnamed)'}
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span className="mono" style={{ fontSize: 'var(--fs-sm)', fontWeight: 500 }}>
+                        {t.name || '(unnamed)'}
+                      </span>
+                      {t.domain && <DomainBadge kind={t.domain.kind} />}
                     </span>
                     <span
                       className="mono"
@@ -283,7 +304,7 @@ const DerivedTypesPage = () => {
                         color: active ? 'var(--accent)' : 'var(--text-subtle)',
                       }}
                     >
-                      based on {t.basedOn}
+                      {t.domain?.source ? `source ${t.domain.source}` : `based on ${t.basedOn}`}
                     </span>
                   </button>
                 );
@@ -416,6 +437,14 @@ const TypeEditor = ({ type, siblings, usedBy, onChange, onRemove }: TypeEditorPr
         </Field>
       </Section>
 
+      {/* Value domain */}
+      <Section
+        title="Value domain"
+        hint="enum (inline set) · codelist (static, sourced) · reference (sourced from a data source)."
+      >
+        <DomainEditor domain={type.domain} onChange={(domain) => onChange({ domain })} />
+      </Section>
+
       {/* Regex tester */}
       <Section title="Regex" hint="Live-tested pattern. Paste a sample to see it match.">
         <RegexTester
@@ -512,6 +541,79 @@ const TypeEditor = ({ type, siblings, usedBy, onChange, onRemove }: TypeEditorPr
           </ul>
         )}
       </Section>
+    </div>
+  );
+};
+
+// ──────────────── Value-domain editor ────────────────
+
+const DOMAIN_KIND_TONE: Record<ValueDomainKind, string> = {
+  enum: 'var(--accent)',
+  codelist: 'var(--warning)',
+  reference: 'var(--success)',
+};
+
+const DomainBadge = ({ kind }: { kind: ValueDomainKind }) => (
+  <span
+    style={{
+      fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4,
+      color: '#fff', background: DOMAIN_KIND_TONE[kind], borderRadius: 3, padding: '1px 5px',
+    }}
+  >
+    {kind}
+  </span>
+);
+
+const DomainEditor = ({
+  domain,
+  onChange,
+}: {
+  domain?: ValueDomain;
+  onChange: (d: ValueDomain | undefined) => void;
+}) => {
+  const kind = domain?.kind ?? '';
+
+  const setKind = (k: string) => {
+    if (!k) { onChange(undefined); return; }
+    const next: ValueDomain = { kind: k as ValueDomainKind };
+    // Carry over fields that remain valid for the new kind.
+    if ((k === 'enum' || k === 'codelist') && domain?.values?.length) next.values = domain.values;
+    if ((k === 'codelist' || k === 'reference') && domain?.source) next.source = domain.source;
+    onChange(next);
+  };
+
+  const showValues = kind === 'enum' || kind === 'codelist';
+  const showSource = kind === 'codelist' || kind === 'reference';
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <Field label="Kind">
+        <select value={kind} onChange={(e) => setKind(e.target.value)} style={fieldStyleMono}>
+          <option value="">— none —</option>
+          <option value="enum">enum — inline closed set</option>
+          <option value="codelist">codelist — static, from a named source</option>
+          <option value="reference">reference — sourced from a data source</option>
+        </select>
+      </Field>
+      {showSource && domain && (
+        <Field label={kind === 'reference' ? 'Source — data source name (required)' : 'Source — code list name (required)'}>
+          <input
+            type="text"
+            value={domain.source || ''}
+            onChange={(e) => onChange({ ...domain, source: e.target.value || undefined })}
+            placeholder={kind === 'reference' ? 'e.g. geo/Country' : 'e.g. ISO-4217'}
+            style={fieldStyleMono}
+          />
+        </Field>
+      )}
+      {showValues && domain && (
+        <Field label={kind === 'codelist' ? 'Values — static codes' : 'Values'}>
+          <EnumEditor
+            values={domain.values || []}
+            onChange={(values) => onChange({ ...domain, values: values.length ? values : undefined })}
+          />
+        </Field>
+      )}
     </div>
   );
 };

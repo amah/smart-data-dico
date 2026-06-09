@@ -86,6 +86,9 @@ describe('AttributeFlatTable', () => {
       http.get('/api/stereotypes', () => {
         return HttpResponse.json({ data: mockStereotypes });
       }),
+      http.get('/api/config/types', () => {
+        return HttpResponse.json({ data: [] });
+      }),
       http.put('/api/services/:service/entities/:entity', async ({ request }) => {
         const body = await request.json();
         return HttpResponse.json({ message: 'Updated', data: body });

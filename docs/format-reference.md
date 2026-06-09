@@ -87,6 +87,38 @@ Marks the folder as a project and declares reusable **derived types** (#107).
 - Circular derivation is a hard error at `PUT /api/config/types`.
 - JSON Schema export emits each derived type as a named `$defs` entry.
 
+### 2.1 Value domains — `enum` / `codelist` / `reference`
+
+A derived type may carry an optional `domain` that classifies *where its allowed
+values come from*. This distinguishes three kinds — only `enum` is sourceless;
+`codelist` and `reference` **must** name a `source`:
+
+```json
+{ "name": "order-status", "basedOn": "string",
+  "domain": { "kind": "enum", "values": ["PENDING", "SHIPPED", "DELIVERED"] } },
+
+{ "name": "currency-code", "basedOn": "string",
+  "domain": { "kind": "codelist", "source": "ISO-4217", "values": ["USD", "EUR"] } },
+
+{ "name": "country-ref", "basedOn": "string",
+  "domain": { "kind": "reference", "source": "ISO-3166" } }
+```
+
+| kind | meaning | `values` | `source` |
+|---|---|---|---|
+| `enum` | inline closed set, ad-hoc to the type | **required** | forbidden |
+| `codelist` | **static** managed reference set | optional (the static codes) | **required** |
+| `reference` | **referential** — values drawn from a named data source | forbidden | **required** |
+
+- Domains are **orthogonal to `validation`**; only the most-derived type's domain
+  applies (resolved along the `basedOn` chain).
+- JSON Schema export emits `enum`/`codelist` values as a standard `enum`, and keeps
+  the kind/source as `x-domain` / `x-source` annotations.
+- In the app: the `/types` editor has a **Value domain** section; the flat
+  attributes view (`/entities/flat`) shows the kind in the **Type** column and a
+  clickable **Source** column that deep-links to the type definition
+  (`/types?name=<source>`).
+
 ---
 
 ## 3. Entities

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, type ReactNode } from 'react';
-import { entityApi, servicesApi } from '../services/api';
-import { Attribute, Package, Entity } from '../types';
+import { Link } from 'react-router-dom';
+import { entityApi, servicesApi, configApi, type DerivedType, type ValueDomainKind } from '../services/api';
+import { Attribute, Package, Entity, AttributeType } from '../types';
 import {
   useStereotypeMetadata,
   getMetadataValue,
@@ -44,6 +45,13 @@ interface FlatAttribute {
 
 const rowKeyOf = (f: FlatAttribute) => `${f.attribute.uuid}@${f.entityUuid}`;
 
+/** Chip for a value-domain kind, colour-coded to match the /types page. */
+const DomainKindChip = ({ kind }: { kind: ValueDomainKind }) => (
+  <Chip tone={kind === 'enum' ? 'accent' : kind === 'codelist' ? 'warning' : 'success'} soft>
+    {kind}
+  </Chip>
+);
+
 const ATTR_COL_KEY = 'attribute-flat-columns-v2';
 
 const AttributeFlatTable = () => {
@@ -63,6 +71,37 @@ const AttributeFlatTable = () => {
   const [editing, setEditing] = useState<FlatAttribute | null>(null);
   const [selection, setSelection] = useState<Set<string | number>>(() => new Set());
   const [bulkSaving, setBulkSaving] = useState(false);
+  const [derivedTypes, setDerivedTypes] = useState<DerivedType[]>([]);
+
+  useEffect(() => {
+    configApi.getDerivedTypes().then(setDerivedTypes).catch(() => { /* project may not be open */ });
+  }, []);
+
+  // Resolve an attribute's `type` to its value domain (#TBD), walking the
+  // derivation chain to the nearest type that declares one. `source` is the
+  // domain's own source, or — for an inline enum — the type name itself, so the
+  // Source column always links to a real type definition on /types.
+  const resolveDomainInfo = useMemo(() => {
+    const byName = new Map(derivedTypes.map((t) => [t.name, t] as const));
+    const STD = new Set<string>(Object.values(AttributeType));
+    const cache = new Map<string, { kind: ValueDomainKind; source: string } | null>();
+    return (typeName: string): { kind: ValueDomainKind; source: string } | null => {
+      if (cache.has(typeName)) return cache.get(typeName)!;
+      let result: { kind: ValueDomainKind; source: string } | null = null;
+      const visited = new Set<string>();
+      let cursor = typeName;
+      while (!STD.has(cursor)) {
+        if (visited.has(cursor)) break;
+        visited.add(cursor);
+        const dt = byName.get(cursor);
+        if (!dt) break;
+        if (dt.domain) { result = { kind: dt.domain.kind, source: dt.domain.source ?? dt.name }; break; }
+        cursor = dt.basedOn;
+      }
+      cache.set(typeName, result);
+      return result;
+    };
+  }, [derivedTypes]);
 
   useEffect(() => {
     localStorage.setItem(ATTR_COL_KEY, JSON.stringify([...metaVisible]));
@@ -252,8 +291,41 @@ const AttributeFlatTable = () => {
         group: 'standard',
         sortable: true,
         width: 120,
-        accessor: (f) => f.attribute.type,
-        render: (f) => <TypeChip type={f.attribute.type} />,
+        // For a domain-bearing type, the Type column shows the domain kind
+        // (enum / codelist / reference) rather than the derived-type name.
+        accessor: (f) => resolveDomainInfo(f.attribute.type)?.kind ?? f.attribute.type,
+        render: (f) => {
+          const d = resolveDomainInfo(f.attribute.type);
+          return d ? <DomainKindChip kind={d.kind} /> : <TypeChip type={f.attribute.type} />;
+        },
+      },
+      {
+        key: 'source',
+        header: 'Source',
+        group: 'standard',
+        sortable: true,
+        filterable: true,
+        width: 150,
+        accessor: (f) => resolveDomainInfo(f.attribute.type)?.source ?? '',
+        render: (f) => {
+          const d = resolveDomainInfo(f.attribute.type);
+          if (!d) return <span style={{ color: 'var(--text-subtle)' }}>—</span>;
+          // Link only when the source names a type defined in `types[]`; an
+          // external standard name (e.g. "ISO-4217") shows as plain text.
+          const isKnownType = derivedTypes.some((t) => t.name === d.source);
+          if (!isKnownType) return <span className="mono" style={{ color: 'var(--text-muted)' }}>{d.source}</span>;
+          return (
+            <Link
+              to={`/types?name=${encodeURIComponent(d.source)}`}
+              className="mono"
+              style={{ color: 'var(--accent)' }}
+              title="Open type definition"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {d.source}
+            </Link>
+          );
+        },
       },
       {
         key: 'required',
@@ -313,7 +385,7 @@ const AttributeFlatTable = () => {
     }));
 
     return [...std, ...meta];
-  }, [activeMetaCols]);
+  }, [activeMetaCols, resolveDomainInfo, derivedTypes]);
 
   const chooserCols = useMemo(() => columns as unknown as ColumnDef<unknown>[], [columns]);
   const allVisibleKeys = useMemo(() => {

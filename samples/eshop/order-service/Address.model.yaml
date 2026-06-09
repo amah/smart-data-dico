@@ -35,7 +35,7 @@ entities:
         uuid: 92300ed5-2c4e-4ae7-927f-0ee8f7335db1
       - name: country
         description: Country
-        type: string
+        type: country-ref
         required: true
         uuid: 9221205d-2a6c-4e79-b098-ddd1305c6427
       - name: phoneNumber

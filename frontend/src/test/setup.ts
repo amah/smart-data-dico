@@ -33,6 +33,13 @@ export const server = setupServer(
     return HttpResponse.json({ data: [] });
   }),
 
+  // Default derived-types handler — surfaces that resolve value domains
+  // (flat attributes view, attribute editor) fetch `/api/config/types`.
+  // Empty list keeps render paths happy; tests override via server.use(...).
+  http.get('/api/config/types', () => {
+    return HttpResponse.json({ data: [] });
+  }),
+
   // Dictionary endpoints
   http.get('/api/dictionaries', () => {
     return HttpResponse.json(mockDictionaries);

@@ -447,6 +447,16 @@ export const packageApi = {
 
 // Project-level config (#107) — currently just the derived-types array
 // under `dico.config.json.types[]`.
+/** Value-domain kinds (#TBD): enum (inline), codelist (static, sourced), reference (sourced). */
+export type ValueDomainKind = 'enum' | 'codelist' | 'reference';
+export interface ValueDomain {
+  kind: ValueDomainKind;
+  /** enum & codelist: the allowed/static values. */
+  values?: string[];
+  /** codelist & reference: the source name identifying where values come from. */
+  source?: string;
+}
+
 export interface DerivedType {
   name: string;
   basedOn: string;
@@ -462,6 +472,7 @@ export interface DerivedType {
     scale?: number;
     enumValues?: string[];
   };
+  domain?: ValueDomain;
 }
 
 export const configApi = {

@@ -1,6 +1,6 @@
 import { Entity, AttributeType, Attribute, Relationship, AttributeValidation, MetadataEntry, MetadataDefinition } from '../models/EntitySchema.js';
 import { listMicroserviceEntities, readEntityFile, readRelationshipsFile, getPackagePath } from '../utils/fileOperations.js';
-import { listDerivedTypes, resolveAttributeType, DerivedType } from './dicoConfigService.js';
+import { listDerivedTypes, resolveAttributeType, resolveDomain, DerivedType } from './dicoConfigService.js';
 import { logger } from '../utils/logger.js';
 import { metadataTypeRegistry } from './metadata/index.js';
 import type { JsonSchemaFragment } from './metadata/MetadataTypeRegistry.js';
@@ -82,7 +82,21 @@ class ExportService {
       description: dt.description || undefined,
     };
     this.applyValidationToSchema(schema, resolved.validation);
+    this.applyDomainToSchema(schema, resolveDomain(dt.name, all));
     return schema;
+  }
+
+  /**
+   * Project a {@link ValueDomain} into JSON Schema. enum/codelist values become
+   * a standard `enum`; the kind and (for codelist/reference) the source are kept
+   * as `x-domain` / `x-source` extension keywords so consumers can distinguish
+   * a static code list from a live referential source.
+   */
+  private applyDomainToSchema(schema: any, domain: ReturnType<typeof resolveDomain>): void {
+    if (!domain) return;
+    schema['x-domain'] = domain.kind;
+    if (domain.source) schema['x-source'] = domain.source;
+    if (Array.isArray(domain.values) && domain.values.length > 0) schema.enum = domain.values;
   }
 
   private attributeToJsonSchema(attr: Attribute, derivedTypes: DerivedType[] = []): any {

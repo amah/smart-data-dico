@@ -15,6 +15,25 @@ import { logger } from '../utils/logger.js';
 import { storageRegistry } from '../storage/contract/StorageBackendToken.js';
 import { wsId, pathOf } from '../storage/contract/types.js';
 
+/**
+ * The kind of value domain a derived type carries (#TBD). Distinguishes how an
+ * attribute's allowed values are constrained:
+ *  - `enum`      — a closed, inline set of literal values. Self-contained, no source.
+ *  - `codelist`  — a *static* managed reference set identified by `source` (e.g.
+ *                  "ISO-4217"); the codes themselves may also be carried in `values`.
+ *  - `reference` — *referential* values drawn from a named external/internal data
+ *                  `source` (another type, an entity, a dataset). Values are not inline.
+ */
+export type ValueDomainKind = 'enum' | 'codelist' | 'reference';
+
+export interface ValueDomain {
+  kind: ValueDomainKind;
+  /** enum & codelist: the allowed/static values. */
+  values?: string[];
+  /** codelist & reference: the source name that identifies where values come from. */
+  source?: string;
+}
+
 /** One derived type entry persisted under `dico.config.json.types[]`. */
 export interface DerivedType {
   /** Identifier used as `attribute.type` on attributes (e.g. "email"). */
@@ -28,7 +47,14 @@ export interface DerivedType {
   description?: string;
   /** Validation fields inherited by every attribute declaring this type. */
   validation?: AttributeValidation;
+  /**
+   * Optional value domain (#TBD) — distinguishes enum / codelist / reference.
+   * Orthogonal to `validation`; only the most-derived type's domain applies.
+   */
+  domain?: ValueDomain;
 }
+
+const DOMAIN_KINDS = new Set<ValueDomainKind>(['enum', 'codelist', 'reference']);
 
 export interface DicoConfig {
   version: number;
@@ -107,6 +133,7 @@ export function validateDerivedTypes(types: DerivedType[]): string[] {
     if (!t.basedOn || typeof t.basedOn !== 'string') {
       errors.push(`Derived type '${t.name}' must declare a \`basedOn\``);
     }
+    if (t.domain) errors.push(...validateDomain(t.name, t.domain));
   }
 
   // Resolve each chain; detect unknown references and cycles
@@ -130,6 +157,54 @@ export function validateDerivedTypes(types: DerivedType[]): string[] {
   }
 
   return errors;
+}
+
+/**
+ * Per-kind validation of a {@link ValueDomain}:
+ *  - enum      → non-empty `values`; no `source`.
+ *  - codelist  → `source` required; `values` optional (the static codes).
+ *  - reference → `source` required; no inline `values` (they come from the source).
+ */
+export function validateDomain(typeName: string, domain: ValueDomain): string[] {
+  const errors: string[] = [];
+  if (!DOMAIN_KINDS.has(domain.kind)) {
+    errors.push(`Derived type '${typeName}' has invalid domain kind '${domain.kind}'`);
+    return errors;
+  }
+  const hasValues = Array.isArray(domain.values) && domain.values.length > 0;
+  const hasSource = typeof domain.source === 'string' && domain.source.trim().length > 0;
+
+  if (domain.kind === 'enum') {
+    if (!hasValues) errors.push(`Enum domain '${typeName}' must list at least one value`);
+    if (hasSource) errors.push(`Enum domain '${typeName}' must not declare a \`source\``);
+  } else if (domain.kind === 'codelist') {
+    if (!hasSource) errors.push(`Codelist domain '${typeName}' must declare a \`source\` name`);
+  } else if (domain.kind === 'reference') {
+    if (!hasSource) errors.push(`Reference domain '${typeName}' must declare a \`source\` name`);
+    if (hasValues) errors.push(`Reference domain '${typeName}' must not carry inline \`values\` (they come from the source)`);
+  }
+  return errors;
+}
+
+/**
+ * Resolve the effective {@link ValueDomain} for an attribute's `type` — the
+ * domain of the most-derived type in the chain that declares one. Returns
+ * `null` for standard types, unknown types, or a chain with no domain.
+ */
+export function resolveDomain(typeName: string, derivedTypes: DerivedType[]): ValueDomain | null {
+  if (STANDARD_TYPES.has(typeName)) return null;
+  const byName = new Map(derivedTypes.map(t => [t.name, t] as const));
+  const visited = new Set<string>();
+  let cursor: string = typeName;
+  while (!STANDARD_TYPES.has(cursor)) {
+    if (visited.has(cursor)) return null; // cycle
+    visited.add(cursor);
+    const dt = byName.get(cursor);
+    if (!dt) return null;
+    if (dt.domain) return dt.domain;
+    cursor = dt.basedOn;
+  }
+  return null;
 }
 
 /**
