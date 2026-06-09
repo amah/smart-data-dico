@@ -21,7 +21,7 @@ describe('validateNavigatePath — happy paths', () => {
     ['/cases'],
     ['/cases/abc-123'],
     ['/cases/abc-123/edit'],
-    ['/visualization/order-service/Order'],
+    ['/diagram/order-service/Order'],
     ['/diff/logical'],
     ['/version/save'],
     ['/design-system'],

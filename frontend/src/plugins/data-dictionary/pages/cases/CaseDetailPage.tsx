@@ -129,8 +129,8 @@ export default function CaseDetailPage() {
           {activeTab === 'graph' && (
             <div className="text-center py-12 text-base-content/50">
               <p>Graph visualization for this case.</p>
-              <Link to={`/visualization?case=${id}`} className="btn btn-sm btn-primary mt-2">
-                Open in Visualization
+              <Link to={`/diagram?case=${id}`} className="btn btn-sm btn-primary mt-2">
+                Open in Diagram
               </Link>
             </div>
           )}
