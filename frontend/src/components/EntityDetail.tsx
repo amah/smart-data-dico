@@ -434,7 +434,7 @@ const EntityDetail = (props: EntityDetailProps) => {
                 </>
               )}
               <Button size="sm" variant="ghost" icon="copy" onClick={handleCloneEntity}>Clone</Button>
-              <Link to={`/visualization/${service}/${entity}`} style={{ display: 'inline-flex' }}>
+              <Link to={`/diagram/${service}/${entity}`} style={{ display: 'inline-flex' }}>
                 <Button size="sm" variant="ghost" icon="chart">Visualize</Button>
               </Link>
               <Link to={`/packages/${service}/entities/${entity}/edit`} style={{ display: 'inline-flex' }}>

@@ -43,7 +43,6 @@ import CommandsDebugPage from './pages/CommandsDebugPage';
 
 // Package Navigation
 import PackageRouter from './components/PackageRouter';
-import OrganizationDiagramPage from './pages/OrganizationDiagramPage';
 
 // Auth Guard Component
 import AuthGuard from './components/AuthGuard';
@@ -99,13 +98,10 @@ function App() {
         <Route path="perspectives" element={<Navigate to="/cases" replace />} />
         <Route path="perspectives/*" element={<LegacyPerspectiveRedirect />} />
 
-        {/* Organization Diagram */}
-        <Route path="diagram" element={<OrganizationDiagramPage />} />
-
-        {/* Visualization — per-entity, per-service, or case overlay */}
-        <Route path="visualization" element={<VisualizationPage />} />
-        <Route path="visualization/:service" element={<VisualizationPage />} />
-        <Route path="visualization/:service/:entity" element={<VisualizationPage />} />
+        {/* Diagram — org-wide, per-service, per-entity, or case overlay */}
+        <Route path="diagram" element={<VisualizationPage />} />
+        <Route path="diagram/:service" element={<VisualizationPage />} />
+        <Route path="diagram/:service/:entity" element={<VisualizationPage />} />
 
         {/* Import/Export + Quality */}
         <Route path="import-export" element={<ImportExportPage />} />
