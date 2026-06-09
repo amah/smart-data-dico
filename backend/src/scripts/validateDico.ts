@@ -676,6 +676,29 @@ function checkFlowSteps(
 
 // ── Reporting ────────────────────────────────────────────────────────────────
 
+function countByCode(findings: Finding[]): Array<[string, number]> {
+  const counts = new Map<string, number>();
+  for (const finding of findings) {
+    counts.set(finding.code, (counts.get(finding.code) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort(([codeA, countA], [codeB, countB]) => {
+    if (countA !== countB) return countB - countA;
+    return codeA.localeCompare(codeB);
+  });
+}
+
+function printCategoryStats(title: string, findings: Finding[]): void {
+  console.error(`${title}:`);
+  const counts = countByCode(findings);
+  if (counts.length === 0) {
+    console.error('  none');
+    return;
+  }
+  for (const [code, count] of counts) {
+    console.error(`  ${code}: ${count}`);
+  }
+}
+
 function printReport(report: Report, root: string): void {
   const errors = report.findings.filter(f => f.severity === 'error');
   const warnings = report.findings.filter(f => f.severity === 'warning');
@@ -698,10 +721,13 @@ function printReport(report: Report, root: string): void {
     console.error('');
   }
   if (errors.length === 0 && warnings.length === 0) {
-    console.error('OK — no problems found.\n');
-  } else {
-    console.error(`Summary: ${errors.length} error(s), ${warnings.length} warning(s).\n`);
+    console.error('OK — no problems found.');
   }
+  const status = errors.length > 0 ? 'FAILED' : 'PASSED';
+  console.error(`Summary: ${status} — ${errors.length} error(s), ${warnings.length} warning(s).`);
+  printCategoryStats('Error categories', errors);
+  printCategoryStats('Warning categories', warnings);
+  console.error('');
 }
 
 const USAGE = `Validate a Smart Data Dictionary project folder.
@@ -814,5 +840,5 @@ if (invokedDirectly) {
   });
 }
 
-export { Report };
+export { Report, printReport };
 export type { Finding };

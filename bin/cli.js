@@ -9,6 +9,12 @@ import { spawn, spawnSync } from 'child_process';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PKG_ROOT = join(__dirname, '..');
+let packageVersion = '';
+try {
+  packageVersion = JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf-8')).version || '';
+} catch {
+  packageVersion = '';
+}
 
 // Parse CLI arguments
 const args = process.argv.slice(2);
@@ -169,6 +175,7 @@ function startServer(dir) {
       NODE_ENV: 'production',
       PROFILE: process.env.PROFILE || 'local',
       DATA_DIR: dir,
+      SDD_VERSION: packageVersion,
       SDD_FRONTEND_DIST: frontendDist,
       SDD_MANAGED: '1',
     },
