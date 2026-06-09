@@ -34,7 +34,7 @@ export default function CytoscapeGraph({
   const entity = params.entity;
 
   // State
-  const [layoutName, setLayoutName] = useState<LayoutName>('dagre');
+  const [layoutName, setLayoutName] = useState<LayoutName>('fcose');
   const [layoutDirection, setLayoutDirection] = useState<LayoutDirection>('TB');
   const [layoutRan, setLayoutRan] = useState(false);
   // Structural view: overlay the ORM class model (toggled from the legend).
