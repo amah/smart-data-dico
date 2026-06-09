@@ -569,7 +569,7 @@ const AttributeList = ({
         header: 'Description',
         group: 'standard',
         filterable: true,
-        width: 'minmax(240px, 2fr)',
+        width: 'minmax(320px, 3.2fr)',
         accessor: (a) => a.description || '',
         render: (a) => a.description
           ? <span style={{ color: 'var(--text-muted)' }}>{a.description}</span>
