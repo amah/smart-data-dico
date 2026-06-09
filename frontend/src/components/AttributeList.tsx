@@ -113,10 +113,11 @@ const DomainSource = ({ info, known }: { info: DomainInfo; known: boolean }) => 
 
   if (info.kind === 'reference') {
     const src = info.source;
+    const detail = `Reference → ${src || '(no source)'}`;
     if (isUrl(src)) {
       return (
         <a href={src} target="_blank" rel="noopener noreferrer" className="mono"
-          style={{ color: 'var(--accent)' }} title={src} onClick={(e) => e.stopPropagation()}>
+          style={{ color: 'var(--accent)' }} title={detail} onClick={(e) => e.stopPropagation()}>
           {src}
         </a>
       );
@@ -124,12 +125,12 @@ const DomainSource = ({ info, known }: { info: DomainInfo; known: boolean }) => 
     if (known && src) {
       return (
         <Link to={`/types?name=${encodeURIComponent(src)}`} className="mono"
-          style={{ color: 'var(--accent)' }} title="Open type definition" onClick={(e) => e.stopPropagation()}>
+          style={{ color: 'var(--accent)' }} title={`${detail} — open definition`} onClick={(e) => e.stopPropagation()}>
           {src}
         </Link>
       );
     }
-    return <span className="mono" style={{ color: 'var(--text-muted)' }}>{src || '—'}</span>;
+    return <span className="mono" style={{ color: 'var(--text-muted)' }} title={detail}>{src || '—'}</span>;
   }
 
   // enum / codelist — always navigable to the type details; hover lists values.
@@ -530,10 +531,11 @@ const AttributeList = ({
         header: 'Values',
         group: 'standard',
         filterable: true,
-        width: 'minmax(160px, 1.4fr)',
-        // For a domain-bearing type the cell shows the value *source* (the named
-        // type / code-list / data source); otherwise it falls back to the
-        // attribute's inline enum values.
+        width: 'minmax(90px, 0.7fr)',
+        // A single compact element per row: a link to the domain's definition
+        // (enum / codelist / reference) — the actual values and reference detail
+        // live in the tooltip. Domainless inline enums show their values as a
+        // truncated label with the full list on hover.
         accessor: (a) => {
           const d = resolveDomainInfo(a.type);
           if (d) return d.kind === 'reference' ? (d.source || '') : d.typeName;
@@ -547,20 +549,17 @@ const AttributeList = ({
           if (vals.length === 0) {
             return <span style={{ color: 'var(--text-subtle)' }}>—</span>;
           }
+          const joined = vals.join(', ');
           return (
-            <span style={{ display: 'inline-flex', flexWrap: 'nowrap', gap: 3, overflow: 'hidden' }}>
-              {vals.slice(0, 3).map((v) => (
-                <Chip key={v} tone="neutral" mono>{v}</Chip>
-              ))}
-              {vals.length > 3 && (
-                <span
-                  className="mono"
-                  style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)', alignSelf: 'center' }}
-                  title={vals.join(', ')}
-                >
-                  +{vals.length - 3}
-                </span>
-              )}
+            <span
+              className="mono"
+              title={joined}
+              style={{
+                display: 'block', overflow: 'hidden', textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap', color: 'var(--text-muted)', fontSize: 'var(--fs-xs)',
+              }}
+            >
+              {joined}
             </span>
           );
         },
