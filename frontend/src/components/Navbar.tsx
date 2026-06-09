@@ -18,7 +18,8 @@ const Navbar = ({ toggleSidebar, toggleChat, chatOpen }: NavbarProps) => {
   const [isAuthenticated, setIsAuthenticated] = useState(authApi.isAuthenticated());
   const navigate = useNavigate();
   const { theme, toggleTheme, density, setDensity, variant, setVariant } = usePrefs();
-  const { mode } = useAppMode();
+  const appStatus = useAppMode();
+  const { mode } = appStatus;
 
   // Project state (#95)
   const [projectName, setProjectName] = useState('');
@@ -28,6 +29,7 @@ const Navbar = ({ toggleSidebar, toggleChat, chatOpen }: NavbarProps) => {
   const [showPathInput, setShowPathInput] = useState<'open' | 'init' | null>(null);
   const [pathInput, setPathInput] = useState('');
   const [projectError, setProjectError] = useState('');
+  const [showAbout, setShowAbout] = useState(false);
   // When set, a project switch is in progress — show a blocking overlay until
   // the (possibly restarting) backend is back and the page reloads.
   const [switching, setSwitching] = useState<string | null>(null);
@@ -320,6 +322,15 @@ const Navbar = ({ toggleSidebar, toggleChat, chatOpen }: NavbarProps) => {
         />
       )}
 
+      {showAbout && (
+        <AboutModal
+          appStatus={appStatus}
+          projectName={projectName}
+          projectPath={projectPath}
+          onClose={() => setShowAbout(false)}
+        />
+      )}
+
       {/* Center — ⌘K launcher */}
       <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
         <button
@@ -456,6 +467,9 @@ const Navbar = ({ toggleSidebar, toggleChat, chatOpen }: NavbarProps) => {
               <Link to="/version/history">Version History</Link>
             </li>
             <li><Link to="/version/commit">Manual Commit</Link></li>
+            <li className="border-t border-base-300 mt-1 pt-1">
+              <button onClick={() => setShowAbout(true)}>About</button>
+            </li>
           </ul>
         </div>
 
@@ -482,13 +496,15 @@ const Navbar = ({ toggleSidebar, toggleChat, chatOpen }: NavbarProps) => {
             >
               {isAuthenticated ? (
                 <>
-                  <li><Link to="/profile">Profile</Link></li>
+                  <li><button onClick={() => setShowAbout(true)}>About</button></li>
+                  <li className="border-t border-base-300 mt-1 pt-1"><Link to="/profile">Profile</Link></li>
                   <li><Link to="/settings">Settings</Link></li>
                   <li><button onClick={handleLogout}>Logout</button></li>
                 </>
               ) : (
                 <>
-                  <li><Link to="/login">Login</Link></li>
+                  <li><button onClick={() => setShowAbout(true)}>About</button></li>
+                  <li className="border-t border-base-300 mt-1 pt-1"><Link to="/login">Login</Link></li>
                   <li><Link to="/register">Register</Link></li>
                 </>
               )}
@@ -499,6 +515,68 @@ const Navbar = ({ toggleSidebar, toggleChat, chatOpen }: NavbarProps) => {
     </div>
   );
 };
+
+function AboutModal({
+  appStatus,
+  projectName,
+  projectPath,
+  onClose,
+}: {
+  appStatus: ReturnType<typeof useAppMode>;
+  projectName: string;
+  projectPath: string;
+  onClose: () => void;
+}) {
+  const version = appStatus.version || 'unknown';
+  const runtimeRows = [
+    ['Version', version],
+    ['Mode', appStatus.mode],
+    ['Profile', appStatus.profile],
+    ['Authentication', appStatus.auth === 'jwt' ? 'JWT' : 'None'],
+    ['Project', projectName || 'No project loaded'],
+    ['Project path', projectPath || 'Not available'],
+  ];
+
+  return (
+    <dialog className="modal modal-open" style={{ zIndex: 9999 }}>
+      <div className="modal-box max-w-lg">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="font-bold text-lg">About Smart Data Dictionary</h3>
+            <p className="text-sm text-base-content/70 mt-1">
+              Collaborative data dictionary management for YAML-backed projects.
+            </p>
+          </div>
+          <button className="btn btn-sm btn-ghost btn-circle" aria-label="Close About dialog" onClick={onClose}>
+            <Icon name="close" size={14} />
+          </button>
+        </div>
+
+        <div className="mt-4 rounded-lg border border-base-300 overflow-hidden">
+          <dl className="divide-y divide-base-300">
+            {runtimeRows.map(([label, value]) => (
+              <div key={label} className="grid grid-cols-[130px_1fr] gap-3 px-3 py-2 text-sm">
+                <dt className="text-base-content/60">{label}</dt>
+                <dd className={label === 'Project path' ? 'font-mono text-xs break-all' : 'font-medium'}>
+                  {value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+
+        <div className="mt-4 text-xs text-base-content/60">
+          Backend status comes from <span className="font-mono">/api/status</span>. Project data is stored on disk and selected by the active data directory.
+        </div>
+
+        <div className="modal-action">
+          <button className="btn btn-primary" onClick={onClose}>Close</button>
+        </div>
+      </div>
+      <form method="dialog" className="modal-backdrop"><button onClick={onClose}>close</button></form>
+    </dialog>
+  );
+}
 
 // Lightweight menu-item row used inside the project picker dropdown.
 // Kept local to avoid prematurely committing to a shared <MenuItem/> shape.

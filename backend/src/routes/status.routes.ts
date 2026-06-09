@@ -7,7 +7,7 @@ router.get('/api/status', (req, res) => {
     status: 'operational',
     mode: profile === 'local' ? 'desktop' : 'server',
     profile,
-    version: process.env.npm_package_version || '1.1.1',
+    version: process.env.SDD_VERSION || process.env.npm_package_version || 'dev',
     auth: profile === 'local' ? 'none' : 'jwt',
   });
 });

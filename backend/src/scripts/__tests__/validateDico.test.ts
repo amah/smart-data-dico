@@ -13,7 +13,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { storageRegistry } from '../../storage/contract/StorageBackendToken.js';
-import { validateProject, Report } from '../validateDico.js';
+import { validateProject, Report, printReport } from '../validateDico.js';
 
 const SAMPLE_DIR = path.resolve(__dirname, '../../../../samples/eshop');
 
@@ -334,5 +334,29 @@ describe('validateDico', () => {
       fs.rmSync(dir, { recursive: true, force: true });
       storageRegistry.reset();
     }
+  });
+
+  it('prints summary stats grouped by finding category', () => {
+    const report = new Report();
+    report.error('relationship.endpoint', 'missing endpoint');
+    report.error('relationship.endpoint', 'another missing endpoint');
+    report.error('config.derivedType', 'circular type');
+    report.warn('package.missingMarker', 'missing package marker');
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    let output = '';
+    try {
+      printReport(report, '/tmp/project');
+      output = errorSpy.mock.calls.map(call => call.join(' ')).join('\n');
+    } finally {
+      errorSpy.mockRestore();
+    }
+
+    expect(output).toContain('Summary: FAILED — 3 error(s), 1 warning(s).');
+    expect(output).toContain('Error categories:');
+    expect(output).toContain('  relationship.endpoint: 2');
+    expect(output).toContain('  config.derivedType: 1');
+    expect(output).toContain('Warning categories:');
+    expect(output).toContain('  package.missingMarker: 1');
   });
 });
