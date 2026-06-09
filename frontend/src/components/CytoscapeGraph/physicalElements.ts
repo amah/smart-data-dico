@@ -3,8 +3,10 @@
  *
  * Renders a compact DB schema model derived from `physical.*` + `constraints[]`:
  *   - Node = table. Label = `physical.tableName` (fallback entity name), with
- *     `physical.schema` as a namespace subtitle. Compact — column / dbType /
- *     PK-FK-unique detail surfaces in the info panel (#188).
+ *     `physical.schema` as a namespace subtitle — except when the schema merely
+ *     restates the owning package, in which case the subtitle is dropped as
+ *     redundant. Compact — column / dbType / PK-FK-unique detail surfaces in the
+ *     info panel (#188).
  *   - FK edges = `foreignKey` constraints, labelled with the join column(s).
  *   - Many-to-many = `orm.joinTable` rendered as a join-table node bridging the
  *     two sides with FK edges.
@@ -35,9 +37,23 @@ export function physicalSchema(node: GraphNode): string {
   return readMetaString(node.data?.metadata, 'physical.schema') || '';
 }
 
-/** Compact multi-line node label: table name · schema namespace. */
-function physicalNodeLabel(tableName: string, schema: string): string {
-  return schema ? `${tableName}\n${schema}` : tableName;
+/**
+ * True when the schema name is redundant with the owning package — the table
+ * already lives inside that package's bounding box, so repeating the name as a
+ * subtitle adds no information. Compared trimmed + case-insensitively.
+ */
+export function schemaMatchesPackage(schema: string, ownerPackage: string): boolean {
+  return schema.trim().toLowerCase() === (ownerPackage ?? '').trim().toLowerCase();
+}
+
+/**
+ * Compact multi-line node label: table name · schema namespace. The schema
+ * subtitle is omitted when it merely restates the owning package, so only a
+ * schema that names a *distinct* namespace is shown.
+ */
+function physicalNodeLabel(tableName: string, schema: string, ownerPackage: string): string {
+  const showSchema = schema && !schemaMatchesPackage(schema, ownerPackage);
+  return showSchema ? `${tableName}\n${schema}` : tableName;
 }
 
 /**
@@ -181,7 +197,7 @@ export function buildPhysicalElements(
         id: node.id,
         // `label` stays the entity name so node-click navigation still resolves.
         label: node.label,
-        displayLabel: physicalNodeLabel(tableName, schema),
+        displayLabel: physicalNodeLabel(tableName, schema, node.service),
         service: node.service,
         type: 'entity',
         viewMode: 'physical',

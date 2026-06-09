@@ -59,6 +59,19 @@ describe('physical table nodes', () => {
     expect(physicalTableName(node('x', 'Widget'))).toBe('Widget');
   });
 
+  it('omits the schema subtitle when it merely restates the owning package', () => {
+    // schema === service ('svc'): redundant with the package box, so drop it.
+    const sameAsPkg: GraphNode = {
+      ...node('p-uuid', 'Product', [
+        { name: 'physical.tableName', value: 'products' },
+        { name: 'physical.schema', value: 'SVC' }, // case-insensitive match
+      ]),
+    };
+    const n = buildPhysicalElements([sameAsPkg], []).find((e) => e.data.id === 'p-uuid')!;
+    expect(n.data.schema).toBe('SVC'); // still carried for the info panel
+    expect(n.data.displayLabel).toBe('products'); // no schema subtitle
+  });
+
   it('keeps nodes compact — constraints carried as data, not inline', () => {
     const n = buildPhysicalElements([ORDER, USER], []).find((e) => e.data.id === 'order-uuid')!;
     expect(n.data.constraints).toHaveLength(2);
