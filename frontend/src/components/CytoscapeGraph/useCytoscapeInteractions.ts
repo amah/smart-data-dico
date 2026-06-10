@@ -22,13 +22,19 @@ export function focusSubtitle(pkCount: number, attrCount: number): string {
   return `${pk}${attrCount} attr${attrCount === 1 ? '' : 's'}`;
 }
 
-export function useCytoscapeInteractions(cy: Core | null): InteractionState {
+export function useCytoscapeInteractions(
+  cy: Core | null,
+  onOpenPackage?: (packageName: string) => void,
+): InteractionState {
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
   const [infoPanel, setInfoPanel] = useState<InfoPanelData | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   // Mirror the focus id in a ref so event handlers / callbacks read the latest
   // value without re-binding.
   const focusedIdRef = useRef<string | null>(null);
+  // Latest open-package callback, read from handlers without re-binding.
+  const onOpenPackageRef = useRef(onOpenPackage);
+  onOpenPackageRef.current = onOpenPackage;
 
   const exitFocus = useCallback(() => {
     if (!cy || !focusedIdRef.current) return;
@@ -148,6 +154,13 @@ export function useCytoscapeInteractions(cy: Core | null): InteractionState {
       enterFocus(node.id());
     };
 
+    // Double-tap a package box (compound parent node) → open its diagram. The
+    // parent's label is the package/service name.
+    const onPackageDblTap = (evt: any) => {
+      const label = evt.target.data('label') || evt.target.data('service');
+      if (label) onOpenPackageRef.current?.(label);
+    };
+
     // Background tap clears the info panel and leaves focus mode.
     const onBgTap = (evt: any) => {
       if (evt.target !== cy) return; // ignore taps that hit an element
@@ -160,6 +173,7 @@ export function useCytoscapeInteractions(cy: Core | null): InteractionState {
     cy.on('tap', 'node', onNodeTap);
     cy.on('tap', 'edge', onEdgeTap);
     cy.on('dbltap', 'node[type = "entity"]', onNodeDblTap);
+    cy.on('dbltap', 'node:parent', onPackageDblTap);
     cy.on('tap', onBgTap);
 
     return () => {
@@ -168,6 +182,7 @@ export function useCytoscapeInteractions(cy: Core | null): InteractionState {
       cy.off('tap', 'node', onNodeTap);
       cy.off('tap', 'edge', onEdgeTap);
       cy.off('dbltap', 'node[type = "entity"]', onNodeDblTap);
+      cy.off('dbltap', 'node:parent', onPackageDblTap);
       cy.off('tap', onBgTap);
     };
   }, [cy, enterFocus, exitFocus]);
