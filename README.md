@@ -292,6 +292,44 @@ cd frontend && npm run dev   # port 3000
 
 In dev, the backend serves the bundled sample project at `samples/eshop/` (three packages: `order-service`, `product-service`, `user-service`). Override with `DATA_DIR=/path/to/your/project npm run dev` to point at your own data.
 
+### Option C — Restricted networks (no npm registry for this package, or no git)
+
+When the npm registry copy of the package is unavailable, install it from git or
+from a prebuilt release tarball. These do **not** require the package to be on a
+registry; the lower options additionally avoid needing the `git` binary.
+
+**C1 — Prebuilt tarball over `curl` (no git, no build, fully offline-capable).**
+Each release attaches a **self-contained** tarball (esbuild-bundled backend, no
+runtime `node_modules`; Node ≥ 18). Download and install it directly:
+
+```bash
+curl -fL -o smart-data-dico.tgz \
+  https://github.com/amah/smart-data-dico/releases/download/v1.11.0/hamak-smart-data-dico-1.11.0.tgz
+npm install -g ./smart-data-dico.tgz
+smart-data-dico --data-dir /path/to/your/project
+```
+
+For a fully air-gapped machine, download the `.tgz` on a connected host, copy it
+across, and run the `npm install -g ./…tgz` step there — it needs no network.
+
+**C2 — Build from git with the helper script.** Clones a pinned ref, installs
+deps (root/frontend/backend), builds both bundles, packs a tarball, and installs
+the CLI globally:
+
+```bash
+scripts/install-from-git.sh                 # build v1.11.0, install globally
+scripts/install-from-git.sh --pack-only     # just produce the tarball (prints its path)
+```
+
+Add `--archive` (auto-enabled when `git` is absent) to fetch the source via
+`curl`/`wget` instead of cloning. Useful env/flags: `SDD_REF` (tag/branch/commit),
+`SDD_REPO_URL` (internal mirror or SSH), `-d` (work dir). Run `scripts/install-from-git.sh --help`
+for the full list.
+
+> Note: C2 still pulls build **dependencies** from whichever npm registry / proxy
+> `npm` is configured to use. If even that is blocked, use **C1** — build the
+> tarball once on a connected machine (`--pack-only`) and install the artifact offline.
+
 ### Option C — Docker
 
 ```bash
