@@ -20,6 +20,10 @@
 #   -d, SDD_WORKDIR     working clone dir. Default: $HOME/.smart-data-dico/src
 #       --pack-only     build + pack the tarball, do NOT install globally
 #       --no-global     alias for --pack-only
+#       --archive       fetch a source tarball via curl/wget instead of git
+#                       (no `git` binary required). Auto-enabled when git is
+#                       missing. Needs SDD_REF to be a tag/branch/commit and the
+#                       repo to be GitHub (or set SDD_ARCHIVE_URL directly).
 #
 # Examples:
 #   scripts/install-from-git.sh                       # build v1.11.0 and install globally
@@ -32,6 +36,7 @@ REPO_URL="${SDD_REPO_URL:-https://github.com/amah/smart-data-dico.git}"
 REF="${SDD_REF:-v1.11.0}"
 WORKDIR="${SDD_WORKDIR:-$HOME/.smart-data-dico/src}"
 GLOBAL=1
+ARCHIVE=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -39,25 +44,52 @@ while [ $# -gt 0 ]; do
     -u) REPO_URL="$2"; shift 2 ;;
     -d) WORKDIR="$2"; shift 2 ;;
     --pack-only|--no-global) GLOBAL=0; shift ;;
-    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+    --archive) ARCHIVE=1; shift ;;
+    -h|--help) sed -n '2,34p' "$0"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
 done
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
-# 1. Clone or update the repo, then pin to the requested ref.
-if [ -d "$WORKDIR/.git" ]; then
-  log "Updating existing clone in $WORKDIR"
-  git -C "$WORKDIR" fetch --tags --prune origin
-else
-  log "Cloning $REPO_URL → $WORKDIR"
-  mkdir -p "$(dirname "$WORKDIR")"
-  git clone "$REPO_URL" "$WORKDIR"
+# Fall back to archive mode automatically when git isn't installed.
+if [ "$ARCHIVE" -eq 0 ] && ! command -v git >/dev/null 2>&1; then
+  log "git not found — switching to --archive (curl/wget) mode"
+  ARCHIVE=1
 fi
-log "Checking out $REF"
-git -C "$WORKDIR" checkout --force "$REF"
-git -C "$WORKDIR" submodule update --init --recursive 2>/dev/null || true
+
+# 1. Get the source at the requested ref — via git, or a downloaded tarball.
+if [ "$ARCHIVE" -eq 1 ]; then
+  # Derive a GitHub codeload URL from the repo (owner/repo), unless overridden.
+  if [ -z "${SDD_ARCHIVE_URL:-}" ]; then
+    slug="$(printf '%s' "$REPO_URL" | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')"
+    SDD_ARCHIVE_URL="https://codeload.github.com/${slug}/tar.gz/${REF}"
+  fi
+  log "Downloading source archive: $SDD_ARCHIVE_URL"
+  rm -rf "$WORKDIR"; mkdir -p "$WORKDIR"
+  tmp="$(mktemp)"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL "$SDD_ARCHIVE_URL" -o "$tmp"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -O "$tmp" "$SDD_ARCHIVE_URL"
+  else
+    echo "Need curl or wget for --archive mode." >&2; exit 1
+  fi
+  tar -xzf "$tmp" --strip-components=1 -C "$WORKDIR"
+  rm -f "$tmp"
+else
+  if [ -d "$WORKDIR/.git" ]; then
+    log "Updating existing clone in $WORKDIR"
+    git -C "$WORKDIR" fetch --tags --prune origin
+  else
+    log "Cloning $REPO_URL → $WORKDIR"
+    mkdir -p "$(dirname "$WORKDIR")"
+    git clone "$REPO_URL" "$WORKDIR"
+  fi
+  log "Checking out $REF"
+  git -C "$WORKDIR" checkout --force "$REF"
+  git -C "$WORKDIR" submodule update --init --recursive 2>/dev/null || true
+fi
 
 cd "$WORKDIR"
 
