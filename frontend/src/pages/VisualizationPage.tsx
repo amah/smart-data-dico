@@ -5,30 +5,39 @@
  * these routes.
  *
  * A page-level tab switcher (#181/#182) selects the diagram view mode
- * (structural / physical), persisted in the URL as `?view=`. The title block is
- * collapsible (collapsed by default) since the name is already in the breadcrumb.
+ * (structural / physical). An explicit `?view=` URL param wins (deep links
+ * stay deterministic); otherwise the last choice is sticky via localStorage,
+ * defaulting to structural. The title block is collapsible, sharing the
+ * sticky expanded/collapsed preference with PageHeader descriptions.
  */
-import { useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import CytoscapeGraph from '../components/CytoscapeGraph';
 import Breadcrumbs from '../components/Breadcrumbs';
-import PageHeader from '../components/ui/PageHeader';
+import PageHeader, { useDescriptionExpanded } from '../components/ui/PageHeader';
+import { useStoredState } from '../hooks/useStoredState';
 import {
   VIEW_MODES,
   VIEW_MODE_LABELS,
-  parseViewMode,
+  DEFAULT_VIEW_MODE,
+  type ViewMode,
 } from '../components/CytoscapeGraph/viewMode';
+
+const isViewMode = (raw: string): raw is ViewMode =>
+  (VIEW_MODES as readonly string[]).includes(raw);
 
 export default function VisualizationPage() {
   const { service, entity } = useParams<{ service?: string; entity?: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const caseId = searchParams.get('case') || searchParams.get('perspective') || undefined;
-  const viewMode = parseViewMode(searchParams.get('view'));
+  const [storedView, setStoredView] = useStoredState('sdd-diagram-view', DEFAULT_VIEW_MODE, isViewMode);
+  const urlView = searchParams.get('view');
+  const viewMode: ViewMode = urlView && isViewMode(urlView) ? urlView : storedView;
 
-  const setViewMode = (next: string) => {
+  const setViewMode = (next: ViewMode) => {
+    setStoredView(next);
     const params = new URLSearchParams(searchParams);
-    // `structural` is the default — keep the URL clean by omitting it.
-    if (next === 'structural') params.delete('view');
+    // The default mode is omitted to keep the URL clean.
+    if (next === DEFAULT_VIEW_MODE) params.delete('view');
     else params.set('view', next);
     setSearchParams(params, { replace: true });
   };
@@ -39,9 +48,10 @@ export default function VisualizationPage() {
       ? `All entities in ${service}`
       : 'All entities and relationships across all packages';
 
-  // Description is collapsed by default to give the diagram more room; the
-  // chevron sits right after the breadcrumb's package name.
-  const [descExpanded, setDescExpanded] = useState(false);
+  // Collapsed by default to give the diagram more room; the chevron sits
+  // right after the breadcrumb's package name. Shares the sticky preference
+  // with PageHeader descriptions.
+  const [descExpanded, toggleDescExpanded] = useDescriptionExpanded();
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -55,7 +65,7 @@ export default function VisualizationPage() {
             <Breadcrumbs />
             <button
               type="button"
-              onClick={() => setDescExpanded((v) => !v)}
+              onClick={toggleDescExpanded}
               aria-expanded={descExpanded}
               aria-label={descExpanded ? 'Hide description' : 'Show description'}
               title={descExpanded ? 'Hide description' : 'Show description'}

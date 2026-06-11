@@ -5,6 +5,24 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0] — 2026-06-11
+
+### Added
+- **Sticky view preferences** (localStorage-backed, shared via a new
+  `useStoredState` hook):
+  - Package pages now open in **Diagram view by default**; the last List/Diagram
+    choice follows you across packages. An explicit `?view=` URL param still wins,
+    so deep links stay deterministic.
+  - The `/diagram` page's **Structural/Physical** tab choice is likewise sticky.
+  - The page-header **description expand/collapse** state persists across
+    navigation and reloads — one preference shared by all pages.
+
+### Changed
+- **Diagram canvas fills the available height** of the main area (package
+  Diagram view and `/diagram`) instead of a fixed 600px box.
+- Expanded page-header descriptions render in the stronger muted text tone
+  for better contrast on the light grey background.
+
 ## [1.11.0] — 2026-06-10
 
 ### Added

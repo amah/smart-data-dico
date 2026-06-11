@@ -3,10 +3,13 @@
  *
  * Grammar: breadcrumb (flex 1) → expand-chevron (if description) → meta →
  * tabs → actions (right). Description, when provided, is collapsed by
- * default; clicking the chevron next to the breadcrumb toggles it.
+ * default; clicking the chevron next to the breadcrumb toggles it. The
+ * expanded/collapsed choice is persisted (sticky across navigation and
+ * reload, shared by every page that renders a PageHeader).
  */
 
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useEffect, useSyncExternalStore, type ReactNode } from 'react';
+import { useStoredState } from '../../hooks/useStoredState';
 
 // Module-level subscription so <Layout> can hide its global breadcrumb
 // while a <PageHeader> is mounted (avoiding the duplicate-breadcrumb stack).
@@ -19,6 +22,22 @@ const subscribe = (cb: () => void) => {
 const getSnapshot = () => mountCount;
 export const usePageHeaderMounted = () =>
   useSyncExternalStore(subscribe, getSnapshot, getSnapshot) > 0;
+
+/**
+ * Shared sticky expanded/collapsed preference for page descriptions.
+ * One toggle governs every page: PageHeader's own chevron and pages that
+ * render their own (VisualizationPage) read and write the same key.
+ */
+export function useDescriptionExpanded(): [boolean, () => void] {
+  const [stored, setStored] = useStoredState(
+    'sdd-desc-expanded',
+    'collapsed',
+    (raw): raw is 'expanded' | 'collapsed' => raw === 'expanded' || raw === 'collapsed',
+  );
+  const isExpanded = stored === 'expanded';
+  const toggle = () => setStored(isExpanded ? 'collapsed' : 'expanded');
+  return [isExpanded, toggle];
+}
 
 export interface PageHeaderProps {
   breadcrumb: ReactNode;
@@ -37,7 +56,7 @@ const PageHeader = ({
   description,
   className = '',
 }: PageHeaderProps) => {
-  const [expanded, setExpanded] = useState(false);
+  const [isExpanded, toggleExpanded] = useDescriptionExpanded();
 
   useEffect(() => {
     mountCount++;
@@ -56,10 +75,10 @@ const PageHeader = ({
           {description && (
             <button
               type="button"
-              onClick={() => setExpanded(v => !v)}
-              aria-expanded={expanded}
-              aria-label={expanded ? 'Hide description' : 'Show description'}
-              title={expanded ? 'Hide description' : 'Show description'}
+              onClick={toggleExpanded}
+              aria-expanded={isExpanded}
+              aria-label={isExpanded ? 'Hide description' : 'Show description'}
+              title={isExpanded ? 'Hide description' : 'Show description'}
               style={{
                 background: 'transparent',
                 border: 'none',
@@ -79,7 +98,7 @@ const PageHeader = ({
                 fill="currentColor"
                 style={{
                   transition: 'transform 150ms ease',
-                  transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                  transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
                 }}
               >
                 <path
@@ -107,11 +126,11 @@ const PageHeader = ({
           </div>
         )}
       </div>
-      {description && expanded && (
+      {description && isExpanded && (
         <div
           style={{
             fontSize: 'var(--fs-sm)',
-            color: 'var(--text-subtle)',
+            color: 'var(--text-muted)',
             lineHeight: 1.4,
             paddingLeft: 2,
           }}

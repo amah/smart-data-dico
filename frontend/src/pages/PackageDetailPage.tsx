@@ -7,6 +7,11 @@ import CytoscapeGraph from '../components/CytoscapeGraph';
 import Breadcrumbs from '../components/Breadcrumbs';
 import { Button, Chip, PageHeader } from '../components/ui';
 import { useRecordRecentPackage } from '../hooks/useRecentPackages';
+import { useStoredState } from '../hooks/useStoredState';
+
+type PackageViewMode = 'page' | 'graph';
+const isPackageViewMode = (raw: string): raw is PackageViewMode =>
+  raw === 'page' || raw === 'graph';
 
 interface PackageDetailPageProps {
   packagePath: string[];
@@ -15,7 +20,17 @@ interface PackageDetailPageProps {
 export default function PackageDetailPage({ packagePath }: PackageDetailPageProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const viewMode = searchParams.get('view') || 'page';
+  // Sticky List/Diagram choice: an explicit ?view= URL param wins (deep
+  // links stay deterministic), otherwise the last choice, default Diagram.
+  const [storedView, setStoredView] = useStoredState('sdd-package-view', 'graph', isPackageViewMode);
+  const urlView = searchParams.get('view');
+  const viewMode: PackageViewMode = urlView && isPackageViewMode(urlView) ? urlView : storedView;
+  const selectView = (v: PackageViewMode) => {
+    setStoredView(v);
+    const next = new URLSearchParams(searchParams);
+    next.set('view', v);
+    setSearchParams(next);
+  };
   const [pkg, setPkg] = useState<Package | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -183,7 +198,12 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
   ];
 
   return (
-    <div className="px-4 pb-4 space-y-4" style={{ paddingTop: 5 }}>
+    // In graph view the page becomes a fill-height flex column so the
+    // diagram canvas takes all space left under the header.
+    <div
+      className={`px-4 pb-4 ${viewMode === 'graph' ? 'flex flex-col flex-1 min-h-0 gap-4' : 'space-y-4'}`}
+      style={{ paddingTop: 5 }}
+    >
       <PageHeader
         breadcrumb={<Breadcrumbs items={headerCrumbs} />}
         meta={pkg.type ? <Chip tone="meta" soft>{pkg.type}</Chip> : undefined}
@@ -206,7 +226,7 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
                 <button
                   key={v}
                   type="button"
-                  onClick={() => setSearchParams({ view: v })}
+                  onClick={() => selectView(v)}
                   style={{
                     padding: '2px 10px',
                     fontSize: 'var(--fs-sm)',
@@ -233,7 +253,7 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
       />
 
       {viewMode === 'graph' ? (
-        <div className="h-[600px] border border-base-300 rounded-lg overflow-hidden">
+        <div className="flex-1 min-h-0 border border-base-300 rounded-lg overflow-hidden">
           <CytoscapeGraph service={rootPackage} />
         </div>
       ) : (

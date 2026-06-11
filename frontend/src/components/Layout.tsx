@@ -41,8 +41,11 @@ const Layout = () => {
           )}
 
           {/* Page content */}
-          <main className="flex-1 overflow-auto px-4 md:px-5 py-2">
-            <div className="container mx-auto">
+          {/* flex column down to the page so full-height pages (diagram
+              canvas) can flex-1 to the available space; normal pages still
+              stack and scroll via main's overflow-auto. */}
+          <main className="flex-1 overflow-auto px-4 md:px-5 py-2 flex flex-col">
+            <div className="container mx-auto flex flex-col flex-1">
               <Outlet />
             </div>
           </main>
