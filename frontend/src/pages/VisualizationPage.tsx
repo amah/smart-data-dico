@@ -1,46 +1,23 @@
 /**
- * Diagram page — renders CytoscapeGraph for the full organization, a specific
- * service, or a single entity. Mounted on `/diagram`, `/diagram/:service` and
- * `/diagram/:service/:entity`; the EntityDetail and CaseDetailPage links target
- * these routes.
+ * Diagram page — thin route wrapper around {@link DiagramViewer} for the full
+ * organization, a specific service, or a single entity. Mounted on `/diagram`,
+ * `/diagram/:service` and `/diagram/:service/:entity`; the EntityDetail and
+ * CaseDetailPage links target these routes.
  *
- * A page-level tab switcher (#181/#182) selects the diagram view mode
- * (structural / physical). An explicit `?view=` URL param wins (deep links
- * stay deterministic); otherwise the last choice is sticky via localStorage,
- * defaulting to structural. The title block is collapsible, sharing the
- * sticky expanded/collapsed preference with PageHeader descriptions.
+ * The Structural/Physical mode lives in DiagramViewer (sticky preference;
+ * here the `?view=` URL param wins for deep links). The title block is
+ * collapsible, sharing the sticky expanded/collapsed preference with
+ * PageHeader descriptions.
  */
 import { useParams, useSearchParams } from 'react-router-dom';
-import CytoscapeGraph from '../components/CytoscapeGraph';
 import Breadcrumbs from '../components/Breadcrumbs';
 import PageHeader, { useDescriptionExpanded } from '../components/ui/PageHeader';
-import { useStoredState } from '../hooks/useStoredState';
-import {
-  VIEW_MODES,
-  VIEW_MODE_LABELS,
-  DEFAULT_VIEW_MODE,
-  type ViewMode,
-} from '../components/CytoscapeGraph/viewMode';
-
-const isViewMode = (raw: string): raw is ViewMode =>
-  (VIEW_MODES as readonly string[]).includes(raw);
+import DiagramViewer from '../components/CytoscapeGraph/DiagramViewer';
 
 export default function VisualizationPage() {
   const { service, entity } = useParams<{ service?: string; entity?: string }>();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const caseId = searchParams.get('case') || searchParams.get('perspective') || undefined;
-  const [storedView, setStoredView] = useStoredState('sdd-diagram-view', DEFAULT_VIEW_MODE, isViewMode);
-  const urlView = searchParams.get('view');
-  const viewMode: ViewMode = urlView && isViewMode(urlView) ? urlView : storedView;
-
-  const setViewMode = (next: ViewMode) => {
-    setStoredView(next);
-    const params = new URLSearchParams(searchParams);
-    // The default mode is omitted to keep the URL clean.
-    if (next === DEFAULT_VIEW_MODE) params.delete('view');
-    else params.set('view', next);
-    setSearchParams(params, { replace: true });
-  };
 
   const description = entity
     ? `Entity graph for ${entity} and its relationships`
@@ -92,57 +69,12 @@ export default function VisualizationPage() {
         <p className="text-base-content/60 text-sm mb-1 ml-1">{description}</p>
       )}
 
-      {/* View-mode tabs (#182) */}
-      <div
-        role="tablist"
-        aria-label="Diagram view mode"
-        style={{
-          display: 'flex',
-          gap: 0,
-          padding: '0 8px',
-          background: 'var(--bg-raised)',
-          border: '1px solid var(--border)',
-          borderBottom: 0,
-          borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
-        }}
-      >
-        {VIEW_MODES.map((m) => {
-          const isActive = viewMode === m;
-          return (
-            <button
-              key={m}
-              role="tab"
-              aria-selected={isActive}
-              onClick={() => setViewMode(m)}
-              style={{
-                padding: '8px 12px',
-                background: 'transparent',
-                border: 'none',
-                borderBottom: `2px solid ${isActive ? 'var(--accent)' : 'transparent'}`,
-                color: isActive ? 'var(--text)' : 'var(--text-muted)',
-                fontSize: 'var(--fs-sm)',
-                fontWeight: isActive ? 600 : 400,
-                marginBottom: -1,
-                cursor: 'pointer',
-              }}
-            >
-              {VIEW_MODE_LABELS[m]}
-            </button>
-          );
-        })}
-      </div>
-
-      <div
-        className="flex-1 min-h-0 border border-base-300 overflow-hidden"
-        style={{ borderRadius: '0 0 var(--radius-md) var(--radius-md)' }}
-      >
-        <CytoscapeGraph
-          service={service}
-          mode={service ? 'service' : 'organization'}
-          viewMode={viewMode}
-          caseId={caseId}
-        />
-      </div>
+      <DiagramViewer
+        service={service}
+        mode={service ? 'service' : 'organization'}
+        caseId={caseId}
+        syncViewToUrl
+      />
     </div>
   );
 }

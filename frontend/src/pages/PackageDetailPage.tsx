@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { packageApi, servicesApi, stereotypeApi } from '../services/api';
 import type { Package, Entity, Stereotype, Breadcrumb } from '../types';
 import PackageForm from '../components/PackageForm';
-import CytoscapeGraph from '../components/CytoscapeGraph';
+import DiagramViewer from '../components/CytoscapeGraph/DiagramViewer';
 import Breadcrumbs from '../components/Breadcrumbs';
 import { Button, Chip, PageHeader } from '../components/ui';
 import { useRecordRecentPackage } from '../hooks/useRecentPackages';
@@ -253,9 +253,7 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
       />
 
       {viewMode === 'graph' ? (
-        <div className="flex-1 min-h-0 border border-base-300 rounded-lg overflow-hidden">
-          <CytoscapeGraph service={rootPackage} />
-        </div>
+        <DiagramViewer service={rootPackage} mode="service" />
       ) : (
       <>
       {/* Stats */}

@@ -36,3 +36,8 @@ export const VIEW_MODE_LABELS: Record<ViewMode, string> = {
 export function parseViewMode(param: string | null | undefined): ViewMode {
   return VIEW_MODES.includes(param as ViewMode) ? (param as ViewMode) : DEFAULT_VIEW_MODE;
 }
+
+/** Type guard for raw strings (URL params, localStorage values). */
+export function isViewMode(raw: string): raw is ViewMode {
+  return (VIEW_MODES as readonly string[]).includes(raw);
+}
