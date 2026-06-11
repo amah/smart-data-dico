@@ -5,6 +5,15 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.1] — 2026-06-11
+
+### Fixed
+- **Diagram canvas resize handling** — Cytoscape now watches its container with
+  a `ResizeObserver` and re-syncs/re-fits when the canvas size changes (initial
+  flex sizing, sidebar collapse, description expand, window resize). Previously
+  the graph was fitted once against a stale size and could end up off-center or
+  cut off at the edges of the new full-height canvas.
+
 ## [1.12.0] — 2026-06-11
 
 ### Added

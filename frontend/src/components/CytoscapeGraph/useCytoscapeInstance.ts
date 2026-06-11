@@ -72,5 +72,29 @@ export function useCytoscapeInstance(
     };
   }, [containerRef, elements, stylesheet]);
 
+  // The canvas is flex-sized (fills the main area), so the container can
+  // change size after init — flex settling, sidebar collapse, description
+  // expand, window resize. Cytoscape doesn't watch its container; without
+  // cy.resize() the renderer keeps the stale dimensions and the graph ends
+  // up mis-fitted or cut off. Re-sync and re-fit, rAF-debounced.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!cy || !el) return;
+    let raf = 0;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        if (cy.destroyed()) return;
+        cy.resize();
+        if (cy.elements().length > 0) cy.fit(undefined, 40);
+      });
+    });
+    observer.observe(el);
+    return () => {
+      cancelAnimationFrame(raf);
+      observer.disconnect();
+    };
+  }, [cy, containerRef]);
+
   return { cyRef, cy };
 }
