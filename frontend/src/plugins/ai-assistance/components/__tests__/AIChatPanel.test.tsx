@@ -196,6 +196,49 @@ describe('AIChatPanel — tool progress & error rendering (#61)', () => {
     await act(async () => { close(); });
   });
 
+  it('renders a spinner card on tool-input-start and resolves to an error card on tool-output-error (#190)', async () => {
+    const { stream, push, close } = makeStream();
+    restoreFetch = withMockChatStream(() => new Response(stream, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    }));
+
+    mountPanel();
+
+    const input = await screen.findByPlaceholderText(/Ask about your data model/);
+    await waitFor(() => expect(input).not.toBeDisabled());
+    await userEvent.type(input, 'list{Enter}');
+
+    await act(async () => {
+      push({ type: 'tool-input-start', toolCallId: 'listEntities:0', toolName: 'listEntities' });
+    });
+
+    // While running, the card shows the "Calling …" header (spinner state).
+    await waitFor(() => {
+      expect(screen.getByText(/Calling listEntities/)).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('tool-card')).toHaveAttribute('data-status', 'starting');
+
+    // The AI SDK signals a failed tool via tool-output-error, not
+    // tool-output-available.
+    await act(async () => {
+      push({ type: 'tool-output-error', toolCallId: 'listEntities:0', errorText: 'Boom: tool blew up' });
+    });
+
+    // The card resolves to the terminal error state: spinner gone, red ✗
+    // card with the error badge and the error text surfaced inline.
+    await waitFor(() => {
+      const updated = screen.getByTestId('tool-card');
+      expect(updated).toHaveAttribute('data-status', 'error');
+    });
+    expect(screen.queryByText(/Calling listEntities/)).not.toBeInTheDocument();
+    const card = screen.getByTestId('tool-card');
+    expect(screen.getByTestId('tool-error-badge')).toHaveTextContent(/error/i);
+    expect(card.textContent).toContain('Boom: tool blew up');
+
+    await act(async () => { close(); });
+  });
+
   it('shows a Stop button while streaming and aborts the in-flight fetch on click', async () => {
     const { stream, close } = makeStream();
     let aborted = false;

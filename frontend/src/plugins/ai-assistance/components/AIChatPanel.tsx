@@ -774,6 +774,25 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                 }
               }
             }
+
+            // #190 — the AI SDK emits `tool-output-error` (not
+            // `tool-output-available`) when a tool's `execute` throws or the
+            // model passes args that fail the input schema. Resolve the card
+            // to a terminal error state so it renders as the red ✗ card
+            // (renderer keys off `output.success === false`) instead of a
+            // perpetual spinner. Handles both an existing card and an error
+            // that arrives without a prior `tool-input-*` event.
+            if (data.type === 'tool-output-error' && data.toolCallId) {
+              const prev = toolMap[data.toolCallId];
+              toolMap[data.toolCallId] = {
+                ...(prev ?? { id: data.toolCallId, name: data.toolCallId, input: null, category: undefined }),
+                output: { success: false, error: data.errorText || 'Tool execution failed' },
+                status: undefined,
+              };
+              if (!prev) toolOrder.push(data.toolCallId);
+              pushToolUpdate();
+              continue;
+            }
           } catch {
             // Skip
           }
@@ -784,6 +803,12 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       // synthesize fallback text or save the conversation. (#126)
       cancelDeltaFlush();
       flushDeltas();
+
+      // #190 — defensive backstop: settle any tool still in
+      // `starting`/`running` (e.g. a terminal event that never arrived) to a
+      // terminal `cancelled` state so it can't dangle as a spinner or be
+      // persisted into the saved conversation.
+      sweepInflightTools();
 
       const toolCalls = toolOrder.map(id => toolMap[id]).filter(Boolean);
 
