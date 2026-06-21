@@ -57,6 +57,13 @@ export async function callWithTools(
   toolCalls: Array<{ name: string; input: any; output: any }>;
   aborted?: boolean;
   usage: DirectClientUsage;
+  /**
+   * True only when the agentic loop exhausted its `maxSteps` budget (#192)
+   * rather than the model naturally finishing (hitting `break`). When set, the
+   * returned `text` is a model-generated "summary turn" produced by one final
+   * tool-less call, and the caller should surface a visible step-limit notice.
+   */
+  stoppedAtStepLimit: boolean;
 }> {
   let currentMessages = [...messages];
   const allToolCalls: Array<{ name: string; input: any; output: any }> = [];
@@ -71,10 +78,14 @@ export async function callWithTools(
   // responses include `usage: { prompt_tokens, completion_tokens }` at
   // the top level of each completion. (#128)
   const usage: DirectClientUsage = { inputTokens: 0, outputTokens: 0 };
+  // Set to false the moment the loop exits via `break` (a natural finish with
+  // no tool calls). If the `for` condition expires first, it stays true and we
+  // run a graceful summary turn below (#192).
+  let stoppedAtStepLimit = true;
 
   for (let step = 0; step < maxSteps; step++) {
     if (signal?.aborted) {
-      return { text: finalText, toolCalls: allToolCalls, aborted: true, usage };
+      return { text: finalText, toolCalls: allToolCalls, aborted: true, usage, stoppedAtStepLimit: false };
     }
 
     let response: Response;
@@ -97,7 +108,7 @@ export async function callWithTools(
     } catch (err: any) {
       // fetch throws on abort with name === 'AbortError' (or DOMException)
       if (err?.name === 'AbortError' || signal?.aborted) {
-        return { text: finalText, toolCalls: allToolCalls, aborted: true, usage };
+        return { text: finalText, toolCalls: allToolCalls, aborted: true, usage, stoppedAtStepLimit: false };
       }
       throw err;
     }
@@ -175,7 +186,7 @@ export async function callWithTools(
       // Execute each tool call
       for (const tc of msg.tool_calls) {
         if (signal?.aborted) {
-          return { text: finalText, toolCalls: allToolCalls, aborted: true, usage };
+          return { text: finalText, toolCalls: allToolCalls, aborted: true, usage, stoppedAtStepLimit: false };
         }
 
         const toolName = tc.function.name;
@@ -218,9 +229,71 @@ export async function callWithTools(
       continue;
     }
 
-    // No tool calls — we're done
+    // No tool calls — model finished naturally.
+    stoppedAtStepLimit = false;
     break;
   }
 
-  return { text: finalText, toolCalls: allToolCalls, usage };
+  // The loop exhausted its step budget while the model still wanted to call
+  // tools (#192). Make ONE final, tool-less call nudging the model to wrap up:
+  // summarize what it changed and list the remaining steps. Its text becomes
+  // the turn's closing message instead of a dangling tool card.
+  if (stoppedAtStepLimit && !signal?.aborted) {
+    const nudgeMessages: Message[] = [
+      ...currentMessages,
+      {
+        role: 'user',
+        content:
+          "You've reached the step limit and can't call more tools. Summarize what you changed and list the remaining steps to finish.",
+      },
+    ];
+
+    try {
+      const response = await fetch(`${config.baseURL}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${config.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: config.model,
+          messages: nudgeMessages,
+          // tools omitted on purpose — the model cannot call more tools.
+          max_tokens: 4096,
+        }),
+        signal,
+      });
+
+      if (response.ok) {
+        const data: any = await response.json();
+        if (data.usage) {
+          const u = data.usage;
+          const inTok = typeof u.prompt_tokens === 'number'
+            ? u.prompt_tokens
+            : (typeof u.input_tokens === 'number' ? u.input_tokens : 0);
+          const outTok = typeof u.completion_tokens === 'number'
+            ? u.completion_tokens
+            : (typeof u.output_tokens === 'number' ? u.output_tokens : 0);
+          usage.inputTokens += inTok;
+          usage.outputTokens += outTok;
+        }
+        const summary = data.choices?.[0]?.message?.content || '';
+        if (summary) {
+          // Set finalText ONLY — do not also push through onEvent. The
+          // controller streams the returned `result.text` once after
+          // callWithTools (tool calls always precede a cap-stop), so emitting
+          // here too would duplicate the summary in the bubble (#192 review).
+          finalText = summary;
+        }
+      }
+    } catch (err: any) {
+      // A failed summary turn must not mask the real work the loop did; the
+      // caller still emits the step-limit notice. Swallow abort, rethrow nothing.
+      if (!(err?.name === 'AbortError' || signal?.aborted)) {
+        logger.warn(`AI summary turn failed: ${err?.message ?? err}`);
+      }
+    }
+  }
+
+  return { text: finalText, toolCalls: allToolCalls, usage, stoppedAtStepLimit };
 }

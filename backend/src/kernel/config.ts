@@ -13,6 +13,16 @@ dotenv.config();
 const isProduction = process.env.NODE_ENV === 'production';
 
 /**
+ * Maximum number of agentic tool-call steps the AI chat loop may take in a
+ * single turn (#192). A single hardcoded constant — no env var / runtime
+ * config — shared by BOTH provider paths (the AI SDK `stepCountIs` cap and the
+ * direct-client `maxSteps` loop) so the two can never drift. When the loop
+ * exhausts this budget it ends with a graceful model "summary turn" rather than
+ * a silent cut-off.
+ */
+export const AI_MAX_STEPS = 500;
+
+/**
  * Mutable data directory — updated by /api/project/open (#95).
  *
  * Production deployments point at their own project dir (via `DATA_DIR`

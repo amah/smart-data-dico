@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { streamText, generateText, tool, jsonSchema, stepCountIs, convertToModelMessages, createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai';
 import { z } from 'zod';
 import { logger } from '../utils/logger.js';
-import { config } from '../kernel/config.js';
+import { config, AI_MAX_STEPS } from '../kernel/config.js';
 import { getConfigSection, setConfigSection, CONFIG_FILE } from '../utils/appDir.js';
 import { conversationService } from '../services/conversationService.js';
 import { promptService } from '../services/promptService.js';
@@ -524,7 +524,7 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
       messages,
       toolDefs,
       executeTool,
-      15,
+      AI_MAX_STEPS,
       (event) => {
         if (event.type === 'text') {
           const id = crypto.randomUUID();
@@ -573,6 +573,14 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
           provider: cfg.provider,
           ...(cost !== undefined ? { cost } : {}),
         });
+      }
+
+      // Visible, non-error notice that the turn ended because the agentic
+      // loop hit its step budget (#192). The model's summary text was already
+      // streamed above via the `text` event; this just flags the cause. Mirror
+      // the `usage` event's placement — emitted right before `finish`.
+      if (result.stoppedAtStepLimit) {
+        sendEvent({ type: 'step-limit-reached', limit: AI_MAX_STEPS });
       }
 
       sendEvent({ type: 'finish', finishReason: 'stop' });
@@ -708,6 +716,11 @@ export const aiChat = async (req: Request, res: Response) => {
     // steps, including intermediate tool-call rounds.
     let aggregatedUsage: { inputTokens: number; outputTokens: number } | null = null;
 
+    // Captured by onFinish (#192): true only when the agentic loop ended by
+    // exhausting its step budget while the model still wanted to call tools —
+    // i.e. finishReason 'tool-calls' at the cap — rather than a natural 'stop'.
+    let stoppedAtStepLimit = false;
+
     const result = streamText({
       model,
       system: buildSystemPrompt(enrichedPageContext, conversationSystemPrompt, mode),
@@ -721,6 +734,10 @@ export const aiChat = async (req: Request, res: Response) => {
             outputTokens: tu.outputTokens ?? 0,
           };
         }
+        // A natural finish is finishReason 'stop'; a cap-stop ends on
+        // 'tool-calls' with all AI_MAX_STEPS steps consumed.
+        stoppedAtStepLimit =
+          event.finishReason === 'tool-calls' && event.steps.length >= AI_MAX_STEPS;
       },
       tools: filterToolsForMode({
         createEntity: tool({
@@ -913,7 +930,7 @@ export const aiChat = async (req: Request, res: Response) => {
         // #178 — MCP tools merged at chat-request time
         ...mcpToolEntries,
       }, mode),
-      stopWhen: stepCountIs(20),
+      stopWhen: stepCountIs(AI_MAX_STEPS),
     });
 
     // Use toUIMessageStreamResponse and pipe to Express,
@@ -973,6 +990,52 @@ export const aiChat = async (req: Request, res: Response) => {
           }
           const { done, value } = chunk;
           if (done) {
+            // Graceful summary turn at the cap (#192). onFinish has already
+            // run, so stoppedAtStepLimit is known. The main stream ended on a
+            // dangling tool call; issue ONE more NON-streaming, tool-less
+            // generateText seeded with the full prior history + a nudge, then
+            // stream its text to the client with the same text-start /
+            // text-delta shapes the frontend already consumes — BEFORE usage
+            // and the step-limit-reached notice.
+            if (stoppedAtStepLimit && !ac.signal.aborted) {
+              try {
+                const prior = await result.response;
+                const summary = await generateText({
+                  model,
+                  system: buildSystemPrompt(enrichedPageContext, conversationSystemPrompt, mode),
+                  messages: [
+                    ...messages,
+                    ...prior.messages,
+                    {
+                      role: 'user',
+                      content:
+                        "You've reached the step limit and can't call more tools. Summarize what you changed and list the remaining steps to finish.",
+                    },
+                  ],
+                  // No tools — the model cannot call more this turn.
+                  abortSignal: ac.signal,
+                });
+                if (summary.text) {
+                  const summaryId = crypto.randomUUID();
+                  res.write(`data: ${JSON.stringify({ type: 'text-start', id: summaryId })}\n\n`);
+                  for (const word of summary.text.split(' ')) {
+                    res.write(`data: ${JSON.stringify({ type: 'text-delta', id: summaryId, delta: word + ' ' })}\n\n`);
+                  }
+                  // Fold the summary turn's tokens into the running meter.
+                  if (summary.usage && aggregatedUsage) {
+                    aggregatedUsage = {
+                      inputTokens: aggregatedUsage.inputTokens + (summary.usage.inputTokens ?? 0),
+                      outputTokens: aggregatedUsage.outputTokens + (summary.usage.outputTokens ?? 0),
+                    };
+                  }
+                }
+              } catch (err) {
+                // A failed summary turn must not break the stream; the
+                // step-limit notice still fires below.
+                logger.warn(`AI SDK summary turn failed: ${err instanceof Error ? err.message : String(err)}`);
+              }
+            }
+
             // Emit usage meter event (#128) right before closing the
             // stream, after the AI SDK's `finish` chunk so the frontend
             // sees it as the last meaningful payload. onFinish has
@@ -993,6 +1056,14 @@ export const aiChat = async (req: Request, res: Response) => {
                   provider: cfg.provider,
                   ...(cost !== undefined ? { cost } : {}),
                 })}\n\n`);
+              } catch { /* response already closed */ }
+            }
+            // Visible, non-error notice that the loop hit its step budget
+            // (#192). Mirrors the `usage` event placement — right before
+            // the stream closes. The summary text was already streamed above.
+            if (stoppedAtStepLimit) {
+              try {
+                res.write(`data: ${JSON.stringify({ type: 'step-limit-reached', limit: AI_MAX_STEPS })}\n\n`);
               } catch { /* response already closed */ }
             }
             res.end();

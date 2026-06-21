@@ -128,6 +128,11 @@ interface ChatMessage {
   // pill above the assistant bubble so the user can see why the model
   // doesn't have full memory of every prior turn.
   condensed?: { count: number; estimatedTokens?: number };
+  // #192 — when present, the agentic tool-call loop stopped because it hit
+  // its step budget (`limit`) rather than the model finishing naturally. We
+  // render a visible, non-error info pill below the bubble; the model's
+  // summary of what it changed / what remains arrived as normal text above.
+  stepLimit?: { limit: number };
   // #64 — true when the turn was started in background autonomous
   // mode. Drives the post-run summary footer (Review / Undo all).
   autonomous?: boolean;
@@ -514,6 +519,10 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     // #63 — populated when the backend emits a `condensed` SSE event
     // before the model's response. Rendered as a pill above the bubble.
     let condensedInfo: { count: number; estimatedTokens?: number } | null = null;
+    // #192 — populated when the backend emits a `step-limit-reached` SSE
+    // event (the agentic loop hit its step budget). Rendered as a visible,
+    // non-error info pill below the bubble.
+    let stepLimitInfo: { limit: number } | null = null;
     // Per-turn usage payload (#128). Backend emits one `usage` SSE
     // event before `done`; we accumulate it onto the running meter
     // and persist with the conversation in the finally block.
@@ -536,6 +545,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                 rawEvents: [...rawEvents],
                 cancelled,
                 ...(condensedInfo ? { condensed: condensedInfo } : {}),
+                ...(stepLimitInfo ? { stepLimit: stepLimitInfo } : {}),
                 ...(turnAutonomous ? { autonomous: true } : {}),
               }
             : m);
@@ -548,6 +558,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
           rawEvents: [...rawEvents],
           cancelled,
           ...(condensedInfo ? { condensed: condensedInfo } : {}),
+          ...(stepLimitInfo ? { stepLimit: stepLimitInfo } : {}),
           ...(turnAutonomous ? { autonomous: true } : {}),
         }];
       });
@@ -663,6 +674,16 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                 count: Number(data.condensedCount) || 0,
                 ...(typeof data.estimatedTokens === 'number' ? { estimatedTokens: data.estimatedTokens } : {}),
               };
+              pushToolUpdate();
+              continue;
+            }
+
+            // #192 — backend signals the agentic loop stopped because it
+            // hit its step budget (not a natural finish). Stash the limit;
+            // the assistant message renders a visible info pill. The model's
+            // summary of progress arrived as normal text above.
+            if (data.type === 'step-limit-reached') {
+              stepLimitInfo = { limit: Number(data.limit) || 0 };
               pushToolUpdate();
               continue;
             }
@@ -1898,6 +1919,21 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                   </div>
                   );
                 })()}
+
+                {/* #192 — visible, non-error notice that the agentic loop
+                    stopped because it hit its step budget. NOT the red error
+                    banner (this isn't an error). Mirrors the condensed pill's
+                    muted-italic styling. The model's summary of what it did /
+                    what remains was streamed as normal text above. */}
+                {msg.stepLimit && msg.role === 'assistant' && (
+                  <div
+                    data-testid="step-limit-pill"
+                    className="text-[10px] font-sans text-base-content/50 mt-1 italic"
+                    title="The assistant ran out of tool-call steps for this turn; it summarized progress above."
+                  >
+                    ⏹ Stopped after the {msg.stepLimit.limit}-step limit — summarized above
+                  </div>
+                )}
               </div>
             ))}
 
