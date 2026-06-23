@@ -114,8 +114,19 @@ const EntityDetail = (props: EntityDetailProps) => {
 
       setError(null);
     } catch (err) {
-      console.error(`Error fetching entity ${entity} for service ${service}:`, err);
-      setError('Failed to load entity details. Please try again later.');
+      // A 404 means the entity genuinely doesn't exist (a stale/bad deep link,
+      // or an AI navigate to a name that was never created). Surface the
+      // dedicated "Entity not found" state (entityData stays null, no error
+      // banner) rather than the transient "try again later" message, which is
+      // reserved for real load failures (network / 5xx).
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status === 404) {
+        setEntityData(null);
+        setError(null);
+      } else {
+        console.error(`Error fetching entity ${entity} for service ${service}:`, err);
+        setError('Failed to load entity details. Please try again later.');
+      }
     } finally {
       setLoading(false);
     }
