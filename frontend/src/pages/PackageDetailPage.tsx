@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useHighlightOnArrival } from '../hooks/useHighlightOnArrival';
 import { packageApi, servicesApi, stereotypeApi } from '../services/api';
 import type { Package, Entity, Stereotype, Breadcrumb } from '../types';
 import PackageForm from '../components/PackageForm';
@@ -32,6 +33,11 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
     setSearchParams(next);
   };
   const [pkg, setPkg] = useState<Package | null>(null);
+  // Scroll container for the entity list, so an AI-applied change can
+  // scroll-to + flash the changed entity row on arrival (#191 §B).
+  const entityListRef = useRef<HTMLDivElement>(null);
+  // Flash the row named by ?highlight= once entities have rendered.
+  useHighlightOnArrival(entityListRef, pkg?.entities);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreateSub, setShowCreateSub] = useState(false);
@@ -322,7 +328,7 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
             );
             const arrow = (key: string) => entitySort.key === key ? (entitySort.dir === 'asc' ? ' ▲' : ' ▼') : '';
             return (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto" ref={entityListRef}>
                 <table className="table table-sm">
                   <thead>
                     <tr>
@@ -333,7 +339,7 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
                   </thead>
                   <tbody>
                     {filtered.map((entity) => (
-                      <tr key={entity.uuid} className="hover">
+                      <tr key={entity.uuid} className="hover" data-ttrowkey={entity.name}>
                         <td>
                           <Link to={`${packageUrl}/entities/${entity.name}`} className="link link-primary font-mono">
                             {entity.name}

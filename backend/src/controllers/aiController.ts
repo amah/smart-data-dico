@@ -6,8 +6,28 @@ import { config, AI_MAX_STEPS } from '../kernel/config.js';
 import { getConfigSection, setConfigSection, CONFIG_FILE } from '../utils/appDir.js';
 import { conversationService } from '../services/conversationService.js';
 import { promptService } from '../services/promptService.js';
-import { EntityStatus } from '../models/EntitySchema.js';
 import { mcpClientRegistry } from '../services/mcpClientRegistry.js';
+import {
+  createEntityInputSchema,
+  updateEntityInputSchema,
+  deleteEntityInputSchema,
+  createRelationshipInputSchema,
+  updateRelationshipInputSchema,
+  deleteRelationshipInputSchema,
+  createEntityParameters,
+  updateEntityParameters,
+  deleteEntityParameters,
+  createRelationshipParameters,
+  updateRelationshipParameters,
+  deleteRelationshipParameters,
+  executeCreateEntity,
+  executeUpdateEntity,
+  executeDeleteEntity,
+  executeCreateRelationship,
+  executeUpdateRelationship,
+  executeDeleteRelationship,
+  type MutationServices,
+} from './aiMutationTools.js';
 
 // --- Tool categories (#59) ---
 //
@@ -336,18 +356,17 @@ When creating data models:
 - Suggest stereotypes when applicable (aggregate-root, reference-data, event, value-object for entities)
 - Create relationships with proper cardinality
 
-IMPORTANT: For createEntity and createRelationship tools, you must pass a SINGLE parameter called entityJson or relationshipJson containing a valid JSON string with all the data.
+Mutation tools take STRUCTURED parameters (not JSON strings):
+- createEntity / updateEntity: { packageName, name, description?, stereotype?, attributes: [{ name, type, description?, required?, primaryKey?, enumValues? }] }. For updateEntity the provided description/stereotype/attributes become the new desired state.
+- deleteEntity: { packageName, name }. Fails if the entity is still referenced by relationships — delete those relationships first (no auto-cascade).
+- createRelationship / updateRelationship: { sourceEntityName, targetEntityName, sourcePackage?, targetPackage?, sourceCardinality, targetCardinality, description? }. Cardinality is "one" or "many".
+- deleteRelationship: { packageName, sourceEntityName, targetEntityName } where packageName is the source entity's package.
 
-Example createEntity call:
-entityJson: '{"packageName":"e-commerce","name":"Product","description":"A product in the catalog","stereotype":"aggregate-root","attributes":[{"name":"productId","type":"string","description":"Unique product ID","required":true,"primaryKey":true},{"name":"name","type":"string","description":"Product name","required":true},{"name":"price","type":"number","description":"Product price","required":true}]}'
-
-Cross-package relationships are first-class. When source and target live in different packages, pass sourcePackage and targetPackage explicitly:
-relationshipJson: '{"sourceEntityName":"Order","sourcePackage":"order-service","targetEntityName":"User","targetPackage":"user-service","sourceCardinality":"many","targetCardinality":"one","description":"placed by"}'
-The relationship is stored under the source's package. If sourcePackage/targetPackage are omitted the resolver scans every package and errors on ambiguity.
+Cross-package relationships are first-class. When source and target live in different packages, pass sourcePackage and targetPackage explicitly. The relationship is stored under the source's package. If sourcePackage/targetPackage are omitted the resolver scans every package and errors on ambiguity.
 
 When the user asks to create a model:
 1. Infer a package name from context (e.g. "e-commerce data model" → packageName: "e-commerce").
-2. ALWAYS include packageName in every entityJson. For relationshipJson include sourcePackage/targetPackage when the endpoints span multiple packages.
+2. ALWAYS include packageName when creating entities. For relationships include sourcePackage/targetPackage when the endpoints span multiple packages.
 3. Create ALL entities first, then ALL relationships.
 4. After creating everything, use navigateTo to show the package page.
 
@@ -403,8 +422,12 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
 
   // Build tool definitions
   const builtinToolDefs = [
-    { type: 'function' as const, function: { name: 'createEntity', description: 'Create an entity. entityJson is a JSON string with packageName, name, description, stereotype, attributes array.', parameters: { type: 'object', required: ['entityJson'], properties: { entityJson: { type: 'string', description: 'JSON: {"packageName":"pkg","name":"Entity","description":"...","attributes":[{"name":"id","type":"string","required":true,"primaryKey":true}]}' } } } } },
-    { type: 'function' as const, function: { name: 'createRelationship', description: 'Create a relationship. Endpoints may live in the same package or in different packages (cross-package is first-class). JSON string parameter.', parameters: { type: 'object', required: ['relationshipJson'], properties: { relationshipJson: { type: 'string', description: 'JSON: {"packageName":"home-pkg","sourceEntityName":"A","sourcePackage":"pkg-of-A","targetEntityName":"B","targetPackage":"pkg-of-B","sourceCardinality":"one","targetCardinality":"many","description":"..."}. sourcePackage/targetPackage are optional — if omitted the resolver scans every package and errors on ambiguity. The relationship is stored under the source\'s package.' } } } } },
+    { type: 'function' as const, function: { name: 'createEntity', description: 'Create a new entity with attributes in a package. Structured fields: packageName, name, description, stereotype, attributes[].', parameters: createEntityParameters as Record<string, unknown> } },
+    { type: 'function' as const, function: { name: 'updateEntity', description: 'Update an existing entity. description/stereotype/attributes become the new desired state; uuid and createdAt are preserved.', parameters: updateEntityParameters as Record<string, unknown> } },
+    { type: 'function' as const, function: { name: 'deleteEntity', description: 'Delete an entity by package and name. Fails if still referenced by relationships (no auto-cascade).', parameters: deleteEntityParameters as Record<string, unknown> } },
+    { type: 'function' as const, function: { name: 'createRelationship', description: 'Create a relationship between two entities. Cross-package is first-class; omit sourcePackage/targetPackage to scan all packages. Stored under the source entity\'s package.', parameters: createRelationshipParameters as Record<string, unknown> } },
+    { type: 'function' as const, function: { name: 'updateRelationship', description: 'Update an existing relationship (resolved by matching source/target). Cardinalities and description become the new desired state.', parameters: updateRelationshipParameters as Record<string, unknown> } },
+    { type: 'function' as const, function: { name: 'deleteRelationship', description: 'Delete a relationship by its package (source entity\'s package) and source/target entity names.', parameters: deleteRelationshipParameters as Record<string, unknown> } },
     { type: 'function' as const, function: { name: 'listEntities', description: 'List packages or entities in a package', parameters: { type: 'object', properties: { packageName: { type: 'string', description: 'Package name (omit to list all)' } } } } },
     { type: 'function' as const, function: { name: 'listStereotypes', description: 'List available stereotypes', parameters: { type: 'object', properties: {} } } },
     { type: 'function' as const, function: { name: 'navigateTo', description: 'Navigate user to a page. The path MUST be an absolute URL beginning with "/" that matches one of the patterns returned by listRoutes — call listRoutes first if you are unsure of the exact shape.', parameters: { type: 'object', required: ['path', 'reason'], properties: { path: { type: 'string' }, reason: { type: 'string' } } } } },
@@ -428,55 +451,24 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
   // Tool executor
   const executeTool = async (name: string, args: any): Promise<any> => {
     try {
+      const mutationServices = services as MutationServices;
       if (name === 'createEntity') {
-        let parsed: any;
-        try { parsed = JSON.parse(args.entityJson || '{}'); } catch { return { success: false, error: 'Invalid JSON' }; }
-        if (!parsed.name || !parsed.attributes) return { success: false, error: 'Missing name or attributes' };
-
-        const pkgName = parsed.packageName || 'default';
-        const { listPackages, ensurePackageDirectoryStructure } = await import('../utils/fileOperations.js');
-        const existing = await listPackages();
-        if (!existing.includes(pkgName)) await ensurePackageDirectoryStructure(pkgName);
-
-        const entity = {
-          uuid: crypto.randomUUID(),
-          name: parsed.name,
-          description: parsed.description || '',
-          stereotype: parsed.stereotype,
-          status: 'draft',
-          attributes: (parsed.attributes || []).map((a: any) => ({
-            uuid: crypto.randomUUID(), name: a.name, type: a.type || 'string',
-            description: a.description || '', required: a.required ?? false, primaryKey: a.primaryKey,
-            validation: a.enumValues ? { enumValues: a.enumValues } : undefined,
-          })),
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        await services.serviceService.createEntity(pkgName, entity);
-        return { success: true, message: `Created entity ${parsed.name} with ${entity.attributes.length} attributes`, navigate: `/packages/${pkgName}/entities/${parsed.name}` };
+        return await executeCreateEntity(args, mutationServices);
+      }
+      if (name === 'updateEntity') {
+        return await executeUpdateEntity(args, mutationServices);
+      }
+      if (name === 'deleteEntity') {
+        return await executeDeleteEntity(args, mutationServices);
       }
       if (name === 'createRelationship') {
-        let p: any;
-        try { p = JSON.parse(args.relationshipJson || '{}'); } catch { return { success: false, error: 'Invalid JSON' }; }
-        if (!p.sourceEntityName || !p.targetEntityName) return { success: false, error: 'Missing entity names' };
-        const defaultPkg = p.packageName || 'default';
-        let src, tgt;
-        try {
-          src = await services.serviceService.findEntityAcrossPackages(p.sourceEntityName, p.sourcePackage || defaultPkg);
-        } catch (e) { return { success: false, error: `Source: ${e instanceof Error ? e.message : String(e)}` }; }
-        if (!src) return { success: false, error: `Source entity "${p.sourceEntityName}" not found in any package` };
-        try {
-          tgt = await services.serviceService.findEntityAcrossPackages(p.targetEntityName, p.targetPackage || defaultPkg);
-        } catch (e) { return { success: false, error: `Target: ${e instanceof Error ? e.message : String(e)}` }; }
-        if (!tgt) return { success: false, error: `Target entity "${p.targetEntityName}" not found in any package` };
-        const homePackage = src.packageName;
-        await services.serviceService.createRelationship(homePackage, {
-          uuid: crypto.randomUUID(), description: p.description || '',
-          source: { entity: src.entity.uuid, cardinality: p.sourceCardinality || 'one' },
-          target: { entity: tgt.entity.uuid, cardinality: p.targetCardinality || 'many' },
-        });
-        const crossNote = src.packageName !== tgt.packageName ? ` (cross-package: ${src.packageName} → ${tgt.packageName})` : '';
-        return { success: true, message: `Created relationship: ${p.sourceEntityName} -> ${p.targetEntityName}${crossNote}` };
+        return await executeCreateRelationship(args, mutationServices);
+      }
+      if (name === 'updateRelationship') {
+        return await executeUpdateRelationship(args, mutationServices);
+      }
+      if (name === 'deleteRelationship') {
+        return await executeDeleteRelationship(args, mutationServices);
       }
       if (name === 'listEntities') {
         if (args.packageName) {
@@ -741,109 +733,62 @@ export const aiChat = async (req: Request, res: Response) => {
       },
       tools: filterToolsForMode({
         createEntity: tool({
-          description: 'Create a new entity with attributes in a package. The entityJson parameter must be a JSON string with this structure: {"packageName":"pkg","name":"EntityName","description":"...","stereotype":"aggregate-root","attributes":[{"name":"id","type":"string","description":"...","required":true,"primaryKey":true}]}',
-          inputSchema: z.object({
-            entityJson: z.string().describe('JSON string containing packageName, name, description, stereotype (optional), and attributes array. Each attribute has name, type, description, required, primaryKey (optional), enumValues (optional).'),
-          }),
+          description: 'Create a new entity with attributes in a package. Provide structured fields (packageName, name, description, stereotype, attributes[]). Each attribute: { name, type, description, required, primaryKey, enumValues }.',
+          inputSchema: createEntityInputSchema,
           execute: async (params) => {
-            try {
-              let parsed: any;
-              try {
-                parsed = JSON.parse(params.entityJson || '{}');
-              } catch {
-                return { success: false, error: 'Invalid JSON in entityJson parameter' };
-              }
-              if (!parsed.name || !parsed.attributes) {
-                return {
-                  success: false,
-                  error: 'entityJson must contain name and attributes. Example: {"packageName":"e-commerce","name":"Product","description":"...","attributes":[{"name":"id","type":"string","description":"...","required":true}]}',
-                };
-              }
-              const pkgName = parsed.packageName || 'default';
-              const { listPackages, ensurePackageDirectoryStructure } = await import('../utils/fileOperations.js');
-              const existingServices = await listPackages();
-              if (!existingServices.includes(pkgName)) {
-                await ensurePackageDirectoryStructure(pkgName);
-              }
+            const result = await executeCreateEntity(params, services as MutationServices);
+            if (result.success) logger.info(`AI created entity: ${result.packageName}/${result.name}`);
+            return result;
+          },
+        }),
 
-              const attrs = (parsed.attributes || []).map((a: any) => ({
-                uuid: crypto.randomUUID(),
-                name: a.name,
-                type: a.type || 'string',
-                description: a.description || '',
-                required: a.required ?? false,
-                primaryKey: a.primaryKey,
-                validation: a.enumValues ? { enumValues: a.enumValues } : undefined,
-              }));
+        updateEntity: tool({
+          description: 'Update an existing entity. The provided description/stereotype/attributes become the new desired state; the entity uuid and createdAt are preserved. Same structured shape as createEntity.',
+          inputSchema: updateEntityInputSchema,
+          execute: async (params) => {
+            const result = await executeUpdateEntity(params, services as MutationServices);
+            if (result.success) logger.info(`AI updated entity: ${result.packageName}/${result.name}`);
+            return result;
+          },
+        }),
 
-              const entity = {
-                uuid: crypto.randomUUID(),
-                name: parsed.name,
-                description: parsed.description || '',
-                stereotype: parsed.stereotype,
-                status: EntityStatus.DRAFT,
-                attributes: attrs,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-              };
-
-              await services.serviceService.createEntity(pkgName, entity);
-              logger.info(`AI created entity: ${pkgName}/${parsed.name}`);
-              return {
-                success: true,
-                message: `Created entity ${parsed.name} with ${attrs.length} attributes`,
-                navigate: `/packages/${pkgName}/entities/${parsed.name}`,
-              };
-            } catch (err: any) {
-              return { success: false, error: err.message };
-            }
+        deleteEntity: tool({
+          description: 'Delete an entity by package and name. Fails (and reports) if the entity is still referenced by relationships — remove those relationships first; the tool never auto-cascades.',
+          inputSchema: deleteEntityInputSchema,
+          execute: async (params) => {
+            const result = await executeDeleteEntity(params, services as MutationServices);
+            if (result.success) logger.info(`AI deleted entity: ${result.packageName}/${result.name}`);
+            return result;
           },
         }),
 
         createRelationship: tool({
-          description: 'Create a relationship between two entities. Endpoints may live in the same package or in different packages (cross-package is first-class). Pass a JSON string: {"packageName":"home-pkg","sourceEntityName":"Order","sourcePackage":"order-service","targetEntityName":"User","targetPackage":"user-service","description":"...","sourceCardinality":"many","targetCardinality":"one"}. sourcePackage/targetPackage are optional — if omitted the resolver falls back to packageName and then scans every package, erroring on ambiguity. The relationship is stored under the source\'s package by convention.',
-          inputSchema: z.object({
-            relationshipJson: z.string().describe('JSON with packageName (optional, fallback), sourceEntityName, sourcePackage (optional), targetEntityName, targetPackage (optional), description, sourceCardinality (one|many), targetCardinality (one|many)'),
-          }),
+          description: 'Create a relationship between two entities. Endpoints may live in the same or different packages (cross-package is first-class). Provide sourceEntityName, targetEntityName, optional sourcePackage/targetPackage (omit to scan all packages, errors on ambiguity), sourceCardinality and targetCardinality (one|many), and an optional description. The relationship is stored under the source entity\'s package.',
+          inputSchema: createRelationshipInputSchema,
           execute: async (params) => {
-            try {
-              let p: any;
-              try { p = JSON.parse(params.relationshipJson || '{}'); } catch { return { success: false, error: 'Invalid JSON in relationshipJson' }; }
-              if (!p.sourceEntityName || !p.targetEntityName) {
-                return { success: false, error: 'Missing sourceEntityName or targetEntityName in JSON' };
-              }
-              const defaultPkg = p.packageName || 'default';
+            const result = await executeCreateRelationship(params, services as MutationServices);
+            if (result.success) logger.info(`AI created relationship: ${result.name}`);
+            return result;
+          },
+        }),
 
-              let src, tgt;
-              try {
-                src = await services.serviceService.findEntityAcrossPackages(p.sourceEntityName, p.sourcePackage || defaultPkg);
-              } catch (e) { return { success: false, error: `Source: ${e instanceof Error ? e.message : String(e)}` }; }
-              if (!src) {
-                return { success: false, error: `Source entity "${p.sourceEntityName}" not found in any package` };
-              }
-              try {
-                tgt = await services.serviceService.findEntityAcrossPackages(p.targetEntityName, p.targetPackage || defaultPkg);
-              } catch (e) { return { success: false, error: `Target: ${e instanceof Error ? e.message : String(e)}` }; }
-              if (!tgt) {
-                return { success: false, error: `Target entity "${p.targetEntityName}" not found in any package` };
-              }
+        updateRelationship: tool({
+          description: 'Update an existing relationship between two entities. The relationship is resolved by matching source/target entities; cardinalities and description become the new desired state.',
+          inputSchema: updateRelationshipInputSchema,
+          execute: async (params) => {
+            const result = await executeUpdateRelationship(params, services as MutationServices);
+            if (result.success) logger.info(`AI updated relationship: ${result.name}`);
+            return result;
+          },
+        }),
 
-              const homePackage = src.packageName;
-              const relationship = {
-                uuid: crypto.randomUUID(),
-                description: p.description || '',
-                source: { entity: src.entity.uuid, cardinality: p.sourceCardinality || 'one' },
-                target: { entity: tgt.entity.uuid, cardinality: p.targetCardinality || 'many' },
-              };
-              await services.serviceService.createRelationship(homePackage, relationship);
-              const crossNote = src.packageName !== tgt.packageName
-                ? ` (cross-package: ${src.packageName} → ${tgt.packageName}, stored under ${homePackage})`
-                : '';
-              logger.info(`AI created relationship: ${p.sourceEntityName} -> ${p.targetEntityName}${crossNote}`);
-              return { success: true, message: `Created relationship: ${p.sourceEntityName} -> ${p.targetEntityName}${crossNote}` };
-            } catch (err: any) {
-              return { success: false, error: err.message };
-            }
+        deleteRelationship: tool({
+          description: 'Delete a relationship by its package (the source entity\'s package) and the source/target entity names.',
+          inputSchema: deleteRelationshipInputSchema,
+          execute: async (params) => {
+            const result = await executeDeleteRelationship(params, services as MutationServices);
+            if (result.success) logger.info(`AI deleted relationship: ${result.name}`);
+            return result;
           },
         }),
 
@@ -1237,9 +1182,30 @@ export const aiTools = async (_req: Request, res: Response) => {
       parameters: [
         { name: 'packageName', type: 'string', required: true, description: 'Package/service name' },
         { name: 'name', type: 'string', required: true, description: 'Entity name (PascalCase)' },
-        { name: 'description', type: 'string', required: true, description: 'Entity description' },
+        { name: 'description', type: 'string', required: false, description: 'Entity description' },
         { name: 'stereotype', type: 'string', required: false, description: 'Stereotype: aggregate-root, reference-data, event, value-object' },
         { name: 'attributes', type: 'array', required: true, description: 'Array of {name, type, description, required, primaryKey?, enumValues?}' },
+      ],
+    },
+    {
+      name: 'updateEntity',
+      description: 'Update an existing entity; provided fields become the new desired state (uuid/createdAt preserved)',
+      source: 'builtin' as const,
+      parameters: [
+        { name: 'packageName', type: 'string', required: true, description: 'Package/service name' },
+        { name: 'name', type: 'string', required: true, description: 'Entity name (PascalCase)' },
+        { name: 'description', type: 'string', required: false, description: 'Entity description' },
+        { name: 'stereotype', type: 'string', required: false, description: 'Stereotype id' },
+        { name: 'attributes', type: 'array', required: true, description: 'New desired attribute set: {name, type, description, required, primaryKey?, enumValues?}' },
+      ],
+    },
+    {
+      name: 'deleteEntity',
+      description: 'Delete an entity by package and name (fails if referenced by relationships)',
+      source: 'builtin' as const,
+      parameters: [
+        { name: 'packageName', type: 'string', required: true, description: 'Package/service name' },
+        { name: 'name', type: 'string', required: true, description: 'Entity name to delete' },
       ],
     },
     {
@@ -1247,14 +1213,37 @@ export const aiTools = async (_req: Request, res: Response) => {
       description: 'Create a relationship between two entities. Endpoints may live in the same package or in different packages.',
       source: 'builtin' as const,
       parameters: [
-        { name: 'packageName', type: 'string', required: false, description: 'Fallback package for both endpoints when sourcePackage/targetPackage are omitted' },
         { name: 'sourceEntityName', type: 'string', required: true, description: 'Source entity name' },
-        { name: 'sourcePackage', type: 'string', required: false, description: 'Package containing the source entity (defaults to packageName)' },
         { name: 'targetEntityName', type: 'string', required: true, description: 'Target entity name' },
-        { name: 'targetPackage', type: 'string', required: false, description: 'Package containing the target entity (defaults to packageName)' },
-        { name: 'description', type: 'string', required: true, description: 'Relationship description' },
+        { name: 'sourcePackage', type: 'string', required: false, description: 'Package containing the source entity (omit to scan all)' },
+        { name: 'targetPackage', type: 'string', required: false, description: 'Package containing the target entity (omit to scan all)' },
+        { name: 'description', type: 'string', required: false, description: 'Relationship description' },
         { name: 'sourceCardinality', type: 'one|many', required: true, description: 'Source cardinality' },
         { name: 'targetCardinality', type: 'one|many', required: true, description: 'Target cardinality' },
+      ],
+    },
+    {
+      name: 'updateRelationship',
+      description: 'Update an existing relationship (resolved by matching source/target entities)',
+      source: 'builtin' as const,
+      parameters: [
+        { name: 'sourceEntityName', type: 'string', required: true, description: 'Source entity name' },
+        { name: 'targetEntityName', type: 'string', required: true, description: 'Target entity name' },
+        { name: 'sourcePackage', type: 'string', required: false, description: 'Package containing the source entity (omit to scan all)' },
+        { name: 'targetPackage', type: 'string', required: false, description: 'Package containing the target entity (omit to scan all)' },
+        { name: 'description', type: 'string', required: false, description: 'Relationship description' },
+        { name: 'sourceCardinality', type: 'one|many', required: true, description: 'Source cardinality' },
+        { name: 'targetCardinality', type: 'one|many', required: true, description: 'Target cardinality' },
+      ],
+    },
+    {
+      name: 'deleteRelationship',
+      description: 'Delete a relationship by its package (source entity\'s package) and source/target entity names',
+      source: 'builtin' as const,
+      parameters: [
+        { name: 'packageName', type: 'string', required: true, description: "Package the relationship is stored under (source entity's package)" },
+        { name: 'sourceEntityName', type: 'string', required: true, description: 'Source entity name' },
+        { name: 'targetEntityName', type: 'string', required: true, description: 'Target entity name' },
       ],
     },
     {

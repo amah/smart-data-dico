@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { servicesApi, relationshipApi, stereotypeApi, actionsApi, stateMachinesApi, entityApi } from '../services/api';
 import { Entity, Relationship, Stereotype, ImpactAnalysis, Rule, Action, StateMachine, type Package } from '../types';
@@ -14,6 +14,7 @@ import RelationshipList from './RelationshipList';
 import EntityRulesList from '../plugins/data-dictionary/components/rules/EntityRulesList';
 import { EntityActionsTab } from '../plugins/data-dictionary/components/actions/EntityActionsTab';
 import { EntityStateMachinesTab } from '../plugins/data-dictionary/components/state-machines/EntityStateMachinesTab';
+import { useHighlightOnArrival } from '../hooks/useHighlightOnArrival';
 import { useService } from '../kernel/useService';
 import { RULE_SERVICE_TOKEN } from '../kernel/tokens';
 import type { RuleService } from '../plugins/data-dictionary/services/RuleService';
@@ -74,6 +75,12 @@ const EntityDetail = (props: EntityDetailProps) => {
   const [entityActions, setEntityActions] = useState<Action[]>([]);
   const [entityStateMachines, setEntityStateMachines] = useState<StateMachine[]>([]);
   const navigate = useNavigate();
+  // Flash the entity header when arriving via ?highlight=<entityName> after an
+  // AI mutation (#191 §B). The backend stamps `entityData.name` into highlight,
+  // so we stamp the same value as data-ttrowkey on the header below. The hook
+  // re-runs once entityData loads and no-ops on mismatch / no param.
+  const headerRef = useRef<HTMLDivElement>(null);
+  useHighlightOnArrival(headerRef, entityData);
 
   useEffect(() => {
     stereotypeApi.getAll('entity').then(setStereotypes).catch(() => {});
@@ -372,7 +379,8 @@ const EntityDetail = (props: EntityDetailProps) => {
       className="flex-1 flex flex-col min-h-0"
       style={{ background: 'var(--bg)', color: 'var(--text)' }}
     >
-      <div style={{ padding: '5px 12px 4px' }}>
+      <div ref={headerRef} style={{ padding: '5px 12px 4px' }}>
+        <div data-ttrowkey={entityData?.name}>
         <PageHeader
           breadcrumb={
             <Breadcrumbs
@@ -443,6 +451,7 @@ const EntityDetail = (props: EntityDetailProps) => {
             </>
           }
         />
+        </div>
       </div>
 
       {/* ───── Tabs ───── */}

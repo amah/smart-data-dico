@@ -20,6 +20,7 @@ import {
   shouldAutoApprove,
 } from '../utils/aiAutoApprovePolicy';
 import { validateNavigatePath } from '../utils/validateNavigatePath';
+import { Chip } from '../../../components/ui';
 import { processMentions } from '../../../components/EntityMention';
 import {
   SlashCommand,
@@ -772,9 +773,16 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
               pushToolUpdate();
 
               if (data.output?.navigate) {
+                // Validate the CLEAN path (validateNavigatePath rejects query
+                // strings). Only after it passes do we append the highlight
+                // hint so the destination can flash the changed element (#191).
                 const check = validateNavigatePath(data.output.navigate);
                 if (check.valid) {
-                  navigate(data.output.navigate);
+                  const highlight = data.output.highlight;
+                  const dest = highlight
+                    ? `${data.output.navigate}?highlight=${encodeURIComponent(highlight)}`
+                    : data.output.navigate;
+                  navigate(dest);
                 } else {
                   // Suppress the navigation, rewrite the tool output so the
                   // AI sees the failure on its next turn and can self-correct
@@ -837,6 +845,8 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       if (!assistantText && toolCalls.length > 0) {
         assistantText = toolCalls.map(t => {
           if (t.output?.success === false && t.output?.error) return `**Error in ${t.name}:** ${t.output.error}`;
+          // Prefer the canonical structured `summary` over legacy `message` (#191).
+          if (t.output?.summary) return `- ${t.output.summary}`;
           if (t.output?.message) return `- ${t.output.message}`;
           if (t.output?.packages) return `**Packages:** ${t.output.packages.join(', ')}`;
           if (t.output?.entities) return `Found **${t.output.entities.length}** entities`;
@@ -1745,7 +1755,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                                isCancelled ? 'Cancelled' :
                                isError ? '' :
                                isRunning && tc.input ? inputPreview :
-                               tc.output?.message || ''}
+                               tc.output?.summary || tc.output?.message || ''}
                             </span>
                             <span className="text-base-content/30">{expandedTools.has(tc.id) ? '▼' : '▶'}</span>
                           </button>
@@ -1836,7 +1846,14 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                             {!isError && tc.output !== null && (
                               <div>
                                 <div className="text-[10px] text-base-content/40 uppercase mb-0.5">Output</div>
-                                <pre className="bg-base-300/30 rounded p-1.5 overflow-x-auto text-[11px]">{JSON.stringify(tc.output, null, 2)}</pre>
+                                {/* #191 — structured mutation results render a
+                                    summary card; everything else keeps the
+                                    raw-JSON fallback. */}
+                                {tc.output?.changeKind && tc.output?.elementType ? (
+                                  <ChangeSummaryCard output={tc.output} />
+                                ) : (
+                                  <pre className="bg-base-300/30 rounded p-1.5 overflow-x-auto text-[11px]">{JSON.stringify(tc.output, null, 2)}</pre>
+                                )}
                               </div>
                             )}
                             {isRunning && tc.output === null && (
@@ -2483,6 +2500,44 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
  * adds / removals / modifications. We diff by attribute *name* — uuid drift
  * is intentionally ignored because the AI doesn't know existing uuids.
  */
+/**
+ * Structured change-summary card (#191 §A) — replaces the raw-JSON dump in
+ * an applied mutation's expanded tool card. Renders a change-kind badge
+ * (created = success, updated = info/neutral, deleted = warning/danger),
+ * the elementType, the name, the package, and the canonical `summary`.
+ *
+ * Detected by the caller via `output.changeKind && output.elementType`;
+ * non-structured outputs keep the JSON fallback.
+ */
+export function ChangeSummaryCard({ output }: { output: any }) {
+  const kind: string = output.changeKind;
+  const tone: 'success' | 'info' | 'danger' =
+    kind === 'created' ? 'success' : kind === 'deleted' ? 'danger' : 'info';
+
+  return (
+    <div
+      className="rounded-token-sm border border-base-300 bg-base-100 p-2 space-y-1"
+      data-testid="ai-change-summary"
+    >
+      <div className="flex items-center gap-2 flex-wrap">
+        <Chip tone={tone} soft>{kind}</Chip>
+        <span className="text-[10px] uppercase tracking-wide text-base-content/50">
+          {output.elementType}
+        </span>
+        <span className="font-mono text-[12px] text-base-content/90 truncate">
+          {output.name}
+        </span>
+      </div>
+      <div className="text-[11px] text-base-content/60">
+        Package <span className="font-mono text-base-content/80">{output.packageName}</span>
+      </div>
+      {output.summary && (
+        <div className="text-[11px] text-base-content/70">{output.summary}</div>
+      )}
+    </div>
+  );
+}
+
 export function EntityDiff({ existing, proposed }: { existing: any; proposed: any }) {
   const fields: Array<{ key: string; label: string }> = [
     { key: 'description', label: 'description' },

@@ -358,3 +358,21 @@
 .sdd-row[data-selected="1"] > .sdd-cell:first-child {
   box-shadow: inset 2px 0 0 var(--accent);
 }
+
+/* ── Highlight-on-arrival flash (#191) ──────────────────────────────
+   A transient ring/background pulse stamped on the row that an AI
+   mutation just changed, after the panel navigates to its destination.
+   Modeled on the Cytoscape `.highlighted` pattern (~1800ms). Works on
+   both a `display:contents` row (cells light up via the row selector,
+   like hover/selected) and a plain `<tr>` (the element itself pulses). */
+@keyframes sdd-row-flash {
+  0%   { background: var(--accent-soft); box-shadow: inset 0 0 0 9999px var(--accent-soft); }
+  100% { background: transparent;        box-shadow: inset 0 0 0 9999px transparent; }
+}
+
+.sdd-flash {
+  animation: sdd-row-flash 1600ms ease-out;
+}
+.sdd-flash > .sdd-cell {
+  animation: sdd-row-flash 1600ms ease-out;
+}
