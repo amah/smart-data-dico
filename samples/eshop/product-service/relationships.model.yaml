@@ -4,46 +4,58 @@ relationships:
     source:
       entity: 0375ab51-bca0-4bed-9b4b-cf22178010c8
       cardinality: many
+      name: category
     target:
       entity: f24b182f-9a15-41b6-b2d8-822dca2d1647
       cardinality: one
+      name: products
   - uuid: 1995b378-9a5f-46cb-89ac-fc1d416d245d
     description: Category can have a parent category
     source:
       entity: f24b182f-9a15-41b6-b2d8-822dca2d1647
       cardinality: many
+      name: parent
     target:
       entity: f24b182f-9a15-41b6-b2d8-822dca2d1647
       cardinality: one
+      name: children
   - uuid: 6cb68d7d-bb29-4b28-a916-e8874e15abbc
     description: Review is about a product
     source:
       entity: 6b0431f8-8330-4b4c-954e-8dec12c56d93
       cardinality: many
+      name: product
     target:
       entity: 0375ab51-bca0-4bed-9b4b-cf22178010c8
       cardinality: one
+      name: reviews
   - uuid: c8a71534-64b3-4eb3-94b1-1aab4e43ab8c
     description: Review written by a user
     source:
       entity: 6b0431f8-8330-4b4c-954e-8dec12c56d93
       cardinality: many
+      name: author
     target:
       entity: 702d22b1-7296-436a-b1a0-434b8b662577
       cardinality: one
+      name: reviews
   - uuid: 8b731120-5c05-4f5e-90ba-de0afb391855
     description: Reply to a review
     source:
       entity: 588e9463-ca61-4d76-9e10-279b4a4dc53c
       cardinality: many
+      name: review
     target:
       entity: 6b0431f8-8330-4b4c-954e-8dec12c56d93
       cardinality: one
+      name: replies
   - uuid: bd02229a-bcfd-4b5c-8052-c81053750070
     description: Review reply written by a user
     source:
       entity: 588e9463-ca61-4d76-9e10-279b4a4dc53c
       cardinality: many
+      name: author
     target:
       entity: 702d22b1-7296-436a-b1a0-434b8b662577
       cardinality: one
+      name: replies

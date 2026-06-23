@@ -1,0 +1,13 @@
+cases:
+  - uuid: 8437cc65-9ee7-4568-a1eb-3f1ac069303f
+    name: Claim
+    description: Claim
+    rootEntities:
+      - 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
+    nodes:
+      - path: Order/User
+        traverse: false
+    maxDepth: 10
+    metadata: []
+    createdAt: 2026-06-19T20:43:12.406Z
+    updatedAt: 2026-06-20T06:25:01.452Z

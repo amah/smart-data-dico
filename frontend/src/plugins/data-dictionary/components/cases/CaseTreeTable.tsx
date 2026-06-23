@@ -40,6 +40,11 @@ export interface TreeNode {
  * UML cardinality notation: 'one' → '1', 'many' → '*'. Used to render the
  * nav edge inline on each non-root entity row.
  */
+/** Escape a path for use in a CSS attribute selector (paths contain '/'). */
+function cssEscape(s: string): string {
+  return typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(s) : s;
+}
+
 function formatCardinality(card?: { from: Cardinality; to: Cardinality }): string | null {
   if (!card) return null;
   const short = (c: Cardinality) => (c === Cardinality.ONE ? '1' : '*');
@@ -128,12 +133,60 @@ interface Props {
   nodes: ResolvedNode[];
   /** Called after a metadata value is saved, so the parent can re-resolve. */
   onMetadataUpdated?: () => void;
+  /**
+   * Manually expand a non-composition (association) edge into the case, or
+   * collapse it back. `include=true` crosses the edge; `false` collapses it
+   * to a stub. The parent persists a CaseNode `traverse` flag and re-resolves.
+   */
+  onExpandToggle?: (path: string, include: boolean) => void | Promise<void>;
 }
 
 const LOCALSTORAGE_KEY = 'case-tree-table-columns';
 
-export default function CaseTreeTable({ nodes, onMetadataUpdated }: Props) {
+export default function CaseTreeTable({ nodes, onMetadataUpdated, onExpandToggle }: Props) {
   const tree = useMemo(() => buildTree(nodes), [nodes]);
+
+  // Path → resolved node, for the sticky "you are here" breadcrumb.
+  const nodeByPath = useMemo(() => {
+    const m = new Map<string, ResolvedNode>();
+    for (const n of nodes) m.set(n.path, n);
+    return m;
+  }, [nodes]);
+
+  // Sticky breadcrumb shown under the header as the user scrolls — the full
+  // entity path of the top-most visible row, so the location is never lost in
+  // a long attribute list or a deep branch. Each crumb scrolls to its row.
+  const renderStickyPath = useCallback((top: TreeNode | null): ReactNode => {
+    if (!top) return null;
+    // Attribute rows carry the owner entity path before the "#attr:" marker.
+    // The path bar shows the entity chain only — not the field name.
+    const entityPath = top.path.split('#')[0];
+    const segments = entityPath.split('/');
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
+        {segments.map((seg, i) => {
+          const p = segments.slice(0, i + 1).join('/');
+          const rn = nodeByPath.get(p);
+          const name = rn?.entityName ?? seg;
+          return (
+            <span key={p} style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+              {i > 0 && <span style={{ color: 'var(--text-subtle)', margin: '0 2px' }}>›</span>}
+              {rn?.navName && (
+                <span style={{ fontStyle: 'italic', color: 'var(--text-subtle)' }}>{rn.navName}→</span>
+              )}
+              <button
+                type="button"
+                onClick={() => document.querySelector(`[data-ttrowkey="${cssEscape(p)}"]`)?.scrollIntoView({ block: 'nearest' })}
+                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--accent)', fontWeight: 600 }}
+              >
+                {name}
+              </button>
+            </span>
+          );
+        })}
+      </span>
+    );
+  }, [nodeByPath]);
 
   // Metadata-as-columns (#93) — dual-target: entity + attribute stereotypes
   const { allColumns: entityCols, columnsByStereotype: entityColsByS } = useStereotypeMetadata('entity');
@@ -372,15 +425,38 @@ export default function CaseTreeTable({ nodes, onMetadataUpdated }: Props) {
         key: 'status',
         header: 'Status',
         group: 'standard',
-        width: 100,
+        width: 160,
         render: (n) => {
           if (n.kind !== 'entity' || !n.node) return null;
           const rn = n.node;
+          // A collapsed stub the user can pull into the case.
+          const collapsedStub = rn.isFrontier && rn.isExpandable;
           return (
-            <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
+            <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
               {rn.isRoot && <Chip tone="accent">root</Chip>}
-              {rn.isFrontier && <Chip tone="warning">frontier</Chip>}
+              {!rn.isRoot && rn.isComposition && !rn.isFrontier && <Chip tone="neutral">composition</Chip>}
+              {collapsedStub && <Chip tone="warning">{rn.isComposition ? 'collapsed' : 'association'}</Chip>}
               {rn.isManualInclusion && <Chip tone="info">included</Chip>}
+              {collapsedStub && onExpandToggle && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={(e) => { e.stopPropagation(); void onExpandToggle(rn.path, true); }}
+                  title="Cross this edge and resolve the entity into this case"
+                >
+                  Expand
+                </Button>
+              )}
+              {rn.isManualInclusion && onExpandToggle && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={(e) => { e.stopPropagation(); void onExpandToggle(rn.path, false); }}
+                  title="Collapse this association back to a stub"
+                >
+                  Collapse
+                </Button>
+              )}
             </span>
           );
         },
@@ -426,7 +502,7 @@ export default function CaseTreeTable({ nodes, onMetadataUpdated }: Props) {
     });
 
     return [...std, ...meta];
-  }, [activeMetaCols, handleEntityMeta, handleAttrMeta]);
+  }, [activeMetaCols, handleEntityMeta, handleAttrMeta, onExpandToggle]);
 
   return (
     <div className="flex flex-col gap-2">
@@ -548,6 +624,7 @@ export default function CaseTreeTable({ nodes, onMetadataUpdated }: Props) {
         stickyHeader
         stickyFirstColumn
         attached
+        renderStickyPath={renderStickyPath}
         emptyMessage={filter ? 'No matching entities found' : 'No resolved paths'}
       />
     </div>
@@ -602,7 +679,10 @@ function renderTreeLabel(n: TreeNode): ReactNode {
  * Lookup a metadata value from a raw MetadataEntry array.
  */
 function getMetaVal(metadata: MetadataEntry[] | undefined, name: string): string | number | boolean | undefined {
-  return (metadata || []).find(m => m.name === name)?.value;
+  // The metadata value is typed `MetadataValue | undefined`; this accessor's
+  // contract narrows it to the primitive shapes its callers use. Cast is
+  // contract-preserving (no behavior change).
+  return (metadata || []).find(m => m.name === name)?.value as string | number | boolean | undefined;
 }
 
 /**

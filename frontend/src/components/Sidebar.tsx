@@ -18,11 +18,13 @@
  * the tree can get genuinely deep.
  */
 
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { entityApi } from '../services/api';
 import type { Package } from '../types';
 import { Icon, type IconName } from './ui';
+import { host } from '../kernel/bootstrap';
+import { on } from '../kernel/events';
 
 interface SidebarProps {
   collapsed?: boolean;
@@ -36,22 +38,34 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
   const [flatViewsOpen, setFlatViewsOpen] = useState(false);
   const location = useLocation();
 
-  useEffect(() => {
-    const fetchPackages = async () => {
-      try {
-        setPackagesLoading(true);
-        const response = await entityApi.getAllPackages();
-        setPackages(response);
-        setPackagesError(null);
-      } catch (err) {
-        console.error('Error fetching packages:', err);
-        setPackagesError('Failed to load packages');
-      } finally {
-        setPackagesLoading(false);
-      }
-    };
-    fetchPackages();
+  const fetchPackages = useCallback(async () => {
+    try {
+      setPackagesLoading(true);
+      const response = await entityApi.getAllPackages();
+      setPackages(response);
+      setPackagesError(null);
+    } catch (err) {
+      console.error('Error fetching packages:', err);
+      setPackagesError('Failed to load packages');
+    } finally {
+      setPackagesLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchPackages();
+  }, [fetchPackages]);
+
+  // Cases (and other package contents) are loaded once on mount. Re-fetch the
+  // tree when a case is created / updated / deleted so a newly created case
+  // appears under its package without a full page reload.
+  useEffect(() => {
+    const hooks = host.rootActivationCtx?.hooks;
+    if (!hooks) return;
+    const handler = () => { void fetchPackages(); };
+    on(hooks, 'case.changed', handler);
+    return () => { hooks.off('case.changed', handler); };
+  }, [fetchPackages]);
 
   // Standard "inside this section" match — used for View/Tools rows where the
   // section's subroutes should keep the header highlighted (e.g. `/quality/x`

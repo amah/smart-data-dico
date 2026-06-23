@@ -36,6 +36,21 @@ export default function CaseDetailPage() {
     }
   };
 
+  // Manually expand a non-composition (association) edge into the case, or
+  // collapse it back. Persists a CaseNode `traverse` flag at the path; merges
+  // with any existing node so path metadata is preserved (upsertNode replaces).
+  const handleExpandToggle = async (path: string, include: boolean) => {
+    if (!id) return;
+    const existing = resolved?.nodes?.find((n) => n.path === path);
+    try {
+      await caseService.upsertNode(id, { ...existing, path, traverse: include });
+      const next = await caseService.resolve(id);
+      setResolved(next);
+    } catch {
+      setError('Failed to update case boundary');
+    }
+  };
+
   if (loading) {
     return <div className="flex items-center justify-center h-64"><span className="loading loading-spinner loading-lg" /></div>;
   }
@@ -120,6 +135,7 @@ export default function CaseDetailPage() {
           {activeTab === 'paths' && (
             <CaseTreeTable
               nodes={resolved.resolvedNodes}
+              onExpandToggle={handleExpandToggle}
               onMetadataUpdated={() => {
                 if (id) caseService.resolve(id).then(setResolved).catch(() => {});
               }}

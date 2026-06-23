@@ -17,12 +17,27 @@ import type { LogicalPath } from '../storage/projection/LogicalProjection.js';
 
 interface AdjacencyEntry {
   neighborUuid: string;
-  navName: string;
+  /**
+   * The origin end's role — the field at the origin entity for reaching the
+   * neighbor (the edge's display label). Undefined when the end declares no
+   * role; we deliberately do NOT fall back to the relationship description,
+   * which is a sentence, not a navigation label. Also used to prefer a
+   * role-bearing edge when two relationships connect the same pair.
+   */
+  navName?: string;
   relationshipUuid: string;
   /** Cardinality at the *origin* side of this edge (the side we're on). */
   fromCard: Cardinality;
   /** Cardinality at the *destination* side of this edge (the neighbor). */
   toCard: Cardinality;
+  /**
+   * True when the *origin* end of this directed edge carries the
+   * `composition` stereotype — i.e. traversing origin→neighbor crosses an
+   * owner→part containment edge. Asymmetric by construction: the reverse
+   * directed entry (part→owner) is false unless the part end is also a
+   * composition owner. This is what bounds case auto-expansion.
+   */
+  isComposition: boolean;
 }
 
 interface EntityInfo {
@@ -241,10 +256,17 @@ class CaseService {
       pathSegments: string[];
       usedRelationships: Set<string>;
       inboundNav?: {
-        navName: string;
+        navName?: string;
         fromCard: Cardinality;
         toCard: Cardinality;
       };
+      /** True when the inbound edge is a composition (owner→part) edge. */
+      inboundIsComposition?: boolean;
+      /**
+       * True when this node was reached by *manually* crossing a
+       * non-composition edge (a CaseNode with traverse:true at this path).
+       */
+      inboundIsManual?: boolean;
     }
     const queue: QueueItem[] = [];
 
@@ -260,7 +282,7 @@ class CaseService {
     const visitedEntities = new Set<string>();
 
     while (queue.length > 0) {
-      const { entityUuid, hopDistance, pathSegments, usedRelationships, inboundNav } = queue.shift()!;
+      const { entityUuid, hopDistance, pathSegments, usedRelationships, inboundNav, inboundIsComposition, inboundIsManual } = queue.shift()!;
 
       // Skip if this entity was already resolved via a shorter/earlier path
       if (visitedEntities.has(entityUuid)) continue;
@@ -288,7 +310,8 @@ class CaseService {
         hopDistance,
         isRoot: hopDistance === 0,
         isFrontier,
-        isManualInclusion: false,
+        isManualInclusion: inboundIsManual === true,
+        isComposition: hopDistance === 0 ? undefined : inboundIsComposition === true,
         attributes: info.attributes,
         metadata: info.metadata.length > 0 ? info.metadata : undefined,
       };
@@ -305,11 +328,26 @@ class CaseService {
       if (isFrontier) continue;
 
       // Enqueue neighbors — skip already-visited entities and
-      // relationships already used in this path (prevents self-loops)
+      // relationships already used in this path (prevents self-loops).
+      //
+      // Group parallel edges by neighbor entity so the same target is shown
+      // once per parent. Two relationships can connect the same pair (e.g. a
+      // package-level composition `Order ◆— OrderItem` plus an entity-embedded
+      // `OrderItem.order belongsTo Order`); without grouping the neighbor
+      // would appear twice — once expanded, once as a stub.
       const neighbors = adjacency.get(entityUuid) || [];
-      for (const { neighborUuid, navName, relationshipUuid, fromCard, toCard } of neighbors) {
+      const byNeighbor = new Map<string, AdjacencyEntry[]>();
+      for (const edge of neighbors) {
+        if (!byNeighbor.has(edge.neighborUuid)) byNeighbor.set(edge.neighborUuid, []);
+        byNeighbor.get(edge.neighborUuid)!.push(edge);
+      }
+
+      for (const [neighborUuid, parallelEdges] of byNeighbor) {
         if (visitedEntities.has(neighborUuid)) continue;
-        if (usedRelationships.has(relationshipUuid)) continue;
+
+        // Drop edges already used in this path (prevents self-loops).
+        const edges = parallelEdges.filter(e => !usedRelationships.has(e.relationshipUuid));
+        if (edges.length === 0) continue;
 
         const neighborInfo = entityMap.get(neighborUuid);
         if (!neighborInfo) continue;
@@ -326,15 +364,60 @@ class CaseService {
         const prefixNode = nodesByPath.get(newPathStr);
         if (prefixNode?.exclude) continue;
 
+        // Pick the edge to represent this neighbor. Composition wins (so the
+        // neighbor resolves as a part). Otherwise prefer an edge that declares
+        // a real role, so the label is the end's role (e.g. "product") rather
+        // than a role-less relationship's description fallback. Falls back to
+        // the first edge when none has a role.
+        const edge =
+          edges.find(e => e.isComposition) ??
+          edges.find(e => e.navName) ??
+          edges[0];
+        const isComposition = edge.isComposition;
+
+        // Composition-bounded expansion (#case-composition): auto-cross an
+        // edge only when it is a composition (owner→part) edge. A non-
+        // composition edge is crossed only when the user manually marked the
+        // neighbor path with `traverse: true`; otherwise it is emitted as a
+        // collapsed frontier stub the user can expand later. An explicit
+        // `traverse: false` always collapses — even a composition child.
+        const cross = prefixNode?.traverse ?? isComposition;
+
+        if (!cross) {
+          // Collapsed frontier stub — shown but not expanded, not enqueued,
+          // and NOT marked visited, so the same entity can still resolve via
+          // a composition path elsewhere in the tree.
+          resolvedNodes.push({
+            entityUuid: neighborUuid,
+            entityName: neighborInfo.name,
+            service: neighborInfo.service,
+            path: newPathStr,
+            hopDistance: hopDistance + 1,
+            isRoot: false,
+            isFrontier: true,
+            isManualInclusion: false,
+            isComposition,
+            isExpandable: true,
+            navName: edge.navName,
+            navCardinality: { from: edge.fromCard, to: edge.toCard },
+            attributes: neighborInfo.attributes,
+            metadata: neighborInfo.metadata.length > 0 ? neighborInfo.metadata : undefined,
+          });
+          continue;
+        }
+
         const newUsed = new Set(usedRelationships);
-        newUsed.add(relationshipUuid);
+        newUsed.add(edge.relationshipUuid);
 
         queue.push({
           entityUuid: neighborUuid,
           hopDistance: hopDistance + 1,
           pathSegments: newPath,
           usedRelationships: newUsed,
-          inboundNav: { navName, fromCard, toCard },
+          inboundNav: { navName: edge.navName, fromCard: edge.fromCard, toCard: edge.toCard },
+          inboundIsComposition: isComposition,
+          // Manual inclusion = the user force-expanded a non-composition edge.
+          inboundIsManual: prefixNode?.traverse === true && !isComposition,
         });
       }
     }
@@ -424,9 +507,18 @@ class CaseService {
     for (const { relationships } of allRels) {
       for (const rel of relationships) {
         const [endA, endB] = normalizeRelationshipEnds(rel);
-        const fallback = rel.description || rel.uuid;
-        const roleA = endA.role || fallback;
-        const roleB = endB.role || fallback;
+        // Label is the end's role only — never the relationship description.
+        const roleA = endA.role;
+        const roleB = endB.role;
+
+        // Composition is an ENDPOINT property: the owner/whole end carries
+        // the `composition` stereotype. The directed edge origin→neighbor is
+        // a composition (auto-expand) edge only when the *origin* end is the
+        // owner — so A→B is composition iff endA is the owner, and B→A iff
+        // endB is. This asymmetry is what stops bidirectional back-references
+        // (part→owner) from auto-expanding.
+        const aIsOwner = endA.stereotype === 'composition';
+        const bIsOwner = endB.stereotype === 'composition';
 
         // A → B: origin is A, nav name is A's role (A's field for reaching B)
         if (!adjacency.has(endA.entity)) adjacency.set(endA.entity, []);
@@ -436,6 +528,7 @@ class CaseService {
           relationshipUuid: rel.uuid,
           fromCard: endA.cardinality,
           toCard: endB.cardinality,
+          isComposition: aIsOwner,
         });
 
         // B → A: origin is B, nav name is B's role
@@ -446,6 +539,7 @@ class CaseService {
           relationshipUuid: rel.uuid,
           fromCard: endB.cardinality,
           toCard: endA.cardinality,
+          isComposition: bIsOwner,
         });
       }
     }

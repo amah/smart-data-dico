@@ -261,6 +261,17 @@ export interface ResolvedNode {
   isRoot: boolean;
   isFrontier: boolean;
   isManualInclusion: boolean;
+  /**
+   * True when the inbound edge is a composition (owner→part) edge. Undefined
+   * on roots. Non-composition neighbors are emitted as collapsed frontier
+   * stubs (isFrontier=true, isExpandable=true) unless manually included.
+   */
+  isComposition?: boolean;
+  /**
+   * True when this node is a collapsed stub the user can manually expand into
+   * the case ("Expand into case" → persists a CaseNode with traverse:true).
+   */
+  isExpandable?: boolean;
   /** End-name of the edge that reached this node (undefined on roots). */
   navName?: string;
   /** Cardinality of the inbound edge — `from` is the parent side. */
@@ -341,6 +352,8 @@ export interface RelationshipEnd {
   cardinality: Cardinality;
   name?: string; // Navigation property name
   referenceAttributes?: string[];
+  /** Endpoint stereotype; `composition` marks this end as the owner/whole. */
+  stereotype?: string;
 }
 
 /**
@@ -352,6 +365,8 @@ export interface RelationshipEndNamed {
   role?: string;
   cardinality: Cardinality;
   referenceAttributes?: string[];
+  /** Endpoint stereotype; `composition` marks this end as the owner/whole. */
+  stereotype?: string;
 }
 
 /**

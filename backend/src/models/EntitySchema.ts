@@ -201,6 +201,19 @@ export interface ResolvedNode {
   isFrontier: boolean;
   isManualInclusion: boolean;
   /**
+   * True when the edge that reached this node is a composition (owner→part)
+   * edge — i.e. the parent end carried the `composition` stereotype.
+   * Undefined for roots. Non-composition neighbors are emitted as collapsed
+   * frontier stubs (isFrontier=true) unless manually included.
+   */
+  isComposition?: boolean;
+  /**
+   * True when this node is a non-composition neighbor shown as a collapsed
+   * stub that the user can manually expand into the case ("Expand into
+   * case" → persists a CaseNode with traverse:true at this path).
+   */
+  isExpandable?: boolean;
+  /**
    * Relationship end-name reaching this node from its parent (undefined
    * for roots). Falls back to the relationship `description` when neither
    * `source.name` nor `target.name` is set on the underlying Relationship.
@@ -295,6 +308,13 @@ export interface RelationshipEnd {
   cardinality: Cardinality;
   name?: string; // Navigation property name
   referenceAttributes?: string[];
+  /**
+   * Endpoint stereotype (#case-composition). The reserved id `composition`
+   * marks this end as the OWNER / whole of a containment relationship — the
+   * opposite end is its part. Case resolution auto-expands across an edge
+   * only in the owner→part direction; the inverse is a manual frontier.
+   */
+  stereotype?: string;
 }
 
 /**
@@ -320,6 +340,13 @@ export interface RelationshipEndNamed {
   role?: string;
   cardinality: Cardinality;
   referenceAttributes?: string[];
+  /**
+   * Endpoint stereotype (#case-composition). The reserved id `composition`
+   * marks this end as the OWNER / whole of a containment relationship — the
+   * opposite end is its part. Case resolution auto-expands across an edge
+   * only in the owner→part direction; the inverse is a manual frontier.
+   */
+  stereotype?: string;
 }
 
 /**
@@ -376,12 +403,14 @@ export function normalizeRelationshipEnds(rel: Relationship): [RelationshipEndNa
       cardinality: rel.source.cardinality,
       role: rel.source.name,
       referenceAttributes: rel.source.referenceAttributes,
+      stereotype: rel.source.stereotype,
     },
     {
       entity: rel.target.entity,
       cardinality: rel.target.cardinality,
       role: rel.target.name,
       referenceAttributes: rel.target.referenceAttributes,
+      stereotype: rel.target.stereotype,
     },
   ];
 }
@@ -404,8 +433,8 @@ export function normalizeRelationship(rel: Relationship): Relationship | null {
   return {
     ...rel,
     ends: hasEnds ? rel.ends : [a, b],
-    source: rel.source ?? { entity: a.entity, cardinality: a.cardinality, name: a.role, referenceAttributes: a.referenceAttributes },
-    target: rel.target ?? { entity: b.entity, cardinality: b.cardinality, name: b.role, referenceAttributes: b.referenceAttributes },
+    source: rel.source ?? { entity: a.entity, cardinality: a.cardinality, name: a.role, referenceAttributes: a.referenceAttributes, stereotype: a.stereotype },
+    target: rel.target ?? { entity: b.entity, cardinality: b.cardinality, name: b.role, referenceAttributes: b.referenceAttributes, stereotype: b.stereotype },
   };
 }
 
@@ -624,7 +653,8 @@ export const relationshipSchema: Schema = {
         entity: { type: 'string' },
         cardinality: { type: 'string', enum: Object.values(Cardinality) },
         name: { type: 'string' },
-        referenceAttributes: { type: 'array', items: { type: 'string' } }
+        referenceAttributes: { type: 'array', items: { type: 'string' } },
+        stereotype: { type: 'string' }
       }
     },
     target: {
@@ -634,7 +664,8 @@ export const relationshipSchema: Schema = {
         entity: { type: 'string' },
         cardinality: { type: 'string', enum: Object.values(Cardinality) },
         name: { type: 'string' },
-        referenceAttributes: { type: 'array', items: { type: 'string' } }
+        referenceAttributes: { type: 'array', items: { type: 'string' } },
+        stereotype: { type: 'string' }
       }
     },
     metadata: { type: 'array' }

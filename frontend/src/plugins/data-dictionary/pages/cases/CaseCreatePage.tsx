@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useService } from '../../../../kernel/useService';
+import { useCommand } from '../../../../kernel/useCommand';
 import { CASE_SERVICE_TOKEN } from '../../../../kernel/tokens';
 import type { CaseService } from '../../services/CaseService';
 import CaseEntityPicker from '../../components/cases/CaseEntityPicker';
@@ -9,6 +10,7 @@ import type { MetadataEntry } from '../../../../types';
 
 export default function CaseCreatePage() {
   const caseService = useService<CaseService>(CASE_SERVICE_TOKEN);
+  const run = useCommand();
   const navigate = useNavigate();
   const { id } = useParams();
   const isEdit = !!id;
@@ -45,10 +47,12 @@ export default function CaseCreatePage() {
     setError(null);
     try {
       if (isEdit) {
-        await caseService.update(id, { name, description, rootEntities, maxDepth, metadata });
+        // Route through the command (not the service directly) so the
+        // `case.changed` hook fires and listeners like the sidebar refresh.
+        await run('data-dictionary.case.update', { id, data: { name, description, rootEntities, maxDepth, metadata } });
         navigate(`/cases/${id}`);
       } else {
-        const result = await caseService.create({ name, description, rootEntities, maxDepth, metadata });
+        const result = await run('data-dictionary.case.create', { data: { name, description, rootEntities, maxDepth, metadata } });
         navigate(`/cases/${result.data.uuid}`);
       }
     } catch (err: any) {

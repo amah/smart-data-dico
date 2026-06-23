@@ -14,6 +14,7 @@ relationships:
       - entity: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
         cardinality: one
         role: items
+        stereotype: composition
       - entity: c30df0bf-7c41-4aa8-9b18-91a054384255
         cardinality: many
         role: order
@@ -21,6 +22,7 @@ relationships:
       entity: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
       cardinality: one
       name: items
+      stereotype: composition
     target:
       entity: c30df0bf-7c41-4aa8-9b18-91a054384255
       cardinality: many
@@ -54,22 +56,28 @@ relationships:
     source:
       entity: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
       cardinality: many
+      name: user
     target:
       entity: 702d22b1-7296-436a-b1a0-434b8b662577
       cardinality: one
+      name: orders
   - uuid: a4b73d71-d4cb-46a5-910c-989a36300473
     description: Order item references a product
     source:
       entity: c30df0bf-7c41-4aa8-9b18-91a054384255
       cardinality: many
+      name: product
     target:
       entity: 0375ab51-bca0-4bed-9b4b-cf22178010c8
       cardinality: one
+      name: orderItems
   - uuid: 27d2940a-03b1-40f3-8bd7-540b8a0b33d3
     description: Order item belongs to an order
     source:
       entity: c30df0bf-7c41-4aa8-9b18-91a054384255
       cardinality: many
+      name: order
     target:
       entity: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
       cardinality: one
+      name: items

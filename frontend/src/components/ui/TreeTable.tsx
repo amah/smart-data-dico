@@ -12,6 +12,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -136,6 +137,14 @@ export interface TreeTableProps<Row> {
   maxHeight?: number | string;
   attached?: boolean;
 
+  /**
+   * Render a sticky "where am I" path bar pinned under the header. Receives
+   * the top-most visible row as the user scrolls (null when the first row is
+   * at the top). Return falsy to render nothing for that row. Requires a
+   * scrolling container (stickyHeader). See CaseTreeTable for usage.
+   */
+  renderStickyPath?: (topRow: Row | null) => ReactNode;
+
   emptyMessage?: ReactNode;
   /** Called when a row body is clicked (excluding chevron). */
   onRowClick?: (row: Row) => void;
@@ -160,9 +169,60 @@ function TreeTable<Row>({
   emptyMessage = 'No rows.',
   onRowClick,
   className = '',
+  renderStickyPath,
 }: TreeTableProps<Row>) {
   const { widths: columnWidths, startResize } = useColumnWidths(resizeKey);
   const resizable = !!resizeKey;
+
+  // ── Sticky path bar (#case-path): track the top-most visible row so the
+  // caller can render a "you are here" breadcrumb pinned under the header.
+  // Rows are display:contents, so we measure each row's tree-column cell
+  // (a real box, tagged data-ttrowkey) against the header's bottom edge.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [topRow, setTopRow] = useState<Row | null>(null);
+  const [headerOffset, setHeaderOffset] = useState(0);
+
+  const rowByKey = useMemo(() => {
+    const m = new Map<string, Row>();
+    for (const tr of rows) m.set(String(getRowKey(tr.row)), tr.row);
+    return m;
+  }, [rows, getRowKey]);
+
+  const recomputeTopRow = useCallback(() => {
+    const scroller = scrollRef.current;
+    if (!scroller || !renderStickyPath) return;
+    // At the very top there's nothing scrolled out of view — hide the bar so
+    // it doesn't just duplicate the first visible row.
+    if (scroller.scrollTop < 4) { setTopRow(null); return; }
+    const header = scroller.querySelector('[role="columnheader"]') as HTMLElement | null;
+    if (!header) return;
+    const headerRect = header.getBoundingClientRect();
+    // Distance from the scroll container's top to the header's bottom = where
+    // the path bar should pin (the header is itself sticky at the top).
+    setHeaderOffset(Math.max(0, headerRect.bottom - scroller.getBoundingClientRect().top));
+    const cutoff = headerRect.bottom + 1;
+    const cells = scroller.querySelectorAll<HTMLElement>('[data-ttrowkey]');
+    let foundKey: string | null = null;
+    for (const cell of cells) {
+      if (cell.getBoundingClientRect().bottom > cutoff) {
+        foundKey = cell.getAttribute('data-ttrowkey');
+        break;
+      }
+    }
+    setTopRow(foundKey != null ? rowByKey.get(foundKey) ?? null : null);
+  }, [renderStickyPath, rowByKey]);
+
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller || !renderStickyPath) return;
+    let raf = 0;
+    const onScroll = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(recomputeTopRow); };
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    recomputeTopRow();
+    return () => { scroller.removeEventListener('scroll', onScroll); cancelAnimationFrame(raf); };
+  }, [recomputeTopRow, renderStickyPath, rows]);
+
+  const stickyPathContent = renderStickyPath ? renderStickyPath(topRow) : null;
 
   const initialDragWidth = useCallback((col: ColumnDef<Row>): number => {
     const override = columnWidths[col.key];
@@ -195,6 +255,7 @@ function TreeTable<Row>({
 
   return (
     <div
+      ref={scrollRef}
       className={className}
       style={{
         background: 'var(--bg-raised)',
@@ -276,6 +337,30 @@ function TreeTable<Row>({
           ))}
         </div>
 
+        {renderStickyPath && stickyPathContent && (
+          <div role="row" style={{ display: 'contents' }}>
+            <div
+              style={{
+                gridColumn: `1 / span ${totalCols}`,
+                position: 'sticky',
+                top: headerOffset,
+                left: stickyFirstColumn ? 0 : undefined,
+                zIndex: 9,
+                background: 'var(--bg-subtle)',
+                borderBottom: '1px solid var(--border)',
+                padding: '4px 10px',
+                fontSize: 'var(--fs-xs)',
+                color: 'var(--text-muted)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {stickyPathContent}
+            </div>
+          </div>
+        )}
+
         {rows.length === 0 ? (
           <div
             role="row"
@@ -309,6 +394,7 @@ function TreeTable<Row>({
                       col={col}
                       row={tr.row}
                       treeOps={isTree ? tr : undefined}
+                      dataRowKey={isTree ? rowKey : undefined}
                       stickyLeft={stickyFirstColumn && col.key === firstDataColKey}
                     />
                   );
@@ -400,9 +486,11 @@ interface BodyCellProps<Row> {
   stickyLeft?: boolean;
   /** When set, this cell is the tree column — chevron + indent are added. */
   treeOps?: TreeTableRow<Row>;
+  /** Row key stamped as data-ttrowkey on the tree cell, for sticky-path tracking. */
+  dataRowKey?: string | number;
 }
 
-function BodyCell<Row>({ col, row, meta, metaFirst, stickyLeft, treeOps }: BodyCellProps<Row>) {
+function BodyCell<Row>({ col, row, meta, metaFirst, stickyLeft, treeOps, dataRowKey }: BodyCellProps<Row>) {
   const align = col.align ?? 'left';
   const value = accessorValue(col, row);
   const content: ReactNode = col.render ? col.render(row) : (value as ReactNode);
@@ -428,7 +516,7 @@ function BodyCell<Row>({ col, row, meta, metaFirst, stickyLeft, treeOps }: BodyC
 
   if (treeOps) {
     return (
-      <div role="cell" className={`sdd-cell ${col.mono ? 'mono' : ''}`} style={cellStyle}>
+      <div role="cell" data-ttrowkey={dataRowKey} className={`sdd-cell ${col.mono ? 'mono' : ''}`} style={cellStyle}>
         <div
           style={{
             display: 'flex',

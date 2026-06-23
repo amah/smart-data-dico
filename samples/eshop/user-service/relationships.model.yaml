@@ -4,22 +4,28 @@ relationships:
     source:
       entity: 7e076ecf-e514-46e0-b08c-0d083632e99f
       cardinality: one
+      name: user
     target:
       entity: 702d22b1-7296-436a-b1a0-434b8b662577
       cardinality: one
+      name: profile
   - uuid: ef4ee393-c257-4dc6-bf0a-dcc5f6708045
     description: Wishlist owned by a user
     source:
       entity: 6012847c-284f-45d8-9292-43c99c8b4039
       cardinality: many
+      name: owner
     target:
       entity: 702d22b1-7296-436a-b1a0-434b8b662577
       cardinality: one
+      name: wishlists
   - uuid: 8b5507d7-5620-48b4-bc03-5246a0f6dab1
     description: Wishlist contains products
     source:
       entity: 6012847c-284f-45d8-9292-43c99c8b4039
       cardinality: many
+      name: products
     target:
       entity: 0375ab51-bca0-4bed-9b4b-cf22178010c8
       cardinality: many
+      name: wishlists

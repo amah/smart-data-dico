@@ -293,6 +293,9 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
               <Link to={`${packageUrl}/entities/create`} className="btn btn-sm btn-primary">
                 Add Entity
               </Link>
+              <Link to="/cases/create" className="btn btn-sm btn-primary">
+                Add Case
+              </Link>
             </div>
           </div>
           {entityCount === 0 ? (

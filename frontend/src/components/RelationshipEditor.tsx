@@ -11,10 +11,13 @@ interface RelationshipFormData {
   sourceCardinality: Cardinality;
   sourceName: string;
   sourceReferenceAttributes: string;
+  /** This end is the composition OWNER (the whole); the other end is its part. */
+  sourceComposition: boolean;
   targetEntity: string;
   targetCardinality: Cardinality;
   targetName: string;
   targetReferenceAttributes: string;
+  targetComposition: boolean;
 }
 
 interface RelationshipEditorProps {
@@ -38,10 +41,12 @@ function toFormData(rel: Relationship): RelationshipFormData {
       sourceCardinality: a.cardinality,
       sourceName: a.role || '',
       sourceReferenceAttributes: (a.referenceAttributes || []).join(', '),
+      sourceComposition: a.stereotype === 'composition',
       targetEntity: b.entity,
       targetCardinality: b.cardinality,
       targetName: b.role || '',
       targetReferenceAttributes: (b.referenceAttributes || []).join(', '),
+      targetComposition: b.stereotype === 'composition',
     };
   }
   return {
@@ -51,10 +56,12 @@ function toFormData(rel: Relationship): RelationshipFormData {
     sourceCardinality: rel.source.cardinality,
     sourceName: rel.source.name || '',
     sourceReferenceAttributes: (rel.source.referenceAttributes || []).join(', '),
+    sourceComposition: rel.source.stereotype === 'composition',
     targetEntity: rel.target.entity,
     targetCardinality: rel.target.cardinality,
     targetName: rel.target.name || '',
     targetReferenceAttributes: (rel.target.referenceAttributes || []).join(', '),
+    targetComposition: rel.target.stereotype === 'composition',
   };
 }
 
@@ -74,6 +81,7 @@ function toRelationship(data: RelationshipFormData, uuid: string): Relationship 
     ...(parseAttrs(data.sourceReferenceAttributes) && {
       referenceAttributes: parseAttrs(data.sourceReferenceAttributes),
     }),
+    ...(data.sourceComposition && { stereotype: 'composition' }),
   };
   const endB: RelationshipEndNamed = {
     entity: data.targetEntity,
@@ -82,18 +90,21 @@ function toRelationship(data: RelationshipFormData, uuid: string): Relationship 
     ...(parseAttrs(data.targetReferenceAttributes) && {
       referenceAttributes: parseAttrs(data.targetReferenceAttributes),
     }),
+    ...(data.targetComposition && { stereotype: 'composition' }),
   };
   const source: RelationshipEnd = {
     entity: endA.entity,
     cardinality: endA.cardinality,
     ...(endA.role && { name: endA.role }),
     ...(endA.referenceAttributes && { referenceAttributes: endA.referenceAttributes }),
+    ...(endA.stereotype && { stereotype: endA.stereotype }),
   };
   const target: RelationshipEnd = {
     entity: endB.entity,
     cardinality: endB.cardinality,
     ...(endB.role && { name: endB.role }),
     ...(endB.referenceAttributes && { referenceAttributes: endB.referenceAttributes }),
+    ...(endB.stereotype && { stereotype: endB.stereotype }),
   };
 
   return {
@@ -113,10 +124,12 @@ const defaultFormValues: RelationshipFormData = {
   sourceCardinality: Cardinality.ONE,
   sourceName: '',
   sourceReferenceAttributes: '',
+  sourceComposition: false,
   targetEntity: '',
   targetCardinality: Cardinality.MANY,
   targetName: '',
   targetReferenceAttributes: '',
+  targetComposition: false,
 };
 
 const RelationshipEditor = ({ isEdit = false, initialData, onSave, serviceProp, entityProp }: RelationshipEditorProps) => {
@@ -299,6 +312,25 @@ const RelationshipEditor = ({ isEdit = false, initialData, onSave, serviceProp, 
           <label className="label">
             <span className="label-text-alt">
               Comma-separated list of attribute names used as reference keys
+            </span>
+          </label>
+        </div>
+
+        {/* Composition (endpoint stereotype) */}
+        <div className="form-control md:col-span-2">
+          <label className="label cursor-pointer justify-start gap-3">
+            <input
+              type="checkbox"
+              className="checkbox checkbox-sm"
+              {...register(`${prefix}Composition` as const)}
+            />
+            <span className="label-text">Composition (this end owns the other)</span>
+          </label>
+          <label className="label">
+            <span className="label-text-alt">
+              Marks this end as the whole/owner. Case resolution auto-expands
+              from owner → part; the reverse and plain associations stay
+              collapsed until manually expanded.
             </span>
           </label>
         </div>
