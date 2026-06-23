@@ -483,6 +483,37 @@ describe('executeUpdateEntity — success contract', () => {
     if (!result.success) return;
     expect(result.summary).toMatch(/unchanged/);
   });
+
+  it('highlights the newly-added attribute by uuid (#193)', async () => {
+    // `input` adds a 3rd attribute "price"; highlight should be that new
+    // attribute's generated uuid so its row flashes on arrival.
+    const services = makeMockServices({ existingEntity });
+    const result = await executeUpdateEntity(input, services);
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    const [, entityArg] = (services.serviceService.updateEntity as jest.Mock).mock.calls[0];
+    const priceUuid = entityArg.attributes.find((a: any) => a.name === 'price').uuid;
+    expect(priceUuid).toBeTruthy();
+    expect(result.highlight).toBe(priceUuid);
+  });
+
+  it('falls back to highlighting the entity name when no attribute is added (#193)', async () => {
+    // Same attribute set (no additions) — highlight the entity (header flash).
+    const sameNamesInput: UpdateEntityInput = {
+      ...input,
+      attributes: [
+        { name: 'id', type: 'uuid', required: true },
+        { name: 'name', type: 'string', required: true },
+      ],
+    };
+    const services = makeMockServices({ existingEntity });
+    const result = await executeUpdateEntity(sameNamesInput, services);
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.highlight).toBe('Product');
+  });
 });
 
 // ===========================================================================

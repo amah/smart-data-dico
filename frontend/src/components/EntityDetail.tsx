@@ -75,12 +75,13 @@ const EntityDetail = (props: EntityDetailProps) => {
   const [entityActions, setEntityActions] = useState<Action[]>([]);
   const [entityStateMachines, setEntityStateMachines] = useState<StateMachine[]>([]);
   const navigate = useNavigate();
-  // Flash the entity header when arriving via ?highlight=<entityName> after an
-  // AI mutation (#191 §B). The backend stamps `entityData.name` into highlight,
-  // so we stamp the same value as data-ttrowkey on the header below. The hook
-  // re-runs once entityData loads and no-ops on mismatch / no param.
-  const headerRef = useRef<HTMLDivElement>(null);
-  useHighlightOnArrival(headerRef, entityData);
+  // Flash the changed element when arriving via ?highlight=<key> after an AI
+  // mutation. The container ref spans the whole entity view so the hook can
+  // locate either the header (key = entity name, stamped below — #191 §B) or a
+  // specific attribute row (key = attribute uuid, stamped by the attribute
+  // table — #193). It re-runs once entityData loads and no-ops on no match.
+  const contentRef = useRef<HTMLDivElement>(null);
+  useHighlightOnArrival(contentRef, entityData);
 
   useEffect(() => {
     stereotypeApi.getAll('entity').then(setStereotypes).catch(() => {});
@@ -387,10 +388,11 @@ const EntityDetail = (props: EntityDetailProps) => {
 
   return (
     <div
+      ref={contentRef}
       className="flex-1 flex flex-col min-h-0"
       style={{ background: 'var(--bg)', color: 'var(--text)' }}
     >
-      <div ref={headerRef} style={{ padding: '5px 12px 4px' }}>
+      <div style={{ padding: '5px 12px 4px' }}>
         <div data-ttrowkey={entityData?.name}>
         <PageHeader
           breadcrumb={

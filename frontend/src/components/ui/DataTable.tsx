@@ -526,6 +526,10 @@ function DataTable<Row>({
                 key={rowKey}
                 role="row"
                 className="sdd-row"
+                // #193 — row-level key so useHighlightOnArrival can locate +
+                // flash a row (.sdd-flash > .sdd-cell). DataTable has no
+                // sticky-path scan, so stamping the display:contents row is safe.
+                data-ttrowkey={String(rowKey)}
                 data-selected={isSelected ? '1' : undefined}
                 onClick={clickable ? handleClick : undefined}
                 style={{ display: 'contents', cursor: clickable ? 'pointer' : undefined }}

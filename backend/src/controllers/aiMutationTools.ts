@@ -413,6 +413,14 @@ export async function executeUpdateEntity(
         ? `+${delta} attribute${delta === 1 ? '' : 's'}`
         : `-${Math.abs(delta)} attribute${Math.abs(delta) === 1 ? '' : 's'}`;
     const summary = `Updated ${entity.name} (${deltaNote})`;
+
+    // #193 — when this update ADDS an attribute, highlight that new row on
+    // arrival (keyed by uuid to match the attribute table's row key,
+    // getRowKey={(a) => a.uuid}). Otherwise fall back to the entity name so the
+    // header flashes (covers field-level edits and whole-entity changes).
+    const existingNames = new Set(existing.attributes.map((a) => a.name));
+    const addedAttr = entity.attributes.find((a) => !existingNames.has(a.name));
+
     return {
       success: true,
       changeKind: 'updated',
@@ -421,7 +429,7 @@ export async function executeUpdateEntity(
       packageName: input.packageName,
       summary,
       navigate: `/packages/${input.packageName}/entities/${entity.name}`,
-      highlight: entity.name,
+      highlight: addedAttr ? addedAttr.uuid : entity.name,
       message: summary,
     };
   } catch (err) {
