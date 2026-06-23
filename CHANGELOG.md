@@ -5,6 +5,15 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.4] — 2026-06-23
+
+### Fixed
+- **Entity detail shows a proper "Entity not found" state on 404** — navigating
+  to a non-existent entity (a stale/bad deep link, or an AI navigation to a name
+  that was never created) now renders the dedicated not-found banner instead of
+  the generic "Failed to load… please try again later" message, which is now
+  reserved for real network / 5xx load failures. (#194)
+
 ## [1.12.3] — 2026-06-23
 
 ### Added
