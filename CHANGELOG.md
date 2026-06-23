@@ -5,6 +5,35 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.3] — 2026-06-23
+
+### Added
+- **AI assistant can now update and delete model elements** — the chat tools
+  gained `updateEntity`/`updateRelationship`/`deleteEntity`/`deleteRelationship`
+  alongside create, all routed through the per-category review gate (deletes
+  always require explicit approval). (#191)
+- **Structured change-summary cards** in the AI chat — an applied mutation now
+  shows change kind, entity/relationship name, package, and a short delta
+  instead of a raw JSON dump, and the changed element is briefly highlighted on
+  the destination page after navigation. (#191)
+- **Graceful AI step-limit handling** — the agentic tool-call cap is raised to
+  500 and, when reached, the assistant wraps up with a summary of what it did
+  and shows an explicit "stopped at the step limit" notice rather than cutting
+  off silently. (#192)
+
+### Changed
+- **AI mutation tools validate structured input before persisting** — typed
+  schemas plus semantic checks (unknown attribute type / stereotype / package,
+  duplicate names, unresolved relationship endpoints) now reject bad input with
+  a clear, recoverable error the model can self-correct, instead of a runtime
+  JSON parse failure. (#191)
+
+### Fixed
+- **AI chat no longer leaves a hanging "Calling …" tool card** — a tool whose
+  execution errors (or whose arguments fail validation) now resolves to a
+  terminal error card instead of a perpetual spinner, and is never persisted as
+  a stuck card on reload. (#190)
+
 ## [1.12.2] — 2026-06-11
 
 ### Added
