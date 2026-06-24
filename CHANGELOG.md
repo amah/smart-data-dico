@@ -5,6 +5,22 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.6] — 2026-06-25
+
+### Added
+- **Server-side approval gate for AI tool calls** (#197) — the assistant now
+  blocks create / update / delete tool calls on a real server-side gate until
+  you approve them in the chat; reads and navigation still run freely. Honors
+  the per-category auto-approve policy and autonomous mode, and deletes always
+  require explicit approval.
+
+### Fixed
+- **AI tool approvals now actually take effect** (#197) — approving a gated tool
+  call previously only updated the card locally while the backend had already
+  executed it ("validation ended with no effect"). The gate makes approve/reject
+  a genuine decision: a denied call returns a rejected result and the model
+  continues. Side-effect-free reads and `auto`-trust MCP tools no longer prompt.
+
 ## [1.12.5] — 2026-06-24
 
 ### Changed
