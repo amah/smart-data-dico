@@ -690,6 +690,9 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
       });
     }
   } finally {
+    // Uniform invariant: never leave an executor parked on the gate once the
+    // turn ends. No-op when nothing is parked (gated tools already settled).
+    abortStreamApprovals(streamId);
     req.off('close', onAbort);
     req.off('aborted', onAbort);
   }
@@ -1207,6 +1210,11 @@ export const aiChat = async (req: Request, res: Response) => {
 
       pump().catch((err) => {
         logger.error(`AI stream error: ${err}`);
+        // Release any executor parked on the approval gate. cleanup() detaches
+        // the onAbort listeners, so the socket close after res.end() won't fire
+        // them — without this, a tool parked on awaitApproval when the pump
+        // throws would dangle in the registry for the life of the process.
+        abortStreamApprovals(streamId);
         cleanup();
         res.end();
       });
