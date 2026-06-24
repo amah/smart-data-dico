@@ -1,6 +1,6 @@
 {
   "name": "@hamak/smart-data-dico",
-  "version": "1.12.5",
+  "version": "1.12.6",
   "description": "Collaborative data dictionary management system — model, document, and govern your data landscape",
   "type": "module",
   "bin": {
