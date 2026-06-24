@@ -50,7 +50,15 @@ export default defineConfig({
     pool: 'forks',
     poolOptions: {
       forks: {
+        // Recycle a fork per file so the OS reclaims heap between files, but
+        // run ONE fork at a time (maxForks:1) so peak memory is bounded to a
+        // single process — the parallel forks pool OOM'd the CI runner.
+        // execArgv raises that fork's heap directly (job-level NODE_OPTIONS
+        // does NOT propagate to vitest's fork workers).
         singleFork: false,
+        maxForks: 1,
+        minForks: 1,
+        execArgv: ['--max-old-space-size=4096'],
       },
     },
     server: {
