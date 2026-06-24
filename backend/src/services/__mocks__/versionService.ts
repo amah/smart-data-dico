@@ -5,7 +5,7 @@ class VersionServiceMock {
     return { clean: true, files: [] as string[] };
   }
 
-  async revertToCommit(commitHash: string) {
+  async revertToCommit(_commitHash: string) {
     return {
       success: true,
       errors: [] as string[],

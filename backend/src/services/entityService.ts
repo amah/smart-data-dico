@@ -1,6 +1,5 @@
 import { Entity, Relationship, validateEntity, validateRelationship } from '../models/EntitySchema.js';
 import { readEntityFile, listAllEntities, readRelationshipsFile, getPackagePath } from '../utils/fileOperations.js';
-import { logger } from '../utils/logger.js';
 import { getProjection } from '../storage/projection/ProjectionRegistry.js';
 import { wsId } from '../storage/contract/types.js';
 

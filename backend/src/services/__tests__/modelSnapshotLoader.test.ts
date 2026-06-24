@@ -23,13 +23,13 @@ jest.mock('../ruleService', () => ({
   ruleService: { listRules: jest.fn() },
 }));
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const { loadModelSnapshot } = require('../modelSnapshotLoader');
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const { listMicroservices } = require('../../utils/fileOperations');
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const { serviceService } = require('../serviceService');
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const { ruleService } = require('../ruleService');
 
 const entity = (uuid: string, name: string) => ({

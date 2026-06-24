@@ -150,7 +150,8 @@ export async function introspectMysql(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let conn: any;
   try {
-    conn = await (mysql.createConnection || mysql.default?.createConnection)({
+    const createConnection = mysql.createConnection ?? mysql.default?.createConnection;
+    conn = await createConnection({
       host: connection.host,
       port: connection.port ?? 3306,
       database: connection.database,

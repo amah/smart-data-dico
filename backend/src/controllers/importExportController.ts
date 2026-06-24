@@ -4,7 +4,6 @@ import { exportService } from '../services/exportService.js';
 import { qualityService } from '../services/qualityService.js';
 import { serviceService } from '../services/serviceService.js';
 import { diffEntities, mergeEntities, diffRelationships, mergeRelationships } from '../services/schemaDiff.js';
-import { physicalTableNameOf } from '../services/schemaDiff.js';
 import { introspectOracle, OracleConnectionConfig } from '../services/oracleIntrospect.js';
 import { introspectPostgres, PostgresConnectionConfig } from '../services/postgresIntrospect.js';
 import { introspectMysql, MysqlConnectionConfig } from '../services/mysqlIntrospect.js';

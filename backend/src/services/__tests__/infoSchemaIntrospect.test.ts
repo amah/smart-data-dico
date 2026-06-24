@@ -249,7 +249,7 @@ describe('Postgres provider (#79) — connection lifecycle', () => {
       { virtual: true },
     );
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { introspectPostgres } = require('../postgresIntrospect');
     const result = await introspectPostgres({
       connection: { host: 'localhost', database: 'sales', user: 'app', password: 'pw' },
@@ -281,7 +281,7 @@ describe('Postgres provider (#79) — connection lifecycle', () => {
       { virtual: true },
     );
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { introspectPostgres } = require('../postgresIntrospect');
     const result = await introspectPostgres({
       connection: { host: 'localhost', database: 'sales', user: 'app', password: 'pw' },
@@ -395,7 +395,7 @@ describe('MySQL provider (#80) — connection lifecycle', () => {
       { virtual: true },
     );
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { introspectMysql } = require('../mysqlIntrospect');
     const result = await introspectMysql({
       connection: { host: 'localhost', database: 'sales', user: 'app', password: 'pw' },
@@ -535,7 +535,7 @@ describe('MSSQL provider (#81) — connection lifecycle', () => {
       { virtual: true },
     );
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { introspectMssql } = require('../mssqlIntrospect');
     const result = await introspectMssql({
       connection: {
@@ -572,7 +572,7 @@ describe('MSSQL provider (#81) — connection lifecycle', () => {
       { virtual: true },
     );
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { introspectMssql } = require('../mssqlIntrospect');
     const result = await introspectMssql({
       connection: {

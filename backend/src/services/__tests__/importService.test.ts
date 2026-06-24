@@ -6,7 +6,6 @@
  * a diff, and commit only after explicit user confirmation.
  */
 import { importService } from '../importService.js';
-import { buildRelationshipsFromForeignKeys } from '../importService.js';
 import { AttributeType, Cardinality } from '../../models/EntitySchema.js';
 // Slice 6b''''''/''''''' projection-fixture imports for commitParsedEntities tests.
 import { InMemoryStorageBackend } from '../../storage/memory/InMemoryStorageBackend.js';

@@ -1,11 +1,11 @@
 import { NextFunction, Request, Response } from 'express';
 import request from 'supertest';
 
-import { UserRole } from '../../middleware/auth.js';
 import app from '../../server.js';
 
 // Extend Request type to include user property
 declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       user?: {

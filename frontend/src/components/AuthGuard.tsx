@@ -11,11 +11,6 @@ interface AuthGuardProps {
 
 const AuthGuard = ({ children, roles }: AuthGuardProps) => {
   const { mode } = useAppMode();
-
-  // Desktop mode: always pass through, no auth needed
-  if (mode === 'desktop') {
-    return <>{children}</>;
-  }
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -46,6 +41,11 @@ const AuthGuard = ({ children, roles }: AuthGuardProps) => {
 
     checkAuth();
   }, []);
+
+  // Desktop mode: always pass through, no auth needed
+  if (mode === 'desktop') {
+    return <>{children}</>;
+  }
 
   if (loading) {
     return (

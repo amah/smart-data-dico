@@ -14,15 +14,15 @@ const mockEntities: Record<string, Entity> = {
 
 // Mock entity service matching actual EntityService API
 class EntityServiceMock {
-  validateEntity(entity: Entity) {
+  validateEntity(_entity: Entity) {
     return { valid: true, errors: [] as string[] };
   }
 
-  async validateRelationships(packageName: string, relationships: any[]) {
+  async validateRelationships(_packageName: string, _relationships: any[]) {
     return { valid: true, errors: [] as string[] };
   }
 
-  async saveEntity(entity: Entity, packageName: string) {
+  async saveEntity(_entity: Entity, _packageName: string) {
     return { success: true, errors: [] as string[] };
   }
 
@@ -30,7 +30,7 @@ class EntityServiceMock {
     return mockEntities[`${packageName}.${entityName}`] || null;
   }
 
-  async getRelatedEntities(packageName: string, entityName: string): Promise<Entity[]> {
+  async getRelatedEntities(_packageName: string, _entityName: string): Promise<Entity[]> {
     return [];
   }
 }

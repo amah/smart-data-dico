@@ -6,7 +6,6 @@
  * Uses dynamic imports since the framework packages are ESM-only.
  */
 
-import path from 'path';
 import YAML from 'yaml';
 import { logger } from '../utils/logger.js';
 import { Entity, validateEntity } from '../models/EntitySchema.js';

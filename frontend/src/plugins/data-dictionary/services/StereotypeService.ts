@@ -66,6 +66,7 @@ export class StereotypeService {
    */
   useFile(): FileNode<Stereotype[]> | undefined {
     const selector = this.storeFs.createFileSelector([...STEREOTYPES_PATH]);
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     return useSelector(selector) as FileNode<Stereotype[]> | undefined;
   }
 

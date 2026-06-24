@@ -1,8 +1,8 @@
 import { Request, Response } from 'express';
-import { streamText, generateText, tool, jsonSchema, stepCountIs, convertToModelMessages, createUIMessageStream, pipeUIMessageStreamToResponse } from 'ai';
+import { streamText, generateText, tool, jsonSchema, stepCountIs, convertToModelMessages } from 'ai';
 import { z } from 'zod';
 import { logger } from '../utils/logger.js';
-import { config, AI_MAX_STEPS } from '../kernel/config.js';
+import { AI_MAX_STEPS } from '../kernel/config.js';
 import { getConfigSection, setConfigSection, CONFIG_FILE } from '../utils/appDir.js';
 import { conversationService } from '../services/conversationService.js';
 import { promptService } from '../services/promptService.js';
@@ -729,7 +729,6 @@ export const aiChat = async (req: Request, res: Response) => {
 
     // For OpenAI-compatible providers, use direct client (AI SDK has tool-calling bugs)
     if (cfg.provider === 'openai-compatible' && cfg.baseURL) {
-      const { callWithTools } = await import('../utils/aiDirectClient.js');
       return await handleDirectChat(req, res, cfg, rawMessages, services, enrichedPageContext, conversationSystemPrompt, mode);
     }
 
@@ -1049,6 +1048,7 @@ export const aiChat = async (req: Request, res: Response) => {
       };
 
       const pump = async () => {
+        // eslint-disable-next-line no-constant-condition
         while (true) {
           if (ac.signal.aborted) {
             // Emit final cancelled event before closing.

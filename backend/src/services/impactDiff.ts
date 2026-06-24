@@ -13,7 +13,7 @@
  *   5. ADD CONSTRAINT / ADD INDEX
  *   6. ADD FOREIGN KEY
  */
-import { PhysicalDiff, PhysicalEntityDiff, PhysicalAttributeDiff } from './physicalDiff.js';
+import { PhysicalDiff } from './physicalDiff.js';
 import { MetadataEntry } from '../models/EntitySchema.js';
 
 // ────────────────────────────────────────────────────────────────────────

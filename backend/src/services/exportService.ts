@@ -1,7 +1,7 @@
 import { Entity, AttributeType, Attribute, Relationship, AttributeValidation, MetadataEntry, MetadataDefinition } from '../models/EntitySchema.js';
 import { listMicroserviceEntities, readEntityFile, readRelationshipsFile, getPackagePath } from '../utils/fileOperations.js';
 import { listDerivedTypes, resolveAttributeType, resolveDomain, DerivedType } from './dicoConfigService.js';
-import { logger } from '../utils/logger.js';
+
 import { metadataTypeRegistry } from './metadata/index.js';
 import type { JsonSchemaFragment } from './metadata/MetadataTypeRegistry.js';
 

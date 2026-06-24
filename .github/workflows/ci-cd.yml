@@ -59,6 +59,10 @@ jobs:
   test-frontend:
     name: Test Frontend
     runs-on: ubuntu-latest
+    # Vitest (forks pool, 80+ jsdom files) needs more than Node's default
+    # ~2 GB heap per fork on the CI runner, or it OOMs ("Reached heap limit").
+    env:
+      NODE_OPTIONS: '--max-old-space-size=4096'
     steps:
       - uses: actions/checkout@v3
       
