@@ -7,6 +7,7 @@ import { getConfigSection, setConfigSection, CONFIG_FILE } from '../utils/appDir
 import { conversationService } from '../services/conversationService.js';
 import { promptService } from '../services/promptService.js';
 import { mcpClientRegistry } from '../services/mcpClientRegistry.js';
+import { awaitApproval, settleApproval, abortStreamApprovals } from './ai/approvalRegistry.js';
 import {
   createEntityInputSchema,
   updateEntityInputSchema,
@@ -194,6 +195,67 @@ export function getToolCategory(toolName: string): AIToolCategory {
   // didn't plan for.
   return 'modify';
 }
+
+// --- Server-side approval gate (real human-in-the-loop) ---
+//
+// The category drives both the SSE event (so the frontend can apply its
+// per-category policy) AND the backend gate. Gated categories block the
+// executor on `awaitApproval` until the client posts a decision. Reads
+// and navigation are never gated.
+const GATED_CATEGORIES: ReadonlySet<AIToolCategory> = new Set<AIToolCategory>([
+  'create',
+  'modify',
+  'delete',
+]);
+
+/** Whether a category must pass through the approval gate before running. */
+export function isGatedCategory(category: AIToolCategory): boolean {
+  return GATED_CATEGORIES.has(category);
+}
+
+/**
+ * Per-request category resolver that honours MCP trust levels.
+ *
+ * Builtin tools resolve via TOOL_CATEGORY_MAP. MCP tools (name contains a
+ * '.') consult the provided trust map: `auto` trust → `read` (non-gated,
+ * auto-approve), `review` trust → `modify` (gated). Unknown non-MCP tools
+ * fall back to `modify` so an unplanned side effect is reviewed, not run.
+ *
+ * `trustByName` is built once per chat request from
+ * `mcpClientRegistry.listAllTools()` and threaded into every gating /
+ * emitting decision so the trustLevel is never ignored (unlike the legacy
+ * `getToolCategory`, which has no MCP context and treats MCP as `modify`).
+ */
+export function resolveToolCategory(
+  toolName: string,
+  trustByName: Map<string, 'auto' | 'review'>,
+): AIToolCategory {
+  // Strip provider wrappers / call-index suffixes the same way getToolCategory does.
+  const clean = toolName.replace(/^functions\./, '').split(':')[0];
+  const builtin = TOOL_CATEGORY_MAP[clean];
+  if (builtin) return builtin;
+  // MCP tools are namespaced `<connectionId>.<toolName>`.
+  if (clean.includes('.')) {
+    const trust = trustByName.get(clean);
+    return trust === 'auto' ? 'read' : 'modify';
+  }
+  return 'modify';
+}
+
+/**
+ * Build the per-request `toolName -> trustLevel` map from the MCP tool
+ * definitions, so category resolution can honour each connection's trust.
+ */
+function buildMcpTrustMap(
+  mcpTools: Array<{ name: string; trustLevel: 'auto' | 'review' }>,
+): Map<string, 'auto' | 'review'> {
+  const map = new Map<string, 'auto' | 'review'>();
+  for (const t of mcpTools) map.set(t.name, t.trustLevel);
+  return map;
+}
+
+/** Stable denied-result object returned to the model when the user rejects a tool. */
+const DENIED_RESULT = { success: false, denied: true, message: 'Change rejected by user.' } as const;
 
 // --- AI Configuration ---
 
@@ -403,11 +465,19 @@ function buildSystemPrompt(pageContext?: string, conversationSystemPrompt?: stri
 // Direct chat handler for OpenAI-compatible providers (bypasses AI SDK)
 async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawMessages: any[], services: any, pageContext?: string, conversationSystemPrompt?: string, mode: AIChatMode = 'designer') {
   const { callWithTools } = await import('../utils/aiDirectClient.js');
+  // Per-stream id used to target server-side tool-approval decisions. Emitted
+  // to the client on the `start` event so the frontend can POST approvals.
+  const streamId = crypto.randomUUID();
   // Wire request lifecycle to an AbortController so a client disconnect
   // (or an explicit /api/ai/chat fetch().abort()) breaks both the in-flight
   // fetch to the upstream provider and the surrounding tool-call loop.
   const ac = new AbortController();
-  const onAbort = () => ac.abort();
+  const onAbort = () => {
+    ac.abort();
+    // Release any executor parked on the approval gate so it unblocks
+    // (resolves to 'deny') instead of leaking a promise after disconnect.
+    abortStreamApprovals(streamId);
+  };
   req.on('close', onAbort);
   req.on('aborted', onAbort);
 
@@ -448,8 +518,14 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
   // MCP tools are always included in designer mode; excluded from ask/review.
   const toolDefs = allToolDefs.filter(t => isToolAllowedForMode(t.function.name, mode));
 
-  // Tool executor
-  const executeTool = async (name: string, args: any): Promise<any> => {
+  // Per-request MCP trust map so category resolution (and thus the gate)
+  // honours each connection's trustLevel rather than treating MCP as modify.
+  const mcpTrust = buildMcpTrustMap(mcpToolDefs);
+
+  // The real tool executor — performs the actual work. Wrapped by the
+  // gating `executeTool` below, which blocks gated categories on human
+  // approval before this ever runs.
+  const runTool = async (name: string, args: any): Promise<any> => {
     try {
       const mutationServices = services as MutationServices;
       if (name === 'createEntity') {
@@ -499,6 +575,23 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
     }
   };
 
+  // Gating executor: for gated categories (create/modify/delete, plus MCP
+  // 'review'-trust tools) park on the server-side approval gate before
+  // performing the real work. The tool-input events have already been
+  // streamed by the onEvent('tool-start') handler below, so the frontend
+  // has rendered the card and can POST approve/deny. On deny, return the
+  // canonical rejected result WITHOUT running the real tool.
+  const executeTool = async (name: string, args: any, toolCallId?: string): Promise<any> => {
+    const category = resolveToolCategory(name, mcpTrust);
+    if (isGatedCategory(category) && toolCallId) {
+      const decision = await awaitApproval(streamId, toolCallId);
+      if (decision === 'deny') {
+        return { ...DENIED_RESULT };
+      }
+    }
+    return runTool(name, args);
+  };
+
   // Stream SSE events to frontend
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -508,7 +601,7 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
 
-  sendEvent({ type: 'start' });
+  sendEvent({ type: 'start', streamId });
 
   try {
     const result = await callWithTools(
@@ -528,8 +621,10 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
         }
         if (event.type === 'tool-start') {
           // Emit tool category so the frontend can apply per-category
-          // auto-approve policy without duplicating the switch (#59).
-          const category = getToolCategory(event.name);
+          // auto-approve policy without duplicating the switch (#59). Use the
+          // trust-aware resolver so MCP tools honour their connection's
+          // trustLevel rather than always reporting `modify`.
+          const category = resolveToolCategory(event.name, mcpTrust);
           sendEvent({ type: 'tool-input-start', toolCallId: event.toolCallId, toolName: event.name, category });
           sendEvent({ type: 'tool-input-available', toolCallId: event.toolCallId, toolName: event.name, input: event.input, category });
         }
@@ -669,8 +764,30 @@ export const aiChat = async (req: Request, res: Response) => {
     }
     const messages = await convertToModelMessages(effectiveRawMessages);
 
+    // Per-stream id for server-side tool approvals; emitted to the client
+    // after headers flush (near the `condensed` event) so the frontend can
+    // POST approve/deny targeting this stream.
+    const streamId = crypto.randomUUID();
     // #178 — collect MCP tools for this request; build AI SDK tool() entries
     const mcpTools = await mcpClientRegistry.listAllTools();
+    // Trust map so category resolution honours each MCP connection's trustLevel.
+    const mcpTrust = buildMcpTrustMap(mcpTools);
+
+    // Gate helper: for a gated category, park on the approval registry until
+    // the client posts a decision, then either run the real work or return
+    // the canonical rejected result. Non-gated categories never call this.
+    const gate = async <T>(
+      category: AIToolCategory,
+      toolCallId: string | undefined,
+      run: () => Promise<T>,
+    ): Promise<T | typeof DENIED_RESULT> => {
+      if (isGatedCategory(category) && toolCallId) {
+        const decision = await awaitApproval(streamId, toolCallId);
+        if (decision === 'deny') return { ...DENIED_RESULT };
+      }
+      return run();
+    };
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const mcpToolEntries: Record<string, any> = {};
     for (const mcpTool of mcpTools) {
@@ -687,8 +804,13 @@ export const aiChat = async (req: Request, res: Response) => {
         // the FlexibleSchema<INPUT> constraint. The MCP SDK ships JSON Schema
         // natively; no Zod conversion required.
         inputSchema: jsonSchema(capturedTool.inputSchema as import('@ai-sdk/provider').JSONSchema7),
-        execute: (async (args: Record<string, unknown>) => {
-          return await mcpClientRegistry.callTool(capturedTool.name, args);
+        execute: (async (args: Record<string, unknown>, opts: { toolCallId?: string }) => {
+          // MCP 'review'-trust tools resolve to the gated `modify` category;
+          // 'auto'-trust tools resolve to non-gated `read` and skip the gate.
+          const category = resolveToolCategory(capturedTool.name, mcpTrust);
+          return await gate(category, opts?.toolCallId, () =>
+            mcpClientRegistry.callTool(capturedTool.name, args),
+          );
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
         }) as any,
       });
@@ -698,7 +820,11 @@ export const aiChat = async (req: Request, res: Response) => {
     // (Stop button, browser close) propagates into streamText and breaks
     // the agentic loop before the next tool call runs.
     const ac = new AbortController();
-    const onAbort = () => ac.abort();
+    const onAbort = () => {
+      ac.abort();
+      // Unblock any executor parked on the approval gate for this stream.
+      abortStreamApprovals(streamId);
+    };
     req.on('close', onAbort);
     req.on('aborted', onAbort);
 
@@ -735,61 +861,61 @@ export const aiChat = async (req: Request, res: Response) => {
         createEntity: tool({
           description: 'Create a new entity with attributes in a package. Provide structured fields (packageName, name, description, stereotype, attributes[]). Each attribute: { name, type, description, required, primaryKey, enumValues }.',
           inputSchema: createEntityInputSchema,
-          execute: async (params) => {
+          execute: async (params, opts) => gate('create', opts?.toolCallId, async () => {
             const result = await executeCreateEntity(params, services as MutationServices);
             if (result.success) logger.info(`AI created entity: ${result.packageName}/${result.name}`);
             return result;
-          },
+          }),
         }),
 
         updateEntity: tool({
           description: 'Update an existing entity. The provided description/stereotype/attributes become the new desired state; the entity uuid and createdAt are preserved. Same structured shape as createEntity.',
           inputSchema: updateEntityInputSchema,
-          execute: async (params) => {
+          execute: async (params, opts) => gate('modify', opts?.toolCallId, async () => {
             const result = await executeUpdateEntity(params, services as MutationServices);
             if (result.success) logger.info(`AI updated entity: ${result.packageName}/${result.name}`);
             return result;
-          },
+          }),
         }),
 
         deleteEntity: tool({
           description: 'Delete an entity by package and name. Fails (and reports) if the entity is still referenced by relationships — remove those relationships first; the tool never auto-cascades.',
           inputSchema: deleteEntityInputSchema,
-          execute: async (params) => {
+          execute: async (params, opts) => gate('delete', opts?.toolCallId, async () => {
             const result = await executeDeleteEntity(params, services as MutationServices);
             if (result.success) logger.info(`AI deleted entity: ${result.packageName}/${result.name}`);
             return result;
-          },
+          }),
         }),
 
         createRelationship: tool({
           description: 'Create a relationship between two entities. Endpoints may live in the same or different packages (cross-package is first-class). Provide sourceEntityName, targetEntityName, optional sourcePackage/targetPackage (omit to scan all packages, errors on ambiguity), sourceCardinality and targetCardinality (one|many), and an optional description. The relationship is stored under the source entity\'s package.',
           inputSchema: createRelationshipInputSchema,
-          execute: async (params) => {
+          execute: async (params, opts) => gate('create', opts?.toolCallId, async () => {
             const result = await executeCreateRelationship(params, services as MutationServices);
             if (result.success) logger.info(`AI created relationship: ${result.name}`);
             return result;
-          },
+          }),
         }),
 
         updateRelationship: tool({
           description: 'Update an existing relationship between two entities. The relationship is resolved by matching source/target entities; cardinalities and description become the new desired state.',
           inputSchema: updateRelationshipInputSchema,
-          execute: async (params) => {
+          execute: async (params, opts) => gate('modify', opts?.toolCallId, async () => {
             const result = await executeUpdateRelationship(params, services as MutationServices);
             if (result.success) logger.info(`AI updated relationship: ${result.name}`);
             return result;
-          },
+          }),
         }),
 
         deleteRelationship: tool({
           description: 'Delete a relationship by its package (the source entity\'s package) and the source/target entity names.',
           inputSchema: deleteRelationshipInputSchema,
-          execute: async (params) => {
+          execute: async (params, opts) => gate('delete', opts?.toolCallId, async () => {
             const result = await executeDeleteRelationship(params, services as MutationServices);
             if (result.success) logger.info(`AI deleted relationship: ${result.name}`);
             return result;
-          },
+          }),
         }),
 
         listEntities: tool({
@@ -900,6 +1026,14 @@ export const aiChat = async (req: Request, res: Response) => {
         })}\n\n`);
       } catch { /* response may have closed already */ }
     }
+
+    // Emit the stream id early so the frontend can target tool-approval
+    // POSTs at this stream. The AI SDK's own UI-message stream has no
+    // `start`-with-streamId hook, so we write a dedicated `stream-id` event
+    // right after headers flush (res.write before headers throws).
+    try {
+      res.write(`data: ${JSON.stringify({ type: 'stream-id', streamId })}\n\n`);
+    } catch { /* response may have closed already */ }
 
     if (response.body) {
       const reader = response.body.getReader();
@@ -1056,7 +1190,7 @@ export const aiChat = async (req: Request, res: Response) => {
                   data.toolName &&
                   data.category === undefined
                 ) {
-                  const enriched = { ...data, category: getToolCategory(data.toolName) };
+                  const enriched = { ...data, category: resolveToolCategory(data.toolName, mcpTrust) };
                   output.push(`data: ${JSON.stringify(enriched)}`);
                   continue;
                 }
@@ -1086,6 +1220,28 @@ export const aiChat = async (req: Request, res: Response) => {
     logger.error(`AI chat error: ${err.message}`);
     res.status(500).json({ message: 'AI chat error', error: err.message });
   }
+};
+
+/**
+ * Resolve a server-side tool-approval gate. The chat stream blocks the
+ * gated tool's executor on `awaitApproval`; this endpoint settles it so
+ * the executor either runs the real mutation ('approve') or returns the
+ * canonical rejected result ('deny'). Returns 404 when no matching gate is
+ * pending (e.g. duplicate POST or the stream already aborted it).
+ */
+export const aiChatApprove = async (req: Request, res: Response) => {
+  const { streamId, toolCallId, decision } = req.body ?? {};
+  if (typeof streamId !== 'string' || typeof toolCallId !== 'string') {
+    return res.status(400).json({ ok: false, message: 'streamId and toolCallId are required' });
+  }
+  if (decision !== 'approve' && decision !== 'deny') {
+    return res.status(400).json({ ok: false, message: "decision must be 'approve' or 'deny'" });
+  }
+  const settled = settleApproval(streamId, toolCallId, decision);
+  if (!settled) {
+    return res.status(404).json({ ok: false, message: 'No pending approval for this stream/tool call' });
+  }
+  return res.json({ ok: true });
 };
 
 export const aiStatus = async (_req: Request, res: Response) => {
