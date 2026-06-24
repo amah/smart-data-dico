@@ -91,34 +91,32 @@ jobs:
     needs: [lint, test-backend, test-frontend]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@v3
-      
+      - uses: actions/checkout@v4
+
       - name: Set up Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-      
-      - name: Install backend dependencies
-        run: cd backend && npm ci
-      
-      - name: Build backend
-        run: cd backend && npm run build
-      
-      - name: Install frontend dependencies
-        run: cd frontend && npm ci
-      
-      - name: Build frontend
-        run: cd frontend && npm run build
-      
+
+      # Build the shippable artifacts via the production pipeline:
+      #   build:frontend = vite build, build:backend = esbuild bundle
+      #   (scripts/build-backend.mjs). This is what `npm publish` ships.
+      # esbuild lives in the ROOT devDeps, so root deps are required.
+      - name: Install dependencies (root + backend + frontend)
+        run: npm ci && cd backend && npm ci && cd ../frontend && npm ci
+
+      - name: Build (frontend + backend)
+        run: npm run build
+
       - name: Upload backend build artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: backend-build
           path: backend/dist
-      
+
       - name: Upload frontend build artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: frontend-build
           path: frontend/dist
@@ -130,16 +128,16 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment: development
     steps:
-      - uses: actions/checkout@v3
-      
+      - uses: actions/checkout@v4
+
       - name: Download backend build artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: backend-build
           path: backend/dist
-      
+
       - name: Download frontend build artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: frontend-build
           path: frontend/dist
