@@ -1,8 +1,10 @@
 import { Router } from 'express';
-import { aiChat, aiStatus, aiGetConfig, aiSaveConfig, aiTools, aiMentionsSearch, aiTestTools } from '../../controllers/aiController.js';
+import { aiChat, aiChatApprove, aiStatus, aiGetConfig, aiSaveConfig, aiTools, aiMentionsSearch, aiTestTools } from '../../controllers/aiController.js';
 
 const router: Router = Router();
 router.post('/api/ai/chat', aiChat);
+// Server-side tool-approval gate: client posts approve/deny for a gated tool call.
+router.post('/api/ai/chat/approve', aiChatApprove);
 router.get('/api/ai/status', aiStatus);
 router.get('/api/ai/config', aiGetConfig);
 router.post('/api/ai/config', aiSaveConfig);

@@ -58,6 +58,7 @@ export function createAiAssistancePlugin(options: AiPluginOptions = {}): PluginM
       ctx.commands.register('ai.config.save', (input: Parameters<typeof ai.saveConfig>[0]) => ai.saveConfig(input));
 
       ctx.commands.register('ai.chat.send', ({ request, signal }: { request: Parameters<typeof ai.streamChat>[0]; signal: AbortSignal }) => ai.streamChat(request, signal));
+      ctx.commands.register('ai.chat.approve', ({ streamId, toolCallId, decision }: { streamId: string; toolCallId: string; decision: 'approve' | 'deny' }) => ai.approveTool(streamId, toolCallId, decision));
 
       ctx.commands.register('ai.tools.list', () => ai.listTools());
       ctx.commands.register('ai.mentions.search', ({ q }: { q: string }) => ai.searchMentions(q));

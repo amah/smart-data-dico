@@ -167,6 +167,20 @@ export class AIService {
     });
   }
 
+  /**
+   * Resolve a server-side tool-approval gate for an in-flight stream.
+   *
+   * Gated tool calls (create/modify/delete) block on the backend until the
+   * client posts a decision here. Auto-approved tools post 'approve'
+   * immediately so the stream never visibly stalls; tools held for human
+   * review post when the user clicks Approve / Reject. Uses the same
+   * Authorization header pattern as `streamChat` (native fetch — but this
+   * one is a plain JSON POST, no streaming body to read).
+   */
+  async approveTool(streamId: string, toolCallId: string, decision: 'approve' | 'deny'): Promise<void> {
+    await this.http.post('/ai/chat/approve', { streamId, toolCallId, decision });
+  }
+
   // ── Tools ──────────────────────────────────────────────────────────
 
   async listTools(): Promise<AIToolDef[]> {

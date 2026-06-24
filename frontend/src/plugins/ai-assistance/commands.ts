@@ -30,6 +30,8 @@ export interface AiCommandMap {
   // Streaming chat — the command returns the raw Response so the caller
   // owns SSE reading (the panel uses `response.body.getReader()`).
   'ai.chat.send':     { input: { request: AIChatRequest; signal: AbortSignal }; output: Response };
+  // Server-side tool-approval gate: resolve a blocked gated tool call.
+  'ai.chat.approve':  { input: { streamId: string; toolCallId: string; decision: 'approve' | 'deny' }; output: void };
 
   // Tools / Mentions
   'ai.tools.list':    { input: void;            output: AIToolDef[] };

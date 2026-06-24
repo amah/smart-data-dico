@@ -48,7 +48,9 @@ export async function callWithTools(
   config: DirectClientConfig,
   messages: Message[],
   tools: ToolDef[],
-  executeToolFn: (name: string, args: any) => Promise<any>,
+  // toolCallId is passed as a 3rd arg (backward-compatible) so the executor
+  // can target the server-side approval gate for that specific call.
+  executeToolFn: (name: string, args: any, toolCallId?: string) => Promise<any>,
   maxSteps: number = 10,
   onEvent?: (event: any) => void,
   signal?: AbortSignal,
@@ -210,7 +212,7 @@ export async function callWithTools(
           onEvent({ type: 'tool-start', name: toolName, toolCallId, input: toolArgs });
         }
 
-        const result = await executeToolFn(toolName, toolArgs);
+        const result = await executeToolFn(toolName, toolArgs, toolCallId);
         allToolCalls.push({ name: toolName, input: toolArgs, output: result });
 
         if (onEvent) {

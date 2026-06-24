@@ -137,6 +137,12 @@ interface ChatMessage {
   // #64 — true when the turn was started in background autonomous
   // mode. Drives the post-run summary footer (Review / Undo all).
   autonomous?: boolean;
+  // Server-side approval gate: streamId of the turn that produced this
+  // message, so the per-card Approve / Reject controls can POST a decision
+  // to unblock (or reject) a gated tool while the stream is still in flight.
+  // Not persisted to disk meaningfully (the stream is gone after reload) —
+  // it's only useful for the live turn.
+  streamId?: string;
 }
 
 /**
@@ -297,6 +303,12 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   // AbortController for the in-flight /api/ai/chat fetch so the Stop button
   // can break out of the agentic loop mid-flight (#61).
   const abortControllerRef = useRef<AbortController | null>(null);
+  // streamId of the active turn, captured from the backend `start` /
+  // `stream-id` SSE event. Used to target server-side tool-approval POSTs
+  // so a blocked gated tool unblocks once approved (or stays pending until
+  // the human decides). Map streamId → tool calls is implicit: only one
+  // stream is in flight at a time.
+  const streamIdRef = useRef<string | null>(null);
   // #178 slice 3 — name → def lookup for source attribution in the
   // tool-call card render. MCP tools have `source: 'mcp'` and a
   // `connectionLabel`; built-ins have neither.
@@ -505,6 +517,9 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     // tear down the in-flight stream and break the agentic loop. (#61)
     const ac = new AbortController();
     abortControllerRef.current = ac;
+    // Reset the per-turn streamId; populated when the backend emits
+    // `start` (direct path) or `stream-id` (AI SDK path).
+    streamIdRef.current = null;
 
     // Tool tracking: tools enter at `starting`, transition to `running`
     // when input arrives, and resolve to terminal state on output. We
@@ -548,6 +563,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                 ...(condensedInfo ? { condensed: condensedInfo } : {}),
                 ...(stepLimitInfo ? { stepLimit: stepLimitInfo } : {}),
                 ...(turnAutonomous ? { autonomous: true } : {}),
+                ...(streamIdRef.current ? { streamId: streamIdRef.current } : {}),
               }
             : m);
         }
@@ -561,6 +577,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
           ...(condensedInfo ? { condensed: condensedInfo } : {}),
           ...(stepLimitInfo ? { stepLimit: stepLimitInfo } : {}),
           ...(turnAutonomous ? { autonomous: true } : {}),
+          ...(streamIdRef.current ? { streamId: streamIdRef.current } : {}),
         }];
       });
     };
@@ -597,6 +614,47 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
         clearTimeout(deltaFlushTimerRef.current);
         deltaFlushTimerRef.current = null;
       }
+    };
+
+    // Track which gated tool calls we've already resolved (auto-approved or
+    // marked pending) so the start + available events for the same call
+    // don't double-decide. Keyed by toolCallId.
+    const gatedDecided = new Set<string>();
+
+    // The backend BLOCKS gated tool executors (create/modify/delete) on a
+    // server-side approval gate. The moment a gated tool's input arrives we
+    // must either auto-approve it (so the stream unblocks immediately) or
+    // mark its card `pending` and wait for the human. Reads/navigation are
+    // never gated, so they're ignored here. Returns true when the card was
+    // flipped to `pending` (caller renders the review controls).
+    const decideGatedTool = (toolCallId: string, category: AIToolCategory | undefined): boolean => {
+      if (!category || gatedDecided.has(toolCallId)) return false;
+      // Only create/modify/delete are gated server-side.
+      if (category !== 'create' && category !== 'modify' && category !== 'delete') return false;
+      const streamId = streamIdRef.current;
+      // No streamId means the backend isn't gating this stream (older
+      // backend). Fall back to the post-stream policy pass — don't decide
+      // mid-stream, since the tool's output will arrive without a gate.
+      if (!streamId) return false;
+      gatedDecided.add(toolCallId);
+      // #64 — autonomous mode auto-approves everything except delete.
+      const autoApprove =
+        shouldAutoApprove(policy, category) || (turnAutonomous && category !== 'delete');
+      if (autoApprove) {
+        // Fire-and-forget the approval so the backend executor unblocks
+        // without any user interaction.
+        runAiCommand('ai.chat.approve', { streamId, toolCallId, decision: 'approve' }).catch(() => {});
+        return false;
+      }
+      // Human review required: hold the card in `pending`. The backend
+      // executor stays parked until the user clicks Approve / Reject, which
+      // POSTs the decision via the per-card handlers.
+      if (toolMap[toolCallId]) {
+        toolMap[toolCallId] = { ...toolMap[toolCallId], status: 'pending' };
+        pushToolUpdate();
+        setPendingReview(true);
+      }
+      return true;
     };
 
     try {
@@ -641,6 +699,14 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
           try {
             const data = JSON.parse(line.slice(6));
             rawEvents.push(data);
+
+            // Capture the per-turn streamId so tool-approval POSTs can
+            // target this stream. Direct path emits it on `start`; the AI
+            // SDK path emits a dedicated `stream-id` event after headers.
+            if ((data.type === 'start' || data.type === 'stream-id') && typeof data.streamId === 'string') {
+              streamIdRef.current = data.streamId;
+              continue;
+            }
 
             if (data.type === 'cancelled') {
               cancelled = true;
@@ -725,6 +791,10 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                 toolOrder.push(data.toolCallId);
                 pushToolUpdate();
               }
+              // Server-side gate decision (#approval-gate). For gated
+              // categories, either auto-approve now (unblock the executor)
+              // or mark the card pending for human review.
+              decideGatedTool(data.toolCallId, data.category as AIToolCategory | undefined);
             }
 
             if (data.type === 'tool-input-available' && data.toolCallId) {
@@ -743,7 +813,12 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                   ...toolMap[data.toolCallId],
                   name: data.toolName || toolMap[data.toolCallId].name,
                   input: data.input,
-                  status: 'running',
+                  // Don't clobber a `pending` gate set by tool-input-start —
+                  // a review-gated tool must stay pending until the human
+                  // decides; only advance a still-`starting` card to running.
+                  status: toolMap[data.toolCallId].status === 'pending'
+                    ? 'pending'
+                    : 'running',
                   // Prefer the existing category (set by tool-input-start)
                   // but accept the available event's value if it's the
                   // first time we're seeing it.
@@ -751,23 +826,35 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                 };
               }
               pushToolUpdate();
+              // Decide the gate as soon as input is available. If tool-input-start
+              // already decided this call, `gatedDecided` makes this a no-op.
+              decideGatedTool(
+                data.toolCallId,
+                (toolMap[data.toolCallId]?.category) ?? (data.category as AIToolCategory | undefined),
+              );
             }
 
             if (data.type === 'tool-output-available' && data.toolCallId) {
+              // A user-denied gated tool comes back with `denied:true` from
+              // the backend (the real executor never ran). Resolve its card
+              // to the terminal `undone` (rejected) state rather than a plain
+              // terminal-good state. Otherwise resolve normally.
+              const isDenied = data.output && data.output.denied === true;
+              const terminalStatus = isDenied ? ('undone' as const) : undefined;
               if (!toolMap[data.toolCallId]) {
                 toolMap[data.toolCallId] = {
                   id: data.toolCallId,
                   name: data.toolCallId,
                   input: null,
                   output: data.output,
-                  status: undefined,
+                  status: terminalStatus,
                 };
                 toolOrder.push(data.toolCallId);
               } else {
                 toolMap[data.toolCallId] = {
                   ...toolMap[data.toolCallId],
                   output: data.output,
-                  status: undefined,
+                  status: terminalStatus,
                 };
               }
               pushToolUpdate();
@@ -862,14 +949,18 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
         pushToolUpdate();
       }
 
-      // Apply per-category auto-approve policy (#59). Tools in
-      // categories the user has set to 'review' (or 'off' for delete)
-      // are flipped to status='pending'; tools in 'auto' categories
-      // keep their terminal state. We only override terminal-good
-      // states — error / cancelled / undone tools are left alone.
+      // Apply per-category auto-approve policy (#59) — fallback for streams
+      // that DIDN'T go through the server-side gate (no streamId / older
+      // backend). When the backend gated a tool, `gatedDecided` already
+      // resolved it mid-stream (auto-approved or held pending), so we skip
+      // it here to avoid re-flipping. Tools in `review` categories are
+      // flipped to status='pending'; `auto` categories keep their terminal
+      // state. We only override terminal-good states.
       if (toolCalls.length > 0) {
         let anyPending = false;
         const adjusted = toolCalls.map(tc => {
+          // Already decided by the server-side gate this turn — leave as-is.
+          if (gatedDecided.has(tc.id)) return tc;
           // Don't second-guess non-terminal-good states.
           const isTerminalNonOk =
             tc.status === 'undone' ||
@@ -891,6 +982,17 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
           setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, toolCalls: adjusted } : m));
           setPendingReview(true);
         }
+      }
+
+      // Soft sidebar refresh after the turn fully settles. Fires only when a
+      // real mutation executed (not denied, not a read), and only here — after
+      // the stream is consumed — so it can never abort the in-flight SSE the
+      // way a mid-stream reload would. No `window.location.reload()`.
+      const mutated = toolCalls.some(tc =>
+        (tc.category === 'create' || tc.category === 'modify' || tc.category === 'delete') &&
+        tc.output && tc.output.success !== false && !tc.output.denied);
+      if (mutated) {
+        window.dispatchEvent(new CustomEvent('app:data-changed'));
       }
     } catch (err: any) {
       // Flush any buffered deltas so partial assistant text isn't lost
@@ -946,23 +1048,68 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     abortControllerRef.current?.abort();
   }, []);
 
-  const refreshApp = useCallback(() => {
-    // Trigger sidebar refresh by reloading the page data
-    window.dispatchEvent(new CustomEvent('app:data-changed'));
-    // Force reload sidebar data
-    setTimeout(() => window.location.reload(), 500);
-  }, []);
-
-  const approveAllTools = useCallback((msgId: string) => {
+  // Resolve the server-side gate for one pending tool. The POST is what
+  // actually matters — it unblocks (or rejects) the backend executor; the
+  // local status flip is just immediate UI feedback while the backend runs
+  // the tool and the `tool-output-available` event settles the card.
+  const resolveGatedTool = useCallback(async (
+    msgId: string,
+    toolId: string,
+    decision: 'approve' | 'deny',
+  ) => {
+    const msg = messages.find(m => m.id === msgId);
+    const streamId = msg?.streamId ?? streamIdRef.current ?? null;
+    if (streamId) {
+      try {
+        await runAiCommand('ai.chat.approve', { streamId, toolCallId: toolId, decision });
+      } catch { /* gate may already be gone; fall through to UI flip */ }
+    }
     setMessages(prev => prev.map(m => {
       if (m.id === msgId && m.toolCalls) {
-        return { ...m, toolCalls: m.toolCalls.map(tc => ({ ...tc, status: 'approved' as const })) };
+        const next = decision === 'approve' ? ('approved' as const) : ('undone' as const);
+        const updated = m.toolCalls.map(t => t.id === toolId ? { ...t, status: next } : t);
+        const anyStillPending = updated.some(t => t.status === 'pending');
+        if (!anyStillPending) setPendingReview(false);
+        return { ...m, toolCalls: updated };
+      }
+      return m;
+    }));
+  }, [messages]);
+
+  const approveToolCall = useCallback((msgId: string, toolId: string) => {
+    void resolveGatedTool(msgId, toolId, 'approve');
+  }, [resolveGatedTool]);
+
+  const rejectToolCall = useCallback((msgId: string, toolId: string) => {
+    void resolveGatedTool(msgId, toolId, 'deny');
+  }, [resolveGatedTool]);
+
+  const approveAllTools = useCallback((msgId: string) => {
+    const msg = messages.find(m => m.id === msgId);
+    const streamId = msg?.streamId ?? streamIdRef.current ?? null;
+    const pendingIds = (msg?.toolCalls ?? []).filter(tc => tc.status === 'pending').map(tc => tc.id);
+    // POST approve for every pending tool so the backend executors unblock.
+    if (streamId) {
+      for (const toolId of pendingIds) {
+        runAiCommand('ai.chat.approve', { streamId, toolCallId: toolId, decision: 'approve' }).catch(() => {});
+      }
+    }
+    setMessages(prev => prev.map(m => {
+      if (m.id === msgId && m.toolCalls) {
+        return {
+          ...m,
+          toolCalls: m.toolCalls.map(tc =>
+            tc.status === 'pending' ? { ...tc, status: 'approved' as const } : tc),
+        };
       }
       return m;
     }));
     setPendingReview(false);
-    refreshApp();
-  }, [refreshApp]);
+    // No page reload here: the tools are still executing server-side and the
+    // SSE stream is in flight. Reloading would abort the fetch, deny sibling
+    // parked tool calls, and truncate the turn. The sidebar is refreshed once
+    // the stream completes (see the post-stream soft refresh).
+  }, [messages]);
 
   const undoToolCall = useCallback(async (msgId: string, toolId: string) => {
     const msg = messages.find(m => m.id === msgId);
@@ -1760,9 +1907,17 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                             <span className="text-base-content/30">{expandedTools.has(tc.id) ? '▼' : '▶'}</span>
                           </button>
                           {tc.status === 'pending' && (
-                            <button className="btn btn-xs btn-error btn-ghost" onClick={() => undoToolCall(msg.id, tc.id)} title="Undo this action">
-                              ↩
-                            </button>
+                            <>
+                              {/* Approve unblocks the gated backend executor;
+                                  Reject denies it so the tool never runs. The
+                                  POST is what matters — see resolveGatedTool. */}
+                              <button className="btn btn-xs btn-success btn-ghost" onClick={() => approveToolCall(msg.id, tc.id)} title="Approve this action">
+                                ✓
+                              </button>
+                              <button className="btn btn-xs btn-error btn-ghost" onClick={() => rejectToolCall(msg.id, tc.id)} title="Reject this action">
+                                ✗
+                              </button>
+                            </>
                           )}
                         </div>
 
@@ -1865,14 +2020,16 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                       );
                     })}
 
-                    {/* Approve all / Undo all bar */}
+                    {/* Approve all / Reject all bar. Approve All unblocks
+                        every gated executor; Reject All denies them so they
+                        never run (POST 'deny' — not a post-hoc DELETE). */}
                     {msg.toolCalls.some(tc => tc.status === 'pending') && (
                       <div className="flex items-center gap-2 mt-2 p-2 bg-warning/10 border border-warning/30 rounded">
                         <span className="text-[10px] font-bold text-warning uppercase flex-1">Review required</span>
                         <button className="btn btn-xs btn-success" onClick={() => approveAllTools(msg.id)}>Approve All</button>
                         <button className="btn btn-xs btn-error btn-outline" onClick={() => {
-                          msg.toolCalls?.filter(tc => tc.status === 'pending').forEach(tc => undoToolCall(msg.id, tc.id));
-                        }}>Undo All</button>
+                          msg.toolCalls?.filter(tc => tc.status === 'pending').forEach(tc => rejectToolCall(msg.id, tc.id));
+                        }}>Reject All</button>
                       </div>
                     )}
                     {/* #64 — autonomous-run summary footer. Only shows
