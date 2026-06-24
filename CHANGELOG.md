@@ -5,6 +5,15 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.5] — 2026-06-24
+
+### Changed
+- **AI "highlight applied change" now flashes the specific added attribute row**
+  — when the assistant's `updateEntity` adds an attribute, navigating to the
+  entity briefly flashes that new attribute's row (scrolled into view) instead
+  of just the entity header. Field-level edits and whole-entity changes still
+  flash the header. (#193)
+
 ## [1.12.4] — 2026-06-23
 
 ### Fixed
