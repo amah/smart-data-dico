@@ -38,25 +38,25 @@ class ServiceServiceMock {
     return null;
   }
 
-  async createEntity(service: string, entity: any) {
+  async createEntity(_service: string, _entity: any) {
     return { success: true, errors: [] };
   }
 
-  async updateEntity(service: string, entity: any) {
+  async updateEntity(_service: string, _entity: any) {
     return { success: true, errors: [] };
   }
 
-  async deleteEntity(service: string, entityName: string) {
+  async deleteEntity(_service: string, _entityName: string) {
     return { success: true, errors: [] };
   }
 
-  async searchEntities(query: string) {
+  async searchEntities(_query: string) {
     return [
       { entity: 'User', service: 'user-service', matches: ['name', 'description'] },
     ];
   }
 
-  async getGraphData(service: string) {
+  async getGraphData(_service: string) {
     return {
       nodes: [
         { id: 'User', label: 'User', type: 'entity' },
@@ -68,19 +68,19 @@ class ServiceServiceMock {
     };
   }
 
-  async getPackageRelationships(packageName: string) {
+  async getPackageRelationships(_packageName: string) {
     return [];
   }
 
-  async createRelationship(packageName: string, relationship: any) {
+  async createRelationship(_packageName: string, relationship: any) {
     return { success: true, errors: [], relationship };
   }
 
-  async updateRelationship(packageName: string, uuid: string, relationship: any) {
+  async updateRelationship(_packageName: string, _uuid: string, _relationship: any) {
     return { success: true, errors: [] };
   }
 
-  async deleteRelationship(packageName: string, uuid: string) {
+  async deleteRelationship(_packageName: string, _uuid: string) {
     return { success: true, errors: [] };
   }
 }

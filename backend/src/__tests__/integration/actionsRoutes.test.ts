@@ -13,6 +13,7 @@ import request from 'supertest';
 import app from '../../server.js';
 
 declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       user?: { id: string; role: string };
@@ -74,9 +75,9 @@ jest.mock('../../utils/logger', () => ({
   logger: { warn: jest.fn(), error: jest.fn(), info: jest.fn(), debug: jest.fn() },
 }));
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const { actionService } = require('../../services/actionService');
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const { stateMachineService } = require('../../services/stateMachineService');
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────

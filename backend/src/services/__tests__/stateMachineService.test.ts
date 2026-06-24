@@ -24,7 +24,7 @@ jest.mock('../../utils/uuid', () => ({
   sanitizeFsName: jest.fn((n: string) => n),
 }));
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const fileOps = require('../../utils/fileOperations');
 const mocked = fileOps as {
   readStateMachinesForEntity: jest.Mock;

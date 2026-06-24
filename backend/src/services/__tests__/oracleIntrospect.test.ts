@@ -346,7 +346,7 @@ describe('introspectOracle (#69 C3) — connection lifecycle', () => {
       },
     }));
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { introspectOracle } = require('../oracleIntrospect');
     const result = await introspectOracle({
       connection: { user: 'sales', password: 'pw', connectString: 'host:1521/svc' },
@@ -374,7 +374,7 @@ describe('introspectOracle (#69 C3) — connection lifecycle', () => {
       default: { getConnection: mockGetConnection, OUT_FORMAT_OBJECT: 4002 },
     }));
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { introspectOracle } = require('../oracleIntrospect');
     await introspectOracle({
       connection: { user: 'app_user', password: 'pw', connectString: 'host:1521/svc' },
@@ -395,7 +395,7 @@ describe('introspectOracle (#69 C3) — connection lifecycle', () => {
       default: { getConnection: mockGetConnection, OUT_FORMAT_OBJECT: 4002 },
     }));
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { introspectOracle } = require('../oracleIntrospect');
     const result = await introspectOracle({
       connection: { user: 'sales', password: 'pw', connectString: 'host:1521/svc' },
@@ -415,7 +415,7 @@ describe('introspectOracle (#69 C3) — connection lifecycle', () => {
       default: { getConnection: mockGetConnection, OUT_FORMAT_OBJECT: 4002 },
     }));
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { introspectOracle } = require('../oracleIntrospect');
     const result = await introspectOracle({
       connection: { user: 'sales', password: 'pw', connectString: 'host:1521/svc' },

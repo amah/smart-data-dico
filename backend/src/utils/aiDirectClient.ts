@@ -67,7 +67,7 @@ export async function callWithTools(
    */
   stoppedAtStepLimit: boolean;
 }> {
-  let currentMessages = [...messages];
+  const currentMessages = [...messages];
   const allToolCalls: Array<{ name: string; input: any; output: any }> = [];
   let finalText = '';
   // Per-tool-name counter so concurrent invocations of the same tool in a

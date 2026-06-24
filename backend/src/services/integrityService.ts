@@ -19,7 +19,7 @@
  * enough that the frontend can derive per-tab counts in useMemo and the
  * full payload is small even for large dictionaries).
  */
-import { Entity, Attribute, PhysicalConstraint } from '../models/EntitySchema.js';
+import { Entity, PhysicalConstraint } from '../models/EntitySchema.js';
 import { Rule } from '../models/Rule.js';
 import { listAllEntities, readEntityFile } from '../utils/fileOperations.js';
 import { ruleService } from './ruleService.js';

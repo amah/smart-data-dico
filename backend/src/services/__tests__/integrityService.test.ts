@@ -20,9 +20,9 @@ jest.mock('../ruleService', () => ({
   ruleService: { listRules: jest.fn() },
 }));
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const fileOps = require('../../utils/fileOperations');
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const ruleSvc = require('../ruleService');
 
 import {

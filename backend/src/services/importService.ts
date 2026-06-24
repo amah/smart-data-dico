@@ -1,6 +1,5 @@
 import { Entity, Attribute, AttributeType, EntityStatus, MetadataEntry, PhysicalConstraint, Relationship, Cardinality, ReferentialAction } from '../models/EntitySchema.js';
 import { generateUUID } from '../utils/uuid.js';
-import { logger } from '../utils/logger.js';
 import { getProjection } from '../storage/projection/ProjectionRegistry.js';
 import { wsId } from '../storage/contract/types.js';
 
@@ -446,7 +445,7 @@ export function buildRelationshipsFromForeignKeys(
       const isOneToOne = fkCols.length > 0 && fkCols.every(c => uniqueColumns.has(c));
 
       // Check if FK columns are all NOT NULL → mandatory relationship
-      const fkColsNotNull = fkCols.every(col => {
+      const _fkColsNotNull = fkCols.every(col => {
         const attr = entity.attributes.find(a =>
           (a.metadata || []).find(m => m.name === 'physical.columnName')?.value?.toString().toLowerCase() === col
         );

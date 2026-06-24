@@ -426,7 +426,7 @@ class RuleService {
    * Checks if the resolved scope differs from what the caller requested
    * and adjusts accordingly — including moving the rule between files.
    */
-  private async applyAutoScope(rule: Rule, oldScope?: RuleScope, oldPkg?: string): Promise<Rule> {
+  private async applyAutoScope(rule: Rule, _oldScope?: RuleScope, _oldPkg?: string): Promise<Rule> {
     const resolved = this.resolveScope(rule);
     if (resolved.scope !== rule.scope) {
       logger.info(`Auto-${resolved.scope === 'global' ? 'promote' : 'demote'} rule ${rule.uuid}: ${rule.scope} → ${resolved.scope}`);

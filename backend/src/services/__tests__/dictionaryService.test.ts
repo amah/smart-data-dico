@@ -1,7 +1,7 @@
 import { InMemoryStorageBackend } from '../../storage/memory/InMemoryStorageBackend.js';
 import { DictionaryService } from '../dictionaryService.js';
 import { wsId } from '../../storage/contract/types.js';
-import { listMicroserviceEntities, listAllDictionaries, readEntityFile } from '../../utils/fileOperations.js';
+import { listAllDictionaries, readEntityFile } from '../../utils/fileOperations.js';
 
 // Mock dependencies
 jest.mock('../../utils/fileOperations');

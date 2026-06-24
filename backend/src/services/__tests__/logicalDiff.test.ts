@@ -2,7 +2,7 @@
  * Tests for the logical model diff engine (#86).
  */
 import { diffModels, ModelSnapshot, PackageSnapshot } from '../logicalDiff.js';
-import { Entity, Attribute, AttributeType, EntityStatus, Relationship, Cardinality, PhysicalConstraint } from '../../models/EntitySchema.js';
+import { Entity, Attribute, AttributeType, EntityStatus, Relationship, Cardinality } from '../../models/EntitySchema.js';
 import { Rule } from '../../models/Rule.js';
 
 jest.mock('../../utils/logger');
