@@ -5,6 +5,31 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.0] — 2026-06-26
+
+### Added
+- **Action-flow diagram** (#201, Phase 1) — an action's typed `FlowStep[]` now
+  renders as a top-down flowchart in addition to the nested list. A pure
+  `flowToGraph` mapper turns the flow into nodes + edges (synthetic Start/End,
+  sequential edges, `branch` forks with labelled then/else, event markers); a
+  List/Diagram toggle on each action switches views, and `invokeAction` nodes
+  link to the referenced action. Rendering only — nothing is executed.
+- **First-class `Event` element** (#201, Phase 2) — events are promoted from
+  opaque names to a modeled element with an optional owner and a payload schema.
+  New `events:` section in the multi-kind YAML loader (uuid + name collision
+  detection), CRUD API + an entity Events tab, and `emitEvent` / `wait` steps
+  can now reference a real event via `eventRef` (validated; the opaque name
+  stays a non-breaking fallback). The flow diagram resolves modeled event names.
+- **CQRS classification + saga / process view** (#201, Phase 3) — actions carry
+  an optional `actionKind` (`command` / `query`), shown as a chip and editable
+  in the action editor. A new **Process** diagram view-mode graphs every action
+  and event in a package into the end-to-end command → events → reactions map
+  (`invoke` / `emit` / `react` edges), with commands and queries visually
+  distinct and filterable.
+- **Create-package modal** — the package hierarchy view gains a "New package"
+  action (button + empty-state) wired to package creation, navigation, and
+  refresh.
+
 ## [1.12.6] — 2026-06-25
 
 ### Added
