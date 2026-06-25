@@ -492,6 +492,10 @@ export const actionsApi = {
     const response = await api.get(`/entities/${entityUuid}/actions`);
     return response.data.data || [];
   },
+  getForPackage: async (packageName: string): Promise<Action[]> => {
+    const response = await api.get(`/actions?package=${encodeURIComponent(packageName)}`);
+    return response.data.data || [];
+  },
   getOne: async (uuid: string): Promise<Action> => {
     const response = await api.get(`/actions/${uuid}`);
     return response.data.data;

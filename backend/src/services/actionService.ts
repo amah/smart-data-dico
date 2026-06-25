@@ -11,10 +11,11 @@
  *   - On delete: scan for the owning file and remove.
  */
 
-import { Action, FLOW_STEP_KINDS } from '../models/Action.js';
+import { Action, FLOW_STEP_KINDS, ACTION_KINDS } from '../models/Action.js';
 import type { FlowStep } from '../models/Action.js';
 import {
   readActionsForEntity,
+  readActionsForPackage,
   writeAction,
   deleteAction as deleteActionFile,
   findActionOwner,
@@ -107,6 +108,14 @@ export function validateAction(
   if (!action.name) errors.push({ field: 'name', message: 'name is required' });
   if (!action.ownerRef) errors.push({ field: 'ownerRef', message: 'ownerRef is required' });
 
+  // CQRS classification (#201 Phase 3) — optional, but must be a known kind.
+  if (action.actionKind !== undefined && !ACTION_KINDS.has(action.actionKind)) {
+    errors.push({
+      field: 'actionKind',
+      message: `Invalid actionKind '${action.actionKind}'. Must be one of: ${[...ACTION_KINDS].join(', ')}`,
+    });
+  }
+
   // Validate param name uniqueness
   if (action.params && action.params.length > 0) {
     const names = action.params.map(p => p.name);
@@ -150,11 +159,14 @@ export function validateAction(
 // ── Service class ─────────────────────────────────────────────────────────────
 
 class ActionService {
-  /** List all actions. Optionally filter by ownerRef (entity UUID). */
-  async list(filters: { ownerRef?: string } = {}): Promise<Action[]> {
+  /** List all actions. Optionally filter by ownerRef (entity UUID) or package. */
+  async list(filters: { ownerRef?: string; packageName?: string } = {}): Promise<Action[]> {
     try {
       if (filters.ownerRef) {
         return await readActionsForEntity(filters.ownerRef);
+      }
+      if (filters.packageName) {
+        return await readActionsForPackage(filters.packageName);
       }
 
       // Full scan across all packages
@@ -195,6 +207,7 @@ class ActionService {
       description: data.description,
       ownerRef: data.ownerRef || '',
       internal: data.internal ?? false,
+      actionKind: data.actionKind,
       params: data.params ?? [],
       returns: data.returns,
       flow: data.flow ?? [],
