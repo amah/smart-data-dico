@@ -117,6 +117,7 @@ describe('mergePackageSections — collision detection for actions and state mac
         cases: [],
         actions: [makeAction({ uuid: 'act-dup-uuid' })],
         stateMachines: [],
+        events: [],
       },
     };
     const file2: ParsedSections = {
@@ -128,6 +129,7 @@ describe('mergePackageSections — collision detection for actions and state mac
         cases: [],
         actions: [makeAction({ uuid: 'act-dup-uuid', name: 'cancelDuplicate' })],
         stateMachines: [],
+        events: [],
       },
     };
 
@@ -146,6 +148,7 @@ describe('mergePackageSections — collision detection for actions and state mac
         cases: [],
         actions: [],
         stateMachines: [makeStateMachine({ uuid: 'sm-dup-uuid' })],
+        events: [],
       },
     };
     const file2: ParsedSections = {
@@ -157,6 +160,7 @@ describe('mergePackageSections — collision detection for actions and state mac
         cases: [],
         actions: [],
         stateMachines: [makeStateMachine({ uuid: 'sm-dup-uuid', name: 'paymentDuplicate' })],
+        events: [],
       },
     };
 
@@ -175,6 +179,7 @@ describe('mergePackageSections — collision detection for actions and state mac
         cases: [],
         actions: [],
         stateMachines: [makeStateMachine({ uuid: 'sm-a', name: 'fulfillment', ownerRef: OWNER_UUID })],
+        events: [],
       },
     };
     const file2: ParsedSections = {
@@ -186,6 +191,7 @@ describe('mergePackageSections — collision detection for actions and state mac
         cases: [],
         actions: [],
         stateMachines: [makeStateMachine({ uuid: 'sm-b', name: 'fulfillment', ownerRef: OWNER_UUID })],
+        events: [],
       },
     };
 
@@ -204,6 +210,7 @@ describe('mergePackageSections — collision detection for actions and state mac
         cases: [],
         actions: [makeAction({ uuid: 'act-a', name: 'cancel', ownerRef: OWNER_UUID })],
         stateMachines: [],
+        events: [],
       },
     };
     const file2: ParsedSections = {
@@ -215,6 +222,7 @@ describe('mergePackageSections — collision detection for actions and state mac
         cases: [],
         actions: [makeAction({ uuid: 'act-b', name: 'cancel', ownerRef: OWNER_UUID })],
         stateMachines: [],
+        events: [],
       },
     };
 
@@ -234,6 +242,7 @@ describe('mergePackageSections — collision detection for actions and state mac
         cases: [],
         actions: [],
         stateMachines: [makeStateMachine({ uuid: 'sm-a', name: 'fulfillment', ownerRef: OWNER_UUID })],
+        events: [],
       },
     };
     const file2: ParsedSections = {
@@ -245,6 +254,7 @@ describe('mergePackageSections — collision detection for actions and state mac
         cases: [],
         actions: [],
         stateMachines: [makeStateMachine({ uuid: 'sm-b', name: 'fulfillment', ownerRef: OTHER_OWNER })],
+        events: [],
       },
     };
 
@@ -261,6 +271,7 @@ describe('mergePackageSections — collision detection for actions and state mac
         cases: [],
         actions: [makeAction({ uuid: 'act-1', name: 'cancel' })],
         stateMachines: [],
+        events: [],
       },
     };
     const file2: ParsedSections = {
@@ -275,6 +286,7 @@ describe('mergePackageSections — collision detection for actions and state mac
           makeStateMachine({ uuid: 'sm-1', name: 'fulfillment' }),
           makeStateMachine({ uuid: 'sm-2', name: 'payment', ownerRef: OWNER_UUID }),
         ],
+        events: [],
       },
     };
 
@@ -302,6 +314,7 @@ describe('mergePackageSections — collision detection for actions and state mac
         stateMachines: [
           { uuid: '', name: 'no-uuid-sm', ownerRef: OWNER_UUID } as unknown as StateMachine,
         ],
+        events: [],
       },
     };
 

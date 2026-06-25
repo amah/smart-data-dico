@@ -34,6 +34,8 @@ export interface FlowGraphNode {
   actionRef?: string;
   /** For `emitEvent` nodes: the opaque event name. */
   eventName?: string;
+  /** For `emitEvent` / `wait` nodes: the referenced event UUID, if modeled (#201 Phase 2). */
+  eventRef?: string;
 }
 
 export interface FlowGraphEdge {
@@ -128,6 +130,9 @@ export function flowToGraph(action: { flow?: FlowStep[] }): FlowGraph {
           label: stepLabel(step),
           ...(step.kind === 'invokeAction' ? { actionRef: step.actionRef } : {}),
           ...(step.kind === 'emitEvent' ? { eventName: step.name } : {}),
+          ...((step.kind === 'emitEvent' || step.kind === 'wait') && step.eventRef
+            ? { eventRef: step.eventRef }
+            : {}),
         });
         connect(current, id);
         current = [{ id }];

@@ -7,7 +7,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import type { Action, FlowStep, ActionParam, FlowStepKind, Entity } from '../../../../types';
+import type { Action, Event, FlowStep, ActionParam, FlowStepKind, Entity } from '../../../../types';
 import { FLOW_STEP_KINDS } from '../../../../types';
 import { actionsApi } from '../../../../services/api';
 import { Button, EmptyState, Icon } from '../../../../components/ui';
@@ -53,6 +53,8 @@ function FlowViewToggle({ value, onChange }: { value: FlowView; onChange: (v: Fl
 interface EntityActionsTabProps {
   entity: Entity;
   actions: Action[];
+  /** Modeled events in scope, for the emitEvent/wait pickers + diagram (#201 Phase 2). */
+  events?: Event[];
   onActionsChanged: () => void;
 }
 
@@ -61,11 +63,12 @@ interface EntityActionsTabProps {
 interface ActionPanelProps {
   action: Action | null;
   entityUuid: string;
+  events: Event[];
   onClose: () => void;
   onSaved: () => void;
 }
 
-function ActionPanel({ action, entityUuid, onClose, onSaved }: ActionPanelProps) {
+function ActionPanel({ action, entityUuid, events, onClose, onSaved }: ActionPanelProps) {
   const isNew = action === null;
 
   const [name, setName] = useState(action?.name ?? '');
@@ -356,12 +359,28 @@ function ActionPanel({ action, entityUuid, onClose, onSaved }: ActionPanelProps)
                 </>
               )}
               {step.kind === 'emitEvent' && (
-                <input
-                  value={step.name}
-                  onChange={e => setFlow(steps => steps.map((s, idx) => idx === i ? { ...s, name: e.target.value } as FlowStep : s))}
-                  placeholder="event name"
-                  style={{ flex: 1, padding: '2px 4px', border: '1px solid var(--border)', borderRadius: 3, fontSize: 'var(--fs-xs)', background: 'var(--bg)', color: 'var(--text)' }}
-                />
+                <>
+                  <select
+                    value={step.eventRef ?? ''}
+                    onChange={e => {
+                      const ev = events.find(x => x.uuid === e.target.value);
+                      setFlow(steps => steps.map((s, idx) => idx === i
+                        ? { ...s, eventRef: ev?.uuid || undefined, name: ev ? ev.name : (s as { name: string }).name } as FlowStep
+                        : s));
+                    }}
+                    style={{ flex: '0 0 130px', padding: '2px 4px', border: '1px solid var(--border)', borderRadius: 3, fontSize: 'var(--fs-xs)', background: 'var(--bg)', color: 'var(--text)' }}
+                  >
+                    <option value="">— custom —</option>
+                    {events.map(ev => <option key={ev.uuid} value={ev.uuid}>{ev.name}</option>)}
+                  </select>
+                  <input
+                    value={step.name}
+                    disabled={!!step.eventRef}
+                    onChange={e => setFlow(steps => steps.map((s, idx) => idx === i ? { ...s, name: e.target.value } as FlowStep : s))}
+                    placeholder="event name"
+                    style={{ flex: 1, padding: '2px 4px', border: '1px solid var(--border)', borderRadius: 3, fontSize: 'var(--fs-xs)', background: 'var(--bg)', color: 'var(--text)' }}
+                  />
+                </>
               )}
               {step.kind === 'invokeAction' && (
                 <input
@@ -380,12 +399,28 @@ function ActionPanel({ action, entityUuid, onClose, onSaved }: ActionPanelProps)
                 />
               )}
               {step.kind === 'wait' && (
-                <input
-                  value={step.for}
-                  onChange={e => setFlow(steps => steps.map((s, idx) => idx === i ? { ...s, for: e.target.value } as FlowStep : s))}
-                  placeholder="event name or duration"
-                  style={{ flex: 1, padding: '2px 4px', border: '1px solid var(--border)', borderRadius: 3, fontSize: 'var(--fs-xs)', background: 'var(--bg)', color: 'var(--text)' }}
-                />
+                <>
+                  <select
+                    value={step.eventRef ?? ''}
+                    onChange={e => {
+                      const ev = events.find(x => x.uuid === e.target.value);
+                      setFlow(steps => steps.map((s, idx) => idx === i
+                        ? { ...s, eventRef: ev?.uuid || undefined, for: ev ? ev.name : (s as { for: string }).for } as FlowStep
+                        : s));
+                    }}
+                    style={{ flex: '0 0 130px', padding: '2px 4px', border: '1px solid var(--border)', borderRadius: 3, fontSize: 'var(--fs-xs)', background: 'var(--bg)', color: 'var(--text)' }}
+                  >
+                    <option value="">— custom —</option>
+                    {events.map(ev => <option key={ev.uuid} value={ev.uuid}>{ev.name}</option>)}
+                  </select>
+                  <input
+                    value={step.for}
+                    disabled={!!step.eventRef}
+                    onChange={e => setFlow(steps => steps.map((s, idx) => idx === i ? { ...s, for: e.target.value } as FlowStep : s))}
+                    placeholder="event name or duration"
+                    style={{ flex: 1, padding: '2px 4px', border: '1px solid var(--border)', borderRadius: 3, fontSize: 'var(--fs-xs)', background: 'var(--bg)', color: 'var(--text)' }}
+                  />
+                </>
               )}
               {step.kind === 'callExternal' && (
                 <input
@@ -434,7 +469,7 @@ function ActionPanel({ action, entityUuid, onClose, onSaved }: ActionPanelProps)
 
 // ── Main tab component ────────────────────────────────────────────────────────
 
-export function EntityActionsTab({ entity, actions, onActionsChanged }: EntityActionsTabProps) {
+export function EntityActionsTab({ entity, actions, events = [], onActionsChanged }: EntityActionsTabProps) {
   const [selectedAction, setSelectedAction] = useState<Action | 'new' | null>(null);
   const [expandedUuid, setExpandedUuid] = useState<string | null>(null);
   const [flowView, setFlowView] = useState<FlowView>('list');
@@ -582,6 +617,7 @@ export function EntityActionsTab({ entity, actions, onActionsChanged }: EntityAc
                       <ActionFlowDiagram
                         action={action}
                         actions={actions}
+                        events={events}
                         onNavigateAction={(uuid) => setExpandedUuid(uuid)}
                       />
                     )}
@@ -598,6 +634,7 @@ export function EntityActionsTab({ entity, actions, onActionsChanged }: EntityAc
         <ActionPanel
           action={selectedAction === 'new' ? null : selectedAction}
           entityUuid={entity.uuid}
+          events={events}
           onClose={() => setSelectedAction(null)}
           onSaved={onActionsChanged}
         />

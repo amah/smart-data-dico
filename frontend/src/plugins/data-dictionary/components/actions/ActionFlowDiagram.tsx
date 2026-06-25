@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { ElementDefinition, StylesheetStyle } from 'cytoscape';
-import type { Action, FlowStepKind } from '../../../../types';
+import type { Action, Event, FlowStepKind } from '../../../../types';
 import { useCytoscapeInstance } from '../../../../components/CytoscapeGraph/useCytoscapeInstance';
 import { useCytoscapeLayout } from '../../../../components/CytoscapeGraph/useCytoscapeLayout';
 import { STEP_KIND_COLORS, STEP_KIND_LABELS } from './ActionFlowList';
@@ -23,6 +23,8 @@ interface ActionFlowDiagramProps {
   action: Action;
   /** Sibling actions (same entity) used to resolve `invokeAction` refs. */
   actions?: Action[];
+  /** Modeled events used to resolve `emitEvent` / `wait` eventRefs (#201 Phase 2). */
+  events?: Event[];
   /** Called when a resolvable `invokeAction` node is clicked. */
   onNavigateAction?: (uuid: string) => void;
   /** Canvas height in px. */
@@ -39,17 +41,27 @@ interface ActionFlowDiagramProps {
 export function flowGraphToElements(
   graph: FlowGraph,
   resolveActionName?: (ref: string) => string | undefined,
+  resolveEventName?: (ref: string) => string | undefined,
 ): ElementDefinition[] {
   const nodes: ElementDefinition[] = graph.nodes.map((n) => {
-    const resolved =
+    const resolvedAction =
       n.kind === 'invokeAction' && n.actionRef ? resolveActionName?.(n.actionRef) : undefined;
+    // emitEvent / wait nodes with a resolvable eventRef show the modeled event
+    // name (#201 Phase 2). For `wait`, keep the "wait: " prefix.
+    const resolvedEvent =
+      (n.kind === 'emitEvent' || n.kind === 'wait') && n.eventRef
+        ? resolveEventName?.(n.eventRef)
+        : undefined;
+    let label = resolvedAction ?? n.label;
+    if (resolvedEvent) label = n.kind === 'wait' ? `wait: ${resolvedEvent}` : resolvedEvent;
     return {
       data: {
         id: n.id,
         kind: n.kind,
-        label: resolved ?? n.label,
+        label,
         actionRef: n.actionRef,
-        navigable: resolved ? 1 : 0,
+        eventRef: n.eventRef,
+        navigable: resolvedAction ? 1 : 0,
       },
     };
   });
@@ -237,6 +249,7 @@ function FlowLegend() {
 export function ActionFlowDiagram({
   action,
   actions,
+  events,
   onNavigateAction,
   height = 360,
 }: ActionFlowDiagramProps) {
@@ -251,9 +264,18 @@ export function ActionFlowDiagram({
     [actionsByUuid],
   );
 
+  const eventsByUuid = useMemo(
+    () => new Map((events ?? []).map((e) => [e.uuid, e])),
+    [events],
+  );
+  const resolveEventName = useCallback(
+    (ref: string) => eventsByUuid.get(ref)?.name,
+    [eventsByUuid],
+  );
+
   const elements = useMemo(
-    () => flowGraphToElements(flowToGraph(action), resolveName),
-    [action, resolveName],
+    () => flowGraphToElements(flowToGraph(action), resolveName, resolveEventName),
+    [action, resolveName, resolveEventName],
   );
   const stylesheet = useMemo(() => createFlowStylesheet(), []);
 

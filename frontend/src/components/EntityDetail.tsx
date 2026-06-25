@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { servicesApi, relationshipApi, stereotypeApi, actionsApi, stateMachinesApi, entityApi } from '../services/api';
-import { Entity, Relationship, Stereotype, ImpactAnalysis, Rule, Action, StateMachine, type Package } from '../types';
+import { servicesApi, relationshipApi, stereotypeApi, actionsApi, eventsApi, stateMachinesApi, entityApi } from '../services/api';
+import { Entity, Relationship, Stereotype, ImpactAnalysis, Rule, Action, Event, StateMachine, type Package } from '../types';
 import OrmMappingSection from './OrmMappingSection';
 import OrmInheritancePanel, { type EntityRef } from './OrmInheritancePanel';
 import EntityPhysicalSection from './EntityPhysicalSection';
@@ -13,6 +13,7 @@ import AttributeList from './AttributeList';
 import RelationshipList from './RelationshipList';
 import EntityRulesList from '../plugins/data-dictionary/components/rules/EntityRulesList';
 import { EntityActionsTab } from '../plugins/data-dictionary/components/actions/EntityActionsTab';
+import { EntityEventsTab } from '../plugins/data-dictionary/components/events/EntityEventsTab';
 import { EntityStateMachinesTab } from '../plugins/data-dictionary/components/state-machines/EntityStateMachinesTab';
 import { useHighlightOnArrival } from '../hooks/useHighlightOnArrival';
 import { useService } from '../kernel/useService';
@@ -41,7 +42,7 @@ interface EntityDetailProps {
   editMode?: boolean;
 }
 
-type TabId = 'attributes' | 'relationships' | 'metadata' | 'orm' | 'lineage' | 'impact' | 'comments' | 'rules' | 'actions' | 'state-machines';
+type TabId = 'attributes' | 'relationships' | 'metadata' | 'orm' | 'lineage' | 'impact' | 'comments' | 'rules' | 'actions' | 'events' | 'state-machines';
 
 interface TabDef {
   id: TabId;
@@ -73,6 +74,7 @@ const EntityDetail = (props: EntityDetailProps) => {
   const [currentStereotype, setCurrentStereotype] = useState<Stereotype | null>(null);
   const [entityRules, setEntityRules] = useState<Rule[]>([]);
   const [entityActions, setEntityActions] = useState<Action[]>([]);
+  const [entityEvents, setEntityEvents] = useState<Event[]>([]);
   const [entityStateMachines, setEntityStateMachines] = useState<StateMachine[]>([]);
   const navigate = useNavigate();
   // Flash the changed element when arriving via ?highlight=<key> after an AI
@@ -171,6 +173,20 @@ const EntityDetail = (props: EntityDetailProps) => {
   useEffect(() => {
     fetchEntityActions();
   }, [fetchEntityActions]);
+
+  const fetchEntityEvents = useCallback(async () => {
+    if (!entityData?.uuid) return;
+    try {
+      const events = await eventsApi.getForEntity(entityData.uuid);
+      setEntityEvents(events);
+    } catch {
+      setEntityEvents([]);
+    }
+  }, [entityData?.uuid]);
+
+  useEffect(() => {
+    fetchEntityEvents();
+  }, [fetchEntityEvents]);
 
   const fetchEntityStateMachines = useCallback(async () => {
     if (!entityData?.uuid) return;
@@ -364,6 +380,7 @@ const EntityDetail = (props: EntityDetailProps) => {
   const relCount = relationships.length;
   const ruleCount = entityRules.length;
   const actionsCount = entityActions.length;
+  const eventsCount = entityEvents.length;
   const smCount = entityStateMachines.length;
 
   const tabs: TabDef[] = [
@@ -376,6 +393,7 @@ const EntityDetail = (props: EntityDetailProps) => {
     { id: 'comments',       label: 'Comments' },
     { id: 'rules',          label: 'Rules',           count: ruleCount },
     { id: 'actions',        label: 'Actions',         count: actionsCount },
+    { id: 'events',         label: 'Events',          count: eventsCount },
     { id: 'state-machines', label: 'State Machines',  count: smCount },
   ];
 
@@ -717,7 +735,16 @@ const EntityDetail = (props: EntityDetailProps) => {
           <EntityActionsTab
             entity={entityData}
             actions={entityActions}
+            events={entityEvents}
             onActionsChanged={fetchEntityActions}
+          />
+        )}
+
+        {activeTab === 'events' && entityData && (
+          <EntityEventsTab
+            entity={entityData}
+            events={entityEvents}
+            onEventsChanged={fetchEntityEvents}
           />
         )}
 
