@@ -12,6 +12,43 @@ import { FLOW_STEP_KINDS } from '../../../../types';
 import { actionsApi } from '../../../../services/api';
 import { Button, EmptyState, Icon } from '../../../../components/ui';
 import { ActionFlowList } from './ActionFlowList';
+import { ActionFlowDiagram } from './ActionFlowDiagram';
+
+type FlowView = 'list' | 'diagram';
+
+/** Small segmented List / Diagram toggle for the expanded flow view. */
+function FlowViewToggle({ value, onChange }: { value: FlowView; onChange: (v: FlowView) => void }) {
+  const options: { value: FlowView; label: string; icon: 'rows' | 'branch' }[] = [
+    { value: 'list', label: 'List', icon: 'rows' },
+    { value: 'diagram', label: 'Diagram', icon: 'branch' },
+  ];
+  return (
+    <div
+      role="group"
+      aria-label="Flow view"
+      style={{
+        display: 'inline-flex',
+        background: 'var(--bg-raised)',
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--radius-sm)',
+        overflow: 'hidden',
+      }}
+    >
+      {options.map((o, i) => (
+        <Button
+          key={o.value}
+          size="sm"
+          variant={value === o.value ? 'primary' : 'ghost'}
+          icon={o.icon}
+          onClick={() => onChange(o.value)}
+          style={{ borderRadius: 0, borderLeft: i === 0 ? 0 : '1px solid var(--border)' }}
+        >
+          {o.label}
+        </Button>
+      ))}
+    </div>
+  );
+}
 
 interface EntityActionsTabProps {
   entity: Entity;
@@ -400,6 +437,7 @@ function ActionPanel({ action, entityUuid, onClose, onSaved }: ActionPanelProps)
 export function EntityActionsTab({ entity, actions, onActionsChanged }: EntityActionsTabProps) {
   const [selectedAction, setSelectedAction] = useState<Action | 'new' | null>(null);
   const [expandedUuid, setExpandedUuid] = useState<string | null>(null);
+  const [flowView, setFlowView] = useState<FlowView>('list');
   const [deleting, setDeleting] = useState<string | null>(null);
 
   const handleDelete = useCallback(async (action: Action) => {
@@ -534,8 +572,19 @@ export function EntityActionsTab({ entity, actions, onActionsChanged }: EntityAc
                   )}
                   {/* Flow */}
                   <div style={{ marginTop: 8 }}>
-                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)', marginBottom: 4 }}>Flow</div>
-                    <ActionFlowList flow={action.flow ?? []} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)', flex: 1 }}>Flow</span>
+                      <FlowViewToggle value={flowView} onChange={setFlowView} />
+                    </div>
+                    {flowView === 'list' ? (
+                      <ActionFlowList flow={action.flow ?? []} />
+                    ) : (
+                      <ActionFlowDiagram
+                        action={action}
+                        actions={actions}
+                        onNavigateAction={(uuid) => setExpandedUuid(uuid)}
+                      />
+                    )}
                   </div>
                 </div>
               )}
