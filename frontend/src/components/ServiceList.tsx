@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useCallback, useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 
-import { getAllPackageHierarchies } from '../services/api';
+import { getAllPackageHierarchies, packageApi } from '../services/api';
 import { Entity, Package } from '../types';
 import CytoscapeGraph from './CytoscapeGraph';
 import EntityFlatTable from './EntityFlatTable';
-import { Button, EmptyState, Toolbar } from './ui';
+import { Button, EmptyState, Input, Modal, Toolbar } from './ui';
 
 type ViewMode = 'table' | 'tree' | 'diagram';
 
@@ -14,24 +14,64 @@ const ServiceList = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('tree');
+  // Create-package modal (#blocker: there was no UI to create a package).
+  const [showCreate, setShowCreate] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newDescription, setNewDescription] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const navigate = useNavigate();
+
+  const fetchPackages = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await getAllPackageHierarchies();
+      setPackages(data);
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching package tree:', err);
+      setError('Failed to load package hierarchy. Please try again later.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    const fetchPackages = async () => {
-      try {
-        setLoading(true);
-        const data = await getAllPackageHierarchies();
-        setPackages(data);
-        setError(null);
-      } catch (err) {
-        console.error('Error fetching package tree:', err);
-        setError('Failed to load package hierarchy. Please try again later.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchPackages();
-  }, []);
+  }, [fetchPackages]);
+
+  const openCreate = () => {
+    setCreateError(null);
+    setNewName('');
+    setNewDescription('');
+    setShowCreate(true);
+  };
+
+  const handleCreate = async () => {
+    const name = newName.trim();
+    if (!name) {
+      setCreateError('Package name is required.');
+      return;
+    }
+    try {
+      setCreating(true);
+      setCreateError(null);
+      await packageApi.createPackage({ name, description: newDescription.trim() || undefined });
+      setShowCreate(false);
+      await fetchPackages();
+      navigate(`/packages/${name}`);
+    } catch (err) {
+      const e = err as { response?: { data?: { errors?: string[]; message?: string } }; message?: string };
+      setCreateError(
+        e.response?.data?.errors?.join(' ') ||
+        e.response?.data?.message ||
+        e.message ||
+        'Failed to create package.',
+      );
+    } finally {
+      setCreating(false);
+    }
+  };
 
   if (loading) {
     return <EmptyState kind="loading" message="Loading packages…" />;
@@ -62,6 +102,9 @@ const ServiceList = () => {
           Package Hierarchy
         </h1>
         <Toolbar.Spacer />
+        <Button size="sm" variant="primary" icon="plus" onClick={openCreate}>
+          New package
+        </Button>
         <ViewModeSwitcher value={viewMode} onChange={setViewMode} />
       </Toolbar>
 
@@ -73,6 +116,7 @@ const ServiceList = () => {
             kind="empty"
             title="No packages"
             message="No packages found. Create a new package to get started."
+            action={{ label: 'New package', icon: 'plus', onClick: openCreate }}
           />
         ) : (
           <div
@@ -92,6 +136,41 @@ const ServiceList = () => {
           <CytoscapeGraph mode="organization" packages={packages} />
         </div>
       )}
+
+      <Modal open={showCreate} title="New package" onClose={() => setShowCreate(false)}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)' }}>
+              Name <span style={{ color: 'var(--text-subtle)' }}>(kebab-case)</span>
+            </span>
+            <Input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="loan-origination"
+              autoFocus
+              onKeyDown={(e) => { if (e.key === 'Enter') handleCreate(); }}
+            />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)' }}>Description (optional)</span>
+            <Input
+              value={newDescription}
+              onChange={(e) => setNewDescription(e.target.value)}
+              placeholder="Loan origination domain"
+              onKeyDown={(e) => { if (e.key === 'Enter') handleCreate(); }}
+            />
+          </label>
+          {createError && (
+            <span style={{ color: 'var(--danger)', fontSize: 'var(--fs-sm)' }}>{createError}</span>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+            <Button variant="ghost" onClick={() => setShowCreate(false)}>Cancel</Button>
+            <Button variant="primary" onClick={handleCreate} disabled={creating}>
+              {creating ? 'Creating…' : 'Create'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };
