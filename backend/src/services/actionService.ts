@@ -11,10 +11,11 @@
  *   - On delete: scan for the owning file and remove.
  */
 
-import { Action, FLOW_STEP_KINDS } from '../models/Action.js';
+import { Action, FLOW_STEP_KINDS, ACTION_KINDS } from '../models/Action.js';
 import type { FlowStep } from '../models/Action.js';
 import {
   readActionsForEntity,
+  readActionsForPackage,
   writeAction,
   deleteAction as deleteActionFile,
   findActionOwner,
@@ -63,13 +64,57 @@ function checkInvokeRefs(
   }
 }
 
+/**
+ * Recursively collect errors from emitEvent / wait steps that carry an
+ * `eventRef`. A set `eventRef` must resolve to a known event UUID; an absent
+ * one is fine (the opaque name / for string is the fallback). (#201 Phase 2)
+ */
+function checkEventRefs(
+  steps: FlowStep[],
+  knownEventUuids: Set<string>,
+  pathPrefix: string,
+  errors: ActionValidationError[],
+): void {
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    const path = `${pathPrefix}[${i}]`;
+    if (step.kind === 'emitEvent' || step.kind === 'wait') {
+      if (step.eventRef && !knownEventUuids.has(step.eventRef)) {
+        errors.push({
+          field: `${path}.eventRef`,
+          message: `${step.kind} references unknown event UUID '${step.eventRef}' at ${path}`,
+        });
+      }
+    } else if (step.kind === 'branch') {
+      if (step.then && step.then.length > 0) {
+        checkEventRefs(step.then, knownEventUuids, `${path}.then`, errors);
+      }
+      if (step.else && step.else.length > 0) {
+        checkEventRefs(step.else, knownEventUuids, `${path}.else`, errors);
+      }
+    }
+  }
+}
+
 /** Validate an action's structure before write. */
-export function validateAction(action: Partial<Action>, knownActionUuids?: Set<string>): ActionValidationError[] {
+export function validateAction(
+  action: Partial<Action>,
+  knownActionUuids?: Set<string>,
+  knownEventUuids?: Set<string>,
+): ActionValidationError[] {
   const errors: ActionValidationError[] = [];
 
   if (!action.uuid) errors.push({ field: 'uuid', message: 'uuid is required' });
   if (!action.name) errors.push({ field: 'name', message: 'name is required' });
   if (!action.ownerRef) errors.push({ field: 'ownerRef', message: 'ownerRef is required' });
+
+  // CQRS classification (#201 Phase 3) — optional, but must be a known kind.
+  if (action.actionKind !== undefined && !ACTION_KINDS.has(action.actionKind)) {
+    errors.push({
+      field: 'actionKind',
+      message: `Invalid actionKind '${action.actionKind}'. Must be one of: ${[...ACTION_KINDS].join(', ')}`,
+    });
+  }
 
   // Validate param name uniqueness
   if (action.params && action.params.length > 0) {
@@ -100,6 +145,12 @@ export function validateAction(action: Partial<Action>, knownActionUuids?: Set<s
     if (knownActionUuids !== undefined) {
       checkInvokeRefs(action.flow, knownActionUuids, 'flow', errors);
     }
+
+    // Cross-reference: emitEvent/wait `eventRef` (when set) must resolve to a
+    // known event UUID in the package (#201 Phase 2).
+    if (knownEventUuids !== undefined) {
+      checkEventRefs(action.flow, knownEventUuids, 'flow', errors);
+    }
   }
 
   return errors;
@@ -108,11 +159,14 @@ export function validateAction(action: Partial<Action>, knownActionUuids?: Set<s
 // ── Service class ─────────────────────────────────────────────────────────────
 
 class ActionService {
-  /** List all actions. Optionally filter by ownerRef (entity UUID). */
-  async list(filters: { ownerRef?: string } = {}): Promise<Action[]> {
+  /** List all actions. Optionally filter by ownerRef (entity UUID) or package. */
+  async list(filters: { ownerRef?: string; packageName?: string } = {}): Promise<Action[]> {
     try {
       if (filters.ownerRef) {
         return await readActionsForEntity(filters.ownerRef);
+      }
+      if (filters.packageName) {
+        return await readActionsForPackage(filters.packageName);
       }
 
       // Full scan across all packages
@@ -153,6 +207,7 @@ class ActionService {
       description: data.description,
       ownerRef: data.ownerRef || '',
       internal: data.internal ?? false,
+      actionKind: data.actionKind,
       params: data.params ?? [],
       returns: data.returns,
       flow: data.flow ?? [],
@@ -169,8 +224,9 @@ class ActionService {
     // Include the action being created itself so self-invoke doesn't produce a false positive
     const knownActionUuids = new Set(packageModel.ownership.actionByUuid.keys());
     knownActionUuids.add(action.uuid);
+    const knownEventUuids = new Set(packageModel.ownership.eventByUuid.keys());
 
-    const errors = validateAction(action, knownActionUuids);
+    const errors = validateAction(action, knownActionUuids, knownEventUuids);
     if (errors.length > 0) return { errors };
 
     const result = await writeAction(action, packageName);
@@ -204,8 +260,9 @@ class ActionService {
     const knownActionUuids = new Set(packageModel.ownership.actionByUuid.keys());
     // Ensure the action itself is in the set (it's already on disk, so it should be)
     knownActionUuids.add(uuid);
+    const knownEventUuids = new Set(packageModel.ownership.eventByUuid.keys());
 
-    const errors = validateAction(updated, knownActionUuids);
+    const errors = validateAction(updated, knownActionUuids, knownEventUuids);
     if (errors.length > 0) return { errors };
 
     const result = await writeAction(updated, packageName);

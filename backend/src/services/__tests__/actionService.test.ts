@@ -11,6 +11,7 @@ import type { Action } from '../../models/Action.js';
 
 jest.mock('../../utils/fileOperations', () => ({
   readActionsForEntity: jest.fn(),
+  readActionsForPackage: jest.fn(),
   writeAction: jest.fn(),
   deleteAction: jest.fn(),
   findActionOwner: jest.fn(),
@@ -29,6 +30,7 @@ jest.mock('../../utils/uuid', () => ({
 const fileOps = require('../../utils/fileOperations');
 const mocked = fileOps as {
   readActionsForEntity: jest.Mock;
+  readActionsForPackage: jest.Mock;
   writeAction: jest.Mock;
   deleteAction: jest.Mock;
   findActionOwner: jest.Mock;
@@ -63,6 +65,7 @@ function makePackageModel(entities: { uuid: string; name: string }[], actions: A
     cases: [],
     actions,
     stateMachines: [],
+    events: [],
     ownership: {
       entityByName: new Map(entities.map(e => [e.name, ''])),
       entityByUuid: new Map(entities.map(e => [e.uuid, ''])),
@@ -71,6 +74,8 @@ function makePackageModel(entities: { uuid: string; name: string }[], actions: A
       caseByUuid: new Map(),
       actionByUuid: new Map(actions.map(a => [a.uuid, ''])),
       stateMachineByUuid: new Map(),
+      eventByUuid: new Map(),
+      eventByName: new Map(),
       actionByOwnerAndName: new Map(actions.map(a => [`${a.ownerRef}::${a.name}`, ''])),
       stateMachineByOwnerAndName: new Map(),
     },
@@ -116,6 +121,14 @@ describe('validateAction', () => {
     expect(errors.some(e => e.field === 'params' && e.message.includes('type'))).toBe(true);
   });
 
+  it('accepts a valid actionKind and rejects an invalid one (#201 Phase 3)', () => {
+    expect(validateAction(makeAction({ actionKind: 'command' }))).toHaveLength(0);
+    expect(validateAction(makeAction({ actionKind: 'query' }))).toHaveLength(0);
+    expect(validateAction(makeAction())).toHaveLength(0); // undefined is fine
+    const errors = validateAction(makeAction({ actionKind: 'mutation' as unknown as 'command' }));
+    expect(errors.some(e => e.field === 'actionKind')).toBe(true);
+  });
+
   it('rejects flow steps with invalid kind', () => {
     const errors = validateAction(makeAction({
       flow: [{ kind: 'invalidKind' } as unknown as import('../../models/Action.js').FlowStep],
@@ -156,6 +169,54 @@ describe('validateAction — spec-required but unimplemented validations', () =>
     );
     expect(errors.some(e => e.message.includes('nonexistent-uuid'))).toBe(true);
   });
+
+  it('rejects emitEvent/wait steps whose eventRef does not resolve to a known event UUID (#201)', () => {
+    const errors = validateAction(
+      makeAction({
+        flow: [
+          { kind: 'emitEvent', name: 'order.paid', eventRef: 'missing-event' },
+          { kind: 'wait', for: 'payment', eventRef: 'also-missing' },
+        ],
+      }),
+      undefined,
+      new Set<string>(), // knownEventUuids — empty, so any eventRef is invalid
+    );
+    expect(errors.some(e => e.field === 'flow[0].eventRef')).toBe(true);
+    expect(errors.some(e => e.field === 'flow[1].eventRef')).toBe(true);
+  });
+
+  it('accepts emitEvent/wait steps whose eventRef resolves, and ignores absent eventRef (#201)', () => {
+    const errors = validateAction(
+      makeAction({
+        flow: [
+          { kind: 'emitEvent', name: 'order.paid', eventRef: 'evt-known' },
+          { kind: 'wait', for: 'payment' }, // no eventRef — opaque fallback, always ok
+        ],
+      }),
+      undefined,
+      new Set<string>(['evt-known']),
+    );
+    expect(errors.filter(e => e.field.includes('eventRef'))).toHaveLength(0);
+  });
+
+  it('checks eventRef inside branch then/else sub-flows (#201)', () => {
+    const errors = validateAction(
+      makeAction({
+        flow: [
+          {
+            kind: 'branch',
+            when: 'x',
+            then: [{ kind: 'emitEvent', name: 'a', eventRef: 'nope' }],
+            else: [{ kind: 'wait', for: 'b', eventRef: 'evt-known' }],
+          },
+        ],
+      }),
+      undefined,
+      new Set<string>(['evt-known']),
+    );
+    expect(errors.some(e => e.field === 'flow[0].then[0].eventRef')).toBe(true);
+    expect(errors.some(e => e.field === 'flow[0].else[0].eventRef')).toBe(false);
+  });
 });
 
 // ── actionService.list ────────────────────────────────────────────────────────
@@ -180,6 +241,15 @@ describe('actionService.list', () => {
     const result = await actionService.list({ ownerRef: ENTITY_UUID });
     expect(result).toEqual(expected);
     expect(mocked.readActionsForEntity).toHaveBeenCalledWith(ENTITY_UUID);
+  });
+
+  it('filters by packageName when provided (#201 Phase 3)', async () => {
+    const expected = [makeAction()];
+    mocked.readActionsForPackage.mockResolvedValue(expected);
+
+    const result = await actionService.list({ packageName: PACKAGE_NAME });
+    expect(result).toEqual(expected);
+    expect(mocked.readActionsForPackage).toHaveBeenCalledWith(PACKAGE_NAME);
   });
 
   it('aggregates actions from all packages without ownerRef filter', async () => {

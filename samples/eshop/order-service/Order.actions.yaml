@@ -3,6 +3,7 @@ actions:
     name: cancel
     ownerRef: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
     description: Cancel the order and optionally trigger a refund
+    actionKind: command
     params:
       - name: reason
         type: string
@@ -18,6 +19,7 @@ actions:
         value: "@now"
       - kind: emitEvent
         name: order.cancelled
+        eventRef: evt-order-cancelled
       - kind: branch
         when: "paymentStatus == 'AUTHORIZED' || paymentStatus == 'PAID'"
         then:
@@ -28,6 +30,7 @@ actions:
     name: refund
     ownerRef: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
     description: Issue a payment refund via the payment gateway
+    actionKind: command
     params: []
     returns:
       type: void
@@ -41,18 +44,23 @@ actions:
         value: REFUNDED
       - kind: emitEvent
         name: order.refunded
+        eventRef: evt-order-refunded
 
   - uuid: act-order-reserveStock
     name: reserveStock
     ownerRef: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
     internal: true
     flow:
+      - kind: wait
+        for: order.paid
+        eventRef: evt-order-paid
       - kind: callExternal
         target: "inventory.reserve"
         args:
           orderId: "@self.id"
       - kind: emitEvent
         name: order.stockReserved
+        eventRef: evt-order-stockReserved
 
   - uuid: act-order-notifyShipped
     name: notifyShipped
@@ -94,3 +102,4 @@ actions:
     flow:
       - kind: emitEvent
         name: order.paid
+        eventRef: evt-order-paid

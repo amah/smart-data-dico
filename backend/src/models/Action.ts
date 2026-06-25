@@ -39,14 +39,21 @@ export const FLOW_STEP_KINDS: ReadonlySet<FlowStepKind> = new Set([
 
 /** assign — set an attribute/variable to a value */
 export interface AssignStep   { kind: 'assign';       target: string; value: string; }
-/** emitEvent — publish a domain event by name */
-export interface EmitStep     { kind: 'emitEvent';    name: string; }
+/**
+ * emitEvent — publish a domain event. `name` is the opaque event name;
+ * `eventRef` (#201 Phase 2) optionally references a modeled Event by UUID.
+ */
+export interface EmitStep     { kind: 'emitEvent';    name: string; eventRef?: string; }
 /** invokeAction — call another action by UUID */
 export interface InvokeStep   { kind: 'invokeAction'; actionRef: string; }
 /** branch — conditional fork */
 export interface BranchStep   { kind: 'branch';       when: string; then: FlowStep[]; else?: FlowStep[]; }
-/** wait — suspend until an event name or duration */
-export interface WaitStep     { kind: 'wait';         for: string; }
+/**
+ * wait — suspend until an event name or duration. `for` is the opaque
+ * name/duration; `eventRef` (#201 Phase 2) optionally references a modeled
+ * Event by UUID.
+ */
+export interface WaitStep     { kind: 'wait';         for: string; eventRef?: string; }
 /** callExternal — invoke an external system */
 export interface CallExtStep  { kind: 'callExternal'; target: string; args?: Record<string, string>; }
 
@@ -84,12 +91,23 @@ export interface ActionReturn {
  * `internal: true` marks the action as implementation-detail — not
  * exposed on any public surface (e.g. API buttons). Defaults to false.
  */
+/**
+ * CQRS classification (#201 Phase 3). A `command` mutates state / has side
+ * effects; a `query` reads and returns data without mutation. Orthogonal to the
+ * `internal` flag, which marks an action as off the public surface.
+ */
+export type ActionKind = 'command' | 'query';
+
+export const ACTION_KINDS: ReadonlySet<ActionKind> = new Set(['command', 'query'] as const);
+
 export interface Action {
   uuid: string;
   name: string;
   description?: string;
   ownerRef: string;    // entity UUID
   internal?: boolean;
+  /** CQRS classification (#201 Phase 3); undefined = unclassified. */
+  actionKind?: ActionKind;
   params?: ActionParam[];
   returns?: ActionReturn;
   flow?: FlowStep[];

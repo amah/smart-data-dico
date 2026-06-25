@@ -13,19 +13,21 @@
  * unit-tested in isolation and reused by both the page and the element builder.
  */
 
-export type ViewMode = 'structural' | 'physical';
+export type ViewMode = 'structural' | 'physical' | 'process';
 
-export const VIEW_MODES: readonly ViewMode[] = ['structural', 'physical'] as const;
+export const VIEW_MODES: readonly ViewMode[] = ['structural', 'physical', 'process'] as const;
 
 export const DEFAULT_VIEW_MODE: ViewMode = 'structural';
 
 /**
  * Human labels for the page tabs. The former "Logical (ORM)" view is merged into
  * Structural behind an "ORM mapping" legend toggle, so it is no longer a tab.
+ * `process` is the CQRS saga / orchestration map (#201 Phase 3).
  */
 export const VIEW_MODE_LABELS: Record<ViewMode, string> = {
   structural: 'Structural',
   physical: 'Physical',
+  process: 'Process',
 };
 
 /**

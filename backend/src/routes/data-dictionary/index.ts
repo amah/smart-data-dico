@@ -12,6 +12,7 @@ import diffRoutes from './diff.routes.js';
 import importExportRoutes from './import-export.routes.js';
 import publishRoutes from './publish.routes.js';
 import actionRoutes from './action.routes.js';
+import eventRoutes from './event.routes.js';
 import stateMachineRoutes from './state-machine.routes.js';
 
 const router: Router = Router();
@@ -32,5 +33,6 @@ router.use(diffRoutes);
 router.use(importExportRoutes);
 router.use(publishRoutes);
 router.use(actionRoutes);
+router.use(eventRoutes);
 router.use(stateMachineRoutes);
 export default router;

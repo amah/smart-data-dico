@@ -604,14 +604,21 @@ export const FLOW_STEP_KINDS: FlowStepKind[] = [
 
 /** assign — set an attribute/variable to a value */
 export interface AssignStep   { kind: 'assign';       target: string; value: string; }
-/** emitEvent — publish a domain event by name */
-export interface EmitStep     { kind: 'emitEvent';    name: string; }
+/**
+ * emitEvent — publish a domain event. `name` is the opaque event name;
+ * `eventRef` (#201 Phase 2) optionally references a modeled Event by UUID.
+ */
+export interface EmitStep     { kind: 'emitEvent';    name: string; eventRef?: string; }
 /** invokeAction — call another action by UUID */
 export interface InvokeStep   { kind: 'invokeAction'; actionRef: string; }
 /** branch — conditional fork */
 export interface BranchStep   { kind: 'branch';       when: string; then: FlowStep[]; else?: FlowStep[]; }
-/** wait — suspend until an event name or duration */
-export interface WaitStep     { kind: 'wait';         for: string; }
+/**
+ * wait — suspend until an event name or duration. `for` is the opaque
+ * name/duration; `eventRef` (#201 Phase 2) optionally references a modeled
+ * Event by UUID.
+ */
+export interface WaitStep     { kind: 'wait';         for: string; eventRef?: string; }
 /** callExternal — invoke an external system */
 export interface CallExtStep  { kind: 'callExternal'; target: string; args?: Record<string, string>; }
 
@@ -636,15 +643,41 @@ export interface ActionReturn {
 /**
  * An action owned by an entity. Modeling only — no execution in v1.
  */
+/**
+ * CQRS classification (#201 Phase 3). A `command` mutates state / has side
+ * effects; a `query` reads and returns data. Orthogonal to the `internal` flag.
+ */
+export type ActionKind = 'command' | 'query';
+
+export const ACTION_KINDS: ActionKind[] = ['command', 'query'];
+
 export interface Action {
   uuid: string;
   name: string;
   description?: string;
   ownerRef: string;
   internal?: boolean;
+  /** CQRS classification (#201 Phase 3); undefined = unclassified. */
+  actionKind?: ActionKind;
   params?: ActionParam[];
   returns?: ActionReturn;
   flow?: FlowStep[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/**
+ * A first-class domain event (#201 Phase 2). Package-scoped; `ownerRef` (an
+ * entity UUID) is optional. An action's `emitEvent` / `wait` steps may carry an
+ * `eventRef` resolving to one of these. Modeling only.
+ */
+export interface Event {
+  uuid: string;
+  name: string;
+  ownerRef?: string;
+  description?: string;
+  /** The event payload shape, modeled as attributes (modeling only). */
+  payload?: Attribute[];
   createdAt?: string;
   updatedAt?: string;
 }

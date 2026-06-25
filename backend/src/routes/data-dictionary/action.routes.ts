@@ -10,6 +10,7 @@
 
 import { Router } from 'express';
 import {
+  listActions,
   listActionsForEntity,
   getAction,
   createAction,
@@ -23,6 +24,9 @@ const router: Router = Router();
 
 // Entity-scoped listing — mirrors GET /api/entities/:entityUuid/rules
 router.get('/api/entities/:uuid/actions', listActionsForEntity);
+
+// Package-scoped / all-actions listing (#201 Phase 3) — literal before :uuid.
+router.get('/api/actions', listActions);
 
 // Action CRUD
 router.get('/api/actions/:uuid', getAction);

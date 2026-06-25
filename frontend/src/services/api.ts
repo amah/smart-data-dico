@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-import { Entity, Relationship, Stereotype, StereotypeTarget, ImpactAnalysis, ReviewComment, LineageResult, MetadataEntry, Action, StateMachine } from '../types';
+import { Entity, Relationship, Stereotype, StereotypeTarget, ImpactAnalysis, ReviewComment, LineageResult, MetadataEntry, Action, StateMachine, Event } from '../types';
 import { Package } from '../types';
 
 /**
@@ -492,6 +492,10 @@ export const actionsApi = {
     const response = await api.get(`/entities/${entityUuid}/actions`);
     return response.data.data || [];
   },
+  getForPackage: async (packageName: string): Promise<Action[]> => {
+    const response = await api.get(`/actions?package=${encodeURIComponent(packageName)}`);
+    return response.data.data || [];
+  },
   getOne: async (uuid: string): Promise<Action> => {
     const response = await api.get(`/actions/${uuid}`);
     return response.data.data;
@@ -506,6 +510,34 @@ export const actionsApi = {
   },
   delete: async (uuid: string): Promise<void> => {
     await api.delete(`/actions/${uuid}`);
+  },
+};
+
+// Events API (#201 Phase 2)
+export const eventsApi = {
+  getAll: async (packageName?: string): Promise<Event[]> => {
+    const params = packageName ? `?package=${encodeURIComponent(packageName)}` : '';
+    const response = await api.get(`/events${params}`);
+    return response.data.data || [];
+  },
+  getForEntity: async (entityUuid: string): Promise<Event[]> => {
+    const response = await api.get(`/entities/${entityUuid}/events`);
+    return response.data.data || [];
+  },
+  getOne: async (uuid: string): Promise<Event> => {
+    const response = await api.get(`/events/${uuid}`);
+    return response.data.data;
+  },
+  create: async (data: Partial<Event> & { packageName?: string }): Promise<Event> => {
+    const response = await api.post('/events', data);
+    return response.data.data;
+  },
+  update: async (uuid: string, data: Partial<Event>): Promise<Event> => {
+    const response = await api.put(`/events/${uuid}`, data);
+    return response.data.data;
+  },
+  delete: async (uuid: string): Promise<void> => {
+    await api.delete(`/events/${uuid}`);
   },
 };
 
