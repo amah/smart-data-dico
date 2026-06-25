@@ -13,7 +13,7 @@ interface ActionFlowListProps {
   depth?: number;
 }
 
-const STEP_KIND_LABELS: Record<FlowStepKind, string> = {
+export const STEP_KIND_LABELS: Record<FlowStepKind, string> = {
   assign: 'Assign',
   emitEvent: 'Emit event',
   invokeAction: 'Invoke action',
@@ -22,7 +22,7 @@ const STEP_KIND_LABELS: Record<FlowStepKind, string> = {
   callExternal: 'Call external',
 };
 
-const STEP_KIND_COLORS: Record<FlowStepKind, string> = {
+export const STEP_KIND_COLORS: Record<FlowStepKind, string> = {
   assign: 'var(--accent)',
   emitEvent: 'var(--success)',
   invokeAction: 'var(--accent)',
