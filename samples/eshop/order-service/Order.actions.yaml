@@ -18,6 +18,7 @@ actions:
         value: "@now"
       - kind: emitEvent
         name: order.cancelled
+        eventRef: evt-order-cancelled
       - kind: branch
         when: "paymentStatus == 'AUTHORIZED' || paymentStatus == 'PAID'"
         then:
@@ -41,6 +42,7 @@ actions:
         value: REFUNDED
       - kind: emitEvent
         name: order.refunded
+        eventRef: evt-order-refunded
 
   - uuid: act-order-reserveStock
     name: reserveStock
@@ -53,6 +55,7 @@ actions:
           orderId: "@self.id"
       - kind: emitEvent
         name: order.stockReserved
+        eventRef: evt-order-stockReserved
 
   - uuid: act-order-notifyShipped
     name: notifyShipped
@@ -94,3 +97,4 @@ actions:
     flow:
       - kind: emitEvent
         name: order.paid
+        eventRef: evt-order-paid

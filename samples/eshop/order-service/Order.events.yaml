@@ -1,0 +1,41 @@
+events:
+  - uuid: evt-order-cancelled
+    name: order.cancelled
+    ownerRef: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
+    description: Published when an order is cancelled
+    payload:
+      - uuid: evt-order-cancelled-orderId
+        name: orderId
+        type: string
+        required: true
+      - uuid: evt-order-cancelled-reason
+        name: reason
+        type: string
+
+  - uuid: evt-order-refunded
+    name: order.refunded
+    ownerRef: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
+    description: Published when a payment refund has been issued
+    payload:
+      - uuid: evt-order-refunded-orderId
+        name: orderId
+        type: string
+        required: true
+
+  - uuid: evt-order-stockReserved
+    name: order.stockReserved
+    ownerRef: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
+    description: Published when stock has been reserved for an order
+
+  - uuid: evt-order-paid
+    name: order.paid
+    ownerRef: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
+    description: Published when an order has been paid
+    payload:
+      - uuid: evt-order-paid-orderId
+        name: orderId
+        type: string
+        required: true
+      - uuid: evt-order-paid-amount
+        name: amount
+        type: number

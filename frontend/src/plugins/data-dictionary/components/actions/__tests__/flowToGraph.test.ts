@@ -93,6 +93,20 @@ describe('flowToGraph', () => {
     expect(wait.label).toBe('wait: payment.confirmed');
   });
 
+  it('carries eventRef on emit / wait nodes when present (#201 Phase 2)', () => {
+    const flow: FlowStep[] = [
+      { kind: 'emitEvent', name: 'order.paid', eventRef: 'evt-1' },
+      { kind: 'wait', for: 'fulfilment', eventRef: 'evt-2' },
+      { kind: 'emitEvent', name: 'opaque' }, // no eventRef
+    ];
+    const g = flowToGraph({ flow });
+    const emits = g.nodes.filter((n) => n.kind === 'emitEvent');
+    const wait = nodeOfKind(g, 'wait');
+    expect(emits.find((n) => n.eventName === 'order.paid')?.eventRef).toBe('evt-1');
+    expect(emits.find((n) => n.eventName === 'opaque')?.eventRef).toBeUndefined();
+    expect(wait.eventRef).toBe('evt-2');
+  });
+
   it('labels callExternal nodes with the target', () => {
     const g = flowToGraph({ flow: [{ kind: 'callExternal', target: 'payments.refund', args: { orderId: '@self.id' } }] });
     expect(nodeOfKind(g, 'callExternal').label).toBe('payments.refund');

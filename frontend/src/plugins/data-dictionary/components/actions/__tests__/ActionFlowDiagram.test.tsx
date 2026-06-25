@@ -73,6 +73,27 @@ describe('flowGraphToElements', () => {
     expect(invoke.data.label).toBe('act-refund');
     expect(invoke.data.navigable).toBe(0);
   });
+
+  it('resolves emitEvent/wait eventRefs to the modeled event name (#201 Phase 2)', () => {
+    const withRefs: Action = {
+      uuid: 'a',
+      name: 'process',
+      ownerRef: ENTITY,
+      flow: [
+        { kind: 'emitEvent', name: 'order.paid', eventRef: 'evt-paid' },
+        { kind: 'wait', for: 'fulfilment', eventRef: 'evt-shipped' },
+        { kind: 'emitEvent', name: 'opaque.only' }, // no eventRef → opaque fallback
+      ],
+    };
+    const resolveEvent = (ref: string) =>
+      ({ 'evt-paid': 'OrderPaid', 'evt-shipped': 'OrderShipped' } as Record<string, string>)[ref];
+    const elements = flowGraphToElements(flowToGraph(withRefs), undefined, resolveEvent);
+
+    const emits = elements.filter((e) => e.data.kind === 'emitEvent');
+    expect(emits.map((e) => e.data.label).sort()).toEqual(['OrderPaid', 'opaque.only']);
+    const wait = elements.find((e) => e.data.kind === 'wait')!;
+    expect(wait.data.label).toBe('wait: OrderShipped');
+  });
 });
 
 describe('<ActionFlowDiagram>', () => {

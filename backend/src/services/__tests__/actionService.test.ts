@@ -63,6 +63,7 @@ function makePackageModel(entities: { uuid: string; name: string }[], actions: A
     cases: [],
     actions,
     stateMachines: [],
+    events: [],
     ownership: {
       entityByName: new Map(entities.map(e => [e.name, ''])),
       entityByUuid: new Map(entities.map(e => [e.uuid, ''])),
@@ -71,6 +72,8 @@ function makePackageModel(entities: { uuid: string; name: string }[], actions: A
       caseByUuid: new Map(),
       actionByUuid: new Map(actions.map(a => [a.uuid, ''])),
       stateMachineByUuid: new Map(),
+      eventByUuid: new Map(),
+      eventByName: new Map(),
       actionByOwnerAndName: new Map(actions.map(a => [`${a.ownerRef}::${a.name}`, ''])),
       stateMachineByOwnerAndName: new Map(),
     },
@@ -155,6 +158,54 @@ describe('validateAction — spec-required but unimplemented validations', () =>
       new Set<string>(), // knownActionUuids — empty, so any actionRef is invalid
     );
     expect(errors.some(e => e.message.includes('nonexistent-uuid'))).toBe(true);
+  });
+
+  it('rejects emitEvent/wait steps whose eventRef does not resolve to a known event UUID (#201)', () => {
+    const errors = validateAction(
+      makeAction({
+        flow: [
+          { kind: 'emitEvent', name: 'order.paid', eventRef: 'missing-event' },
+          { kind: 'wait', for: 'payment', eventRef: 'also-missing' },
+        ],
+      }),
+      undefined,
+      new Set<string>(), // knownEventUuids — empty, so any eventRef is invalid
+    );
+    expect(errors.some(e => e.field === 'flow[0].eventRef')).toBe(true);
+    expect(errors.some(e => e.field === 'flow[1].eventRef')).toBe(true);
+  });
+
+  it('accepts emitEvent/wait steps whose eventRef resolves, and ignores absent eventRef (#201)', () => {
+    const errors = validateAction(
+      makeAction({
+        flow: [
+          { kind: 'emitEvent', name: 'order.paid', eventRef: 'evt-known' },
+          { kind: 'wait', for: 'payment' }, // no eventRef — opaque fallback, always ok
+        ],
+      }),
+      undefined,
+      new Set<string>(['evt-known']),
+    );
+    expect(errors.filter(e => e.field.includes('eventRef'))).toHaveLength(0);
+  });
+
+  it('checks eventRef inside branch then/else sub-flows (#201)', () => {
+    const errors = validateAction(
+      makeAction({
+        flow: [
+          {
+            kind: 'branch',
+            when: 'x',
+            then: [{ kind: 'emitEvent', name: 'a', eventRef: 'nope' }],
+            else: [{ kind: 'wait', for: 'b', eventRef: 'evt-known' }],
+          },
+        ],
+      }),
+      undefined,
+      new Set<string>(['evt-known']),
+    );
+    expect(errors.some(e => e.field === 'flow[0].then[0].eventRef')).toBe(true);
+    expect(errors.some(e => e.field === 'flow[0].else[0].eventRef')).toBe(false);
   });
 });
 
