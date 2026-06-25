@@ -3,6 +3,7 @@ actions:
     name: cancel
     ownerRef: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
     description: Cancel the order and optionally trigger a refund
+    actionKind: command
     params:
       - name: reason
         type: string
@@ -29,6 +30,7 @@ actions:
     name: refund
     ownerRef: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
     description: Issue a payment refund via the payment gateway
+    actionKind: command
     params: []
     returns:
       type: void
@@ -49,6 +51,9 @@ actions:
     ownerRef: 96a3ac78-d30b-4bf5-bb61-bf3174212f6c
     internal: true
     flow:
+      - kind: wait
+        for: order.paid
+        eventRef: evt-order-paid
       - kind: callExternal
         target: "inventory.reserve"
         args:

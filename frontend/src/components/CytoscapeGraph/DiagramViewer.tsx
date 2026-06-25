@@ -15,6 +15,7 @@ import DiagramViewTabs from './DiagramViewTabs';
 import { DEFAULT_VIEW_MODE, isViewMode, type ViewMode } from './viewMode';
 import { useStoredState } from '../../hooks/useStoredState';
 import type { GraphMode } from './CytoscapeGraph.types';
+import { SagaDiagram } from '../../plugins/data-dictionary/components/saga/SagaDiagram';
 
 interface DiagramViewerProps {
   service?: string;
@@ -45,7 +46,11 @@ const DiagramViewer = ({ service, mode, caseId, syncViewToUrl = false }: Diagram
         className="flex-1 min-h-0 border border-base-300 overflow-hidden"
         style={{ borderRadius: '0 0 var(--radius-md) var(--radius-md)' }}
       >
-        <CytoscapeGraph service={service} mode={mode} viewMode={viewMode} caseId={caseId} />
+        {viewMode === 'process' ? (
+          <SagaDiagram service={service} />
+        ) : (
+          <CytoscapeGraph service={service} mode={mode} viewMode={viewMode} caseId={caseId} />
+        )}
       </div>
     </div>
   );

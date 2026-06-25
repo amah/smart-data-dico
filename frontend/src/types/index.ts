@@ -643,12 +643,22 @@ export interface ActionReturn {
 /**
  * An action owned by an entity. Modeling only — no execution in v1.
  */
+/**
+ * CQRS classification (#201 Phase 3). A `command` mutates state / has side
+ * effects; a `query` reads and returns data. Orthogonal to the `internal` flag.
+ */
+export type ActionKind = 'command' | 'query';
+
+export const ACTION_KINDS: ActionKind[] = ['command', 'query'];
+
 export interface Action {
   uuid: string;
   name: string;
   description?: string;
   ownerRef: string;
   internal?: boolean;
+  /** CQRS classification (#201 Phase 3); undefined = unclassified. */
+  actionKind?: ActionKind;
   params?: ActionParam[];
   returns?: ActionReturn;
   flow?: FlowStep[];

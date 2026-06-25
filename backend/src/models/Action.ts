@@ -91,12 +91,23 @@ export interface ActionReturn {
  * `internal: true` marks the action as implementation-detail — not
  * exposed on any public surface (e.g. API buttons). Defaults to false.
  */
+/**
+ * CQRS classification (#201 Phase 3). A `command` mutates state / has side
+ * effects; a `query` reads and returns data without mutation. Orthogonal to the
+ * `internal` flag, which marks an action as off the public surface.
+ */
+export type ActionKind = 'command' | 'query';
+
+export const ACTION_KINDS: ReadonlySet<ActionKind> = new Set(['command', 'query'] as const);
+
 export interface Action {
   uuid: string;
   name: string;
   description?: string;
   ownerRef: string;    // entity UUID
   internal?: boolean;
+  /** CQRS classification (#201 Phase 3); undefined = unclassified. */
+  actionKind?: ActionKind;
   params?: ActionParam[];
   returns?: ActionReturn;
   flow?: FlowStep[];

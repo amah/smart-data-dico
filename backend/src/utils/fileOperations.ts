@@ -1385,6 +1385,16 @@ export async function findActionOwner(actionUuid: string): Promise<{ packageName
   return null;
 }
 
+/** Read all actions authored in a package (#201 Phase 3). */
+export async function readActionsForPackage(packageName: string): Promise<Action[]> {
+  try {
+    const model = await loadPackage(packageName);
+    return model.actions;
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Read all actions for an entity UUID across all packages.
  */

@@ -7,8 +7,8 @@
  */
 
 import { useState, useCallback } from 'react';
-import type { Action, Event, FlowStep, ActionParam, FlowStepKind, Entity } from '../../../../types';
-import { FLOW_STEP_KINDS } from '../../../../types';
+import type { Action, ActionKind, Event, FlowStep, ActionParam, FlowStepKind, Entity } from '../../../../types';
+import { FLOW_STEP_KINDS, ACTION_KINDS } from '../../../../types';
 import { actionsApi } from '../../../../services/api';
 import { Button, EmptyState, Icon } from '../../../../components/ui';
 import { ActionFlowList } from './ActionFlowList';
@@ -74,6 +74,7 @@ function ActionPanel({ action, entityUuid, events, onClose, onSaved }: ActionPan
   const [name, setName] = useState(action?.name ?? '');
   const [description, setDescription] = useState(action?.description ?? '');
   const [internal, setInternal] = useState(action?.internal ?? false);
+  const [actionKind, setActionKind] = useState<ActionKind | ''>(action?.actionKind ?? '');
   const [params, setParams] = useState<ActionParam[]>(action?.params ?? []);
   const [returnsType, setReturnsType] = useState(action?.returns?.type ?? '');
   const [flow, setFlow] = useState<FlowStep[]>(action?.flow ?? []);
@@ -93,6 +94,7 @@ function ActionPanel({ action, entityUuid, events, onClose, onSaved }: ActionPan
         description: description.trim() || undefined,
         ownerRef: entityUuid,
         internal,
+        actionKind: actionKind || undefined,
         params,
         returns: returnsType ? { type: returnsType } : undefined,
         flow,
@@ -109,7 +111,7 @@ function ActionPanel({ action, entityUuid, events, onClose, onSaved }: ActionPan
     } finally {
       setSaving(false);
     }
-  }, [name, description, internal, params, returnsType, flow, entityUuid, isNew, action, onSaved, onClose]);
+  }, [name, description, internal, actionKind, params, returnsType, flow, entityUuid, isNew, action, onSaved, onClose]);
 
   const addParam = () => setParams(ps => [...ps, { name: '', type: 'string', required: false }]);
   const updateParam = (i: number, field: keyof ActionParam, value: string | boolean) =>
@@ -213,6 +215,24 @@ function ActionPanel({ action, entityUuid, events, onClose, onSaved }: ActionPan
               boxSizing: 'border-box',
             }}
           />
+        </div>
+
+        {/* CQRS classification (#201 Phase 3) */}
+        <div>
+          <label style={{ display: 'block', fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)', marginBottom: 4 }}>
+            Kind (CQRS)
+          </label>
+          <select
+            value={actionKind}
+            onChange={e => setActionKind(e.target.value as ActionKind | '')}
+            style={{
+              width: '100%', padding: '6px 8px', border: '1px solid var(--border)', borderRadius: 4,
+              background: 'var(--bg)', color: 'var(--text)', fontSize: 'var(--fs-sm)', boxSizing: 'border-box',
+            }}
+          >
+            <option value="">— unclassified —</option>
+            {ACTION_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
+          </select>
         </div>
 
         {/* Internal flag */}
@@ -544,6 +564,17 @@ export function EntityActionsTab({ entity, actions, events = [], onActionsChange
                 />
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-sm)', fontWeight: 600, flex: 1 }}>
                   {action.name}
+                  {action.actionKind && (
+                    <span
+                      style={{
+                        marginLeft: 8, padding: '0 6px', borderRadius: 3, fontSize: 'var(--fs-xs)', fontWeight: 600,
+                        color: action.actionKind === 'command' ? 'var(--accent)' : 'var(--info, #0ea5e9)',
+                        background: action.actionKind === 'command' ? 'color-mix(in srgb, var(--accent) 13%, transparent)' : 'color-mix(in srgb, #0ea5e9 13%, transparent)',
+                      }}
+                    >
+                      {action.actionKind}
+                    </span>
+                  )}
                   {action.internal && (
                     <span style={{ marginLeft: 8, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', fontWeight: 400 }}>
                       internal
