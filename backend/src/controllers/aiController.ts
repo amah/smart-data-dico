@@ -235,10 +235,71 @@ const GATED_CATEGORIES: ReadonlySet<AIToolCategory> = new Set<AIToolCategory>([
  */
 export function claimsMutation(text: string): boolean {
   if (!text) return false;
-  if (/✅|☑|done!/i.test(text)) return true;
-  // Past-tense only: "created"/"added"/… are completion claims, while the
-  // infinitive ("would you like me to create…?") is an offer, not a claim.
-  return /\b(created|added|inserted|updated|modified|deleted|removed|renamed|saved|persisted|applied|wired up)\b/i.test(text);
+  // Explicit completion markers are claims on their own.
+  if (/✅|☑|\bdone!/i.test(text)) return true;
+  // Strip fenced + inline code so SQL/identifiers (CREATE TABLE, a column named
+  // `deleted_flag`, prose about a "deleted" column) are not read as claims — a
+  // mutation verb must appear in agentive prose, not in code or as a noun.
+  const prose = text.replace(/```[\s\S]*?```/g, ' ').replace(/`[^`]*`/g, ' ');
+  // Past-tense verbs only (the infinitive "…create…?" is an offer, not a claim).
+  const VERB = '(created|added|inserted|updated|modified|deleted|removed|renamed|saved|persisted|applied|wired up)';
+  // Agentive ("I/we/successfully/now … created"), success-framed ("created …
+  // successfully"), or the verb directly governing a created object
+  // ("created the / three / both …"). A bare verb used descriptively
+  // ('a "deleted" column') matches none of these.
+  const agentive = new RegExp(`\\b(i|i've|i have|we|we've|successfully|now)\\b[^.\\n]{0,40}\\b${VERB}\\b`, 'i');
+  const successCue = new RegExp(`\\b${VERB}\\b[^.\\n]{0,30}\\b(successfully|now)\\b`, 'i');
+  const verbObject = new RegExp(`\\b${VERB}\\b\\s+(the|a|an|it|them|both|all|these|those|new|one|two|three|four|five|six|seven|eight|nine|ten|several|\\d+)\\b`, 'i');
+  return agentive.test(prose) || successCue.test(prose) || verbObject.test(prose);
+}
+
+/**
+ * Pull a `physical.*` (or any) metadata value off a MetadataEntry[] array.
+ */
+function metaValue(meta: Array<{ name: string; value: unknown }> | undefined, name: string): string | undefined {
+  const e = meta?.find(m => m.name === name);
+  return e && e.value != null ? String(e.value) : undefined;
+}
+
+/**
+ * Build the rich entity-detail payload the getEntityDetails tool returns.
+ *
+ * Beyond the logical shape, it surfaces the layers the model previously could
+ * not see — so it can write physically-correct SQL and reason about the
+ * physical mapping: per-attribute `validation`, the entity's `physical`
+ * table/schema, each attribute's `physical` columnName/dbType, `constraints`,
+ * and inline `rules`. Loosely typed to match the existing tool code.
+ */
+export function buildEntityDetails(entity: any): Record<string, unknown> {
+  const tableName = metaValue(entity.metadata, 'physical.tableName');
+  const schema = metaValue(entity.metadata, 'physical.schema');
+  return {
+    name: entity.name,
+    description: entity.description,
+    stereotype: entity.stereotype,
+    ...((tableName || schema)
+      ? { physical: { ...(tableName ? { tableName } : {}), ...(schema ? { schema } : {}) } }
+      : {}),
+    attributes: (entity.attributes ?? []).map((a: any) => {
+      const columnName = metaValue(a.metadata, 'physical.columnName');
+      const dbType = metaValue(a.metadata, 'physical.dbType');
+      return {
+        name: a.name,
+        type: a.type,
+        description: a.description,
+        required: a.required,
+        primaryKey: a.primaryKey,
+        ...(a.validation ? { validation: a.validation } : {}),
+        ...((columnName || dbType)
+          ? { physical: { ...(columnName ? { columnName } : {}), ...(dbType ? { dbType } : {}) } }
+          : {}),
+      };
+    }),
+    ...(entity.constraints?.length ? { constraints: entity.constraints } : {}),
+    ...(entity.rules?.length
+      ? { rules: entity.rules.map((r: any) => ({ name: r.name, description: r.description, severity: r.severity })) }
+      : {}),
+  };
 }
 
 export function isGatedCategory(category: AIToolCategory): boolean {
@@ -558,6 +619,7 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
     { type: 'function' as const, function: { name: 'createAction', description: 'Create an Action/command (e.g. PlaceOrder) on an aggregate entity (ownerEntityName), optionally CQRS-classified, with an optional flow of steps. Use flow steps emitEvent {name} and wait {for} to wire a saga/process across actions+events.', parameters: createActionParameters as Record<string, unknown> } },
     { type: 'function' as const, function: { name: 'createStateMachine', description: 'Create a state machine on an entity (ownerEntityName) — its states, initialState, and transitions (from/to/on). Model an entity lifecycle, e.g. Order PENDING→PAID→SHIPPED.', parameters: createStateMachineParameters as Record<string, unknown> } },
     { type: 'function' as const, function: { name: 'listEntities', description: 'List packages or entities in a package', parameters: { type: 'object', properties: { packageName: { type: 'string', description: 'Package name (omit to list all)' } } } } },
+    { type: 'function' as const, function: { name: 'getEntityDetails', description: 'Get full detail for one entity: attributes with type/required/primaryKey AND field validation, the PHYSICAL mapping (entity table name + schema, each attribute physical column name + DB type), physical constraints, and inline business rules. Call this before writing SQL/DDL so you use the real physical names and types.', parameters: { type: 'object', required: ['packageName', 'entityName'], properties: { packageName: { type: 'string' }, entityName: { type: 'string' } } } } },
     { type: 'function' as const, function: { name: 'listStereotypes', description: 'List available stereotypes', parameters: { type: 'object', properties: {} } } },
     { type: 'function' as const, function: { name: 'navigateTo', description: 'Navigate user to a page. The path MUST be an absolute URL beginning with "/" that matches one of the patterns returned by listRoutes — call listRoutes first if you are unsure of the exact shape.', parameters: { type: 'object', required: ['path', 'reason'], properties: { path: { type: 'string' }, reason: { type: 'string' } } } } },
     { type: 'function' as const, function: { name: 'listRoutes', description: 'List every valid URL pattern in the app with a short description and (where useful) a concrete example. Call this BEFORE navigateTo if you are unsure of the exact path shape — e.g. plural vs singular, where attribute pages live, what the case route is.', parameters: { type: 'object', properties: {} } } },
@@ -635,6 +697,11 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
         }
         const { listMicroservices } = await import('../utils/fileOperations.js');
         return { packages: await listMicroservices() };
+      }
+      if (name === 'getEntityDetails') {
+        const entity = await services.serviceService.getEntitySchema(args.packageName || 'default', args.entityName);
+        if (!entity) return { error: 'Entity not found' };
+        return buildEntityDetails(entity);
       }
       if (name === 'listStereotypes') {
         const stereotypes = await services.stereotypeService.getAllStereotypes();
@@ -1121,7 +1188,7 @@ export const aiChat = async (req: Request, res: Response) => {
         }),
 
         getEntityDetails: tool({
-          description: 'Get detailed information about an entity including attributes and relationships',
+          description: 'Get full detail for an entity: attributes with type/required/primaryKey AND field validation, the PHYSICAL mapping (entity table name + schema, each attribute physical column name + DB type), physical constraints, and inline business rules. Use this before writing SQL/DDL so you use the real physical names and types.',
           inputSchema: z.object({
             packageName: z.string(),
             entityName: z.string(),
@@ -1130,14 +1197,7 @@ export const aiChat = async (req: Request, res: Response) => {
             try {
               const entity = await services.serviceService.getEntitySchema(params.packageName || 'default', params.entityName);
               if (!entity) return { error: 'Entity not found' };
-              return {
-                name: entity.name,
-                description: entity.description,
-                stereotype: entity.stereotype,
-                attributes: entity.attributes?.map((a: any) => ({
-                  name: a.name, type: a.type, description: a.description, required: a.required, primaryKey: a.primaryKey,
-                })),
-              };
+              return buildEntityDetails(entity);
             } catch (err: any) {
               return { error: err.message };
             }
@@ -1600,7 +1660,7 @@ export const aiTools = async (_req: Request, res: Response) => {
     },
     {
       name: 'getEntityDetails',
-      description: 'Get detailed info about an entity including attributes',
+      description: 'Get full entity detail: attributes + validation, the physical mapping (table/schema, column names, DB types), constraints, and inline rules. Use before writing SQL/DDL.',
       source: 'builtin' as const,
       parameters: [
         { name: 'packageName', type: 'string', required: true, description: 'Package name' },
