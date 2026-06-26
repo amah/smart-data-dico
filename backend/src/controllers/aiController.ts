@@ -59,6 +59,7 @@ const TOOL_CATEGORY_MAP: Record<string, AIToolCategory> = {
   listEntities: 'read',
   listStereotypes: 'read',
   getEntityDetails: 'read',
+  getModelOverview: 'read',
   listPackages: 'read',
   listRoutes: 'read',
   // navigate
@@ -111,6 +112,7 @@ const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   'listEntities',
   'listStereotypes',
   'getEntityDetails',
+  'getModelOverview',
   'listPackages',
 ]);
 
@@ -300,6 +302,78 @@ export function buildEntityDetails(entity: any): Record<string, unknown> {
       ? { rules: entity.rules.map((r: any) => ({ name: r.name, description: r.description, severity: r.severity })) }
       : {}),
   };
+}
+
+/**
+ * Cross-cutting model overview: every package → its entities, plus a count of
+ * each concept. Powers the getModelOverview tool AND the per-turn outline
+ * injected into the system prompt, so the model starts each turn oriented
+ * rather than rediscovering the whole model with N tool calls. Best-effort —
+ * any service failure degrades that slice to empty instead of throwing.
+ */
+export async function buildModelOverview(services: any): Promise<{
+  totals: Record<string, number>;
+  packages: Array<{ name: string; entities: string[]; relationships: number }>;
+  stereotypes: string[];
+  derivedTypes: string[];
+  cases: string[];
+}> {
+  const { listMicroservices } = await import('../utils/fileOperations.js');
+  const pkgNames: string[] = await listMicroservices().catch(() => []);
+  const packages: Array<{ name: string; entities: string[]; relationships: number }> = [];
+  let entityTotal = 0;
+  let relTotal = 0;
+  for (const name of pkgNames) {
+    const [entities, rels] = await Promise.all([
+      services.serviceService.getServiceEntities(name).catch(() => []),
+      services.serviceService.getPackageRelationships(name).catch(() => []),
+    ]);
+    entityTotal += entities.length;
+    relTotal += rels.length;
+    packages.push({ name, entities: entities.map((e: any) => e.name), relationships: rels.length });
+  }
+  const [cases, rules, events, actions, stateMachines, derivedTypes, stereotypes] = await Promise.all([
+    services.caseService.getAll().catch(() => []),
+    services.ruleService.listRules().catch(() => []),
+    services.eventService.list().catch(() => []),
+    services.actionService.list().catch(() => []),
+    services.stateMachineService.list().catch(() => []),
+    services.derivedTypes.list().catch(() => []),
+    services.stereotypeService.getAllStereotypes().catch(() => []),
+  ]);
+  return {
+    totals: {
+      packages: pkgNames.length, entities: entityTotal, relationships: relTotal,
+      cases: cases.length, rules: rules.length, events: events.length,
+      actions: actions.length, stateMachines: stateMachines.length,
+      derivedTypes: derivedTypes.length, stereotypes: stereotypes.length,
+    },
+    packages,
+    stereotypes: stereotypes.map((s: any) => s.id ?? s.name),
+    derivedTypes: derivedTypes.map((t: any) => t.name),
+    cases: cases.map((c: any) => c.name),
+  };
+}
+
+/** Compact human outline of the model for the system prompt. */
+export function formatModelOutline(o: Awaited<ReturnType<typeof buildModelOverview>>): string {
+  const t = o.totals;
+  if (!t.packages) return 'Current model: empty — no packages yet. Create entities to begin.';
+  const head = `Current model snapshot — ${t.packages} package(s), ${t.entities} entities, ${t.relationships} relationships, `
+    + `${t.cases} cases, ${t.rules} rules, ${t.events} events, ${t.actions} actions, ${t.stateMachines} state machines, `
+    + `${t.derivedTypes} derived types, ${t.stereotypes} stereotypes.`;
+  const pkgLines = o.packages.map(p => `  - ${p.name}: ${p.entities.join(', ') || '(no entities)'}`).join('\n');
+  const extra: string[] = [];
+  if (o.stereotypes.length) extra.push(`  stereotypes: ${o.stereotypes.join(', ')}`);
+  if (o.derivedTypes.length) extra.push(`  derived types: ${o.derivedTypes.join(', ')}`);
+  if (o.cases.length) extra.push(`  cases: ${o.cases.join(', ')}`);
+  return `${head}\nPackages:\n${pkgLines}${extra.length ? '\n' + extra.join('\n') : ''}`;
+}
+
+/** Best-effort outline for prompt injection; '' on any failure so chat never breaks. */
+async function safeModelOutline(services: any): Promise<string> {
+  try { return formatModelOutline(await buildModelOverview(services)); }
+  catch { return ''; }
 }
 
 export function isGatedCategory(category: AIToolCategory): boolean {
@@ -515,7 +589,7 @@ This system models a RICH domain — not just entities. You can author all of th
 - Events — domain events emitted by aggregates, e.g. OrderPlaced (createEvent)
 - Actions — commands/queries on aggregates with a flow; emitEvent/wait steps wire a saga/process (createAction)
 - State machines — entity lifecycles: states + transitions, e.g. Order PENDING→PAID→SHIPPED (createStateMachine)
-- Read/inspect: listEntities, getEntityDetails, listStereotypes; navigate with navigateTo (call listRoutes first if unsure)
+- Read/inspect: getModelOverview (whole-model outline — packages, entities, and concept counts; a current snapshot is already shown to you below), getEntityDetails (one entity in full incl. physical mapping), listEntities, listStereotypes; navigate with navigateTo (call listRoutes first if unsure)
 
 A "process" or "saga" is NOT a separate object — it is the graph that emerges from Actions (with emitEvent/wait flow steps) and Events. To model a process, create the Actions and Events; the saga view is derived automatically.
 
@@ -553,29 +627,34 @@ Be concise in your responses. Show a summary of what you created.`;
  * SYSTEM_PROMPT body — and it is sanitized so a malicious or runaway
  * frontend can't inject huge prompts.
  */
-function buildSystemPrompt(pageContext?: string, conversationSystemPrompt?: string, mode: AIChatMode = 'designer'): string {
+function buildSystemPrompt(pageContext?: string, conversationSystemPrompt?: string, mode: AIChatMode = 'designer', modelOutline?: string): string {
   // #127 — per-conversation override replaces the canonical body when set.
   // It still gets the page-context paragraph appended so cross-cutting hints
   // (current entity, package) don't get lost when the user customizes.
   const base = (typeof conversationSystemPrompt === 'string' && conversationSystemPrompt.trim().length > 0)
     ? conversationSystemPrompt.trim().slice(0, 8000)
     : SYSTEM_PROMPT;
-  // #55 — append the mode-specific suffix BEFORE the page-context line so
-  // the page context stays the last paragraph (the model is more likely
+  // #55 — append the mode-specific suffix BEFORE the model-outline / page-context
+  // lines so the page context stays the last paragraph (the model is more likely
   // to weight late content for "what is the user looking at right now").
-  const withMode = base + getModeSystemSuffix(mode);
+  let out = base + getModeSystemSuffix(mode);
+  // Per-turn model snapshot (#grounding) — a compact outline so the model is
+  // oriented without spending tool calls to discover the model. Placed before
+  // page context so the page context remains the final, most-salient line.
+  if (typeof modelOutline === 'string' && modelOutline.trim().length > 0) {
+    out += `\n\n${modelOutline.trim().slice(0, 2000)}`;
+  }
   if (typeof pageContext === 'string') {
     const trimmed = pageContext.trim();
     if (trimmed.length > 0) {
-      const safe = trimmed.slice(0, 500);
-      return `${withMode}\n\nPage context: ${safe}`;
+      out += `\n\nPage context: ${trimmed.slice(0, 500)}`;
     }
   }
-  return withMode;
+  return out;
 }
 
 // Direct chat handler for OpenAI-compatible providers (bypasses AI SDK)
-async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawMessages: any[], services: any, pageContext?: string, conversationSystemPrompt?: string, mode: AIChatMode = 'designer') {
+async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawMessages: any[], services: any, pageContext?: string, conversationSystemPrompt?: string, mode: AIChatMode = 'designer', modelOutline?: string) {
   const { callWithTools } = await import('../utils/aiDirectClient.js');
   // Per-stream id used to target server-side tool-approval decisions. Emitted
   // to the client on the `start` event so the frontend can POST approvals.
@@ -595,7 +674,7 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
 
   // Convert UIMessages to OpenAI format
   const messages: any[] = [
-    { role: 'system', content: buildSystemPrompt(pageContext, conversationSystemPrompt, mode) },
+    { role: 'system', content: buildSystemPrompt(pageContext, conversationSystemPrompt, mode, modelOutline) },
   ];
   for (const msg of rawMessages) {
     const text = msg.parts?.find((p: any) => p.type === 'text')?.text || msg.content || '';
@@ -620,6 +699,7 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
     { type: 'function' as const, function: { name: 'createStateMachine', description: 'Create a state machine on an entity (ownerEntityName) — its states, initialState, and transitions (from/to/on). Model an entity lifecycle, e.g. Order PENDING→PAID→SHIPPED.', parameters: createStateMachineParameters as Record<string, unknown> } },
     { type: 'function' as const, function: { name: 'listEntities', description: 'List packages or entities in a package', parameters: { type: 'object', properties: { packageName: { type: 'string', description: 'Package name (omit to list all)' } } } } },
     { type: 'function' as const, function: { name: 'getEntityDetails', description: 'Get full detail for one entity: attributes with type/required/primaryKey AND field validation, the PHYSICAL mapping (entity table name + schema, each attribute physical column name + DB type), physical constraints, and inline business rules. Call this before writing SQL/DDL so you use the real physical names and types.', parameters: { type: 'object', required: ['packageName', 'entityName'], properties: { packageName: { type: 'string' }, entityName: { type: 'string' } } } } },
+    { type: 'function' as const, function: { name: 'getModelOverview', description: 'Get a whole-model outline: every package with its entity names, and a count of each concept (entities, relationships, cases, rules, events, actions, state machines, derived types, stereotypes). A snapshot is already in your context; call this to refresh after changes.', parameters: { type: 'object', properties: {} } } },
     { type: 'function' as const, function: { name: 'listStereotypes', description: 'List available stereotypes', parameters: { type: 'object', properties: {} } } },
     { type: 'function' as const, function: { name: 'navigateTo', description: 'Navigate user to a page. The path MUST be an absolute URL beginning with "/" that matches one of the patterns returned by listRoutes — call listRoutes first if you are unsure of the exact shape.', parameters: { type: 'object', required: ['path', 'reason'], properties: { path: { type: 'string' }, reason: { type: 'string' } } } } },
     { type: 'function' as const, function: { name: 'listRoutes', description: 'List every valid URL pattern in the app with a short description and (where useful) a concrete example. Call this BEFORE navigateTo if you are unsure of the exact path shape — e.g. plural vs singular, where attribute pages live, what the case route is.', parameters: { type: 'object', properties: {} } } },
@@ -702,6 +782,9 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
         const entity = await services.serviceService.getEntitySchema(args.packageName || 'default', args.entityName);
         if (!entity) return { error: 'Entity not found' };
         return buildEntityDetails(entity);
+      }
+      if (name === 'getModelOverview') {
+        return await buildModelOverview(services);
       }
       if (name === 'listStereotypes') {
         const stereotypes = await services.stereotypeService.getAllStereotypes();
@@ -903,9 +986,13 @@ export const aiChat = async (req: Request, res: Response) => {
     const mentionsContext = await buildMentionsContext(rawMessages);
     const enrichedPageContext = (pageContext || '') + mentionsContext;
 
+    // #grounding — compute a compact whole-model outline ONCE per turn and inject
+    // it into the system prompt so the model starts oriented (see safeModelOutline).
+    const modelOutline = await safeModelOutline(services);
+
     // For OpenAI-compatible providers, use direct client (AI SDK has tool-calling bugs)
     if (cfg.provider === 'openai-compatible' && cfg.baseURL) {
-      return await handleDirectChat(req, res, cfg, rawMessages, services, enrichedPageContext, conversationSystemPrompt, mode);
+      return await handleDirectChat(req, res, cfg, rawMessages, services, enrichedPageContext, conversationSystemPrompt, mode, modelOutline);
     }
 
     // For Anthropic/OpenAI, use Vercel AI SDK (works correctly)
@@ -1019,7 +1106,7 @@ export const aiChat = async (req: Request, res: Response) => {
 
     const result = streamText({
       model,
-      system: buildSystemPrompt(enrichedPageContext, conversationSystemPrompt, mode),
+      system: buildSystemPrompt(enrichedPageContext, conversationSystemPrompt, mode, modelOutline),
       messages,
       abortSignal: ac.signal,
       onFinish: (event) => {
@@ -1204,6 +1291,18 @@ export const aiChat = async (req: Request, res: Response) => {
           },
         }),
 
+        getModelOverview: tool({
+          description: 'Get a whole-model outline: every package with its entity names, and a count of each concept (entities, relationships, cases, rules, events, actions, state machines, derived types, stereotypes). Use to orient yourself before answering; a snapshot is already in your system context, so only call this to refresh after changes.',
+          inputSchema: z.object({}),
+          execute: async () => {
+            try {
+              return await buildModelOverview(services);
+            } catch (err: any) {
+              return { error: err.message };
+            }
+          },
+        }),
+
         listStereotypes: tool({
           description: 'List available stereotypes and their metadata definitions',
           inputSchema: z.object({}),
@@ -1324,7 +1423,7 @@ export const aiChat = async (req: Request, res: Response) => {
                 const prior = await result.response;
                 const summary = await generateText({
                   model,
-                  system: buildSystemPrompt(enrichedPageContext, conversationSystemPrompt, mode),
+                  system: buildSystemPrompt(enrichedPageContext, conversationSystemPrompt, mode, modelOutline),
                   messages: [
                     ...messages,
                     ...prior.messages,
@@ -1666,6 +1765,12 @@ export const aiTools = async (_req: Request, res: Response) => {
         { name: 'packageName', type: 'string', required: true, description: 'Package name' },
         { name: 'entityName', type: 'string', required: true, description: 'Entity name' },
       ],
+    },
+    {
+      name: 'getModelOverview',
+      description: 'Whole-model outline: every package with its entities, and a count of each concept (entities, relationships, cases, rules, events, actions, state machines, derived types, stereotypes). A snapshot is also injected into the system prompt each turn.',
+      source: 'builtin' as const,
+      parameters: [],
     },
     {
       name: 'listStereotypes',
