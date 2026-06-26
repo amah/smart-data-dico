@@ -149,7 +149,7 @@ describe('AIChatPanel — syntax highlighting (#129)', () => {
     expect(screen.queryByTestId('copy-code-button')).not.toBeInTheDocument();
   });
 
-  it('unknown language (e.g. mermaid) does not crash render', async () => {
+  it('unknown language (e.g. cobol) does not crash render', async () => {
     server.use(
       http.get('/api/ai/conversations/conv-with-code', () =>
         HttpResponse.json({
@@ -161,7 +161,7 @@ describe('AIChatPanel — syntax highlighting (#129)', () => {
               {
                 id: 'm2',
                 role: 'assistant',
-                text: '```mermaid\ngraph TD; A-->B;\n```',
+                text: '```cobol\nMOVE X TO Y.\n```',
               },
             ],
           },
@@ -172,12 +172,13 @@ describe('AIChatPanel — syntax highlighting (#129)', () => {
     renderPanel();
 
     // Render must complete (no thrown error) and the raw code text
-    // must still be visible even though `mermaid` is not a registered
+    // must still be visible even though `cobol` is not a registered
     // Prism grammar — react-syntax-highlighter swallows the unknown-
-    // language error in its internal try/catch.
+    // language error in its internal try/catch. (mermaid is now special-
+    // cased to a rendered diagram; see AIChatPanel.mermaid.test.tsx.)
     const btn = await screen.findByTestId('copy-code-button');
     const blockRoot = btn.parentElement!;
-    expect(blockRoot.textContent).toContain('graph TD');
+    expect(blockRoot.textContent).toContain('MOVE X TO Y');
   });
 
   it('switches highlighter theme between light/dark based on usePrefs', async () => {

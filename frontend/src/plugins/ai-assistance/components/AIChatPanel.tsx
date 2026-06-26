@@ -22,6 +22,7 @@ import {
 import { validateNavigatePath } from '../utils/validateNavigatePath';
 import { Chip } from '../../../components/ui';
 import { processMentions } from '../../../components/EntityMention';
+import MermaidDiagram from './MermaidDiagram';
 import {
   SlashCommand,
   extractSlashToken,
@@ -952,6 +953,9 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       if (!assistantText && toolCalls.length > 0) {
         assistantText = toolCalls.map(t => {
           if (t.output?.success === false && t.output?.error) return `**Error in ${t.name}:** ${t.output.error}`;
+          // generateMermaid → render the diagram (the markdown code override
+          // turns a ```mermaid block into an SVG), even with no model prose.
+          if (typeof t.output?.mermaid === 'string') return `\`\`\`mermaid\n${t.output.mermaid}\n\`\`\``;
           // Prefer the canonical structured `summary` over legacy `message` (#191).
           if (t.output?.summary) return `- ${t.output.summary}`;
           if (t.output?.message) return `- ${t.output.message}`;
@@ -1765,6 +1769,10 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                               return <code className={className} {...rest}>{children}</code>;
                             }
                             const code = String(children).replace(/\n$/, '');
+                            // Render ```mermaid blocks as diagrams instead of code.
+                            if (lang === 'mermaid') {
+                              return <MermaidDiagram code={code} isDark={isDark} />;
+                            }
                             const isCopied = copiedKey === code;
                             const isCopyFailed = copyFailedKey === code;
                             return (
