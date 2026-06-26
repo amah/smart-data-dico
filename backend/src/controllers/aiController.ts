@@ -39,6 +39,10 @@ import {
   createStateMachineInputSchema, createStateMachineParameters, executeCreateStateMachine,
   type ConceptServices,
 } from './aiConceptTools.js';
+import {
+  generateMermaidInputSchema, generateMermaidParameters, generateMermaidDiagram,
+  type MermaidServices,
+} from './aiMermaid.js';
 
 // --- Tool categories (#59) ---
 //
@@ -60,6 +64,7 @@ const TOOL_CATEGORY_MAP: Record<string, AIToolCategory> = {
   listStereotypes: 'read',
   getEntityDetails: 'read',
   getModelOverview: 'read',
+  generateMermaid: 'read',
   listPackages: 'read',
   listRoutes: 'read',
   // navigate
@@ -113,6 +118,7 @@ const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   'listStereotypes',
   'getEntityDetails',
   'getModelOverview',
+  'generateMermaid',
   'listPackages',
 ]);
 
@@ -590,6 +596,7 @@ This system models a RICH domain — not just entities. You can author all of th
 - Actions — commands/queries on aggregates with a flow; emitEvent/wait steps wire a saga/process (createAction)
 - State machines — entity lifecycles: states + transitions, e.g. Order PENDING→PAID→SHIPPED (createStateMachine)
 - Read/inspect: getModelOverview (whole-model outline — packages, entities, and concept counts; a current snapshot is already shown to you below), getEntityDetails (one entity in full incl. physical mapping), listEntities, listStereotypes; navigate with navigateTo (call listRoutes first if unsure)
+- Diagram: generateMermaid converts the model to Mermaid source — diagram: "er" (entity-relationship of a package/all), "class" (class diagram), "state" (an entity's state machine, needs entityName), or "flow" (actions+events saga). Use it when the user asks for a diagram, ERD, or visualization, and present the result in a fenced mermaid code block.
 
 A "process" or "saga" is NOT a separate object — it is the graph that emerges from Actions (with emitEvent/wait flow steps) and Events. To model a process, create the Actions and Events; the saga view is derived automatically.
 
@@ -700,6 +707,7 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
     { type: 'function' as const, function: { name: 'listEntities', description: 'List packages or entities in a package', parameters: { type: 'object', properties: { packageName: { type: 'string', description: 'Package name (omit to list all)' } } } } },
     { type: 'function' as const, function: { name: 'getEntityDetails', description: 'Get full detail for one entity: attributes with type/required/primaryKey AND field validation, the PHYSICAL mapping (entity table name + schema, each attribute physical column name + DB type), physical constraints, and inline business rules. Call this before writing SQL/DDL so you use the real physical names and types.', parameters: { type: 'object', required: ['packageName', 'entityName'], properties: { packageName: { type: 'string' }, entityName: { type: 'string' } } } } },
     { type: 'function' as const, function: { name: 'getModelOverview', description: 'Get a whole-model outline: every package with its entity names, and a count of each concept (entities, relationships, cases, rules, events, actions, state machines, derived types, stereotypes). A snapshot is already in your context; call this to refresh after changes.', parameters: { type: 'object', properties: {} } } },
+    { type: 'function' as const, function: { name: 'generateMermaid', description: 'Convert the model to Mermaid diagram source. diagram: "er" (entity-relationship of a package, or all), "class" (class diagram), "state" (a single entity state machine — pass entityName), "flow" (actions+events saga). Returns { mermaid }. Present it inside a ```mermaid code block.', parameters: generateMermaidParameters as Record<string, unknown> } },
     { type: 'function' as const, function: { name: 'listStereotypes', description: 'List available stereotypes', parameters: { type: 'object', properties: {} } } },
     { type: 'function' as const, function: { name: 'navigateTo', description: 'Navigate user to a page. The path MUST be an absolute URL beginning with "/" that matches one of the patterns returned by listRoutes — call listRoutes first if you are unsure of the exact shape.', parameters: { type: 'object', required: ['path', 'reason'], properties: { path: { type: 'string' }, reason: { type: 'string' } } } } },
     { type: 'function' as const, function: { name: 'listRoutes', description: 'List every valid URL pattern in the app with a short description and (where useful) a concrete example. Call this BEFORE navigateTo if you are unsure of the exact path shape — e.g. plural vs singular, where attribute pages live, what the case route is.', parameters: { type: 'object', properties: {} } } },
@@ -785,6 +793,9 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
       }
       if (name === 'getModelOverview') {
         return await buildModelOverview(services);
+      }
+      if (name === 'generateMermaid') {
+        return await generateMermaidDiagram(args, services as unknown as MermaidServices);
       }
       if (name === 'listStereotypes') {
         const stereotypes = await services.stereotypeService.getAllStereotypes();
@@ -1303,6 +1314,18 @@ export const aiChat = async (req: Request, res: Response) => {
           },
         }),
 
+        generateMermaid: tool({
+          description: 'Convert the model to Mermaid diagram source. diagram: "er" (entity-relationship of a package, or all), "class" (class diagram), "state" (a single entity state machine — pass entityName), "flow" (actions+events saga). Returns { mermaid }. Present it inside a ```mermaid code block.',
+          inputSchema: generateMermaidInputSchema,
+          execute: async (params) => {
+            try {
+              return await generateMermaidDiagram(params, services as unknown as MermaidServices);
+            } catch (err: any) {
+              return { error: err.message };
+            }
+          },
+        }),
+
         listStereotypes: tool({
           description: 'List available stereotypes and their metadata definitions',
           inputSchema: z.object({}),
@@ -1771,6 +1794,16 @@ export const aiTools = async (_req: Request, res: Response) => {
       description: 'Whole-model outline: every package with its entities, and a count of each concept (entities, relationships, cases, rules, events, actions, state machines, derived types, stereotypes). A snapshot is also injected into the system prompt each turn.',
       source: 'builtin' as const,
       parameters: [],
+    },
+    {
+      name: 'generateMermaid',
+      description: 'Convert the model to Mermaid diagram source: er (entity-relationship), class, state (one entity machine), or flow (actions+events saga).',
+      source: 'builtin' as const,
+      parameters: [
+        { name: 'diagram', type: 'er|class|state|flow', required: true, description: 'Diagram type' },
+        { name: 'packageName', type: 'string', required: false, description: 'Scope for er/class/flow (omit for all)' },
+        { name: 'entityName', type: 'string', required: false, description: 'Required for state' },
+      ],
     },
     {
       name: 'listStereotypes',
