@@ -78,7 +78,7 @@ export interface MutationServices {
 export interface MutationSuccess {
   success: true;
   changeKind: 'created' | 'updated' | 'deleted';
-  elementType: 'entity' | 'relationship';
+  elementType: 'entity' | 'relationship' | 'stereotype' | 'derivedType' | 'rule' | 'case' | 'event' | 'action' | 'stateMachine';
   /** Entity name, or "Source → Target" for a relationship. */
   name: string;
   packageName: string;
@@ -105,13 +105,30 @@ type Validation = ValidationOk | ValidationErr;
 
 // --- Structured input schemas (AI SDK path: zod) ----------------------------
 
-const attributeInputSchema = z.object({
+// Field-level validation (#85: attribute.validation — intrinsic shape rules).
+// Mirrors AttributeValidation in EntitySchema. Threaded through the tool so the
+// model can persist maxLength/pattern/minimum/etc. instead of having them
+// silently dropped (the create/update tools previously accepted only enumValues).
+export const attributeValidationSchema = z.object({
+  minLength: z.number().optional(),
+  maxLength: z.number().optional(),
+  pattern: z.string().optional().describe('Regex the value must match'),
+  format: z.string().optional().describe('Named format, e.g. email, uri, date-time'),
+  minimum: z.number().optional(),
+  maximum: z.number().optional(),
+  precision: z.number().optional().describe('Total significant digits (numeric)'),
+  scale: z.number().optional().describe('Digits after the decimal point (numeric)'),
+  enumValues: z.array(z.string()).optional(),
+});
+
+export const attributeInputSchema = z.object({
   name: z.string().describe('Attribute name (camelCase)'),
   type: z.string().describe('Standard AttributeType (string, integer, number, boolean, date, datetime, uuid, enum, …) or a derived type name'),
   description: z.string().optional().describe('Attribute description'),
   required: z.boolean().optional().describe('Whether the attribute is required'),
   primaryKey: z.boolean().optional().describe('Whether the attribute is (part of) the primary key'),
-  enumValues: z.array(z.string()).optional().describe('Allowed values when type is enum'),
+  enumValues: z.array(z.string()).optional().describe('Allowed values when type is enum (shorthand for validation.enumValues)'),
+  validation: attributeValidationSchema.optional().describe('Field-level validation: minLength, maxLength, pattern, format, minimum, maximum, precision, scale, enumValues'),
 });
 
 export const createEntityInputSchema = z.object({
@@ -163,7 +180,22 @@ export type DeleteRelationshipInput = z.infer<typeof deleteRelationshipInputSche
 // validates `parameters` JSON Schema before the model emits a tool call).
 // Keep these in lock-step with the zod definitions.
 
-const attributeJsonSchema = {
+export const attributeValidationJsonSchema = {
+  type: 'object',
+  properties: {
+    minLength: { type: 'integer', minimum: 0 },
+    maxLength: { type: 'integer', minimum: 0 },
+    pattern: { type: 'string', description: 'Regex the value must match' },
+    format: { type: 'string', description: 'Named format, e.g. email, uri, date-time' },
+    minimum: { type: 'number' },
+    maximum: { type: 'number' },
+    precision: { type: 'integer', minimum: 0 },
+    scale: { type: 'integer', minimum: 0 },
+    enumValues: { type: 'array', items: { type: 'string' } },
+  },
+} as const;
+
+export const attributeJsonSchema = {
   type: 'object',
   required: ['name', 'type'],
   properties: {
@@ -173,6 +205,7 @@ const attributeJsonSchema = {
     required: { type: 'boolean' },
     primaryKey: { type: 'boolean' },
     enumValues: { type: 'array', items: { type: 'string' } },
+    validation: attributeValidationJsonSchema,
   },
 } as const;
 
@@ -263,6 +296,11 @@ function buildEntity(
   const existingByName = new Map((existing?.attributes ?? []).map(a => [a.name, a] as const));
   const attributes: Attribute[] = input.attributes.map((a) => {
     const prior = existingByName.get(a.name);
+    // Merge full field-level validation; `enumValues` shorthand folds in too.
+    // Previously only enumValues survived, so maxLength/pattern/minimum/etc. the
+    // model supplied were silently discarded (the tool reported false success).
+    const validation = { ...(a.validation ?? {}), ...(a.enumValues ? { enumValues: a.enumValues } : {}) };
+    const hasValidation = Object.keys(validation).length > 0;
     return {
       uuid: prior?.uuid ?? generateUUID(),
       name: a.name,
@@ -270,7 +308,7 @@ function buildEntity(
       description: a.description ?? '',
       required: a.required ?? false,
       ...(a.primaryKey !== undefined ? { primaryKey: a.primaryKey } : {}),
-      ...(a.enumValues ? { validation: { enumValues: a.enumValues } } : {}),
+      ...(hasValidation ? { validation } : {}),
     };
   });
 
@@ -284,6 +322,28 @@ function buildEntity(
     createdAt: existing?.createdAt ?? new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * If the entity carries a stereotype that isn't defined for entities, strip it
+ * (rather than hard-failing the whole mutation) and return a human-readable
+ * warning. Returns '' when the stereotype is valid or absent.
+ *
+ * Why drop-and-warn instead of reject: a fresh project has no stereotypes, and
+ * the chat has no tool to create one, so a strict reject wedged entity creation
+ * the moment the model tagged an entity (e.g. aggregate-root / action / event —
+ * which it does naturally for DDD/CQRS modelling). The strict path also fed a
+ * weak model an error it sometimes ignored, then reported false success. Drop-
+ * and-warn keeps authoring moving and surfaces the ignored tag honestly.
+ */
+async function normalizeStereotype(entity: Entity, services: MutationServices): Promise<string> {
+  if (!entity.stereotype) return '';
+  const stereotypes = await services.stereotypeService.getAllStereotypes('entity');
+  const known = stereotypes.some(s => s.id === entity.stereotype || s.name === entity.stereotype);
+  if (known) return '';
+  const dropped = entity.stereotype;
+  delete entity.stereotype;
+  return `stereotype "${dropped}" was ignored — it isn't defined for entities yet (define it under /stereotypes, then re-apply)`;
 }
 
 /**
@@ -324,15 +384,9 @@ export async function validateEntityMutation(
     }
   }
 
-  // stereotype (if given) must exist and apply to entities
-  if (input.stereotype) {
-    const stereotypes = await services.stereotypeService.getAllStereotypes('entity');
-    const known = stereotypes.some(s => s.id === input.stereotype || s.name === input.stereotype);
-    if (!known) {
-      const ids = stereotypes.map(s => s.id).join(', ') || '(none defined)';
-      return { ok: false, error: `Unknown entity stereotype "${input.stereotype}". Known: ${ids}.` };
-    }
-  }
+  // NOTE: stereotype validity is handled separately by normalizeStereotype()
+  // in the execute path — an unknown stereotype is dropped-and-warned rather
+  // than hard-failing the whole mutation (see that helper for why).
 
   // create-only: no existing entity of that name in the package
   if (kind === 'create') {
@@ -360,6 +414,7 @@ export async function executeCreateEntity(
   try {
     await ensurePackage(input.packageName);
     const entity = buildEntity(input);
+    const stereoWarning = await normalizeStereotype(entity, services);
 
     const validation = await validateEntityMutation(input, entity, services, 'create');
     if (!validation.ok) return fail(validation.error);
@@ -369,7 +424,8 @@ export async function executeCreateEntity(
 
     const attrCount = entity.attributes.length;
     const stereoNote = entity.stereotype ? `, stereotype ${entity.stereotype}` : '';
-    const summary = `Created entity ${entity.name} (+${attrCount} attribute${attrCount === 1 ? '' : 's'}${stereoNote})`;
+    const summary = `Created entity ${entity.name} (+${attrCount} attribute${attrCount === 1 ? '' : 's'}${stereoNote})`
+      + (stereoWarning ? ` — note: ${stereoWarning}` : '');
     return {
       success: true,
       changeKind: 'created',
@@ -397,6 +453,7 @@ export async function executeUpdateEntity(
     }
 
     const entity = buildEntity(input, existing);
+    const stereoWarning = await normalizeStereotype(entity, services);
 
     const validation = await validateEntityMutation(input, entity, services, 'update');
     if (!validation.ok) return fail(validation.error);
@@ -412,7 +469,8 @@ export async function executeUpdateEntity(
       : delta > 0
         ? `+${delta} attribute${delta === 1 ? '' : 's'}`
         : `-${Math.abs(delta)} attribute${Math.abs(delta) === 1 ? '' : 's'}`;
-    const summary = `Updated ${entity.name} (${deltaNote})`;
+    const summary = `Updated ${entity.name} (${deltaNote})`
+      + (stereoWarning ? ` — note: ${stereoWarning}` : '');
 
     // #193 — when this update ADDS an attribute, highlight that new row on
     // arrival (keyed by uuid to match the attribute table's row key,

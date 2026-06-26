@@ -29,6 +29,16 @@ import {
   executeDeleteRelationship,
   type MutationServices,
 } from './aiMutationTools.js';
+import {
+  createStereotypeInputSchema, createStereotypeParameters, executeCreateStereotype,
+  createDerivedTypeInputSchema, createDerivedTypeParameters, executeCreateDerivedType,
+  createRuleInputSchema, createRuleParameters, executeCreateRule,
+  createCaseInputSchema, createCaseParameters, executeCreateCase,
+  createEventInputSchema, createEventParameters, executeCreateEvent,
+  createActionInputSchema, createActionParameters, executeCreateAction,
+  createStateMachineInputSchema, createStateMachineParameters, executeCreateStateMachine,
+  type ConceptServices,
+} from './aiConceptTools.js';
 
 // --- Tool categories (#59) ---
 //
@@ -56,6 +66,13 @@ const TOOL_CATEGORY_MAP: Record<string, AIToolCategory> = {
   // create
   createEntity: 'create',
   createRelationship: 'create',
+  createStereotype: 'create',
+  createDerivedType: 'create',
+  createRule: 'create',
+  createCase: 'create',
+  createEvent: 'create',
+  createAction: 'create',
+  createStateMachine: 'create',
   // modify (reserved for future tools)
   updateEntity: 'modify',
   updateRelationship: 'modify',
@@ -396,26 +413,43 @@ async function getServices() {
   const { serviceService } = await import('../services/serviceService.js');
   const { caseService } = await import('../services/caseService.js');
   const { stereotypeService } = await import('../services/stereotypeService.js');
-  return { dictionaryService, serviceService, caseService, stereotypeService };
+  // #gap — concept-authoring services for the AI tools (rules/events/actions/
+  // state machines/derived types). Each owns its own persistence.
+  const { ruleService } = await import('../services/ruleService.js');
+  const { eventService } = await import('../services/eventService.js');
+  const { actionService } = await import('../services/actionService.js');
+  const { stateMachineService } = await import('../services/stateMachineService.js');
+  const { listDerivedTypes, replaceDerivedTypes } = await import('../services/dicoConfigService.js');
+  const derivedTypes = { list: listDerivedTypes, replace: replaceDerivedTypes };
+  return {
+    dictionaryService, serviceService, caseService, stereotypeService,
+    ruleService, eventService, actionService, stateMachineService, derivedTypes,
+  };
 }
 
 const SYSTEM_PROMPT = `You are an AI assistant for a Data Dictionary Management System. You help users create, modify, and analyze data models.
 
-You have tools to:
-- Create entities with attributes in a package
-- Search and list existing entities
-- Get entity details
-- Create relationships between entities (cross-package is first-class)
-- List stereotypes (metadata schemas for entities/attributes)
-- Navigate the user to relevant pages (call listRoutes first if unsure of the URL shape)
-- Discover the valid URL taxonomy (listRoutes)
+This system models a RICH domain — not just entities. You can author all of these, each with its own tool:
+- Entities with attributes (createEntity) — attributes carry field-level validation (maxLength, pattern, minimum, …)
+- Relationships between entities, cross-package is first-class (createRelationship)
+- Stereotypes — classification labels like aggregate-root, value-object, pii, domain-event (createStereotype). A fresh project has NONE; create a stereotype BEFORE tagging an entity with it.
+- Derived types — reusable attribute types like email/money/currency-code with shared validation or a closed value set (createDerivedType)
+- Rules — first-class business invariants, cross-field/lifecycle, distinct from attribute validation (createRule)
+- Cases — business use-case views rooted on entities (createCase)
+- Events — domain events emitted by aggregates, e.g. OrderPlaced (createEvent)
+- Actions — commands/queries on aggregates with a flow; emitEvent/wait steps wire a saga/process (createAction)
+- State machines — entity lifecycles: states + transitions, e.g. Order PENDING→PAID→SHIPPED (createStateMachine)
+- Read/inspect: listEntities, getEntityDetails, listStereotypes; navigate with navigateTo (call listRoutes first if unsure)
+
+A "process" or "saga" is NOT a separate object — it is the graph that emerges from Actions (with emitEvent/wait flow steps) and Events. To model a process, create the Actions and Events; the saga view is derived automatically.
 
 When creating data models:
-- Use meaningful names (PascalCase for entities, camelCase for attributes)
+- Use meaningful names (PascalCase for entities/events, camelCase for attributes)
 - Add descriptions for everything
-- Set appropriate types (string, number, integer, boolean, date, datetime, enum)
+- Set appropriate types (string, number, integer, boolean, date, datetime, enum) and field validation where it applies
 - Mark primary keys and required fields
-- Suggest stereotypes when applicable (aggregate-root, reference-data, event, value-object for entities)
+- Use stereotypes to classify (create the stereotype first if it does not exist) — aggregate-root, value-object, domain-event, etc.
+- Capture business invariants as Rules (not as attribute validation) when they span fields or lifecycle
 - Create relationships with proper cardinality
 
 Mutation tools take STRUCTURED parameters (not JSON strings):
@@ -498,6 +532,14 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
     { type: 'function' as const, function: { name: 'createRelationship', description: 'Create a relationship between two entities. Cross-package is first-class; omit sourcePackage/targetPackage to scan all packages. Stored under the source entity\'s package.', parameters: createRelationshipParameters as Record<string, unknown> } },
     { type: 'function' as const, function: { name: 'updateRelationship', description: 'Update an existing relationship (resolved by matching source/target). Cardinalities and description become the new desired state.', parameters: updateRelationshipParameters as Record<string, unknown> } },
     { type: 'function' as const, function: { name: 'deleteRelationship', description: 'Delete a relationship by its package (source entity\'s package) and source/target entity names.', parameters: deleteRelationshipParameters as Record<string, unknown> } },
+    // --- advanced concept authoring ---
+    { type: 'function' as const, function: { name: 'createStereotype', description: 'Define a stereotype (classification label) so entities/attributes can be tagged, e.g. aggregate-root, value-object, pii, domain-event. Create the stereotype BEFORE applying it on an entity.', parameters: createStereotypeParameters as Record<string, unknown> } },
+    { type: 'function' as const, function: { name: 'createDerivedType', description: 'Define a reusable derived attribute type (e.g. email, money, currency-code) based on a standard type, with shared validation and/or a closed value domain. Then attributes can use it as their type.', parameters: createDerivedTypeParameters as Record<string, unknown> } },
+    { type: 'function' as const, function: { name: 'createRule', description: 'Create a first-class business Rule (a cross-field/lifecycle invariant), scoped to an entity (entityName) or package (packageName). Distinct from attribute validation.', parameters: createRuleParameters as Record<string, unknown> } },
+    { type: 'function' as const, function: { name: 'createCase', description: 'Create a Case — a business use-case view rooted on one or more entities (rootEntityNames), which auto-expands the related graph.', parameters: createCaseParameters as Record<string, unknown> } },
+    { type: 'function' as const, function: { name: 'createEvent', description: 'Create a domain Event (PascalCase, past tense, e.g. OrderPlaced) emitted by an aggregate entity (ownerEntityName). Optional payload fields.', parameters: createEventParameters as Record<string, unknown> } },
+    { type: 'function' as const, function: { name: 'createAction', description: 'Create an Action/command (e.g. PlaceOrder) on an aggregate entity (ownerEntityName), optionally CQRS-classified, with an optional flow of steps. Use flow steps emitEvent {name} and wait {for} to wire a saga/process across actions+events.', parameters: createActionParameters as Record<string, unknown> } },
+    { type: 'function' as const, function: { name: 'createStateMachine', description: 'Create a state machine on an entity (ownerEntityName) — its states, initialState, and transitions (from/to/on). Model an entity lifecycle, e.g. Order PENDING→PAID→SHIPPED.', parameters: createStateMachineParameters as Record<string, unknown> } },
     { type: 'function' as const, function: { name: 'listEntities', description: 'List packages or entities in a package', parameters: { type: 'object', properties: { packageName: { type: 'string', description: 'Package name (omit to list all)' } } } } },
     { type: 'function' as const, function: { name: 'listStereotypes', description: 'List available stereotypes', parameters: { type: 'object', properties: {} } } },
     { type: 'function' as const, function: { name: 'navigateTo', description: 'Navigate user to a page. The path MUST be an absolute URL beginning with "/" that matches one of the patterns returned by listRoutes — call listRoutes first if you are unsure of the exact shape.', parameters: { type: 'object', required: ['path', 'reason'], properties: { path: { type: 'string' }, reason: { type: 'string' } } } } },
@@ -545,6 +587,29 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
       }
       if (name === 'deleteRelationship') {
         return await executeDeleteRelationship(args, mutationServices);
+      }
+      // --- advanced concept authoring ---
+      const conceptServices = services as unknown as ConceptServices;
+      if (name === 'createStereotype') {
+        return await executeCreateStereotype(args, conceptServices);
+      }
+      if (name === 'createDerivedType') {
+        return await executeCreateDerivedType(args, conceptServices);
+      }
+      if (name === 'createRule') {
+        return await executeCreateRule(args, conceptServices);
+      }
+      if (name === 'createCase') {
+        return await executeCreateCase(args, conceptServices);
+      }
+      if (name === 'createEvent') {
+        return await executeCreateEvent(args, conceptServices);
+      }
+      if (name === 'createAction') {
+        return await executeCreateAction(args, conceptServices);
+      }
+      if (name === 'createStateMachine') {
+        return await executeCreateStateMachine(args, conceptServices);
       }
       if (name === 'listEntities') {
         if (args.packageName) {
@@ -916,6 +981,77 @@ export const aiChat = async (req: Request, res: Response) => {
           execute: async (params, opts) => gate('delete', opts?.toolCallId, async () => {
             const result = await executeDeleteRelationship(params, services as MutationServices);
             if (result.success) logger.info(`AI deleted relationship: ${result.name}`);
+            return result;
+          }),
+        }),
+
+        // --- advanced concept authoring ---
+        createStereotype: tool({
+          description: 'Define a stereotype (classification label) so entities/attributes can be tagged, e.g. aggregate-root, value-object, pii, domain-event. Create the stereotype BEFORE applying it on an entity.',
+          inputSchema: createStereotypeInputSchema,
+          execute: async (params, opts) => gate('create', opts?.toolCallId, async () => {
+            const result = await executeCreateStereotype(params, services as unknown as ConceptServices);
+            if (result.success) logger.info(`AI created stereotype: ${result.name}`);
+            return result;
+          }),
+        }),
+
+        createDerivedType: tool({
+          description: 'Define a reusable derived attribute type (e.g. email, money, currency-code) based on a standard type, with shared validation and/or a closed value domain. Attributes can then use it as their type.',
+          inputSchema: createDerivedTypeInputSchema,
+          execute: async (params, opts) => gate('create', opts?.toolCallId, async () => {
+            const result = await executeCreateDerivedType(params, services as unknown as ConceptServices);
+            if (result.success) logger.info(`AI created derived type: ${result.name}`);
+            return result;
+          }),
+        }),
+
+        createRule: tool({
+          description: 'Create a first-class business Rule (a cross-field/lifecycle invariant), scoped to an entity (entityName) or package (packageName). Distinct from attribute validation and physical constraints.',
+          inputSchema: createRuleInputSchema,
+          execute: async (params, opts) => gate('create', opts?.toolCallId, async () => {
+            const result = await executeCreateRule(params, services as unknown as ConceptServices);
+            if (result.success) logger.info(`AI created rule: ${result.name}`);
+            return result;
+          }),
+        }),
+
+        createCase: tool({
+          description: 'Create a Case — a business use-case view rooted on one or more entities (rootEntityNames), which auto-expands the related graph.',
+          inputSchema: createCaseInputSchema,
+          execute: async (params, opts) => gate('create', opts?.toolCallId, async () => {
+            const result = await executeCreateCase(params, services as unknown as ConceptServices);
+            if (result.success) logger.info(`AI created case: ${result.name}`);
+            return result;
+          }),
+        }),
+
+        createEvent: tool({
+          description: 'Create a domain Event (PascalCase, past tense, e.g. OrderPlaced) emitted by an aggregate entity (ownerEntityName). Optional payload fields.',
+          inputSchema: createEventInputSchema,
+          execute: async (params, opts) => gate('create', opts?.toolCallId, async () => {
+            const result = await executeCreateEvent(params, services as unknown as ConceptServices);
+            if (result.success) logger.info(`AI created event: ${result.name}`);
+            return result;
+          }),
+        }),
+
+        createAction: tool({
+          description: 'Create an Action/command (e.g. PlaceOrder) on an aggregate entity (ownerEntityName), optionally CQRS-classified, with an optional flow of steps. Use flow steps emitEvent {name} and wait {for} to wire a saga/process across actions+events.',
+          inputSchema: createActionInputSchema,
+          execute: async (params, opts) => gate('create', opts?.toolCallId, async () => {
+            const result = await executeCreateAction(params, services as unknown as ConceptServices);
+            if (result.success) logger.info(`AI created action: ${result.name}`);
+            return result;
+          }),
+        }),
+
+        createStateMachine: tool({
+          description: 'Create a state machine on an entity (ownerEntityName) — its states, initialState, and transitions (from/to/on). Model an entity lifecycle, e.g. Order PENDING→PAID→SHIPPED.',
+          inputSchema: createStateMachineInputSchema,
+          execute: async (params, opts) => gate('create', opts?.toolCallId, async () => {
+            const result = await executeCreateStateMachine(params, services as unknown as ConceptServices);
+            if (result.success) logger.info(`AI created state machine: ${result.name}`);
             return result;
           }),
         }),
@@ -1432,6 +1568,91 @@ export const aiTools = async (_req: Request, res: Response) => {
       description: 'List available stereotypes and their metadata definitions',
       source: 'builtin' as const,
       parameters: [],
+    },
+    {
+      name: 'createStereotype',
+      description: 'Define a stereotype (classification label) so entities/attributes can be tagged (aggregate-root, value-object, pii, domain-event). Create it before applying it.',
+      source: 'builtin' as const,
+      parameters: [
+        { name: 'id', type: 'string', required: true, description: 'kebab-case id, e.g. aggregate-root' },
+        { name: 'name', type: 'string', required: false, description: 'Display name (defaults to title-cased id)' },
+        { name: 'appliesTo', type: 'entity|attribute|package|model|relationship', required: false, description: 'Default: entity' },
+        { name: 'description', type: 'string', required: false, description: 'What the stereotype means' },
+        { name: 'domain', type: 'string', required: false, description: 'Grouping, e.g. DDD, CQRS, Privacy' },
+      ],
+    },
+    {
+      name: 'createDerivedType',
+      description: 'Define a reusable derived attribute type (email, money, currency-code) based on a standard type, with shared validation/value domain.',
+      source: 'builtin' as const,
+      parameters: [
+        { name: 'name', type: 'string', required: true, description: 'Type name used as attribute type' },
+        { name: 'basedOn', type: 'string', required: true, description: 'Standard type or another derived type' },
+        { name: 'description', type: 'string', required: false, description: '' },
+        { name: 'validation', type: 'object', required: false, description: '{minLength,maxLength,pattern,format,minimum,maximum,precision,scale,enumValues}' },
+        { name: 'domain', type: 'object', required: false, description: '{kind:enum|codelist|reference, values?, source?}' },
+      ],
+    },
+    {
+      name: 'createRule',
+      description: 'Create a first-class business Rule (cross-field/lifecycle invariant) scoped to an entity or package. Distinct from attribute validation.',
+      source: 'builtin' as const,
+      parameters: [
+        { name: 'name', type: 'string', required: true, description: 'Short name (kebab-cased automatically)' },
+        { name: 'description', type: 'string', required: true, description: 'What the rule asserts' },
+        { name: 'entityName', type: 'string', required: false, description: 'Entity scope (omit for package-level)' },
+        { name: 'packageName', type: 'string', required: false, description: 'Package scope / entity disambiguation' },
+        { name: 'severity', type: 'info|warning|error', required: false, description: 'Default: error' },
+        { name: 'enforcement', type: 'save|process|advisory', required: false, description: 'Default: advisory' },
+      ],
+    },
+    {
+      name: 'createCase',
+      description: 'Create a Case — a business use-case view rooted on one or more entities (auto-expands the related graph).',
+      source: 'builtin' as const,
+      parameters: [
+        { name: 'name', type: 'string', required: true, description: 'Case name' },
+        { name: 'rootEntityNames', type: 'array', required: true, description: 'Entity names the case is rooted on (≥1)' },
+        { name: 'description', type: 'string', required: false, description: '' },
+        { name: 'packageName', type: 'string', required: false, description: 'Preferred package to disambiguate' },
+        { name: 'maxDepth', type: 'number', required: false, description: 'BFS depth (default 10)' },
+      ],
+    },
+    {
+      name: 'createEvent',
+      description: 'Create a domain Event (PascalCase past tense, e.g. OrderPlaced) emitted by an aggregate entity.',
+      source: 'builtin' as const,
+      parameters: [
+        { name: 'name', type: 'string', required: true, description: 'Event name' },
+        { name: 'ownerEntityName', type: 'string', required: false, description: 'Emitting aggregate entity' },
+        { name: 'packageName', type: 'string', required: false, description: 'Package (required if no owner)' },
+        { name: 'description', type: 'string', required: false, description: '' },
+        { name: 'payload', type: 'array', required: false, description: 'Payload fields {name,type,...}' },
+      ],
+    },
+    {
+      name: 'createAction',
+      description: 'Create an Action/command on an aggregate entity (optionally CQRS-classified) with an optional flow. emitEvent/wait steps wire a saga across actions+events.',
+      source: 'builtin' as const,
+      parameters: [
+        { name: 'name', type: 'string', required: true, description: 'Action/command name, e.g. PlaceOrder' },
+        { name: 'ownerEntityName', type: 'string', required: true, description: 'Aggregate entity' },
+        { name: 'actionKind', type: 'command|query', required: false, description: 'CQRS classification' },
+        { name: 'flow', type: 'array', required: false, description: 'Steps: emitEvent{name}, wait{for}, invokeAction{actionRef}, assign, branch' },
+      ],
+    },
+    {
+      name: 'createStateMachine',
+      description: 'Create a state machine on an entity — states, initialState, transitions (from/to/on). Models an entity lifecycle.',
+      source: 'builtin' as const,
+      parameters: [
+        { name: 'name', type: 'string', required: true, description: 'e.g. OrderLifecycle' },
+        { name: 'ownerEntityName', type: 'string', required: true, description: 'Entity whose lifecycle this models' },
+        { name: 'initialState', type: 'string', required: true, description: 'Starting state (one of states)' },
+        { name: 'states', type: 'array', required: true, description: '[{name, description?, terminal?}]' },
+        { name: 'transitions', type: 'array', required: false, description: '[{from, to, on, guard?}]' },
+        { name: 'stateAttribute', type: 'string', required: false, description: 'Attribute storing current state' },
+      ],
     },
     {
       name: 'navigateTo',

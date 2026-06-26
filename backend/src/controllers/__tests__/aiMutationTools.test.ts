@@ -207,16 +207,21 @@ describe('validateEntityMutation — validation failures return {ok:false}, not 
     }
   });
 
-  it('returns ok:false with error when stereotype is unknown', async () => {
+  it('does NOT reject an unknown stereotype — drop-and-warn happens in the execute path', async () => {
+    // A fresh project has no stereotypes and the chat can't create one, so a
+    // strict reject wedged entity creation. validateEntityMutation no longer
+    // gates on stereotype; normalizeStereotype() strips-and-warns instead.
     const input: CreateEntityInput = { ...validInput, stereotype: 'not-a-real-stereotype' };
     const services = makeMockServices({ stereotypes: [] }); // no stereotypes defined
-    const entity = makeEntity({ name: 'Widget', attributes: validInput.attributes as any });
+    const entity = makeEntity({
+      name: 'Widget',
+      attributes: [
+        { uuid: UUID.attr1, name: 'id', type: AttributeType.UUID, description: '', required: true },
+        { uuid: UUID.attr2, name: 'title', type: AttributeType.STRING, description: '', required: false },
+      ],
+    });
     const result = await validateEntityMutation(input, entity as any, services, 'create');
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toMatch(/stereotype/i);
-      expect(result.error).toContain('not-a-real-stereotype');
-    }
+    expect(result.ok).toBe(true);
   });
 
   it('returns ok:false with error when there are duplicate attribute names', async () => {
@@ -339,7 +344,7 @@ describe('executeCreateEntity — validation failures do NOT call serviceService
     expect(services.serviceService.createEntity).not.toHaveBeenCalled();
   });
 
-  it('returns {success:false} and does NOT call createEntity for unknown stereotype', async () => {
+  it('drops an unknown stereotype, still creates the entity, and notes it in the summary', async () => {
     const services = makeMockServices({ stereotypes: [] });
     const input: CreateEntityInput = {
       packageName: 'product-service',
@@ -349,10 +354,55 @@ describe('executeCreateEntity — validation failures do NOT call serviceService
     };
     const result = await executeCreateEntity(input, services);
 
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error).toBeTruthy();
-    expect(services.serviceService.createEntity).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(services.serviceService.createEntity).toHaveBeenCalled();
+    // the persisted entity carries NO stereotype (the unknown one was stripped)
+    const persisted = (services.serviceService.createEntity as jest.Mock).mock.calls[0][1];
+    expect(persisted.stereotype).toBeUndefined();
+    // ...and the summary surfaces the dropped tag honestly
+    expect(result.summary).toMatch(/no-such-stereotype/);
+    expect(result.summary).toMatch(/ignored/i);
+  });
+
+  it('keeps a stereotype that IS defined for entities', async () => {
+    const services = makeMockServices({
+      stereotypes: [{ id: 'aggregate-root', name: 'Aggregate Root', appliesTo: 'entity' }],
+    });
+    const input: CreateEntityInput = {
+      packageName: 'product-service',
+      name: 'Order',
+      stereotype: 'aggregate-root',
+      attributes: [{ name: 'id', type: 'uuid' }],
+    };
+    const result = await executeCreateEntity(input, services);
+
+    expect(result.success).toBe(true);
+    const persisted = (services.serviceService.createEntity as jest.Mock).mock.calls[0][1];
+    expect(persisted.stereotype).toBe('aggregate-root');
+  });
+
+  it('persists attribute-level validation (pattern/maxLength/minimum/enumValues) through the tool', async () => {
+    // Regression for the silent-drop bug: the tool used to accept only
+    // enumValues, discarding maxLength/pattern/minimum while reporting success.
+    const services = makeMockServices();
+    const input: CreateEntityInput = {
+      packageName: 'product-service',
+      name: 'Widget',
+      attributes: [
+        { name: 'sku', type: 'string', validation: { pattern: '^[A-Z0-9-]{6,20}$', maxLength: 20 } },
+        { name: 'price', type: 'number', validation: { minimum: 0 } },
+        { name: 'status', type: 'string', enumValues: ['ACTIVE', 'ARCHIVED'] },
+      ],
+    };
+    const result = await executeCreateEntity(input, services);
+
+    expect(result.success).toBe(true);
+    const persisted = (services.serviceService.createEntity as jest.Mock).mock.calls[0][1];
+    const byName: Record<string, any> = Object.fromEntries(persisted.attributes.map((a: any) => [a.name, a]));
+    expect(byName.sku.validation).toEqual({ pattern: '^[A-Z0-9-]{6,20}$', maxLength: 20 });
+    expect(byName.price.validation).toEqual({ minimum: 0 });
+    expect(byName.status.validation).toEqual({ enumValues: ['ACTIVE', 'ARCHIVED'] });
   });
 
   it('returns {success:false} and does NOT call createEntity for duplicate attribute names', async () => {
