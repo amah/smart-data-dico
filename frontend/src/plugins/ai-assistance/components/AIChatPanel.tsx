@@ -134,6 +134,10 @@ interface ChatMessage {
   // render a visible, non-error info pill below the bubble; the model's
   // summary of what it changed / what remains arrived as normal text above.
   stepLimit?: { limit: number };
+  // #confab-guard — when present, the model claimed it changed the model but no
+  // create/update/delete tool actually succeeded this turn. Rendered as a
+  // visible warning pill so a confabulated "Done!" doesn't read as real.
+  noOpWarning?: string;
   // #64 — true when the turn was started in background autonomous
   // mode. Drives the post-run summary footer (Review / Undo all).
   autonomous?: boolean;
@@ -539,6 +543,10 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     // event (the agentic loop hit its step budget). Rendered as a visible,
     // non-error info pill below the bubble.
     let stepLimitInfo: { limit: number } | null = null;
+    // #confab-guard — populated when the backend emits a `no-op-warning` SSE
+    // event (model claimed a change but no mutating tool succeeded). Rendered
+    // as a visible warning pill below the bubble.
+    let noOpWarning: string | null = null;
     // Per-turn usage payload (#128). Backend emits one `usage` SSE
     // event before `done`; we accumulate it onto the running meter
     // and persist with the conversation in the finally block.
@@ -562,6 +570,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                 cancelled,
                 ...(condensedInfo ? { condensed: condensedInfo } : {}),
                 ...(stepLimitInfo ? { stepLimit: stepLimitInfo } : {}),
+                ...(noOpWarning ? { noOpWarning } : {}),
                 ...(turnAutonomous ? { autonomous: true } : {}),
                 ...(streamIdRef.current ? { streamId: streamIdRef.current } : {}),
               }
@@ -751,6 +760,17 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
             // summary of progress arrived as normal text above.
             if (data.type === 'step-limit-reached') {
               stepLimitInfo = { limit: Number(data.limit) || 0 };
+              pushToolUpdate();
+              continue;
+            }
+
+            // #confab-guard — backend detected the model claimed a change but
+            // no create/update/delete actually succeeded this turn. Render a
+            // visible warning so a false "Done!" doesn't read as real.
+            if (data.type === 'no-op-warning') {
+              noOpWarning = typeof data.message === 'string' && data.message
+                ? data.message
+                : 'The assistant said it made changes, but nothing was actually saved this turn.';
               pushToolUpdate();
               continue;
             }
@@ -2106,6 +2126,18 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                     title="The assistant ran out of tool-call steps for this turn; it summarized progress above."
                   >
                     ⏹ Stopped after the {msg.stepLimit.limit}-step limit — summarized above
+                  </div>
+                )}
+                {/* #confab-guard — visible warning when the model claimed a
+                    change but no mutating tool actually succeeded this turn. */}
+                {msg.noOpWarning && msg.role === 'assistant' && (
+                  <div
+                    data-testid="no-op-warning-pill"
+                    className="text-[11px] font-sans text-warning mt-1 flex items-start gap-1"
+                    title="No create/update/delete succeeded this turn — the change was not saved."
+                  >
+                    <span aria-hidden>⚠</span>
+                    <span>{msg.noOpWarning}</span>
                   </div>
                 )}
               </div>

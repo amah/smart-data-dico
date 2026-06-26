@@ -226,6 +226,21 @@ const GATED_CATEGORIES: ReadonlySet<AIToolCategory> = new Set<AIToolCategory>([
 ]);
 
 /** Whether a category must pass through the approval gate before running. */
+/**
+ * #confab-guard — does this assistant text CLAIM it created/changed model
+ * content? Used together with a count of successful mutating tool calls: a
+ * claim with zero successful mutations is a confabulated no-op turn. Kept
+ * deliberately simple (a soft warning, not a hard block) and biased toward
+ * mutation verbs so read/explain turns ("here's what I found") don't trip it.
+ */
+export function claimsMutation(text: string): boolean {
+  if (!text) return false;
+  if (/✅|☑|done!/i.test(text)) return true;
+  // Past-tense only: "created"/"added"/… are completion claims, while the
+  // infinitive ("would you like me to create…?") is an offer, not a claim.
+  return /\b(created|added|inserted|updated|modified|deleted|removed|renamed|saved|persisted|applied|wired up)\b/i.test(text);
+}
+
 export function isGatedCategory(category: AIToolCategory): boolean {
   return GATED_CATEGORIES.has(category);
 }
@@ -466,6 +481,8 @@ When the user asks to create a model:
 3. Create ALL entities first, then ALL relationships.
 4. After creating everything, use navigateTo to show the package page.
 
+CRITICAL — never claim a change you did not make. Do NOT say "Done", "Created", or "✅" unless you ACTUALLY emitted the corresponding tool call AND it returned success. If you intend to create or change something, emit the tool call — describing it is not doing it. In autonomous runs prefer one concrete tool call at a time over a long narrated plan.
+
 Be concise in your responses. Show a summary of what you created.`;
 
 /**
@@ -646,6 +663,12 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
   // streamed by the onEvent('tool-start') handler below, so the frontend
   // has rendered the card and can POST approve/deny. On deny, return the
   // canonical rejected result WITHOUT running the real tool.
+  // #confab-guard — count tool calls that actually MUTATED state this turn, so
+  // we can detect a model that claims "Done! Created…" while making no (or only
+  // failed) mutating calls. Weak tool-callers (e.g. some openai-compatible
+  // models) confabulate success; this lets us flag a no-op turn instead of
+  // letting the false claim stand.
+  let mutatingSuccessCount = 0;
   const executeTool = async (name: string, args: any, toolCallId?: string): Promise<any> => {
     const category = resolveToolCategory(name, mcpTrust);
     if (isGatedCategory(category) && toolCallId) {
@@ -654,7 +677,11 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
         return { ...DENIED_RESULT };
       }
     }
-    return runTool(name, args);
+    const out = await runTool(name, args);
+    if (isGatedCategory(category) && out && typeof out === 'object' && (out as { success?: boolean }).success === true) {
+      mutatingSuccessCount++;
+    }
+    return out;
   };
 
   // Stream SSE events to frontend
@@ -668,6 +695,10 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
 
   sendEvent({ type: 'start', streamId });
 
+  // #confab-guard — accumulate streamed assistant text so we can check, at the
+  // end of the turn, whether it claimed a change that no successful tool made.
+  let assistantText = '';
+
   try {
     const result = await callWithTools(
       { apiKey: cfg.apiKey, baseURL: cfg.baseURL!, model: cfg.model },
@@ -677,6 +708,7 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
       AI_MAX_STEPS,
       (event) => {
         if (event.type === 'text') {
+          assistantText += ' ' + event.text;
           const id = crypto.randomUUID();
           sendEvent({ type: 'text-start', id });
           // Split text into words for streaming effect
@@ -710,6 +742,18 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
         for (const word of result.text.split(' ')) {
           sendEvent({ type: 'text-delta', id, delta: word + ' ' });
         }
+      }
+      if (result.text) assistantText += ' ' + result.text;
+
+      // #confab-guard — the model asserted it changed the model but no mutating
+      // tool succeeded this turn: surface it instead of letting the false
+      // "Done!" stand. Soft, non-error notice (mirrors step-limit-reached).
+      if (mutatingSuccessCount === 0 && claimsMutation(assistantText)) {
+        sendEvent({
+          type: 'no-op-warning',
+          message: 'The assistant said it made changes, but no create/update/delete actually ran this turn. Nothing was saved — ask it to retry and actually call the tool.',
+        });
+        logger.warn('AI confabulation guard: mutation claimed with 0 successful mutating tool calls');
       }
 
       // Emit usage meter event (#128) before `done` so the frontend
