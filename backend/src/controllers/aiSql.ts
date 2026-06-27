@@ -45,6 +45,12 @@ function metaValue(meta: Array<{ name: string; value: unknown }> | undefined, na
   return e && e.value != null ? String(e.value) : undefined;
 }
 
+/** Join up to `max` names for a tool-card summary; "+N more" past the cap. */
+function nameList(names: string[], max = 8): string {
+  if (!names.length) return '';
+  return names.length <= max ? names.join(', ') : `${names.slice(0, max).join(', ')} +${names.length - max} more`;
+}
+
 /** Resolve a (possibly derived) type to its base standard type + merged validation. */
 function resolveBase(
   type: string,
@@ -166,9 +172,10 @@ export async function buildSqlSchema(input: GetSqlSchemaInput, services: SqlSche
   }
 
   const scope = input.packageName ?? 'all packages';
+  const tableNames = (tables as Array<{ entity: string }>).map(t => t.entity);
   return {
-    // #tool-summary — concise self-describing line for the tool card.
-    summary: `${tables.length} table${tables.length === 1 ? '' : 's'}, ${relationships.length} relationship${relationships.length === 1 ? '' : 's'} (${dialect}, ${scope})`,
+    // #tool-summary — concise line, NAMES the tables for the tool card.
+    summary: `${tableNames.length ? nameList(tableNames) : 'no tables'} — ${relationships.length} relationship${relationships.length === 1 ? '' : 's'} (${dialect}, ${scope})`,
     dialect,
     scope,
     schemaQualifyTables: !!opts?.schemaQualifyTables,

@@ -65,6 +65,11 @@ describe('buildEntityDetails', () => {
     expect(d.summary).toBe('Order — 3 attributes (+physical, 1 constraint, 1 rule)');
   });
 
+  it('names the package in the summary when provided', () => {
+    const withPkg = buildEntityDetails(entity, 'ordering') as any;
+    expect(withPkg.summary).toBe('Order (ordering) — 3 attributes (+physical, 1 constraint, 1 rule)');
+  });
+
   it('keeps the logical shape (name/type/required/primaryKey)', () => {
     expect(d.name).toBe('Order');
     expect(d.stereotype).toBe('aggregate-root');

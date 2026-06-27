@@ -268,6 +268,15 @@ export function claimsMutation(text: string): boolean {
 }
 
 /**
+ * Join up to `max` names for a tool-card summary; "+N more" past the cap so a
+ * big list stays one short line.
+ */
+function nameList(names: string[], max = 8): string {
+  if (!names.length) return '';
+  return names.length <= max ? names.join(', ') : `${names.slice(0, max).join(', ')} +${names.length - max} more`;
+}
+
+/**
  * Pull a `physical.*` (or any) metadata value off a MetadataEntry[] array.
  */
 function metaValue(meta: Array<{ name: string; value: unknown }> | undefined, name: string): string | undefined {
@@ -284,7 +293,7 @@ function metaValue(meta: Array<{ name: string; value: unknown }> | undefined, na
  * table/schema, each attribute's `physical` columnName/dbType, `constraints`,
  * and inline `rules`. Loosely typed to match the existing tool code.
  */
-export function buildEntityDetails(entity: any): Record<string, unknown> {
+export function buildEntityDetails(entity: any, packageName?: string): Record<string, unknown> {
   const tableName = metaValue(entity.metadata, 'physical.tableName');
   const schema = metaValue(entity.metadata, 'physical.schema');
   const attributes = (entity.attributes ?? []).map((a: any) => {
@@ -309,7 +318,7 @@ export function buildEntityDetails(entity: any): Record<string, unknown> {
   if (entity.rules?.length) extras.push(`${entity.rules.length} rule${entity.rules.length === 1 ? '' : 's'}`);
   return {
     // #tool-summary — concise self-describing line for the tool card.
-    summary: `${entity.name} — ${attributes.length} attribute${attributes.length === 1 ? '' : 's'}${extras.length ? ` (${extras.join(', ')})` : ''}`,
+    summary: `${entity.name}${packageName ? ` (${packageName})` : ''} — ${attributes.length} attribute${attributes.length === 1 ? '' : 's'}${extras.length ? ` (${extras.join(', ')})` : ''}`,
     name: entity.name,
     description: entity.description,
     stereotype: entity.stereotype,
@@ -363,10 +372,11 @@ export async function buildModelOverview(services: any): Promise<{
     services.stereotypeService.getAllStereotypes().catch(() => []),
   ]);
   return {
-    // #tool-summary — concise self-describing line for the tool card.
-    summary: `${pkgNames.length} package${pkgNames.length === 1 ? '' : 's'} · ${entityTotal} entit${entityTotal === 1 ? 'y' : 'ies'} · ${relTotal} relationship${relTotal === 1 ? '' : 's'}`
-      + (cases.length ? ` · ${cases.length} case${cases.length === 1 ? '' : 's'}` : '')
-      + (events.length || actions.length ? ` · ${events.length} event${events.length === 1 ? '' : 's'}, ${actions.length} action${actions.length === 1 ? '' : 's'}` : ''),
+    // #tool-summary — concise self-describing line; leads with package NAMES.
+    summary: (pkgNames.length ? nameList(pkgNames) : 'empty model')
+      + ` — ${entityTotal} entit${entityTotal === 1 ? 'y' : 'ies'}, ${relTotal} relationship${relTotal === 1 ? '' : 's'}`
+      + (cases.length ? `, ${cases.length} case${cases.length === 1 ? '' : 's'}` : '')
+      + (events.length || actions.length ? `, ${events.length} event${events.length === 1 ? '' : 's'}, ${actions.length} action${actions.length === 1 ? '' : 's'}` : ''),
     totals: {
       packages: pkgNames.length, entities: entityTotal, relationships: relTotal,
       cases: cases.length, rules: rules.length, events: events.length,
@@ -848,16 +858,16 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
       if (name === 'listEntities') {
         if (args.packageName) {
           const entities = await services.serviceService.getServiceEntities(args.packageName);
-          return { summary: `${entities.length} entit${entities.length === 1 ? 'y' : 'ies'} in ${args.packageName}`, entities: entities.map((e: any) => ({ name: e.name, description: e.description })) };
+          return { summary: `${args.packageName}: ${nameList(entities.map((e: any) => e.name)) || 'no entities'}`, entities: entities.map((e: any) => ({ name: e.name, description: e.description })) };
         }
         const { listMicroservices } = await import('../utils/fileOperations.js');
         const packages = await listMicroservices();
-        return { summary: `${packages.length} package${packages.length === 1 ? '' : 's'}`, packages };
+        return { summary: `packages: ${nameList(packages) || 'none'}`, packages };
       }
       if (name === 'getEntityDetails') {
         const entity = await services.serviceService.getEntitySchema(args.packageName || 'default', args.entityName);
         if (!entity) return { error: 'Entity not found' };
-        return buildEntityDetails(entity);
+        return buildEntityDetails(entity, args.packageName);
       }
       if (name === 'getModelOverview') {
         return await buildModelOverview(services);
@@ -870,7 +880,7 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
       }
       if (name === 'listStereotypes') {
         const stereotypes = await services.stereotypeService.getAllStereotypes();
-        return { summary: `${stereotypes.length} stereotype${stereotypes.length === 1 ? '' : 's'}`, stereotypes: stereotypes.map((s: any) => ({ id: s.id, name: s.name, appliesTo: s.appliesTo, fields: s.metadataDefinitions?.map((m: any) => m.name) })) };
+        return { summary: `stereotypes: ${nameList(stereotypes.map((s: any) => s.id ?? s.name)) || 'none'}`, stereotypes: stereotypes.map((s: any) => ({ id: s.id, name: s.name, appliesTo: s.appliesTo, fields: s.metadataDefinitions?.map((m: any) => m.name) })) };
       }
       if (name === 'navigateTo') {
         return { summary: `→ ${args.path}`, navigate: args.path, reason: args.reason };
@@ -1347,11 +1357,11 @@ export const aiChat = async (req: Request, res: Response) => {
             try {
               if (params.packageName) {
                 const entities = await services.serviceService.getServiceEntities(params.packageName || 'default');
-                return { summary: `${entities.length} entit${entities.length === 1 ? 'y' : 'ies'} in ${params.packageName}`, entities: entities.map((e: any) => ({ name: e.name, description: e.description, attrCount: e.attributes?.length || 0 })) };
+                return { summary: `${params.packageName}: ${nameList(entities.map((e: any) => e.name)) || 'no entities'}`, entities: entities.map((e: any) => ({ name: e.name, description: e.description, attrCount: e.attributes?.length || 0 })) };
               }
               const { listMicroservices } = await import('../utils/fileOperations.js');
               const packages = await listMicroservices();
-              return { summary: `${packages.length} package${packages.length === 1 ? '' : 's'}`, packages };
+              return { summary: `packages: ${nameList(packages) || 'none'}`, packages };
             } catch (err: any) {
               return { error: err.message };
             }
@@ -1368,7 +1378,7 @@ export const aiChat = async (req: Request, res: Response) => {
             try {
               const entity = await services.serviceService.getEntitySchema(params.packageName || 'default', params.entityName);
               if (!entity) return { error: 'Entity not found' };
-              return buildEntityDetails(entity);
+              return buildEntityDetails(entity, params.packageName);
             } catch (err: any) {
               return { error: err.message };
             }
@@ -1417,7 +1427,7 @@ export const aiChat = async (req: Request, res: Response) => {
           execute: async () => {
             try {
               const stereotypes = await services.stereotypeService.getAllStereotypes();
-              return { summary: `${stereotypes.length} stereotype${stereotypes.length === 1 ? '' : 's'}`, stereotypes: stereotypes.map((s: any) => ({
+              return { summary: `stereotypes: ${nameList(stereotypes.map((s: any) => s.id ?? s.name)) || 'none'}`, stereotypes: stereotypes.map((s: any) => ({
                 id: s.id, name: s.name, appliesTo: s.appliesTo,
                 fields: s.metadataDefinitions?.map((m: any) => m.name),
               })) };

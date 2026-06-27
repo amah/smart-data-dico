@@ -74,7 +74,7 @@ describe('buildSqlSchema', () => {
       { from: 'Customer', to: 'Order', fromCardinality: 'one', toCardinality: 'many', description: 'places' },
     ]);
     expect(s.note).toMatch(/no physical mapping/);
-    expect(s.summary).toBe('2 tables, 1 relationship (generic, all packages)');
+    expect(s.summary).toBe('Order, Customer — 1 relationship (generic, all packages)');
   });
 
   it('honours dialect fallbacks (mysql uuid → CHAR(36))', async () => {
