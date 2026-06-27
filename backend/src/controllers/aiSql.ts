@@ -106,7 +106,14 @@ function columnFor(a: Attribute, derived: Map<string, DerivedType>, dialect: Sql
 
 // --- core -------------------------------------------------------------------
 
-export async function buildSqlSchema(input: GetSqlSchemaInput, services: SqlSchemaServices): Promise<Record<string, unknown>> {
+export interface SqlSchemaOptions {
+  /** Always schema-qualify table names (reflects the ai.sql config). */
+  schemaQualifyTables?: boolean;
+  /** Default schema applied to tables that have no physical.schema. */
+  defaultSchema?: string;
+}
+
+export async function buildSqlSchema(input: GetSqlSchemaInput, services: SqlSchemaServices, opts?: SqlSchemaOptions): Promise<Record<string, unknown>> {
   const dialect = (input.dialect ?? 'generic') as SqlDialect;
   const { listMicroservices } = await import('../utils/fileOperations.js');
   const pkgs = input.packageName ? [input.packageName] : await listMicroservices();
@@ -128,7 +135,9 @@ export async function buildSqlSchema(input: GetSqlSchemaInput, services: SqlSche
   for (const p of pkgs) {
     const entities = await services.serviceService.getServiceEntities(p).catch(() => []);
     for (const e of entities) {
-      const schema = metaValue(e.metadata, 'physical.schema');
+      // The entity's own physical schema, or the configured default schema.
+      const schema = metaValue(e.metadata, 'physical.schema') ?? (opts?.defaultSchema?.trim() || undefined);
+      const table = metaValue(e.metadata, 'physical.tableName') ?? e.name;
       const columns = (e.attributes ?? []).map(a => {
         const c = columnFor(a, derived, dialect);
         if ('physicalMappingMissing' in c) missing++;
@@ -136,8 +145,10 @@ export async function buildSqlSchema(input: GetSqlSchemaInput, services: SqlSche
       });
       tables.push({
         entity: e.name,
-        table: metaValue(e.metadata, 'physical.tableName') ?? e.name,
+        table,
         ...(schema ? { schema } : {}),
+        // Ready-to-use name for SQL — schema.table when a schema is known.
+        qualifiedName: schema ? `${schema}.${table}` : table,
         columns,
       });
     }
@@ -157,9 +168,11 @@ export async function buildSqlSchema(input: GetSqlSchemaInput, services: SqlSche
   return {
     dialect,
     scope: input.packageName ?? 'all packages',
+    schemaQualifyTables: !!opts?.schemaQualifyTables,
     tables,
     relationships,
     note: 'Use these PHYSICAL table/column names and dbTypes when writing SQL. '
+      + (opts?.schemaQualifyTables ? 'Schema-qualify every table (use each table\'s qualifiedName). ' : '')
       + (missing > 0
         ? `${missing} column(s) have no physical mapping — their dbType is a fallback derived from the logical type; flag this to the user.`
         : 'All columns have an explicit physical mapping.'),

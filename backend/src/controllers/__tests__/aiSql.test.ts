@@ -81,4 +81,23 @@ describe('buildSqlSchema', () => {
     const custId = s.tables.find((t: any) => t.entity === 'Customer').columns[0];
     expect(custId.dbType).toBe('CHAR(36)');
   });
+
+  it('qualifiedName uses the physical schema when present', async () => {
+    const s: any = await buildSqlSchema({}, makeServices());
+    const order = s.tables.find((t: any) => t.entity === 'Order');
+    const customer = s.tables.find((t: any) => t.entity === 'Customer');
+    expect(order.qualifiedName).toBe('commerce.orders'); // has physical.schema
+    expect(customer.qualifiedName).toBe('Customer');     // no schema, no default
+  });
+
+  it('applies the default schema and echoes the qualify flag (#sql-settings)', async () => {
+    const s: any = await buildSqlSchema({}, makeServices(), { schemaQualifyTables: true, defaultSchema: 'app' });
+    const customer = s.tables.find((t: any) => t.entity === 'Customer');
+    expect(customer.schema).toBe('app');
+    expect(customer.qualifiedName).toBe('app.Customer');
+    // a table with its own schema keeps it, not the default
+    expect(s.tables.find((t: any) => t.entity === 'Order').qualifiedName).toBe('commerce.orders');
+    expect(s.schemaQualifyTables).toBe(true);
+    expect(s.note).toMatch(/Schema-qualify every table/);
+  });
 });

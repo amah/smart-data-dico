@@ -444,6 +444,14 @@ interface AIConfig {
   apiKey: string;
   baseURL?: string;
   name?: string;
+  /** SQL-generation preferences (#sql-settings). */
+  sql?: {
+    /** When true, an instruction is injected telling the agent to schema-qualify
+     *  table names (schema.table) in generated SQL/DDL. */
+    schemaQualifyTables?: boolean;
+    /** Default schema for tables that have no physical.schema of their own. */
+    defaultSchema?: string;
+  };
 }
 
 /**
@@ -503,6 +511,7 @@ function loadAIConfig(): AIConfig | null {
         apiKey: cfg.apiKey,
         baseURL: cfg.baseURL,
         name: cfg.name,
+        ...(cfg.sql ? { sql: cfg.sql } : {}),
       };
     }
   }
@@ -516,11 +525,18 @@ function loadAIConfig(): AIConfig | null {
     }
     const model = process.env.AI_MODEL || getDefaultModel(provider);
     if (!model) return null;
+    const sqlFromEnv = (process.env.AI_SQL_QUALIFY_TABLES != null || process.env.AI_SQL_DEFAULT_SCHEMA != null)
+      ? {
+          schemaQualifyTables: process.env.AI_SQL_QUALIFY_TABLES === 'true',
+          ...(process.env.AI_SQL_DEFAULT_SCHEMA ? { defaultSchema: process.env.AI_SQL_DEFAULT_SCHEMA } : {}),
+        }
+      : undefined;
     return {
       provider: provider as AIConfig['provider'],
       model,
       apiKey,
       baseURL: process.env.AI_BASE_URL,
+      ...(sqlFromEnv ? { sql: sqlFromEnv } : {}),
     };
   }
 
@@ -651,7 +667,23 @@ Be concise in your responses. Show a summary of what you created.`;
  * SYSTEM_PROMPT body — and it is sanitized so a malicious or runaway
  * frontend can't inject huge prompts.
  */
-function buildSystemPrompt(pageContext?: string, conversationSystemPrompt?: string, mode: AIChatMode = 'designer', modelOutline?: string): string {
+/**
+ * #sql-settings — turn the `ai.sql` config into a system-prompt instruction.
+ * When schemaQualifyTables is on, the agent is told to schema-qualify every
+ * table name in generated SQL/DDL. Returns '' when the setting is off.
+ */
+export function sqlSettingsInstruction(cfg: { sql?: { schemaQualifyTables?: boolean; defaultSchema?: string } } | null | undefined): string {
+  const sql = cfg?.sql;
+  if (!sql?.schemaQualifyTables) return '';
+  const def = sql.defaultSchema?.trim();
+  return 'SQL output setting: ALWAYS schema-qualify table names — write "schema.table", never a bare table name — in every SQL query and DDL statement you generate. '
+    + 'Take each table\'s schema from getSqlSchema. '
+    + (def
+      ? `For any table that has no physical schema, use the default schema "${def}".`
+      : 'For any table that has no physical schema, note that its schema is unknown and ask the user which schema to use rather than emitting an unqualified name.');
+}
+
+function buildSystemPrompt(pageContext?: string, conversationSystemPrompt?: string, mode: AIChatMode = 'designer', modelOutline?: string, sqlInstruction?: string): string {
   // #127 — per-conversation override replaces the canonical body when set.
   // It still gets the page-context paragraph appended so cross-cutting hints
   // (current entity, package) don't get lost when the user customizes.
@@ -662,6 +694,10 @@ function buildSystemPrompt(pageContext?: string, conversationSystemPrompt?: stri
   // lines so the page context stays the last paragraph (the model is more likely
   // to weight late content for "what is the user looking at right now").
   let out = base + getModeSystemSuffix(mode);
+  // #sql-settings — config-driven standing rule (e.g. schema-qualify tables).
+  if (typeof sqlInstruction === 'string' && sqlInstruction.trim().length > 0) {
+    out += `\n\n${sqlInstruction.trim()}`;
+  }
   // Per-turn model snapshot (#grounding) — a compact outline so the model is
   // oriented without spending tool calls to discover the model. Placed before
   // page context so the page context remains the final, most-salient line.
@@ -678,7 +714,7 @@ function buildSystemPrompt(pageContext?: string, conversationSystemPrompt?: stri
 }
 
 // Direct chat handler for OpenAI-compatible providers (bypasses AI SDK)
-async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawMessages: any[], services: any, pageContext?: string, conversationSystemPrompt?: string, mode: AIChatMode = 'designer', modelOutline?: string) {
+async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawMessages: any[], services: any, pageContext?: string, conversationSystemPrompt?: string, mode: AIChatMode = 'designer', modelOutline?: string, sqlInstruction?: string) {
   const { callWithTools } = await import('../utils/aiDirectClient.js');
   // Per-stream id used to target server-side tool-approval decisions. Emitted
   // to the client on the `start` event so the frontend can POST approvals.
@@ -698,7 +734,7 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
 
   // Convert UIMessages to OpenAI format
   const messages: any[] = [
-    { role: 'system', content: buildSystemPrompt(pageContext, conversationSystemPrompt, mode, modelOutline) },
+    { role: 'system', content: buildSystemPrompt(pageContext, conversationSystemPrompt, mode, modelOutline, sqlInstruction) },
   ];
   for (const msg of rawMessages) {
     const text = msg.parts?.find((p: any) => p.type === 'text')?.text || msg.content || '';
@@ -816,7 +852,7 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
         return await generateMermaidDiagram(args, services as unknown as MermaidServices);
       }
       if (name === 'getSqlSchema') {
-        return await buildSqlSchema(args, services as unknown as SqlSchemaServices);
+        return await buildSqlSchema(args, services as unknown as SqlSchemaServices, cfg.sql);
       }
       if (name === 'listStereotypes') {
         const stereotypes = await services.stereotypeService.getAllStereotypes();
@@ -1021,10 +1057,12 @@ export const aiChat = async (req: Request, res: Response) => {
     // #grounding — compute a compact whole-model outline ONCE per turn and inject
     // it into the system prompt so the model starts oriented (see safeModelOutline).
     const modelOutline = await safeModelOutline(services);
+    // #sql-settings — config-driven standing instruction (e.g. schema-qualify tables).
+    const sqlInstruction = sqlSettingsInstruction(cfg);
 
     // For OpenAI-compatible providers, use direct client (AI SDK has tool-calling bugs)
     if (cfg.provider === 'openai-compatible' && cfg.baseURL) {
-      return await handleDirectChat(req, res, cfg, rawMessages, services, enrichedPageContext, conversationSystemPrompt, mode, modelOutline);
+      return await handleDirectChat(req, res, cfg, rawMessages, services, enrichedPageContext, conversationSystemPrompt, mode, modelOutline, sqlInstruction);
     }
 
     // For Anthropic/OpenAI, use Vercel AI SDK (works correctly)
@@ -1138,7 +1176,7 @@ export const aiChat = async (req: Request, res: Response) => {
 
     const result = streamText({
       model,
-      system: buildSystemPrompt(enrichedPageContext, conversationSystemPrompt, mode, modelOutline),
+      system: buildSystemPrompt(enrichedPageContext, conversationSystemPrompt, mode, modelOutline, sqlInstruction),
       messages,
       abortSignal: ac.signal,
       onFinish: (event) => {
@@ -1352,7 +1390,7 @@ export const aiChat = async (req: Request, res: Response) => {
           inputSchema: getSqlSchemaInputSchema,
           execute: async (params) => {
             try {
-              return await buildSqlSchema(params, services as unknown as SqlSchemaServices);
+              return await buildSqlSchema(params, services as unknown as SqlSchemaServices, cfg.sql);
             } catch (err: any) {
               return { error: err.message };
             }
@@ -1479,7 +1517,7 @@ export const aiChat = async (req: Request, res: Response) => {
                 const prior = await result.response;
                 const summary = await generateText({
                   model,
-                  system: buildSystemPrompt(enrichedPageContext, conversationSystemPrompt, mode, modelOutline),
+                  system: buildSystemPrompt(enrichedPageContext, conversationSystemPrompt, mode, modelOutline, sqlInstruction),
                   messages: [
                     ...messages,
                     ...prior.messages,
@@ -1670,13 +1708,17 @@ export const aiGetConfig = async (_req: Request, res: Response) => {
     apiKey: cfg?.apiKey ? `${cfg.apiKey.slice(0, 8)}...${cfg.apiKey.slice(-4)}` : '',
     baseURL: cfg?.baseURL || '',
     name: cfg?.name || '',
+    sql: {
+      schemaQualifyTables: cfg?.sql?.schemaQualifyTables ?? false,
+      defaultSchema: cfg?.sql?.defaultSchema ?? '',
+    },
     configPath: CONFIG_FILE,
   });
 };
 
 export const aiSaveConfig = async (req: Request, res: Response) => {
   try {
-    const { provider, model, apiKey, baseURL, name } = req.body;
+    const { provider, model, apiKey, baseURL, name, sql } = req.body;
     if (!provider || !apiKey) {
       return res.status(400).json({ message: 'provider and apiKey are required' });
     }
@@ -1685,12 +1727,25 @@ export const aiSaveConfig = async (req: Request, res: Response) => {
         message: '`model` is required for `openai-compatible` provider (no portable default exists across backends).',
       });
     }
+    // #sql-settings — persist the schema-qualify toggle + optional default schema.
+    // If the request omits `sql` (e.g. the existing settings form that predates
+    // this field), PRESERVE the saved value rather than wiping it; an explicit
+    // empty/false `sql` clears it.
+    const sqlSetting = sql === undefined
+      ? loadAIConfig()?.sql
+      : (sql.schemaQualifyTables || sql.defaultSchema)
+        ? {
+            schemaQualifyTables: !!sql.schemaQualifyTables,
+            ...(sql.defaultSchema ? { defaultSchema: String(sql.defaultSchema) } : {}),
+          }
+        : undefined;
     const cfg: AIConfig = {
       provider,
       model: model || getDefaultModel(provider),
       apiKey,
       ...(baseURL ? { baseURL } : {}),
       ...(name ? { name } : {}),
+      ...(sqlSetting ? { sql: sqlSetting } : {}),
     };
     saveAIConfig(cfg);
     res.json({ message: 'AI configuration saved', configPath: CONFIG_FILE });
