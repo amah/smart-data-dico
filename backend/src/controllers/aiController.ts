@@ -264,7 +264,16 @@ export function claimsMutation(text: string): boolean {
   const agentive = new RegExp(`\\b(i|i've|i have|we|we've|successfully|now)\\b[^.\\n]{0,40}\\b${VERB}\\b`, 'i');
   const successCue = new RegExp(`\\b${VERB}\\b[^.\\n]{0,30}\\b(successfully|now)\\b`, 'i');
   const verbObject = new RegExp(`\\b${VERB}\\b\\s+(the|a|an|it|them|both|all|these|those|new|one|two|three|four|five|six|seven|eight|nine|ten|several|\\d+)\\b`, 'i');
-  return agentive.test(prose) || successCue.test(prose) || verbObject.test(prose);
+  // Verb directly governing a DOMAIN-CONCEPT object: "Created state machine
+  // LoanLifecycle", "added a rule", "created event OrderPlaced". The negative
+  // lookbehind excludes participle-adjective uses ("the updated entity", "that
+  // created rule") so descriptive prose in a read turn isn't counted.
+  const CONCEPT = '(?:entit(?:y|ies)|relationships?|rules?|cases?|events?|actions?|stereotypes?|derived\\s+types?|packages?|attributes?|state\\s*machines?|diagrams?|schemas?|constraints?)';
+  const verbConcept = new RegExp(
+    `(?<!\\b(?:the|a|an|this|that|its|their|each|every|any|one|another|same)\\s)\\b${VERB}\\s+(?:a\\s+|an\\s+|the\\s+|new\\s+|both\\s+|all\\s+|some\\s+|\\d+\\s+)?${CONCEPT}\\b`,
+    'i',
+  );
+  return agentive.test(prose) || successCue.test(prose) || verbObject.test(prose) || verbConcept.test(prose);
 }
 
 /**

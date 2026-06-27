@@ -19,6 +19,32 @@ describe('claimsMutation', () => {
     }
   });
 
+  it('flags "<verb> <concept> <Name>" claims with no determiner (the loan-app miss)', () => {
+    for (const t of [
+      'Created state machine LoanLifecycle on Loan with states ACTIVE, DELINQUENT, PAID_OFF.',
+      'Created event OrderPlaced on the Order aggregate.',
+      'added a rule to the Order entity.',
+      'Created relationship Category → Product.',
+      'Created derived type money based on number.',
+      'updated stereotype aggregate-root.',
+    ]) {
+      expect(claimsMutation(t)).toBe(true);
+    }
+  });
+
+  it('does NOT flag participle-adjective uses of a mutation verb', () => {
+    // "the updated entity" / "that created rule" describe an existing thing —
+    // the verb is an adjective, not a claim of having just done it.
+    for (const t of [
+      'The updated entity reflects the new attribute.',
+      'Here is the created state machine diagram below.',
+      'That created rule is still active on the model.',
+      'This updated state machine renders below.',
+    ]) {
+      expect(claimsMutation(t)).toBe(false);
+    }
+  });
+
   it('does NOT flag read / explain / question turns', () => {
     for (const t of [
       'Here is what I found: the Order entity has 5 attributes.',
