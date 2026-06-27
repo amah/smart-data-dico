@@ -43,6 +43,10 @@ import {
   generateMermaidInputSchema, generateMermaidParameters, generateMermaidDiagram,
   type MermaidServices,
 } from './aiMermaid.js';
+import {
+  getSqlSchemaInputSchema, getSqlSchemaParameters, buildSqlSchema,
+  type SqlSchemaServices,
+} from './aiSql.js';
 
 // --- Tool categories (#59) ---
 //
@@ -65,6 +69,7 @@ const TOOL_CATEGORY_MAP: Record<string, AIToolCategory> = {
   getEntityDetails: 'read',
   getModelOverview: 'read',
   generateMermaid: 'read',
+  getSqlSchema: 'read',
   listPackages: 'read',
   listRoutes: 'read',
   // navigate
@@ -119,6 +124,7 @@ const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   'getEntityDetails',
   'getModelOverview',
   'generateMermaid',
+  'getSqlSchema',
   'listPackages',
 ]);
 
@@ -600,6 +606,17 @@ This system models a RICH domain — not just entities. You can author all of th
 
 A "process" or "saga" is NOT a separate object — it is the graph that emerges from Actions (with emitEvent/wait flow steps) and Events. To model a process, create the Actions and Events; the saga view is derived automatically.
 
+CONCEPTUAL vs PHYSICAL model — keep these two layers distinct:
+- CONCEPTUAL / LOGICAL is the business model: entity names (PascalCase, e.g. Order), attribute names (camelCase, e.g. orderNumber), and logical or derived types (e.g. money, email, currency-code). This is what you author and what users discuss.
+- PHYSICAL is how it is persisted in a database: a table name (physical.tableName) in a schema, per-column physical names (physical.columnName) and DB types (physical.dbType), plus constraints. The two layers can differ completely (logical Order.orderNumber → physical orders.order_no VARCHAR). getEntityDetails returns the physical mapping for one entity; getSqlSchema returns the whole physical relational schema.
+- A logical/derived type (money, email) is NOT a DB type — it maps to a physical dbType (money → DECIMAL(12,2), email → VARCHAR(254)).
+- NEVER write DDL or SQL using conceptual names. Always resolve to the physical table/column names and dbTypes first. If an element has no physical mapping yet, getSqlSchema returns a fallback dbType derived from the logical type and flags it — pass that flag on to the user.
+
+Generating database queries: when the user asks for a SQL query (SELECT / INSERT / UPDATE / DELETE), a report, or DDL —
+1. Call getSqlSchema (optionally a packageName scope and the target dialect) to get the real table names, columns + dbTypes, primary keys, and relationships.
+2. Write the query using ONLY physical names; derive JOINs from the relationships (join the PK of the "one" side to the FK on the "many" side) and respect the requested dialect.
+3. Present the query in a fenced sql code block, and briefly note any assumption (an inferred join column, a missing physical mapping). You generate queries for the user to run — you do NOT execute them against a live database.
+
 When creating data models:
 - Use meaningful names (PascalCase for entities/events, camelCase for attributes)
 - Add descriptions for everything
@@ -708,6 +725,7 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
     { type: 'function' as const, function: { name: 'getEntityDetails', description: 'Get full detail for one entity: attributes with type/required/primaryKey AND field validation, the PHYSICAL mapping (entity table name + schema, each attribute physical column name + DB type), physical constraints, and inline business rules. Call this before writing SQL/DDL so you use the real physical names and types.', parameters: { type: 'object', required: ['packageName', 'entityName'], properties: { packageName: { type: 'string' }, entityName: { type: 'string' } } } } },
     { type: 'function' as const, function: { name: 'getModelOverview', description: 'Get a whole-model outline: every package with its entity names, and a count of each concept (entities, relationships, cases, rules, events, actions, state machines, derived types, stereotypes). A snapshot is already in your context; call this to refresh after changes.', parameters: { type: 'object', properties: {} } } },
     { type: 'function' as const, function: { name: 'generateMermaid', description: 'Convert the model to Mermaid diagram source. diagram: "er" (entity-relationship of a package, or all), "class" (class diagram), "state" (a single entity state machine — pass entityName), "flow" (actions+events saga). Returns { mermaid }. Present it inside a ```mermaid code block.', parameters: generateMermaidParameters as Record<string, unknown> } },
+    { type: 'function' as const, function: { name: 'getSqlSchema', description: 'Get the PHYSICAL relational schema for writing SQL: per-entity table name + schema, each column (physical name, dbType, nullable, primaryKey), and relationships as join hints. Optional packageName scope and dialect. Call this before writing any SQL query or DDL so you use real physical names/types, not the conceptual (logical) names.', parameters: getSqlSchemaParameters as Record<string, unknown> } },
     { type: 'function' as const, function: { name: 'listStereotypes', description: 'List available stereotypes', parameters: { type: 'object', properties: {} } } },
     { type: 'function' as const, function: { name: 'navigateTo', description: 'Navigate user to a page. The path MUST be an absolute URL beginning with "/" that matches one of the patterns returned by listRoutes — call listRoutes first if you are unsure of the exact shape.', parameters: { type: 'object', required: ['path', 'reason'], properties: { path: { type: 'string' }, reason: { type: 'string' } } } } },
     { type: 'function' as const, function: { name: 'listRoutes', description: 'List every valid URL pattern in the app with a short description and (where useful) a concrete example. Call this BEFORE navigateTo if you are unsure of the exact path shape — e.g. plural vs singular, where attribute pages live, what the case route is.', parameters: { type: 'object', properties: {} } } },
@@ -796,6 +814,9 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
       }
       if (name === 'generateMermaid') {
         return await generateMermaidDiagram(args, services as unknown as MermaidServices);
+      }
+      if (name === 'getSqlSchema') {
+        return await buildSqlSchema(args, services as unknown as SqlSchemaServices);
       }
       if (name === 'listStereotypes') {
         const stereotypes = await services.stereotypeService.getAllStereotypes();
@@ -1326,6 +1347,18 @@ export const aiChat = async (req: Request, res: Response) => {
           },
         }),
 
+        getSqlSchema: tool({
+          description: 'Get the PHYSICAL relational schema for writing SQL: per-entity table name + schema, each column (physical name, dbType, nullable, primaryKey), and relationships as join hints. Optional packageName scope and dialect. Call this before writing any SQL query or DDL so you use real physical names/types, not the conceptual (logical) names.',
+          inputSchema: getSqlSchemaInputSchema,
+          execute: async (params) => {
+            try {
+              return await buildSqlSchema(params, services as unknown as SqlSchemaServices);
+            } catch (err: any) {
+              return { error: err.message };
+            }
+          },
+        }),
+
         listStereotypes: tool({
           description: 'List available stereotypes and their metadata definitions',
           inputSchema: z.object({}),
@@ -1803,6 +1836,15 @@ export const aiTools = async (_req: Request, res: Response) => {
         { name: 'diagram', type: 'er|class|state|flow', required: true, description: 'Diagram type' },
         { name: 'packageName', type: 'string', required: false, description: 'Scope for er/class/flow (omit for all)' },
         { name: 'entityName', type: 'string', required: false, description: 'Required for state' },
+      ],
+    },
+    {
+      name: 'getSqlSchema',
+      description: 'Physical relational schema for writing SQL: tables, columns (physical name + dbType + nullable + PK), and relationships as join hints. Use before generating any SQL query/DDL.',
+      source: 'builtin' as const,
+      parameters: [
+        { name: 'packageName', type: 'string', required: false, description: 'Scope to one package (omit for all)' },
+        { name: 'dialect', type: 'generic|postgres|mysql|mssql|oracle|sqlite', required: false, description: 'Target SQL dialect (default generic)' },
       ],
     },
     {

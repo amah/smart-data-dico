@@ -1,0 +1,84 @@
+/**
+ * buildSqlSchema() resolves the PHYSICAL relational schema for SQL generation:
+ * physical names/types when present, sensible fallbacks from the logical/derived
+ * type otherwise, and relationships as join hints.
+ */
+jest.mock('../../utils/fileOperations.js', () => ({
+  listMicroservices: jest.fn(),
+}));
+
+import { buildSqlSchema } from '../aiSql.js';
+import { listMicroservices } from '../../utils/fileOperations.js';
+
+const mockListMicroservices = listMicroservices as jest.MockedFunction<any>;
+
+const ORDER = 'o-uuid';
+const CUSTOMER = 'c-uuid';
+
+function makeServices() {
+  return {
+    serviceService: {
+      getServiceEntities: jest.fn(async () => [
+        {
+          uuid: ORDER, name: 'Order',
+          metadata: [{ name: 'physical.tableName', value: 'orders' }, { name: 'physical.schema', value: 'commerce' }],
+          attributes: [
+            { name: 'id', type: 'uuid', required: true, primaryKey: true,
+              metadata: [{ name: 'physical.columnName', value: 'order_id' }, { name: 'physical.dbType', value: 'UUID' }] },
+            // no physical mapping → fallback from derived type "money"
+            { name: 'total', type: 'money', required: true },
+            // no physical mapping → fallback from logical "string" + maxLength
+            { name: 'note', type: 'string', validation: { maxLength: 100 } },
+          ],
+        },
+        {
+          uuid: CUSTOMER, name: 'Customer',
+          attributes: [{ name: 'id', type: 'uuid', required: true, primaryKey: true }],
+        },
+      ]),
+      getPackageRelationships: jest.fn(async () => [
+        { source: { entity: CUSTOMER, cardinality: 'one' }, target: { entity: ORDER, cardinality: 'many' }, description: 'places' },
+      ]),
+    },
+    derivedTypes: { list: jest.fn(async () => [{ name: 'money', basedOn: 'number', validation: { precision: 12, scale: 2 } }]) },
+  };
+}
+
+describe('buildSqlSchema', () => {
+  beforeEach(() => { jest.clearAllMocks(); mockListMicroservices.mockResolvedValue(['ordering']); });
+
+  it('uses physical table/column/dbType when present', async () => {
+    const s: any = await buildSqlSchema({}, makeServices());
+    const order = s.tables.find((t: any) => t.entity === 'Order');
+    expect(order.table).toBe('orders');
+    expect(order.schema).toBe('commerce');
+    const id = order.columns.find((c: any) => c.attribute === 'id');
+    expect(id).toMatchObject({ column: 'order_id', dbType: 'UUID', primaryKey: true, nullable: false });
+  });
+
+  it('falls back to a SQL type derived from the logical/derived type when unmapped', async () => {
+    const s: any = await buildSqlSchema({ dialect: 'postgres' }, makeServices());
+    const order = s.tables.find((t: any) => t.entity === 'Order');
+    const total = order.columns.find((c: any) => c.attribute === 'total');
+    const note = order.columns.find((c: any) => c.attribute === 'note');
+    expect(total.dbType).toBe('DECIMAL(12,2)');        // money → precision/scale
+    expect(total.physicalMappingMissing).toBe(true);
+    expect(note.dbType).toBe('VARCHAR(100)');          // string + maxLength
+    const custId = s.tables.find((t: any) => t.entity === 'Customer').columns[0];
+    expect(custId.dbType).toBe('UUID');                // postgres uuid
+  });
+
+  it('emits relationships as join hints and a mapping note', async () => {
+    const s: any = await buildSqlSchema({}, makeServices());
+    expect(s.relationships).toEqual([
+      { from: 'Customer', to: 'Order', fromCardinality: 'one', toCardinality: 'many', description: 'places' },
+    ]);
+    expect(s.note).toMatch(/no physical mapping/);
+  });
+
+  it('honours dialect fallbacks (mysql uuid → CHAR(36))', async () => {
+    const s: any = await buildSqlSchema({ dialect: 'mysql' }, makeServices());
+    const custId = s.tables.find((t: any) => t.entity === 'Customer').columns[0];
+    expect(custId.dbType).toBe('CHAR(36)');
+  });
+});
