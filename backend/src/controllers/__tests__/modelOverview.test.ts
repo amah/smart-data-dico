@@ -51,6 +51,7 @@ describe('buildModelOverview', () => {
     expect(o.stereotypes).toEqual(['aggregate-root', 'value-object']);
     expect(o.derivedTypes).toEqual(['email', 'money']);
     expect(o.cases).toEqual(['Checkout']);
+    expect(o.summary).toMatch(/2 packages · 5 entities · 3 relationships · 1 case · 1 event/);
   });
 
   it('degrades a failing slice to empty instead of throwing', async () => {

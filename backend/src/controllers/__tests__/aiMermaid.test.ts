@@ -51,6 +51,7 @@ describe('generateMermaidDiagram', () => {
     const r = await generateMermaidDiagram({ diagram: 'er', packageName: 'catalog' } as any, makeServices());
     expect('mermaid' in r).toBe(true);
     if ('mermaid' in r) {
+      expect(r.summary).toBe('er diagram of catalog');
       expect(r.mermaid).toMatch(/^erDiagram/);
       expect(r.mermaid).toMatch(/Product \{[\s\S]*uuid id PK/);
       // Category (one) → Product (many): ||--o{

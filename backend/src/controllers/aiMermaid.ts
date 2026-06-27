@@ -29,7 +29,7 @@ export interface MermaidServices {
   eventService: { list(filters: { packageName?: string }): Promise<Event[]> };
 }
 
-export type MermaidResult = { mermaid: string; diagram: string; scope: string } | { error: string };
+export type MermaidResult = { summary: string; mermaid: string; diagram: string; scope: string } | { error: string };
 
 // --- input schemas ----------------------------------------------------------
 
@@ -190,7 +190,7 @@ export async function generateMermaidDiagram(input: GenerateMermaidInput, servic
       if (!owner) return { error: `Entity "${input.entityName}" not found.` };
       const machines = await services.stateMachineService.list({ ownerRef: owner.uuid });
       if (!machines.length) return { error: `No state machine is defined on "${input.entityName}".` };
-      return { mermaid: stateDiagram(machines[0]), diagram: 'state', scope: input.entityName };
+      return { summary: `state diagram of ${input.entityName}`, mermaid: stateDiagram(machines[0]), diagram: 'state', scope: input.entityName };
     }
 
     const pkgs = await listPackages(input.packageName);
@@ -205,7 +205,7 @@ export async function generateMermaidDiagram(input: GenerateMermaidInput, servic
       }
       if (!actions.length && !events.length) return { error: `No actions or events to diagram in ${scope}.` };
       const actionNameByUuid = new Map(actions.map(a => [a.uuid, a.name]));
-      return { mermaid: flowDiagram(actions, events, actionNameByUuid), diagram: 'flow', scope };
+      return { summary: `flow diagram of ${scope}`, mermaid: flowDiagram(actions, events, actionNameByUuid), diagram: 'flow', scope };
     }
 
     // er or class
@@ -219,7 +219,7 @@ export async function generateMermaidDiagram(input: GenerateMermaidInput, servic
     const mermaid = input.diagram === 'class'
       ? classDiagram(entities, rels, nameByUuid)
       : erDiagram(entities, rels, nameByUuid);
-    return { mermaid, diagram: input.diagram, scope };
+    return { summary: `${input.diagram} diagram of ${scope}`, mermaid, diagram: input.diagram, scope };
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) };
   }

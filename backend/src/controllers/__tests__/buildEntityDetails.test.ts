@@ -60,6 +60,11 @@ describe('buildEntityDetails', () => {
     expect(d.rules).toEqual([{ name: 'order-total-matches-lines', description: 'total = sum(lines)', severity: 'error' }]);
   });
 
+  it('includes a concise tool-card summary', () => {
+    // 3 attributes; id+orderNumber carry physical mapping; 1 constraint; 1 rule.
+    expect(d.summary).toBe('Order — 3 attributes (+physical, 1 constraint, 1 rule)');
+  });
+
   it('keeps the logical shape (name/type/required/primaryKey)', () => {
     expect(d.name).toBe('Order');
     expect(d.stereotype).toBe('aggregate-root');

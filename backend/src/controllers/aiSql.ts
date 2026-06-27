@@ -165,9 +165,12 @@ export async function buildSqlSchema(input: GetSqlSchemaInput, services: SqlSche
     }
   }
 
+  const scope = input.packageName ?? 'all packages';
   return {
+    // #tool-summary — concise self-describing line for the tool card.
+    summary: `${tables.length} table${tables.length === 1 ? '' : 's'}, ${relationships.length} relationship${relationships.length === 1 ? '' : 's'} (${dialect}, ${scope})`,
     dialect,
-    scope: input.packageName ?? 'all packages',
+    scope,
     schemaQualifyTables: !!opts?.schemaQualifyTables,
     tables,
     relationships,
