@@ -785,6 +785,33 @@ export function buildDirectChatMessages(rawMessages: any[], maxToolResultChars =
   return out;
 }
 
+/**
+ * #confab-fix (Vercel path) — turn the frontend conversation into AI-SDK
+ * UIMessages that carry prior tool calls as `output-available` tool parts, so
+ * `convertToModelMessages` emits the assistant tool-call + tool-result model
+ * messages and the model sees what it actually did (same goal as
+ * buildDirectChatMessages, but in the AI-SDK message shape). The custom
+ * `toolCalls` field is consumed here and dropped from the passthrough.
+ */
+export function buildUiMessagesWithToolParts(rawMessages: any[]): any[] {
+  return rawMessages.map((m: any) => {
+    const { toolCalls, ...rest } = m;
+    const completed = (m.role === 'assistant' && Array.isArray(toolCalls))
+      ? toolCalls.filter((tc: any) => tc && tc.id && tc.name && tc.output !== undefined)
+      : [];
+    if (!completed.length) return rest;
+    const baseParts = Array.isArray(rest.parts) ? rest.parts : [];
+    const toolParts = completed.map((tc: any) => ({
+      type: `tool-${tc.name}`,
+      toolCallId: String(tc.id),
+      state: 'output-available',
+      input: tc.input ?? {},
+      output: tc.output,
+    }));
+    return { ...rest, parts: [...baseParts, ...toolParts] };
+  });
+}
+
 // Direct chat handler for OpenAI-compatible providers (bypasses AI SDK)
 async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawMessages: any[], services: any, pageContext?: string, conversationSystemPrompt?: string, mode: AIChatMode = 'designer', modelOutline?: string, sqlInstruction?: string) {
   const { callWithTools } = await import('../utils/aiDirectClient.js');
@@ -1168,11 +1195,9 @@ export const aiChat = async (req: Request, res: Response) => {
       // overflow naturally.
       logger.warn(`AI context condensing failed; sending raw history. ${err?.message}`);
     }
-    // The AI-SDK converter reads `parts`; drop the #confab-fix `toolCalls`
-    // field (consumed only by the direct-client path) so it isn't rejected.
-    const messages = await convertToModelMessages(
-      effectiveRawMessages.map((m: any) => { const { toolCalls, ...rest } = m; void toolCalls; return rest; }),
-    );
+    // #confab-fix — carry prior tool calls + results into the model history
+    // (as output-available tool parts) so the model sees what it actually did.
+    const messages = await convertToModelMessages(buildUiMessagesWithToolParts(effectiveRawMessages));
 
     // Per-stream id for server-side tool approvals; emitted to the client
     // after headers flush (near the `condensed` event) so the frontend can
