@@ -745,6 +745,46 @@ function buildSystemPrompt(pageContext?: string, conversationSystemPrompt?: stri
   return out;
 }
 
+/**
+ * #confab-fix — Convert the frontend conversation into OpenAI chat messages,
+ * RECONSTRUCTING prior tool calls + their results so the model sees what it
+ * actually did in earlier turns. Each assistant turn that ran tools becomes an
+ * assistant message carrying `tool_calls`, followed by one `role:'tool'` result
+ * per call (the OpenAI tool protocol). Without this the model only sees its own
+ * confirmation prose and learns to skip the tool call (a major driver of the
+ * kimi confabulation). Tool-result content is capped to bound context growth.
+ */
+export function buildDirectChatMessages(rawMessages: any[], maxToolResultChars = 2000): any[] {
+  const out: any[] = [];
+  for (const msg of rawMessages) {
+    const text = msg.parts?.find((p: any) => p.type === 'text')?.text || msg.content || '';
+    const toolCalls = (msg.role === 'assistant' && Array.isArray(msg.toolCalls))
+      ? msg.toolCalls.filter((tc: any) => tc && tc.id && tc.name && tc.output !== undefined)
+      : [];
+    if (toolCalls.length) {
+      out.push({
+        role: 'assistant',
+        content: text || '',
+        tool_calls: toolCalls.map((tc: any) => ({
+          id: String(tc.id),
+          type: 'function',
+          function: { name: tc.name, arguments: JSON.stringify(tc.input ?? {}) },
+        })),
+      });
+      for (const tc of toolCalls) {
+        out.push({
+          role: 'tool',
+          tool_call_id: String(tc.id),
+          content: JSON.stringify(tc.output ?? {}).slice(0, maxToolResultChars),
+        });
+      }
+    } else if (text) {
+      out.push({ role: msg.role, content: text });
+    }
+  }
+  return out;
+}
+
 // Direct chat handler for OpenAI-compatible providers (bypasses AI SDK)
 async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawMessages: any[], services: any, pageContext?: string, conversationSystemPrompt?: string, mode: AIChatMode = 'designer', modelOutline?: string, sqlInstruction?: string) {
   const { callWithTools } = await import('../utils/aiDirectClient.js');
@@ -764,14 +804,12 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
   req.on('close', onAbort);
   req.on('aborted', onAbort);
 
-  // Convert UIMessages to OpenAI format
+  // Convert UIMessages to OpenAI format. #confab-fix — prior tool calls +
+  // results are reconstructed (not just text) so the model sees what it did.
   const messages: any[] = [
     { role: 'system', content: buildSystemPrompt(pageContext, conversationSystemPrompt, mode, modelOutline, sqlInstruction) },
+    ...buildDirectChatMessages(rawMessages),
   ];
-  for (const msg of rawMessages) {
-    const text = msg.parts?.find((p: any) => p.type === 'text')?.text || msg.content || '';
-    if (text) messages.push({ role: msg.role, content: text });
-  }
 
   // Build tool definitions
   const builtinToolDefs = [
@@ -1130,7 +1168,11 @@ export const aiChat = async (req: Request, res: Response) => {
       // overflow naturally.
       logger.warn(`AI context condensing failed; sending raw history. ${err?.message}`);
     }
-    const messages = await convertToModelMessages(effectiveRawMessages);
+    // The AI-SDK converter reads `parts`; drop the #confab-fix `toolCalls`
+    // field (consumed only by the direct-client path) so it isn't rejected.
+    const messages = await convertToModelMessages(
+      effectiveRawMessages.map((m: any) => { const { toolCalls, ...rest } = m; void toolCalls; return rest; }),
+    );
 
     // Per-stream id for server-side tool approvals; emitted to the client
     // after headers flush (near the `condensed` event) so the frontend can

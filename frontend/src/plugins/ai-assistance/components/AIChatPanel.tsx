@@ -673,6 +673,18 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
         id: m.id,
         role: m.role,
         parts: [{ type: 'text', text: m.text }],
+        // #confab-fix — carry prior tool calls + their results so the model sees
+        // that it ACTUALLY called tools (and what they returned) in earlier
+        // turns, instead of just its own confirmation prose. Without this the
+        // model imitates "respond to a create request = write text" and skips
+        // the tool call. Only completed, non-discarded calls.
+        ...(m.role === 'assistant' && Array.isArray(m.toolCalls) && m.toolCalls.length
+          ? {
+              toolCalls: m.toolCalls
+                .filter(tc => tc && tc.output !== undefined && tc.status !== 'cancelled' && tc.status !== 'undone')
+                .map(tc => ({ id: tc.id, name: tc.name, input: tc.input, output: tc.output })),
+            }
+          : {}),
       }));
 
       const shouldSendContext = includePageContext && pageContext.length > 0;

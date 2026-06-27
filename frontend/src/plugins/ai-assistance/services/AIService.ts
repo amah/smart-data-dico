@@ -80,7 +80,15 @@ export interface AIConfigInput {
 }
 
 export interface AIChatRequest {
-  messages: Array<{ id: string; role: 'user' | 'assistant'; parts: Array<{ type: 'text'; text: string }> }>;
+  messages: Array<{
+    id: string;
+    role: 'user' | 'assistant';
+    parts: Array<{ type: 'text'; text: string }>;
+    // #confab-fix — prior tool calls + their outputs, so the model sees what it
+    // actually did in earlier turns (reconstructed into OpenAI tool messages
+    // server-side). Present only on assistant turns that ran tools.
+    toolCalls?: Array<{ id: string; name: string; input: unknown; output: unknown }>;
+  }>;
   pageContext?: string;
   systemPrompt?: string;
   mode?: 'designer' | 'ask' | 'review';
