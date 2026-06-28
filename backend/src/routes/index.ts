@@ -7,6 +7,7 @@ import visualizationRoutes from './visualization.routes.js';
 import statusRoutes from './status.routes.js';
 import projectRoutes from './project.routes.js';
 import ormRoutes from './orm.routes.js';
+import sqlRoutes from './sql.routes.js';
 
 const router: Router = Router();
 router.use(statusRoutes);
@@ -17,4 +18,5 @@ router.use(projectRoutes);
 router.use(ormRoutes);
 router.use(dataDictionaryRoutes);
 router.use(aiRoutes);
+router.use(sqlRoutes);
 export default router;
