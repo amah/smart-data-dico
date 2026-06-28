@@ -243,7 +243,19 @@ All files are git-tracked for versioning, branching, and collaboration.
 | **Git** | 2.x+ | Required — dictionaries are versioned in a git repository |
 | **Docker** | 20+ | Optional, only for the containerized deployment path |
 
-Optional database peer dependencies (only needed if you use **Physical Sync** to introspect a live database — see `peerDependencies` in `package.json`): `pg`, `mysql2`, `mssql`, or `oracledb`. Install just the one(s) you need.
+#### Database drivers (optional)
+
+Connecting to a live database — for **Physical Sync** (schema introspection) or the **SQL Console / AI ▶ Run** (running read-only queries) — needs the driver for your dialect. They are **optional peer dependencies**: a default install pulls **none** of them, so install only the one(s) you use:
+
+| Dialect | Install | Notes |
+|---|---|---|
+| **SQLite** | _(nothing)_ | Uses Node’s built-in `node:sqlite` — zero dependencies. Needs Node ≥ 22.5; the CLI enables `--experimental-sqlite` automatically where required. |
+| **PostgreSQL** | `npm install pg` | |
+| **MySQL / MariaDB** | `npm install mysql2` | |
+| **SQL Server** | `npm install mssql` | |
+| **Oracle** | `npm install oracledb` | Native addon; see the oracledb docs for client requirements. |
+
+Querying a dialect whose driver isn’t installed fails with an actionable message naming the package to install.
 
 ### Option A — Install from npm (end users)
 

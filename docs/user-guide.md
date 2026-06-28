@@ -268,7 +268,10 @@ without leaving the app.
 1. Click **▶ Run** on a ```sql code block.
 2. The first time for a package, a **Connect** form opens, pre-filled from the
    package's physical configuration (dialect, host, database). Enter the database
-   **user** and **password** and click **Connect & run**.
+   **user** and **password** and click **Connect & run**. For **SQLite**, choose the
+   `sqlite` dialect and give the database **file** path — no user or password is needed.
+   (For Postgres/MySQL/SQL Server/Oracle the matching driver must be installed — see the
+   README's driver table; SQLite works out of the box.)
 3. Results appear in a grid. Scroll down to load more rows — they are fetched in
    chunks on demand, so large result sets don't have to load all at once.
 4. Use **Copy CSV** to copy the visible results to the clipboard.

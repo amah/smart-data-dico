@@ -488,6 +488,14 @@ GET /graph/{service}
 Runs AI-generated SQL against a package's **physical database**, read-only. Used by
 the **▶ Run** button on ```sql blocks in the AI chat panel.
 
+**Dialects & drivers**
+- Supported `dialect` values: `postgres`, `mysql`, `mssql`, `oracle`, `sqlite`.
+- The `pg` / `mysql2` / `mssql` / `oracledb` drivers are **optional peer dependencies** —
+  install only the one you need (`npm install pg`, etc.). Querying a dialect whose
+  driver is absent returns an error naming the package to install.
+- **SQLite** needs no driver (Node's built-in `node:sqlite`); its `connection` is
+  `{ "file": "/path/to/db.sqlite" }` and it takes no `user`/`password`.
+
 **Safety & credentials**
 - Only a single read-only `SELECT` / `WITH` statement is accepted; anything else is
   rejected before the database is touched.
