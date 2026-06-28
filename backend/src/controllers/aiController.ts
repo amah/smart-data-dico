@@ -617,6 +617,39 @@ async function getModel() {
   return provider(cfg.model);
 }
 
+/**
+ * POST /api/ai/sql-repair — single non-streaming call that asks the model to
+ * fix a failed read-only query, grounded in the package's physical schema +
+ * the DB error. Powers the run-SQL auto-repair loop (client retries run →
+ * repair → run, capped). Returns the corrected SQL only.
+ */
+export const aiSqlRepair = async (req: Request, res: Response) => {
+  const { packageName, sql, error } = req.body ?? {};
+  if (!packageName || typeof packageName !== 'string') return res.status(400).json({ message: 'packageName is required' });
+  if (!sql || typeof sql !== 'string') return res.status(400).json({ message: 'sql is required' });
+  if (!error || typeof error !== 'string') return res.status(400).json({ message: 'error is required' });
+  try {
+    const model = await getModel();
+    const services = await getServices();
+    const schema = await buildSqlSchema({ packageName }, services as unknown as SqlSchemaServices, loadAIConfig()?.sql);
+    const prompt =
+      'A read-only SQL query failed against the database. Fix it.\n\n'
+      + 'Physical schema (use these EXACT table/column names and dbTypes):\n'
+      + `${JSON.stringify(schema).slice(0, 8000)}\n\n`
+      + `Failed SQL:\n${sql}\n\nDatabase error:\n${error}\n\n`
+      + 'Return ONLY the corrected query — a single read-only SELECT, no markdown fences, no explanation.';
+    const { text } = await generateText({ model, prompt });
+    let fixed = (text || '').trim();
+    const fenced = fixed.match(/```(?:sql)?\s*([\s\S]*?)```/i);
+    if (fenced) fixed = fenced[1].trim();
+    fixed = fixed.replace(/;\s*$/, '').trim();
+    if (!fixed) return res.status(502).json({ message: 'The model returned no SQL.' });
+    res.json({ data: { sql: fixed } });
+  } catch (err: any) {
+    res.status(500).json({ message: 'SQL repair failed', error: String(err?.message ?? err) });
+  }
+};
+
 // Dynamic import of services (they use ESM)
 async function getServices() {
   const { dictionaryService } = await import('../services/dictionaryService.js');
