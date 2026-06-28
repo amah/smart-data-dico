@@ -5,6 +5,46 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.1] — 2026-06-28
+
+### Added
+- **AI chat can author every concept** — new mutation tools so the assistant can
+  create stereotypes, derived types, rules, cases, events, actions (with
+  emit/wait flow steps that compose a saga), and entity state machines — not
+  just entities and relationships. Wired into both provider paths.
+- **Physical-model grounding for SQL** — `getEntityDetails` now returns each
+  entity's physical mapping (table/schema, per-column name + DB type),
+  validation, constraints, and inline rules; a new `getSqlSchema` tool returns
+  the whole physical relational schema (typed columns, PKs, join hints) so the
+  assistant writes physically-correct, dialect-aware SQL. System prompt teaches
+  the conceptual-vs-physical distinction.
+- **`getModelOverview` tool + per-turn model snapshot** injected into the system
+  prompt, so the assistant starts each turn oriented (packages → entities +
+  concept counts) instead of rediscovering the model.
+- **`generateMermaid` tool** — convert the model to Mermaid `er` / `class` /
+  `state` / `flow` diagrams, **rendered inline** in the chat panel.
+- **`ai.sql.schemaQualifyTables` setting** — opt-in that injects an instruction
+  to schema-qualify table names (`schema.table`) in generated SQL, with an
+  optional default schema.
+- **Self-describing tool cards** — read/navigate tool results now carry a concise
+  summary naming the entities / packages / tables involved.
+
+### Fixed
+- **Confabulation root cause** — the conversation sent to the model carried text
+  only; prior tool calls and their results were stripped, so a weak tool-caller
+  learned to narrate "done" instead of calling tools (worsening across a
+  multi-turn build). Both provider paths now reconstruct the prior tool calls +
+  results into the model history. Verified by a clean-room rebuild that ran with
+  zero confabulations where the previous build needed many forceful retries.
+- **Silent false-success on entity writes** — attribute `validation`
+  (maxLength/pattern/minimum/…) was dropped while the tool reported success; an
+  unknown stereotype hard-failed the whole mutation. Validation now persists and
+  unknown stereotypes are dropped-and-warned.
+- **Confabulation guard** — a `no-op-warning` is surfaced when the model claims a
+  change but no create/update/delete actually ran (heuristic catches descriptive
+  vs. agentive phrasing, and verb-governed concept claims like "Created state
+  machine X").
+
 ## [1.13.0] — 2026-06-26
 
 ### Added
