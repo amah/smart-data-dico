@@ -15,10 +15,28 @@ import { createBufferedRowCursor, type RowSource } from './bufferedRowCursor.js'
 function str(v: unknown): string | undefined { return v == null ? undefined : String(v); }
 function num(v: unknown, d: number): number { const n = Number(v); return Number.isFinite(n) ? n : d; }
 
+/**
+ * The four production drivers are OPTIONAL peer dependencies — a published
+ * install only carries the ones the user chose. Load lazily and, when a driver
+ * is absent, surface an actionable message instead of a raw module-not-found.
+ */
+async function loadDriver(pkg: string): Promise<any> {
+  try {
+    return await import(pkg);
+  } catch (e) {
+    const code = (e as { code?: string })?.code;
+    if (code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND') {
+      const dep = pkg.split('/')[0]; // 'mysql2/promise' → 'mysql2'
+      throw new Error(`The "${dep}" driver isn't installed. Install it to query this dialect:  npm install ${dep}`);
+    }
+    throw e;
+  }
+}
+
 // --- postgres: a NO SCROLL cursor inside a READ ONLY transaction ------------
 const postgresExecutor: CursorExecutor = {
   async open(conn, sql, opts) {
-    const pg: any = await import('pg');
+    const pg: any = await loadDriver('pg');
     const c = conn.connection;
     const client = new pg.Client({
       host: str(c.host), port: num(c.port, 5432), database: str(c.database),
@@ -61,7 +79,7 @@ const postgresExecutor: CursorExecutor = {
 // --- oracle: a resultSet, getRows(n) is native chunked fetch ----------------
 const oracleExecutor: CursorExecutor = {
   async open(conn, sql, opts) {
-    const oracledb: any = (await import('oracledb')).default;
+    const oracledb: any = (await loadDriver('oracledb')).default;
     const c = conn.connection;
     const connectString = str(c.connectString) || `${str(c.host)}:${num(c.port, 1521)}/${str(c.database) || str(c.serviceName)}`;
     const connection = await oracledb.getConnection({ user: conn.credentials.user, password: conn.credentials.password, connectString });
@@ -95,7 +113,7 @@ const oracleExecutor: CursorExecutor = {
 // --- mysql / mssql: stream rows through the buffered cursor ------------------
 const mysqlExecutor: CursorExecutor = {
   async open(conn, sql, opts) {
-    const mysql: any = await import('mysql2/promise');
+    const mysql: any = await loadDriver('mysql2/promise');
     const c = conn.connection;
     const connection = await mysql.createConnection({
       host: str(c.host), port: num(c.port, 3306), database: str(c.database),
@@ -127,7 +145,7 @@ const mysqlExecutor: CursorExecutor = {
 
 const mssqlExecutor: CursorExecutor = {
   async open(conn, sql, opts) {
-    const sqlMod: any = (await import('mssql')).default;
+    const sqlMod: any = (await loadDriver('mssql')).default;
     const c = conn.connection;
     const pool = await new sqlMod.ConnectionPool({
       server: str(c.server) || str(c.host), port: num(c.port, 1433), database: str(c.database),
@@ -160,11 +178,48 @@ const mssqlExecutor: CursorExecutor = {
   },
 };
 
+// SQLite — Node's built-in node:sqlite (requires Node ≥22.5 with
+// `--experimental-sqlite`). The driver is in-process and synchronous with no
+// streaming cursor, so the result set is read once via .all() and served in
+// chunks from memory (the query is still run only once). `connection.file` is
+// the database path; credentials are unused. Ideal for zero-setup dev/demo.
+const sqliteExecutor: CursorExecutor = {
+  async open(conn, sql) {
+    let DatabaseSync: any;
+    try {
+      // @types/node@20 ships no node:sqlite typings yet; a non-literal specifier
+      // keeps tsc from resolving it (the module is a real Node ≥22.5 built-in).
+      const sqliteModule: string = 'node:sqlite';
+      ({ DatabaseSync } = await import(sqliteModule));
+    } catch {
+      // node:sqlite is built-in but gated behind --experimental-sqlite until it
+      // stabilises (~Node 23.5). Tell the operator how to enable it.
+      throw new Error('SQLite support needs Node’s built-in node:sqlite. Run Node ≥22.5 with --experimental-sqlite (e.g. NODE_OPTIONS=--experimental-sqlite), or upgrade to a Node version where it is stable.');
+    }
+    const db = new DatabaseSync(str(conn.connection.file) || str(conn.connection.database));
+    try {
+      const objs: Record<string, unknown>[] = db.prepare(sql).all();
+      const columns = objs.length ? Object.keys(objs[0]) : [];
+      const all = objs.map((o) => columns.map((c) => o[c]));
+      let i = 0;
+      return {
+        columns,
+        async fetch(n: number) { const rows = all.slice(i, i + n); i += n; return { rows, done: i >= all.length }; },
+        async close() { try { db.close(); } catch { /* ignore */ } },
+      };
+    } catch (e) {
+      try { db.close(); } catch { /* ignore */ }
+      throw e;
+    }
+  },
+};
+
 const EXECUTORS: Record<SqlDialect, CursorExecutor> = {
   postgres: postgresExecutor,
   oracle: oracleExecutor,
   mysql: mysqlExecutor,
   mssql: mssqlExecutor,
+  sqlite: sqliteExecutor,
 };
 
 export function getExecutor(dialect: SqlDialect): CursorExecutor {

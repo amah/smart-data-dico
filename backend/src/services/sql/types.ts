@@ -1,6 +1,6 @@
 /** Run-SQL feature shared types. */
 
-export type SqlDialect = 'postgres' | 'mysql' | 'mssql' | 'oracle';
+export type SqlDialect = 'postgres' | 'mysql' | 'mssql' | 'oracle' | 'sqlite';
 
 /** A live database connection: non-secret config + the secret credentials. */
 export interface DbConnection {

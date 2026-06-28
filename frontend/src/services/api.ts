@@ -346,7 +346,7 @@ export const ormApi = {
 
 // Run-SQL feature (#run-sql) — connect to a package DB, run a read-only SELECT,
 // fetch results in chunks, and ask the AI to repair a failed query.
-export type SqlDialect = 'postgres' | 'mysql' | 'mssql' | 'oracle';
+export type SqlDialect = 'postgres' | 'mysql' | 'mssql' | 'oracle' | 'sqlite';
 export interface SqlRunChunk { resultId: string | null; columns: string[]; rows: unknown[][]; done: boolean; dialect?: SqlDialect }
 export interface SqlConnectInput { packageName: string; dialect: SqlDialect; connection: Record<string, unknown>; user: string; password: string }
 

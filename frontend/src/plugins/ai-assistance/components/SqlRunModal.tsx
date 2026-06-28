@@ -15,10 +15,14 @@ type Phase = 'connect' | 'running' | 'results' | 'error';
 interface Attempt { sql: string; error: string }
 
 function dialectFields(d: SqlDialect): { key: string; label: string; placeholder?: string }[] {
+  if (d === 'sqlite') return [{ key: 'file', label: 'Database file', placeholder: '/path/to/db.sqlite' }];
   if (d === 'oracle') return [{ key: 'connectString', label: 'Connect string', placeholder: 'host:1521/service' }];
   if (d === 'mssql') return [{ key: 'server', label: 'Server' }, { key: 'port', label: 'Port' }, { key: 'database', label: 'Database' }];
   return [{ key: 'host', label: 'Host' }, { key: 'port', label: 'Port' }, { key: 'database', label: 'Database' }];
 }
+
+// SQLite is a local file — no user/password needed.
+const needsCredentials = (d: SqlDialect) => d !== 'sqlite';
 
 function toCsv(columns: string[], rows: unknown[][]): string {
   const esc = (v: unknown) => {
@@ -156,7 +160,7 @@ export default function SqlRunModal({ open, sql, packageName, onClose }: {
             <div className="grid grid-cols-2 gap-2">
               <label className="form-control"><span className="label-text text-xs">Dialect</span>
                 <select className="select select-sm select-bordered" value={dialect} onChange={e => setDialect(e.target.value as SqlDialect)}>
-                  <option value="postgres">postgres</option><option value="mysql">mysql</option><option value="mssql">mssql</option><option value="oracle">oracle</option>
+                  <option value="postgres">postgres</option><option value="mysql">mysql</option><option value="mssql">mssql</option><option value="oracle">oracle</option><option value="sqlite">sqlite</option>
                 </select>
               </label>
               {dialectFields(dialect).map(f => (
@@ -164,17 +168,19 @@ export default function SqlRunModal({ open, sql, packageName, onClose }: {
                   <input className="input input-sm input-bordered" placeholder={f.placeholder} value={conn[f.key] ?? ''} onChange={e => setConn(c => ({ ...c, [f.key]: e.target.value }))} />
                 </label>
               ))}
-              <label className="form-control"><span className="label-text text-xs">User</span>
-                <input className="input input-sm input-bordered" value={user} onChange={e => setUser(e.target.value)} autoComplete="off" />
-              </label>
-              <label className="form-control"><span className="label-text text-xs">Password</span>
-                <input type="password" className="input input-sm input-bordered" value={password} onChange={e => setPassword(e.target.value)} autoComplete="off" />
-              </label>
+              {needsCredentials(dialect) && (<>
+                <label className="form-control"><span className="label-text text-xs">User</span>
+                  <input className="input input-sm input-bordered" value={user} onChange={e => setUser(e.target.value)} autoComplete="off" />
+                </label>
+                <label className="form-control"><span className="label-text text-xs">Password</span>
+                  <input type="password" className="input input-sm input-bordered" value={password} onChange={e => setPassword(e.target.value)} autoComplete="off" />
+                </label>
+              </>)}
             </div>
             {errorMsg && <div className="text-error text-xs" data-testid="sql-connect-error">{errorMsg}</div>}
             <div className="flex justify-end gap-2">
               <button className="btn btn-sm" onClick={onClose}>Cancel</button>
-              <button className="btn btn-sm btn-primary" onClick={doConnect} disabled={busy || !user}>{busy ? 'Connecting…' : 'Connect & run'}</button>
+              <button className="btn btn-sm btn-primary" onClick={doConnect} disabled={busy || (needsCredentials(dialect) && !user)}>{busy ? 'Connecting…' : 'Connect & run'}</button>
             </div>
           </div>
         )}

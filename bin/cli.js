@@ -5,10 +5,30 @@ import { dirname, join, resolve } from 'node:path';
 import { existsSync, mkdirSync, cpSync, writeFileSync, readFileSync } from 'fs';
 import { homedir } from 'node:os';
 import { spawn, spawnSync } from 'child_process';
+import { createRequire } from 'node:module';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PKG_ROOT = join(__dirname, '..');
+
+// The default SQLite dialect uses Node's built-in node:sqlite, which is gated
+// behind --experimental-sqlite until it stabilises (~Node 23.4). Probe whether
+// this Node needs the flag (load it unflagged → stable; throws → gated) and, if
+// so, add it to the server child's NODE_OPTIONS. Self-correcting across versions:
+// no hardcoded minor boundaries, and never passes an unknown flag to old Node.
+function serverNodeOptions() {
+  const base = process.env.NODE_OPTIONS || '';
+  if (base.includes('--experimental-sqlite')) return base;
+  const [major, minor] = process.versions.node.split('.').map(Number);
+  const flagSupported = major > 22 || (major === 22 && minor >= 5);
+  if (!flagSupported) return base; // too old: node:sqlite unavailable, flag unknown
+  try {
+    createRequire(import.meta.url)('node:sqlite'); // loads unflagged → already stable
+    return base;
+  } catch {
+    return `${base} --experimental-sqlite`.trim(); // present but gated → enable it
+  }
+}
 let packageVersion = '';
 try {
   packageVersion = JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf-8')).version || '';
@@ -178,6 +198,7 @@ function startServer(dir) {
       SDD_VERSION: packageVersion,
       SDD_FRONTEND_DIST: frontendDist,
       SDD_MANAGED: '1',
+      NODE_OPTIONS: serverNodeOptions(),
     },
     stdio: 'inherit',
   });

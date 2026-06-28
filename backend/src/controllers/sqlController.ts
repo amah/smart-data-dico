@@ -10,7 +10,7 @@ import { SqlGuardError } from '../services/sql/sqlGuards.js';
 import type { DbConnection, SqlDialect } from '../services/sql/types.js';
 import { logger } from '../utils/logger.js';
 
-const DIALECTS = new Set<SqlDialect>(['postgres', 'mysql', 'mssql', 'oracle']);
+const DIALECTS = new Set<SqlDialect>(['postgres', 'mysql', 'mssql', 'oracle', 'sqlite']);
 
 /** POST /api/sql/connect — validate credentials and cache the connection. */
 export const sqlConnect = async (req: Request, res: Response) => {
@@ -18,10 +18,11 @@ export const sqlConnect = async (req: Request, res: Response) => {
   if (!packageName || typeof packageName !== 'string') return res.status(400).json({ message: 'packageName is required' });
   if (!DIALECTS.has(dialect)) return res.status(400).json({ message: `dialect must be one of ${[...DIALECTS].join(', ')}` });
   if (!connection || typeof connection !== 'object') return res.status(400).json({ message: 'connection (object) is required' });
-  if (!user || typeof user !== 'string' || typeof password !== 'string') {
+  // SQLite is a local file — no user/password. Other dialects require both.
+  if (dialect !== 'sqlite' && (!user || typeof user !== 'string' || typeof password !== 'string')) {
     return res.status(400).json({ message: 'user and password are required' });
   }
-  const conn: DbConnection = { dialect, connection, credentials: { user, password } };
+  const conn: DbConnection = { dialect, connection, credentials: { user: user ?? '', password: password ?? '' } };
   try {
     const redacted = await sqlRunService.connect(packageName, conn);
     res.json({ message: 'Connected', data: redacted });
