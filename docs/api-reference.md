@@ -483,6 +483,97 @@ GET /graph/{service}
 }
 ```
 
+### SQL Execution
+
+Runs AI-generated SQL against a package's **physical database**, read-only. Used by
+the **▶ Run** button on ```sql blocks in the AI chat panel.
+
+**Safety & credentials**
+- Only a single read-only `SELECT` / `WITH` statement is accepted; anything else is
+  rejected before the database is touched.
+- Database credentials are cached **in memory only, per package, with a sliding
+  ~30-minute TTL**. They are never written to disk, never logged, and the password is
+  **redacted from every response**.
+- Results stream from a server-side cursor: the query is opened once and rows are
+  fetched in chunks on demand (it is not re-run per page).
+
+#### Connect
+
+Caches read-only credentials for a package. Requires `ADMIN` or `EDITOR`.
+
+```http
+POST /api/sql/connect
+```
+
+**Body**:
+
+```json
+{
+  "packageName": "order-service",
+  "dialect": "postgres",
+  "connection": { "host": "db", "port": "5432", "database": "orders" },
+  "user": "readonly",
+  "password": "••••••"
+}
+```
+
+**Response** — the redacted connection (never includes the password):
+
+```json
+{ "data": { "dialect": "postgres", "connection": { "host": "db", "database": "orders" }, "user": "readonly" } }
+```
+
+`502` if the connection probe fails.
+
+#### Get / Drop Connection
+
+```http
+GET    /api/sql/connection/{packageName}   // redacted connection, or { "data": null }
+DELETE /api/sql/connection/{packageName}   // drop the cached connection
+```
+
+#### Run
+
+Runs a query and returns the first chunk. Requires `ADMIN`, `EDITOR`, or `VIEWER`.
+
+```http
+POST /api/sql/run
+```
+
+**Body**: `{ "packageName": "order-service", "sql": "SELECT ...", "chunk": 100 }`
+
+**Response**:
+
+```json
+{ "data": { "resultId": "r-ab12", "columns": ["id", "total"], "rows": [[1, 42.0]], "done": false } }
+```
+
+`resultId` is `null` when all rows fit in the first chunk. Status codes:
+- `400` — failed the read-only/single-statement guard
+- `409` — no cached connection for the package (`code: "no-connection"`)
+- `422` — database error, body `{ "error": "<db message>" }` (drives the AI auto-repair loop)
+
+#### Fetch / Close
+
+```http
+POST /api/sql/fetch   // { "resultId": "r-ab12", "chunk": 100 } → { data: { rows, done } }; 410 if the cursor expired
+POST /api/sql/close   // { "resultId": "r-ab12" } → closes the cursor
+```
+
+#### AI SQL Repair
+
+Given a failed query and its database error, returns a corrected read-only query.
+Grounds the model with the package physical schema; never touches the DB connection
+or credentials.
+
+```http
+POST /api/ai/sql-repair
+```
+
+**Body**: `{ "packageName": "order-service", "sql": "SELECT ...", "error": "<db message>" }`
+
+**Response**: `{ "data": { "sql": "SELECT ... -- corrected" } }`
+
 ## Rate Limiting
 
 The API implements rate limiting to prevent abuse. The current limits are:

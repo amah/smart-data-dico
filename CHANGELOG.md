@@ -5,6 +5,31 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Run generated SQL from the AI chat** — fenced ```sql blocks now carry a
+  **▶ Run** button. It opens a modal that connects to the package's physical
+  database (read-only), runs the query, and shows results in a chunked grid that
+  fetches more rows on scroll via a server-side cursor (SQL-Developer style — the
+  query is opened once, not re-run per page). On a database error it runs an
+  **auto-repair loop (cap 3)**: the failed SQL and error are sent back to the
+  model (`POST /api/ai/sql-repair`), grounded with the package physical schema,
+  and the corrected query is re-run — with the repair trail shown.
+- **Read-only SQL execution backend** (`/api/sql/connect|run|fetch|close`,
+  `src/services/sql/`). Single-statement `SELECT`/`WITH` is hard-enforced;
+  per-dialect server-side cursors (pg/mysql/mssql/oracle) stream chunks on demand.
+
+### Security
+- DB credentials for SQL execution are held **in memory only, per package, with a
+  sliding ~30-minute TTL** — never written to disk, never logged, and the password
+  is redacted from every API response. The repair endpoint never touches the
+  connection or credentials (it consumes only model metadata).
+
+### Notes
+- The four live dialect cursor adapters (pg/mysql/mssql/oracle) are tested via an
+  in-memory fake; they still need verification against real databases.
+
 ## [1.13.1] — 2026-06-28
 
 ### Added

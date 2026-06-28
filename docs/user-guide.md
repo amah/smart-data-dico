@@ -13,8 +13,9 @@ This guide provides comprehensive instructions for using the Data Dictionary Man
 7. [Version Control](#version-control)
 8. [Visualization](#visualization)
 9. [Search](#search)
-10. [API Reference](#api-reference)
-11. [Troubleshooting](#troubleshooting)
+10. [Running Generated SQL](#running-generated-sql)
+11. [API Reference](#api-reference)
+12. [Troubleshooting](#troubleshooting)
 
 ## Introduction
 
@@ -255,6 +256,39 @@ The search feature helps you find entities, attributes, and relationships.
    - Type: Limit search to a specific type (string, number, etc.)
    - Required: Limit search to required/optional fields
 3. Click "Search" to execute the advanced search
+
+## Running Generated SQL
+
+When the AI assistant produces a SQL query, the fenced ```sql block in the chat
+shows a **▶ Run** button so you can execute it against the package's real database
+without leaving the app.
+
+### Running a query
+
+1. Click **▶ Run** on a ```sql code block.
+2. The first time for a package, a **Connect** form opens, pre-filled from the
+   package's physical configuration (dialect, host, database). Enter the database
+   **user** and **password** and click **Connect & run**.
+3. Results appear in a grid. Scroll down to load more rows — they are fetched in
+   chunks on demand, so large result sets don't have to load all at once.
+4. Use **Copy CSV** to copy the visible results to the clipboard.
+
+> The connection is **read-only**: only a single `SELECT` query runs. Statements
+> that would modify data are rejected before reaching the database.
+
+### Credentials
+
+Your database credentials are kept **in memory for your session only**, scoped to
+the package, and expire after about 30 minutes of inactivity. They are never saved
+to disk, never logged, and the password is never returned in any response. Use the
+account's read-only role.
+
+### Automatic error repair
+
+If the query fails (for example, a wrong column name), the assistant automatically
+sends the SQL and the database error back to the model, applies a corrected query,
+and re-runs it — up to three attempts. If it still fails, the error and the list of
+attempts are shown so you can adjust the query by hand.
 
 ## API Reference
 

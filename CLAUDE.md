@@ -38,11 +38,13 @@ Backend is a plain Express app; the framework provides only the FS and git route
 - **Routes** (`src/routes/index.ts`): All API endpoints (~90 routes) defined in one file
 - **Controllers** (`src/controllers/`): Request handlers for auth, dictionaries, services, versions, diagrams, stereotypes, perspectives, import/export
 - **Services** (`src/services/`): Business logic — `serviceService.ts` (entities, search, impact), `dictionaryService.ts` (packages), `stereotypeService.ts`, `perspectiveService.ts` (BFS resolution), `importService.ts`, `exportService.ts`, `qualityService.ts`. All domain services consume `IStorageBackend`. `fileOperations.ts` (slice 5) and `schemaEntityWriter.ts` (slice 5b) are fully migrated. An ESLint `no-restricted-imports` rule on `fs` and `fs/promises` blocks new direct-`fs` imports outside an allow-list (slice 5c; see `backend/.eslintrc.cjs`). Three legacy production sites — `controllers/modelMetadataController.ts`, `routes/project.routes.ts`, `services/dicoConfigService.ts` — are temporarily allow-listed pending follow-up migrations. Bootstrap, storage internals, scripts, and tests are permanently allow-listed.
+- **SQL run** (`src/services/sql/`): Executes AI-generated queries against a package's physical database, read-only. `sqlGuards.ts` hard-enforces a single SELECT/WITH (`assertReadOnlySelect`, comment/literal-stripping so `;` and DML keywords inside strings are ignored). `connectionCache.ts` holds DB credentials **in memory only, per package, with a sliding TTL (~30 min) — never persisted, never logged, password redacted from every response** (`redact()`). `executors.ts` opens a server-side cursor per dialect (pg `DECLARE CURSOR`/`FETCH FORWARD` in a `READ ONLY` tx, oracle `resultSet.getRows`, mysql/mssql streams wrapped by `bufferedRowCursor.ts`) so the grid fetches chunks on demand without re-running the query; `resultRegistry.ts` tracks open cursors with TTL + LRU eviction. `sqlRunService.ts` ties it together (connect/run/fetchMore/close). The 4 live dialect adapters are tested only via `fakeExecutor.ts` — they need verification against real databases.
 - **Models** (`src/models/`): TypeScript interfaces + JSON Schema validation (`EntitySchema.ts`, `Dictionary.ts`)
 - **Middleware** (`src/middleware/`): Basic auth + JWT auth with role-based access (ADMIN, EDITOR, VIEWER)
 - **Kernel** (`src/kernel/config.ts`): Centralized configuration
 - **Adapters** (`src/adapters/`): `EntityFileAdapter.ts` wraps `@hamak/filesystem-server-impl`, `YamlFileInfoEnricher.ts` adds entity metadata to file listings
 - **Utils** (`src/utils/fileOperations.ts`): YAML file I/O, git commits via `@hamak/ui-remote-git-fs-backend`
+- **SQL routes** (`src/routes/sql.routes.ts`): `POST /api/sql/connect` (cache read-only creds; ADMIN/EDITOR), `GET`/`DELETE /api/sql/connection/:packageName`, `POST /api/sql/run` (guard→open cursor→first chunk; 400 guard / 409 no-connection / **422 db-error** for the auto-repair loop), `POST /api/sql/fetch` (next chunk by `resultId`; 410 if gone), `POST /api/sql/close`. `POST /api/ai/sql-repair` (in `routes/ai/chat.routes.ts`) takes a failed SELECT + DB error, grounds the model with the package physical schema, and returns a corrected query — no DB connection, no credentials.
 - **Framework routes**: `/fs` (filesystem via `@hamak/filesystem-server-impl`), `/api/git` (git via `@hamak/ui-remote-git-fs-backend`)
 
 ### Frontend — Microkernel Plugin Architecture
@@ -59,7 +61,7 @@ The frontend uses `@hamak/app-framework` microkernel with these plugins (registe
 - **remote-fs** — `@hamak/ui-remote-fs-impl` pointing to backend `/fs`
 - **remote-git** — `@hamak/ui-remote-git-fs-impl` pointing to backend `/api/git`
 - **notification** — Toast notifications with command-based API
-- **ai-assistance** — Chat panel, conversation history, prompt CRUD, slash commands; consumes data-dictionary services for grounding
+- **ai-assistance** — Chat panel, conversation history, prompt CRUD, slash commands; consumes data-dictionary services for grounding. Fenced ```sql blocks get a **▶ Run** button → `SqlRunModal` (read-only connect form prefilled from the package physical config, chunked results grid that fetches more on scroll, and a capped auto-repair loop that posts failures to `/api/ai/sql-repair` and re-runs). API client: `sqlRunApi` in `services/api.ts`.
 
 ### Frontend organization
 - **Kernel** (`src/kernel/`): `bootstrap.ts` (Host + plugin registration), `tokens.ts` (DI tokens)
