@@ -5,7 +5,7 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.14.0] — 2026-06-28
 
 ### Added
 - **Run generated SQL from the AI chat** — fenced ```sql blocks now carry a
@@ -18,7 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the corrected query is re-run — with the repair trail shown.
 - **Read-only SQL execution backend** (`/api/sql/connect|run|fetch|close`,
   `src/services/sql/`). Single-statement `SELECT`/`WITH` is hard-enforced;
-  per-dialect server-side cursors (pg/mysql/mssql/oracle) stream chunks on demand.
+  per-dialect server-side cursors (pg/mysql/mssql/oracle/sqlite) stream chunks on demand.
+- **SQLite dialect** for zero-setup local/dev querying via Node's built-in
+  `node:sqlite` — no external driver. The CLI auto-enables `--experimental-sqlite`
+  on Node versions that still gate it.
+- **Database drivers are optional** — `pg`/`mysql2`/`mssql`/`oracledb` are optional
+  peer dependencies, dynamically loaded with an actionable "npm install <driver>"
+  error when missing, so a default install carries none of them.
 
 ### Security
 - DB credentials for SQL execution are held **in memory only, per package, with a
@@ -27,8 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   connection or credentials (it consumes only model metadata).
 
 ### Notes
-- The four live dialect cursor adapters (pg/mysql/mssql/oracle) are tested via an
-  in-memory fake; they still need verification against real databases.
+- Cursor adapters are unit-tested via an in-memory fake. **Postgres and SQLite are
+  also verified end-to-end against real databases**; mysql/mssql/oracle still need
+  live verification.
 
 ## [1.13.1] — 2026-06-28
 
