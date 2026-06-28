@@ -114,7 +114,7 @@ describe('AIChatPanel — syntax highlighting (#129)', () => {
     // Prism wraps tokens in many <span>s, so the text isn't in a single
     // node. Verify by container.textContent.
     const btn = await screen.findByTestId('copy-code-button');
-    const blockRoot = btn.parentElement!;
+    const blockRoot = btn.closest('.group\\/code') as HTMLElement;
     expect(blockRoot.textContent).toContain('const x: number = 1;');
 
     // SyntaxHighlighter emits a <code class="language-ts"> wrapper —
@@ -177,7 +177,7 @@ describe('AIChatPanel — syntax highlighting (#129)', () => {
     // language error in its internal try/catch. (mermaid is now special-
     // cased to a rendered diagram; see AIChatPanel.mermaid.test.tsx.)
     const btn = await screen.findByTestId('copy-code-button');
-    const blockRoot = btn.parentElement!;
+    const blockRoot = btn.closest('.group\\/code') as HTMLElement;
     expect(blockRoot.textContent).toContain('MOVE X TO Y');
   });
 
@@ -190,7 +190,7 @@ describe('AIChatPanel — syntax highlighting (#129)', () => {
     try {
       renderPanel();
       const btn = await screen.findByTestId('copy-code-button');
-      const blockRoot = btn.parentElement!;
+      const blockRoot = btn.closest('.group\\/code') as HTMLElement;
       // PreTag="div" means the wrapper is a <div>, not <pre>. The
       // first child div carries the Prism inline-style background.
       const codeEl = blockRoot.querySelector('code.language-ts') as HTMLElement | null;

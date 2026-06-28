@@ -344,6 +344,42 @@ export const ormApi = {
   },
 };
 
+// Run-SQL feature (#run-sql) — connect to a package DB, run a read-only SELECT,
+// fetch results in chunks, and ask the AI to repair a failed query.
+export type SqlDialect = 'postgres' | 'mysql' | 'mssql' | 'oracle';
+export interface SqlRunChunk { resultId: string | null; columns: string[]; rows: unknown[][]; done: boolean; dialect?: SqlDialect }
+export interface SqlConnectInput { packageName: string; dialect: SqlDialect; connection: Record<string, unknown>; user: string; password: string }
+
+export const sqlRunApi = {
+  /** Stored non-secret physical config for a package (dialect/host/db) to prefill the connect form. */
+  getPhysicalConfig: async (pkg: string): Promise<{ dialect?: SqlDialect; connection?: Record<string, unknown> } | null> => {
+    try { const r = await api.get(`/services/${encodeURIComponent(pkg)}/physical-config`); return r.data?.data ?? null; }
+    catch { return null; }
+  },
+  getConnection: async (pkg: string): Promise<{ dialect: SqlDialect; connection: Record<string, unknown>; user: string } | null> => {
+    const r = await api.get(`/sql/connection/${encodeURIComponent(pkg)}`);
+    return r.data?.data ?? null;
+  },
+  connect: async (input: SqlConnectInput) => {
+    const r = await api.post('/sql/connect', input);
+    return r.data?.data;
+  },
+  disconnect: async (pkg: string) => { await api.delete(`/sql/connection/${encodeURIComponent(pkg)}`); },
+  run: async (packageName: string, sql: string, chunk?: number): Promise<SqlRunChunk> => {
+    const r = await api.post('/sql/run', { packageName, sql, ...(chunk ? { chunk } : {}) });
+    return r.data?.data;
+  },
+  fetchMore: async (resultId: string, n?: number): Promise<{ columns: string[]; rows: unknown[][]; done: boolean }> => {
+    const r = await api.post('/sql/fetch', { resultId, ...(n ? { n } : {}) });
+    return r.data?.data;
+  },
+  close: async (resultId: string) => { await api.post('/sql/close', { resultId }); },
+  repair: async (packageName: string, sql: string, error: string): Promise<{ sql: string }> => {
+    const r = await api.post('/ai/sql-repair', { packageName, sql, error });
+    return r.data?.data;
+  },
+};
+
 // Model-level metadata (#94)
 export const modelApi = {
   getMetadata: async () => {

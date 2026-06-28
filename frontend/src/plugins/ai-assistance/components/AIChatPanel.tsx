@@ -23,6 +23,8 @@ import { validateNavigatePath } from '../utils/validateNavigatePath';
 import { Chip } from '../../../components/ui';
 import { processMentions } from '../../../components/EntityMention';
 import MermaidDiagram from './MermaidDiagram';
+import SqlRunModal from './SqlRunModal';
+import { getAllPackageHierarchies } from '../../../services/api';
 import {
   SlashCommand,
   extractSlashToken,
@@ -206,11 +208,23 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const isDark = theme === 'dark';
   const location = useLocation();
   const pageContext = useMemo(() => getPageContext(location.pathname), [location.pathname]);
+  // #run-sql — resolve which package's DB to run against: the one in the URL, or
+  // the first package as a fallback (the modal shows the name so it can be cancelled).
+  const runSqlBlock = useCallback(async (sql: string) => {
+    let pkg = location.pathname.match(/\/packages\/([^/?#]+)/)?.[1];
+    if (!pkg) {
+      try { pkg = (await getAllPackageHierarchies())[0]?.name; } catch { /* ignore */ }
+    }
+    if (!pkg) { setError('Open a package first to run SQL against its database.'); return; }
+    setSqlToRun({ sql, packageName: pkg });
+  }, [location.pathname]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [input, setInput] = useState('');
   const [aiAvailable, setAiAvailable] = useState<boolean | null>(null);
+  // #run-sql — the ```sql block to run (Run button), opens SqlRunModal.
+  const [sqlToRun, setSqlToRun] = useState<{ sql: string; packageName: string } | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1787,21 +1801,35 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                             }
                             const isCopied = copiedKey === code;
                             const isCopyFailed = copyFailedKey === code;
+                            const isSql = lang === 'sql';
                             return (
                               <div className="relative group/code">
-                                <button
-                                  type="button"
-                                  className={`btn btn-xs btn-ghost absolute right-1 top-1 transition-opacity ${
-                                    isCopied || isCopyFailed
-                                      ? 'opacity-100'
-                                      : 'opacity-0 group-hover/code:opacity-100'
-                                  }`}
-                                  onClick={() => handleCopy(code)}
-                                  title={isCopyFailed ? 'Copy failed (clipboard unavailable)' : 'Copy'}
-                                  data-testid="copy-code-button"
-                                >
-                                  {isCopied ? 'Copied!' : isCopyFailed ? 'Copy failed' : 'Copy'}
-                                </button>
+                                <div className="absolute right-1 top-1 flex gap-1 z-10">
+                                  {isSql && (
+                                    <button
+                                      type="button"
+                                      className="btn btn-xs btn-primary opacity-90 hover:opacity-100"
+                                      onClick={() => runSqlBlock(code)}
+                                      title="Run this query against the package database"
+                                      data-testid="run-sql-button"
+                                    >
+                                      ▶ Run
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    className={`btn btn-xs btn-ghost transition-opacity ${
+                                      isCopied || isCopyFailed
+                                        ? 'opacity-100'
+                                        : 'opacity-0 group-hover/code:opacity-100'
+                                    }`}
+                                    onClick={() => handleCopy(code)}
+                                    title={isCopyFailed ? 'Copy failed (clipboard unavailable)' : 'Copy'}
+                                    data-testid="copy-code-button"
+                                  >
+                                    {isCopied ? 'Copied!' : isCopyFailed ? 'Copy failed' : 'Copy'}
+                                  </button>
+                                </div>
                                 <SyntaxHighlighter
                                   language={lang}
                                   style={isDark ? oneDark : oneLight}
@@ -2699,6 +2727,14 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
           </button>
         </div>
       </form>
+      {sqlToRun && (
+        <SqlRunModal
+          open={!!sqlToRun}
+          sql={sqlToRun.sql}
+          packageName={sqlToRun.packageName}
+          onClose={() => setSqlToRun(null)}
+        />
+      )}
     </div>
   );
 }
