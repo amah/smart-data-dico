@@ -1,6 +1,5 @@
 appId: com.hamak.smart-data-dico
 productName: Smart Data Dictionary
-homepage: https://github.com/amah/smart-data-dico   # required for .deb metadata
 directories:
   output: release
   buildResources: build

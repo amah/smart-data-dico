@@ -5,6 +5,7 @@
   "private": true,
   "description": "Electron desktop shell for Smart Data Dictionary (issue #206)",
   "author": "hamak",
+  "homepage": "https://github.com/amah/smart-data-dico",
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
