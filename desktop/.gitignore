@@ -1,3 +1,7 @@
 node_modules/
 dist/
 release/
+
+# The repo-root .gitignore ignores build/, but here build/ holds committed
+# packaging assets (afterPack.js, and later entitlements/icons). Re-include it.
+!build/
