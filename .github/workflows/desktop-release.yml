@@ -5,7 +5,6 @@ name: Desktop Release
 on:
   push:
     tags: ['desktop-v*']
-    branches: ['feat/desktop-electron-tier1']   # TEMP: build-only smoke test; revert before merge
   workflow_dispatch: {}
 
 permissions:
