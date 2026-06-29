@@ -1,5 +1,6 @@
 appId: com.hamak.smart-data-dico
 productName: Smart Data Dictionary
+homepage: https://github.com/amah/smart-data-dico   # required for .deb metadata
 directories:
   output: release
   buildResources: build
@@ -41,3 +42,6 @@ win:
 linux:
   target: [AppImage, deb]
   category: Development
+  maintainer: Amah <amah.ahite@gmail.com>   # required by the .deb (fpm) builder
+  # Clean filenames — avoids the scoped npm name (@hamak/…) leaking into artifacts.
+  artifactName: smart-data-dico-${version}-${arch}.${ext}
