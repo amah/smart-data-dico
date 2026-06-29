@@ -1,0 +1,151 @@
+name: Desktop Release
+
+# Tier 1 desktop installers (issue #206). Separate tag namespace from the npm
+# `v*` tags so a desktop release never collides with a package release.
+on:
+  push:
+    tags: ['desktop-v*']
+  workflow_dispatch: {}
+
+permissions:
+  contents: write          # the release job creates a GitHub Release
+
+jobs:
+  # ── Build the per-OS installers on native runners ──────────────────────────
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+            artifact: mac
+            glob: desktop/release/*.dmg
+          - os: windows-latest
+            platform: win
+            artifact: win
+            glob: desktop/release/*.exe
+          - os: ubuntu-latest
+            platform: linux
+            artifact: linux
+            glob: |
+              desktop/release/*.AppImage
+              desktop/release/*.deb
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'         # matches .nvmrc; node:sqlite stable
+          cache: 'npm'
+
+      # esbuild lives in the ROOT devDeps; frontend/backend have their own locks.
+      - name: Install dependencies (root + backend + frontend)
+        run: npm ci && cd backend && npm ci && cd ../frontend && npm ci
+
+      - name: Build server bundle + SPA
+        run: npm run build
+
+      - name: Install + build desktop main process
+        working-directory: desktop
+        run: npm ci && npm run build
+
+      - name: Package installers
+        working-directory: desktop
+        env:
+          # Don't let electron-builder hunt for a signing cert on the mac runner —
+          # we ship unsigned + ad-hoc (afterPack.js). Harmless on win/linux.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --${{ matrix.platform }} --publish never
+
+      # retention-days: 1 — these are throwaway hand-off files consumed by the
+      # release job in this same run, NOT the published downloads. Keeping the
+      # default 90 days would pile ~700 MB of scratch per build against the
+      # Actions storage quota (Optimization 2).
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.glob }}
+          retention-days: 1
+          if-no-files-found: error
+
+  # ── Sign the Windows exe via SignPath (free, OSS) — no-op until onboarded ───
+  sign-windows:
+    needs: build
+    runs-on: ubuntu-latest
+    # `secrets` can't be referenced in a job-level `if`, so we surface the token
+    # as env and gate the steps on it. When the org isn't onboarded yet, every
+    # step is skipped, the job still succeeds, and the release ships the UNSIGNED
+    # exe (users hit SmartScreen → "Run anyway"). Flip on once approved.
+    env:
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+      SIGNPATH_ORG_ID: ${{ secrets.SIGNPATH_ORG_ID }}
+    steps:
+      - name: Download unsigned Windows artifact
+        if: env.SIGNPATH_API_TOKEN != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: win
+          path: win
+
+      - name: Submit to SignPath
+        if: env.SIGNPATH_API_TOKEN != ''
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORG_ID }}
+          project-slug: smart-data-dico
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: nsis-exe
+          # The uploaded artifact's NAME (must match the build job above).
+          github-artifact-id: win
+          wait-for-completion: true
+          output-artifact-directory: win-signed
+
+      - name: Upload signed Windows artifact
+        if: env.SIGNPATH_API_TOKEN != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: win-signed
+          path: win-signed/*
+          retention-days: 1
+
+  # ── Assemble + publish the GitHub Release ──────────────────────────────────
+  release:
+    needs: [build, sign-windows]
+    runs-on: ubuntu-latest
+    # Only publish on a real tag; workflow_dispatch just exercises the build.
+    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4   # → mac/ win/ linux/ (win-signed/ if signed)
+
+      - name: Assemble release files (prefer signed exe)
+        run: |
+          mkdir -p dist
+          cp mac/*.dmg dist/ 2>/dev/null || true
+          cp linux/*.AppImage linux/*.deb dist/ 2>/dev/null || true
+          if compgen -G "win-signed/*.exe" > /dev/null; then
+            echo "Using SignPath-signed Windows exe"
+            cp win-signed/*.exe dist/
+          else
+            echo "::warning::SignPath not configured — shipping UNSIGNED Windows exe"
+            cp win/*.exe dist/ 2>/dev/null || true
+          fi
+          ls -lh dist/
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true
+          body: |
+            ### Install
+            - **macOS** (unsigned): open the dmg, drag to Applications, then right-click → **Open** (or System Settings → Privacy & Security → **Open Anyway**) the first time.
+            - **Windows**: run the installer. If SmartScreen appears: **More info → Run anyway** (signing via SignPath lands once the org is approved).
+            - **Linux**: the AppImage (`chmod +x` then run) or the `.deb`.
+
+            _Tier 1 build — manual download/install. To update, download the newer release._

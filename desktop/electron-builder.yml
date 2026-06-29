@@ -1,0 +1,43 @@
+appId: com.hamak.smart-data-dico
+productName: Smart Data Dictionary
+directories:
+  output: release
+  buildResources: build
+
+# Only the compiled main process goes into the asar archive.
+files:
+  - dist/**
+asar: true
+
+# The server runs as a real Node process and the SPA is read off disk by
+# express.static, so both must live OUTSIDE the asar. The CJS launcher and the
+# starter sample project ship as plain files too.
+extraResources:
+  - from: ../backend/dist
+    to: backend/dist
+  - from: ../frontend/dist
+    to: frontend/dist
+  - from: server-launch.cjs
+    to: server-launch.cjs
+  - from: ../samples/eshop
+    to: sample-project
+
+afterPack: ./build/afterPack.js
+publish: null            # Tier 1: the release workflow publishes, not electron-builder (Phase 3)
+
+mac:
+  target:
+    - { target: dmg, arch: [arm64, x64] }
+    # NOTE: the `zip` target is intentionally omitted in Tier 1. The zip exists
+    # only to feed electron-updater (background auto-update), which is Tier 2.
+    # Shipping it now would duplicate the whole app (~220 MB/release) for nothing.
+    # Re-add `{ target: zip, arch: [arm64, x64] }` when auto-update lands.
+  category: public.app-category.developer-tools
+  identity: null          # UNSIGNED — ad-hoc signature applied in afterPack so arm64 will run
+
+win:
+  target: [nsis]          # signed out-of-band by SignPath in CI (Phase 3)
+
+linux:
+  target: [AppImage, deb]
+  category: Development
