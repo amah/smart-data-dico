@@ -5,14 +5,22 @@ import { sqlRunApi, type SqlDialect, type SqlRunChunk } from '../../../services/
  * Runs a generated SQL query against a package's database and shows the result.
  * Flow: ensure a connection (prompt for credentials if needed) → run →
  *   - success → chunked results grid (fetch more on scroll, SQL-Developer style)
- *   - DB error → auto-repair loop (cap 3): ask the AI to fix it, re-run.
+ *   - syntax / DB error → surface the failed SQL + error back to the AI chat
+ *     thread (`ai-chat:sql-error`) so the agent explains it and proposes a fix.
  */
 
-const REPAIR_CAP = 3;
 const CHUNK = 100;
 
 type Phase = 'connect' | 'running' | 'results' | 'error';
-interface Attempt { sql: string; error: string }
+
+/**
+ * Hand a failed query + its DB error to the AI chat so the agent can analyse it
+ * and reply with a corrected query. Shared channel: SqlRunModal and the
+ * standalone SQL Console (#205) both dispatch this event; AIChatPanel listens.
+ */
+function sendSqlErrorToChat(sql: string, error: string, packageName: string): void {
+  window.dispatchEvent(new CustomEvent('ai-chat:sql-error', { detail: { sql, error, packageName } }));
+}
 
 function dialectFields(d: SqlDialect): { key: string; label: string; placeholder?: string }[] {
   if (d === 'sqlite') return [{ key: 'file', label: 'Database file', placeholder: '/path/to/db.sqlite' }];
@@ -47,7 +55,7 @@ export default function SqlRunModal({ open, sql, packageName, onClose }: {
   const [rows, setRows] = useState<unknown[][]>([]);
   const [loadingMore, setLoadingMore] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const [trail, setTrail] = useState<Attempt[]>([]);
+  const [sentToChat, setSentToChat] = useState(false);
   const [copied, setCopied] = useState(false);
 
   // connect form
@@ -60,31 +68,23 @@ export default function SqlRunModal({ open, sql, packageName, onClose }: {
   const resultIdRef = useRef<string | null>(null);
   const startedRef = useRef(false);
 
-  // Run + auto-repair loop. Returns when it lands on results or exhausts repairs.
-  const runWithRepair = useCallback(async (initialSql: string) => {
-    setBusy(true); setPhase('running'); setErrorMsg(''); setTrail([]); setRows([]);
-    let attemptSql = initialSql;
-    const attempts: Attempt[] = [];
-    for (let i = 0; i <= REPAIR_CAP; i++) {
-      try {
-        const res = await sqlRunApi.run(packageName, attemptSql, CHUNK);
-        resultIdRef.current = res.resultId;
-        setChunk(res); setRows(res.rows); setCurrentSql(attemptSql); setTrail(attempts);
-        setPhase('results'); setBusy(false);
-        return;
-      } catch (e: any) {
-        const { status, code, message } = errOf(e);
-        if (code === 'no-connection' || status === 409) { setPhase('connect'); setBusy(false); return; }
-        // a real DB / guard error → try to repair, unless we're out of budget
-        attempts.push({ sql: attemptSql, error: message });
-        if (i >= REPAIR_CAP) { setErrorMsg(message); setTrail(attempts); setPhase('error'); setBusy(false); return; }
-        try {
-          const fixed = await sqlRunApi.repair(packageName, attemptSql, message);
-          if (!fixed?.sql || fixed.sql.trim() === attemptSql.trim()) { setErrorMsg(message); setTrail(attempts); setPhase('error'); setBusy(false); return; }
-          attemptSql = fixed.sql;
-          setTrail([...attempts]); // show progress
-        } catch { setErrorMsg(message); setTrail(attempts); setPhase('error'); setBusy(false); return; }
-      }
+  // Run once. On a syntax/DB error, hand the failure to the AI chat thread so the
+  // agent can explain it and reply with a corrected query (which renders its own
+  // ▶ Run button). No silent retries — the fix happens conversationally.
+  const runQuery = useCallback(async (runSql: string) => {
+    setBusy(true); setPhase('running'); setErrorMsg(''); setSentToChat(false); setRows([]);
+    try {
+      const res = await sqlRunApi.run(packageName, runSql, CHUNK);
+      resultIdRef.current = res.resultId;
+      setChunk(res); setRows(res.rows); setCurrentSql(runSql);
+      setPhase('results'); setBusy(false);
+    } catch (e: any) {
+      const { status, code, message } = errOf(e);
+      if (code === 'no-connection' || status === 409) { setPhase('connect'); setBusy(false); return; }
+      // syntax / guard / DB error → surface it to the assistant for analysis + fix
+      setCurrentSql(runSql); setErrorMsg(message);
+      sendSqlErrorToChat(runSql, message, packageName);
+      setSentToChat(true); setPhase('error'); setBusy(false);
     }
   }, [packageName]);
 
@@ -100,24 +100,24 @@ export default function SqlRunModal({ open, sql, packageName, onClose }: {
       ]);
       if (phys?.dialect) setDialect(phys.dialect);
       if (phys?.connection) setConn(Object.fromEntries(Object.entries(phys.connection).map(([k, v]) => [k, String(v ?? '')])));
-      if (existing) { setUser(existing.user); await runWithRepair(sql); }
+      if (existing) { setUser(existing.user); await runQuery(sql); }
       else setPhase('connect');
     })();
-  }, [open, sql, packageName, runWithRepair]);
+  }, [open, sql, packageName, runQuery]);
 
   // reset when closed so the next open starts fresh
   useEffect(() => {
     if (open) return;
     startedRef.current = false;
     if (resultIdRef.current) { sqlRunApi.close(resultIdRef.current).catch(() => {}); resultIdRef.current = null; }
-    setPhase('running'); setChunk(null); setRows([]); setErrorMsg(''); setTrail([]); setPassword('');
+    setPhase('running'); setChunk(null); setRows([]); setErrorMsg(''); setSentToChat(false); setPassword('');
   }, [open]);
 
   const doConnect = async () => {
     setBusy(true); setErrorMsg('');
     try {
       await sqlRunApi.connect({ packageName, dialect, connection: conn, user, password });
-      await runWithRepair(currentSql);
+      await runQuery(currentSql);
     } catch (e: any) {
       setErrorMsg(errOf(e).message); setBusy(false);
     }
@@ -188,7 +188,6 @@ export default function SqlRunModal({ open, sql, packageName, onClose }: {
         {phase === 'running' && (
           <div className="flex items-center gap-2 text-sm py-6 justify-center text-base-content/70" data-testid="sql-running">
             <span className="loading loading-spinner loading-sm" /> Running query…
-            {trail.length > 0 && <span className="text-xs">(repair attempt {trail.length})</span>}
           </div>
         )}
 
@@ -197,7 +196,6 @@ export default function SqlRunModal({ open, sql, packageName, onClose }: {
             <div className="flex items-center gap-2 mb-1 text-xs text-base-content/60">
               <span data-testid="sql-rowcount">{rows.length} row{rows.length === 1 ? '' : 's'}{chunk.done ? '' : '+'}</span>
               <span>· {chunk.columns.length} columns</span>
-              {trail.length > 0 && <span className="badge badge-xs badge-warning badge-outline">auto-repaired ×{trail.length}</span>}
               <span className="flex-1" />
               <button className="btn btn-xs btn-ghost" onClick={copyCsv}>{copied ? 'Copied!' : 'Copy CSV'}</button>
             </div>
@@ -218,18 +216,17 @@ export default function SqlRunModal({ open, sql, packageName, onClose }: {
 
         {phase === 'error' && (
           <div className="space-y-2" data-testid="sql-error">
-            <div className="text-error text-sm">Query failed{trail.length > 1 ? ` after ${trail.length} attempts` : ''}:</div>
+            <div className="text-error text-sm">Query failed:</div>
             <pre className="text-[11px] bg-error/10 text-error rounded p-2 overflow-x-auto">{errorMsg}</pre>
-            {trail.length > 0 && (
-              <details className="text-xs"><summary className="cursor-pointer text-base-content/60">repair trail ({trail.length})</summary>
-                <ol className="list-decimal ml-5 mt-1 space-y-1">
-                  {trail.map((a, i) => <li key={i}><pre className="text-[10px] whitespace-pre-wrap">{a.sql}</pre><span className="text-error/80">→ {a.error}</span></li>)}
-                </ol>
-              </details>
+            {sentToChat && (
+              <div className="text-xs text-base-content/70 flex items-start gap-1" data-testid="sql-sent-to-chat">
+                <span>↗</span>
+                <span>Sent to the assistant — it will explain the error and propose a corrected query in the chat. Close this dialog to view it.</span>
+              </div>
             )}
             <div className="flex justify-end gap-2">
-              <button className="btn btn-sm" onClick={onClose}>Close</button>
-              <button className="btn btn-sm btn-primary" onClick={() => runWithRepair(currentSql)} disabled={busy}>Retry</button>
+              <button className="btn btn-sm" onClick={() => runQuery(currentSql)} disabled={busy}>Retry</button>
+              <button className="btn btn-sm btn-primary" onClick={onClose} data-testid="sql-view-in-chat">View in chat</button>
             </div>
           </div>
         )}

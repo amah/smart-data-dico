@@ -1094,6 +1094,39 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     }
   }, [messages, navigate, saveConversation, policy, includePageContext, pageContext, autonomous, mode]);
 
+  // #sql-error-to-agent — the Run modal / SQL Console (#205) post a failed query
+  // + its DB error here; feed it into the conversation so the agent sees the
+  // failure and replies with a corrected read-only query (its ```sql block gets
+  // its own ▶ Run button). Shared channel: both surfaces dispatch this event.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { sql?: string; error?: string; packageName?: string } | undefined;
+      const sql = detail?.sql?.trim();
+      const error = detail?.error?.trim();
+      if (!sql || !error) return;
+      const where = detail?.packageName ? `the \`${detail.packageName}\` database` : 'the package database';
+      const msg = [
+        `I ran this SQL against ${where} and it failed.`,
+        '',
+        '**Error**',
+        '```',
+        error,
+        '```',
+        '',
+        '**Failed query**',
+        '```sql',
+        sql,
+        '```',
+        '',
+        'Explain the cause briefly, then provide a corrected single read-only SELECT as a SQL code block.',
+      ].join('\n');
+      window.dispatchEvent(new CustomEvent('ai-chat:open')); // reveal the panel (e.g. when triggered from the console)
+      void sendToAI(msg);
+    };
+    window.addEventListener('ai-chat:sql-error', handler);
+    return () => window.removeEventListener('ai-chat:sql-error', handler);
+  }, [sendToAI]);
+
   const stopStream = useCallback(() => {
     abortControllerRef.current?.abort();
   }, []);

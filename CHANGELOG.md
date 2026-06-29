@@ -5,6 +5,19 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **SQL errors now go back to the AI agent conversationally.** When a query run
+  from the chat fails (syntax / DB error), the failed SQL and the error are posted
+  into the chat thread (via an `ai-chat:sql-error` event) so the assistant explains
+  the cause and replies with a corrected query — whose ```sql block carries its own
+  ▶ Run button. This replaces the previous silent, capped auto-repair loop.
+
+### Removed
+- `POST /api/ai/sql-repair` and the client `sqlRunApi.repair` helper (superseded by
+  the conversational error-to-agent flow above).
+
 ## [1.14.0] — 2026-06-28
 
 ### Added

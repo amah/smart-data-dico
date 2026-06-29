@@ -44,7 +44,7 @@ Backend is a plain Express app; the framework provides only the FS and git route
 - **Kernel** (`src/kernel/config.ts`): Centralized configuration
 - **Adapters** (`src/adapters/`): `EntityFileAdapter.ts` wraps `@hamak/filesystem-server-impl`, `YamlFileInfoEnricher.ts` adds entity metadata to file listings
 - **Utils** (`src/utils/fileOperations.ts`): YAML file I/O, git commits via `@hamak/ui-remote-git-fs-backend`
-- **SQL routes** (`src/routes/sql.routes.ts`): `POST /api/sql/connect` (cache read-only creds; ADMIN/EDITOR), `GET`/`DELETE /api/sql/connection/:packageName`, `POST /api/sql/run` (guard→open cursor→first chunk; 400 guard / 409 no-connection / **422 db-error** for the auto-repair loop), `POST /api/sql/fetch` (next chunk by `resultId`; 410 if gone), `POST /api/sql/close`. `POST /api/ai/sql-repair` (in `routes/ai/chat.routes.ts`) takes a failed SELECT + DB error, grounds the model with the package physical schema, and returns a corrected query — no DB connection, no credentials.
+- **SQL routes** (`src/routes/sql.routes.ts`): `POST /api/sql/connect` (cache read-only creds; ADMIN/EDITOR), `GET`/`DELETE /api/sql/connection/:packageName`, `POST /api/sql/run` (guard→open cursor→first chunk; 400 guard / 409 no-connection / **422 db-error**, which the client surfaces to the AI chat for analysis), `POST /api/sql/fetch` (next chunk by `resultId`; 410 if gone), `POST /api/sql/close`.
 - **Framework routes**: `/fs` (filesystem via `@hamak/filesystem-server-impl`), `/api/git` (git via `@hamak/ui-remote-git-fs-backend`)
 
 ### Frontend — Microkernel Plugin Architecture
@@ -61,7 +61,7 @@ The frontend uses `@hamak/app-framework` microkernel with these plugins (registe
 - **remote-fs** — `@hamak/ui-remote-fs-impl` pointing to backend `/fs`
 - **remote-git** — `@hamak/ui-remote-git-fs-impl` pointing to backend `/api/git`
 - **notification** — Toast notifications with command-based API
-- **ai-assistance** — Chat panel, conversation history, prompt CRUD, slash commands; consumes data-dictionary services for grounding. Fenced ```sql blocks get a **▶ Run** button → `SqlRunModal` (read-only connect form prefilled from the package physical config, chunked results grid that fetches more on scroll, and a capped auto-repair loop that posts failures to `/api/ai/sql-repair` and re-runs). API client: `sqlRunApi` in `services/api.ts`.
+- **ai-assistance** — Chat panel, conversation history, prompt CRUD, slash commands; consumes data-dictionary services for grounding. Fenced ```sql blocks get a **▶ Run** button → `SqlRunModal` (read-only connect form prefilled from the package physical config, chunked results grid that fetches more on scroll, and on a syntax/DB error surfaces the failed query + error into the chat thread via an `ai-chat:sql-error` event, so the agent explains it and replies with a corrected query). API client: `sqlRunApi` in `services/api.ts`.
 
 ### Frontend organization
 - **Kernel** (`src/kernel/`): `bootstrap.ts` (Host + plugin registration), `tokens.ts` (DI tokens)

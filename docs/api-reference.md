@@ -559,7 +559,7 @@ POST /api/sql/run
 `resultId` is `null` when all rows fit in the first chunk. Status codes:
 - `400` — failed the read-only/single-statement guard
 - `409` — no cached connection for the package (`code: "no-connection"`)
-- `422` — database error, body `{ "error": "<db message>" }` (drives the AI auto-repair loop)
+- `422` — database error, body `{ "error": "<db message>" }`. The AI chat client surfaces this (with the failed SQL) into the conversation so the assistant can explain it and propose a corrected query.
 
 #### Fetch / Close
 
@@ -567,20 +567,6 @@ POST /api/sql/run
 POST /api/sql/fetch   // { "resultId": "r-ab12", "chunk": 100 } → { data: { rows, done } }; 410 if the cursor expired
 POST /api/sql/close   // { "resultId": "r-ab12" } → closes the cursor
 ```
-
-#### AI SQL Repair
-
-Given a failed query and its database error, returns a corrected read-only query.
-Grounds the model with the package physical schema; never touches the DB connection
-or credentials.
-
-```http
-POST /api/ai/sql-repair
-```
-
-**Body**: `{ "packageName": "order-service", "sql": "SELECT ...", "error": "<db message>" }`
-
-**Response**: `{ "data": { "sql": "SELECT ... -- corrected" } }`
 
 ## Rate Limiting
 

@@ -286,12 +286,13 @@ the package, and expire after about 30 minutes of inactivity. They are never sav
 to disk, never logged, and the password is never returned in any response. Use the
 account's read-only role.
 
-### Automatic error repair
+### Errors go back to the assistant
 
-If the query fails (for example, a wrong column name), the assistant automatically
-sends the SQL and the database error back to the model, applies a corrected query,
-and re-runs it — up to three attempts. If it still fails, the error and the list of
-attempts are shown so you can adjust the query by hand.
+If the query fails (for example, a wrong column name), the failed SQL and the
+database error are posted back into the chat. The assistant explains what went
+wrong and replies with a corrected query — which carries its own **▶ Run** button,
+so you can run the fix in one click. Repeat as needed; each failure is handed back
+to the assistant conversationally.
 
 ## API Reference
 

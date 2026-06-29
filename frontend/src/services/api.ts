@@ -374,10 +374,6 @@ export const sqlRunApi = {
     return r.data?.data;
   },
   close: async (resultId: string) => { await api.post('/sql/close', { resultId }); },
-  repair: async (packageName: string, sql: string, error: string): Promise<{ sql: string }> => {
-    const r = await api.post('/ai/sql-repair', { packageName, sql, error });
-    return r.data?.data;
-  },
 };
 
 // Model-level metadata (#94)
