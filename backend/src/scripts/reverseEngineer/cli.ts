@@ -9,7 +9,8 @@
  * (JIRA_BASE_URL / JIRA_TOKEN | JIRA_USER+JIRA_PASSWORD) or, if unset, from
  * ~/.dico-app/dico-app.json — unless --no-jira is passed.
  */
-import { runReverseEngineer } from '../../services/reverseEngineer/reverseEngineerService.js';
+import fs from 'fs';
+import { runReverseEngineer, runReverseEngineerMulti, type RepoSpec, type ProgressFn } from '../../services/reverseEngineer/reverseEngineerService.js';
 import type { JiraConfig } from '../../services/reverseEngineer/jira.js';
 import type { ConfluenceConfig } from '../../services/reverseEngineer/confluence.js';
 import { getConfigSection } from '../../utils/appDir.js';
@@ -27,9 +28,10 @@ const out = arg('out', '.dico-re');
 const emitDico = arg('emit-dico');
 const update = flag('update');
 const synthesisMode = arg('synthesis'); // 'review' | 'direct'
+const manifest = arg('manifest'); // JSON file: [{name,repoRoot,changelog,srcDir}] → multi-repo
 
-if (!repo || !changelog) {
-  process.stderr.write('Usage: --repo <path> --changelog <master-changelog> [--src <java-dir>] [--out <dir>] [--no-jira]\n');
+if (!manifest && (!repo || !changelog)) {
+  process.stderr.write('Usage: --repo <path> --changelog <file> [--src <dir>] [--out <dir>] [--emit-dico <dir>] [--synthesis review|direct] [--update] [--no-jira] [--no-confluence]\n   or: --manifest <repos.json>  (multi-repo: [{name,repoRoot,changelog,srcDir}])\n');
   process.exit(2);
 }
 
@@ -66,21 +68,24 @@ function confluenceConfig(): ConfluenceConfig | undefined {
   return saved?.enabled && saved.baseUrl && saved.spaceKey ? saved : undefined;
 }
 
-const { summary, drift } = await runReverseEngineer({
-  repoRoot: repo,
-  changelog,
-  srcDir: src,
+const onProgress: ProgressFn = (e) => { process.stderr.write(`  · ${e.stage}/${e.status}${e.detail ? ' — ' + e.detail : ''}\n`); };
+const shared = {
   jira: jiraConfig(),
   confluence: confluenceConfig(),
   out,
   emitDico,
   update,
-  synthesis: synthesisMode === 'review' || synthesisMode === 'direct' ? { mode: synthesisMode } : undefined,
-  onProgress: (e) => process.stderr.write(`  · ${e.stage}/${e.status}${e.detail ? ' — ' + e.detail : ''}\n`),
-});
+  synthesis: synthesisMode === 'review' || synthesisMode === 'direct' ? { mode: synthesisMode as 'review' | 'direct' } : undefined,
+  onProgress,
+};
+
+const { summary, drift, crossRepo } = manifest
+  ? await runReverseEngineerMulti({ repos: JSON.parse(fs.readFileSync(manifest, 'utf-8')) as RepoSpec[], ...shared })
+  : await runReverseEngineer({ repoRoot: repo!, changelog: changelog!, srcDir: src, ...shared });
+
 const lines = [
   '',
-  `  Reverse-engineer — ${repo}`,
+  `  Reverse-engineer — ${manifest ? `multi-repo (${summary.repos?.join(', ')})` : repo}`,
   `  changeSets:  ${summary.changeSets}`,
   `  elements:    ${summary.elements}`,
   `  events:      ${summary.events}`,
@@ -94,6 +99,18 @@ const lines = [
   `  dico project:${summary.dicoProject ? ' ' + summary.dicoProject : ' (not emitted)'}`,
   `  synthesis:   ${summary.synthesisDir ? summary.synthesisDir : '(not generated)'}`,
 ];
+if (crossRepo) {
+  lines.push(
+    '',
+    `  Cross-repo (${crossRepo.repos.join(', ')}):`,
+    `    shared entities:   ${crossRepo.sharedEntities.length}`,
+    `    cross-repo rels:   ${crossRepo.crossRepoRelationships.length}`,
+    `    conflicts:         ${crossRepo.conflicts.length}`,
+    `    dangling refs:     ${crossRepo.danglingReferences.length}`,
+  );
+  for (const r of crossRepo.crossRepoRelationships) lines.push(`    • ${r.from} → ${r.to}  (${r.fromRepos.join(',')} → ${r.toRepos.join(',')})`);
+  for (const d of crossRepo.danglingReferences) lines.push(`    • dangling: ${d.relationship.replace('relationship:', '')} → ${d.target} (not found in any repo)`);
+}
 if (drift.length) {
   lines.push('', '  Drift findings:');
   for (const d of drift) lines.push(`    • [${d.kind}] ${d.element} — ${d.detail}`);

@@ -89,6 +89,7 @@ function buildDesired(elements: CIRElement[], issues: Map<string, JiraIssue>) {
     if (t) m.push({ name: 're.ticket', value: t });
     if (commit) m.push({ name: 're.commit', value: commit });
     if (typeof el.confidence === 'number' && el.confidence < 1) m.push({ name: 're.confidence', value: el.confidence });
+    if (el.repos?.length) m.push({ name: 're.repos', value: el.repos.join(', ') });
     if (el.flags?.length) m.push({ name: 're.drift', value: el.flags.join(', ') });
     return m;
   };

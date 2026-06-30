@@ -378,7 +378,15 @@ export const sqlRunApi = {
 
 // Reverse-engineer plugin (#reverse-engineer) — mine a repo's Liquibase changelog
 // + git history into data-dictionary CIR elements/events.
-export interface ReverseEngineerInput { repoRoot: string; changelog: string; srcDir?: string; out?: string; emitDico?: string; update?: boolean; synthesis?: 'review' | 'direct'; enrich?: boolean }
+export interface RepoSpecInput { name?: string; repoRoot: string; changelog: string; srcDir?: string }
+export interface ReverseEngineerInput { repoRoot?: string; changelog?: string; srcDir?: string; repos?: RepoSpecInput[]; out?: string; emitDico?: string; update?: boolean; synthesis?: 'review' | 'direct'; enrich?: boolean }
+export interface CrossRepoReport {
+  repos: string[];
+  sharedEntities: Array<{ table: string; repos: string[] }>;
+  conflicts: Array<{ element: string; repos: string[]; detail: string }>;
+  crossRepoRelationships: Array<{ relationship: string; from: string; to: string; fromRepos: string[]; toRepos: string[] }>;
+  danglingReferences: Array<{ relationship: string; target: string }>;
+}
 export interface DriftFinding { element: string; kind: string; detail: string }
 export interface JiraConfigView { baseUrl: string; authType: 'token' | 'basic'; user: string; token: string; hasPassword: boolean; enabled: boolean; configPath?: string }
 export interface JiraConfigInput { baseUrl: string; authType: 'token' | 'basic'; user?: string; token?: string; password?: string; enabled: boolean }
@@ -396,10 +404,11 @@ export interface ReverseEngineerElement {
   flags?: string[];
 }
 export interface ReverseEngineerResult {
-  summary: { elements: number; events: number; changeSets: number; withCommit: number; jpaFiles: number; driftFindings: number; jiraIssues: number; confluencePages: number; tickets: string[]; storeDir?: string; dicoProject?: string; synthesisDir?: string };
+  summary: { elements: number; events: number; changeSets: number; withCommit: number; jpaFiles: number; driftFindings: number; jiraIssues: number; confluencePages: number; tickets: string[]; storeDir?: string; dicoProject?: string; synthesisDir?: string; repos?: string[]; crossRepoRelationships?: number; sharedEntities?: number; conflicts?: number; danglingReferences?: number };
   elements: ReverseEngineerElement[];
   events: Array<Record<string, unknown>>;
   drift: DriftFinding[];
+  crossRepo?: CrossRepoReport;
 }
 
 export const reverseEngineerApi = {

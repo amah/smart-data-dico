@@ -40,6 +40,32 @@ Sidebar → **Reverse-engineer** (`/reverse-engineer`). Fill the form:
 
 Click **Run extraction**.
 
+### Multi-repo (cross-repo analysis)
+
+Tick **Multi-repo (cross-repo analysis)** to mine several repos in one run. A JSON
+field replaces the single-repo inputs:
+
+```json
+[
+  { "name": "orders-svc",   "repoRoot": "/srv/repos/orders",   "changelog": "db/db.changelog-master.yaml", "srcDir": "src/main/java" },
+  { "name": "customer-svc", "repoRoot": "/srv/repos/customer", "changelog": "db/db.changelog-master.yaml" }
+]
+```
+
+Each repo is extracted independently, then **resolved across repos**:
+- **Shared entities** — the same physical table defined in more than one repo
+  (records all repos; flags `cross-repo-conflict` if the column definitions differ).
+- **Cross-repo relationships** — a FK whose referenced table lives in *another*
+  repo (e.g. `orders.customer_id` → `customer` in customer-svc) is flagged
+  `cross-repo` with the from/to repos.
+- **Dangling references** — a FK to a table not found in *any* analysed repo
+  (flagged `cross-repo-dangling`).
+
+Results show as chips (repos / cross-repo rels / dangling / conflicts) and a
+**Cross-repo analysis** list; the full report is written to `cross-repo.json` in
+the store, and each element carries its `repos` (→ `re.repos` in the dico). The
+CLI equivalent is `--manifest <repos.json>`.
+
 ## 3. Watch the live progress panel
 
 Stages stream as they complete:
