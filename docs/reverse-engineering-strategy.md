@@ -191,7 +191,13 @@ the next UI increments.
    (`GET/POST /api/reverse-engineer/jira-config`, `POST …/jira-test`); run
    enriches when `enabled` + opt-in. (Cloud/ADF + Confluence/PR are the remaining
    enrichers.)
-4. Multi-repo join + cross-repo entity resolution.
+4. **Multi-repo join + cross-repo entity resolution (done).** `runReverseEngineerMulti`
+   extracts each repo, then `combineRepos` resolves entities by physical name and
+   classifies relationships against the global entity set: **cross-repo** (FK to a
+   table in another repo), **dangling** (target in no repo), **shared entity** /
+   **conflict** (same table across repos, differing columns). Emits one combined
+   project + a `cross-repo.json` report; each element carries `repos`. CLI
+   `--manifest`, API `repos[]`, UI multi-repo toggle.
 5. **Confluence dump (done, Server/DC) + UI.** `confluence.ts`: dumps a
    configured space (paged, bounded by `limit`) → `enrichment/confluence/<id>.md`
    (HTML→text + frontmatter); config in Settings; runs when enabled. PR

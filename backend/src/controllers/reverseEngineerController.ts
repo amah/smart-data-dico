@@ -6,9 +6,10 @@
  *    (mode 0600), secret redacted on GET.
  */
 import type { Request, Response } from 'express';
-import { runReverseEngineer, type ReverseEngineerOptions } from '../services/reverseEngineer/reverseEngineerService.js';
+import { runReverseEngineer, runReverseEngineerMulti, type ReverseEngineerOptions, type MultiRepoOptions, type RepoSpec, type ProgressFn } from '../services/reverseEngineer/reverseEngineerService.js';
 import { testJira, type JiraConfig } from '../services/reverseEngineer/jira.js';
 import { testConfluence, type ConfluenceConfig } from '../services/reverseEngineer/confluence.js';
+import { detectMaven, detectionToPlan } from '../services/reverseEngineer/mavenDetect.js';
 import { getConfigSection, setConfigSection, CONFIG_FILE } from '../utils/appDir.js';
 import { config } from '../kernel/config.js';
 import { logger } from '../utils/logger.js';
@@ -23,38 +24,51 @@ const localOnly = (res: Response): boolean => {
 
 const mask = (s?: string) => (s ? `${s.slice(0, 4)}…${s.slice(-2)}` : '');
 
-/** Build run options from the request body (+ saved Jira/Confluence config). */
-function buildOptions(body: Record<string, unknown> | undefined): { opts?: ReverseEngineerOptions; error?: string } {
-  const b = body ?? {};
-  if (!b.repoRoot || typeof b.repoRoot !== 'string') return { error: 'repoRoot (string) is required' };
-  if (!b.changelog || typeof b.changelog !== 'string') return { error: 'changelog (string) is required' };
+/** Shared enrichment/output fields from the request body (+ saved Jira/Confluence config). */
+function sharedOpts(b: Record<string, unknown>) {
   const on = b.enrich !== false; // enrichment opts in by default
   const jiraCfg = getConfigSection<JiraConfig>('jira');
   const confCfg = getConfigSection<ConfluenceConfig>('confluence');
-  const synthMode = b.synthesis === 'review' || b.synthesis === 'direct' ? b.synthesis : undefined;
+  const synthesis = b.synthesis === 'review' || b.synthesis === 'direct' ? { mode: b.synthesis as 'review' | 'direct' } : undefined;
   return {
-    opts: {
-      repoRoot: b.repoRoot,
-      changelog: b.changelog,
-      srcDir: typeof b.srcDir === 'string' ? b.srcDir : undefined,
-      out: typeof b.out === 'string' ? b.out : undefined,
-      emitDico: typeof b.emitDico === 'string' && b.emitDico ? b.emitDico : undefined,
-      update: b.update === true,
-      jira: on && jiraCfg?.enabled && jiraCfg.baseUrl ? jiraCfg : undefined,
-      confluence: on && confCfg?.enabled && confCfg.baseUrl && confCfg.spaceKey ? confCfg : undefined,
-      synthesis: synthMode ? { mode: synthMode } : undefined,
-    },
+    out: typeof b.out === 'string' ? b.out : undefined,
+    emitDico: typeof b.emitDico === 'string' && b.emitDico ? b.emitDico : undefined,
+    update: b.update === true,
+    jira: on && jiraCfg?.enabled && jiraCfg.baseUrl ? jiraCfg : undefined,
+    confluence: on && confCfg?.enabled && confCfg.baseUrl && confCfg.spaceKey ? confCfg : undefined,
+    synthesis,
   };
 }
 
-/** POST /api/reverse-engineer/run — extract CIR (+ drift, + Jira/Confluence enrichment). */
+/** Build single- or multi-repo run options. A `repos[]` array selects multi-repo. */
+function buildOptions(body: Record<string, unknown> | undefined): { single?: ReverseEngineerOptions; multi?: MultiRepoOptions; error?: string } {
+  const b = body ?? {};
+  const shared = sharedOpts(b);
+  if (Array.isArray(b.repos)) {
+    const repos: RepoSpec[] = [];
+    for (const r of b.repos as Record<string, unknown>[]) {
+      if (!r?.repoRoot || typeof r.repoRoot !== 'string') return { error: 'each repo needs repoRoot (string)' };
+      if (!r.changelog || typeof r.changelog !== 'string') return { error: 'each repo needs changelog (string)' };
+      repos.push({ name: typeof r.name === 'string' ? r.name : undefined, repoRoot: r.repoRoot, changelog: r.changelog, srcDir: typeof r.srcDir === 'string' ? r.srcDir : undefined });
+    }
+    if (!repos.length) return { error: 'repos[] is empty' };
+    return { multi: { repos, ...shared } };
+  }
+  if (!b.repoRoot || typeof b.repoRoot !== 'string') return { error: 'repoRoot (string) is required (or provide repos[] for multi-repo)' };
+  if (!b.changelog || typeof b.changelog !== 'string') return { error: 'changelog (string) is required' };
+  return { single: { repoRoot: b.repoRoot, changelog: b.changelog, srcDir: typeof b.srcDir === 'string' ? b.srcDir : undefined, ...shared } };
+}
+
+const dispatch = (single?: ReverseEngineerOptions, multi?: MultiRepoOptions, onProgress?: ProgressFn) =>
+  multi ? runReverseEngineerMulti({ ...multi, onProgress }) : runReverseEngineer({ ...single!, onProgress });
+
+/** POST /api/reverse-engineer/run — single repo, or multi-repo when body has repos[]. */
 export const reverseEngineerRun = async (req: Request, res: Response) => {
   if (!localOnly(res)) return;
-  const { opts, error } = buildOptions(req.body);
+  const { single, multi, error } = buildOptions(req.body);
   if (error) return res.status(400).json({ message: error });
   try {
-    const result = await runReverseEngineer(opts!);
-    res.json({ message: 'Extracted', data: result });
+    res.json({ message: 'Extracted', data: await dispatch(single, multi) });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     logger.warn(`Reverse-engineer failed: ${message}`);
@@ -62,26 +76,35 @@ export const reverseEngineerRun = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * POST /api/reverse-engineer/run-stream — same run, but streams NDJSON progress
- * events ({type:'progress', stage, status, …}) live for the UI analysis panel,
- * then a final {type:'result', data} (or {type:'error'}).
- */
+/** POST /api/reverse-engineer/run-stream — same, streaming NDJSON progress then result. */
 export const reverseEngineerRunStream = async (req: Request, res: Response) => {
   if (!localOnly(res)) return;
-  const { opts, error } = buildOptions(req.body);
+  const { single, multi, error } = buildOptions(req.body);
   if (error) return res.status(400).json({ message: error });
   res.setHeader('Content-Type', 'application/x-ndjson');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
-  res.setHeader('X-Accel-Buffering', 'no'); // disable proxy buffering so events flush live
+  res.setHeader('X-Accel-Buffering', 'no');
   const write = (o: unknown) => res.write(JSON.stringify(o) + '\n');
   try {
-    const result = await runReverseEngineer({ ...opts!, onProgress: (e) => write({ type: 'progress', ...e }) });
+    const result = await dispatch(single, multi, (e) => write({ type: 'progress', ...e }));
     write({ type: 'result', data: result });
   } catch (err: unknown) {
     write({ type: 'error', error: err instanceof Error ? err.message : String(err) });
   } finally {
     res.end();
+  }
+};
+
+/** POST /api/reverse-engineer/detect — auto-detect Liquibase changelogs in a Maven project. */
+export const detectMavenChangelogs = (req: Request, res: Response) => {
+  if (!localOnly(res)) return;
+  const { repoRoot, includeTest } = req.body ?? {};
+  if (!repoRoot || typeof repoRoot !== 'string') return res.status(400).json({ message: 'repoRoot (string) is required' });
+  try {
+    const result = detectMaven(repoRoot);
+    res.json({ data: { ...result, plan: detectionToPlan(result, { includeTest: includeTest === true }) } });
+  } catch (err: unknown) {
+    res.status(422).json({ message: 'Detection failed', error: err instanceof Error ? err.message : String(err) });
   }
 };
 

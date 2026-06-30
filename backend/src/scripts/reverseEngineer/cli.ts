@@ -9,7 +9,9 @@
  * (JIRA_BASE_URL / JIRA_TOKEN | JIRA_USER+JIRA_PASSWORD) or, if unset, from
  * ~/.dico-app/dico-app.json — unless --no-jira is passed.
  */
-import { runReverseEngineer } from '../../services/reverseEngineer/reverseEngineerService.js';
+import fs from 'fs';
+import { runReverseEngineer, runReverseEngineerMulti, type RepoSpec, type ProgressFn } from '../../services/reverseEngineer/reverseEngineerService.js';
+import { detectMaven, detectionToPlan } from '../../services/reverseEngineer/mavenDetect.js';
 import type { JiraConfig } from '../../services/reverseEngineer/jira.js';
 import type { ConfluenceConfig } from '../../services/reverseEngineer/confluence.js';
 import { getConfigSection } from '../../utils/appDir.js';
@@ -27,9 +29,23 @@ const out = arg('out', '.dico-re');
 const emitDico = arg('emit-dico');
 const update = flag('update');
 const synthesisMode = arg('synthesis'); // 'review' | 'direct'
+const manifest = arg('manifest'); // JSON file: [{name,repoRoot,changelog,srcDir}] → multi-repo
+const detectRoot = arg('detect'); // print detected Liquibase changelogs for a Maven project, then exit
+const mavenRoot = arg('maven'); // auto-detect a Maven project's modules → run multi
+const includeTest = flag('include-test');
 
-if (!repo || !changelog) {
-  process.stderr.write('Usage: --repo <path> --changelog <master-changelog> [--src <java-dir>] [--out <dir>] [--no-jira]\n');
+// --detect: report what auto-detection finds, then exit (confirm-first).
+if (detectRoot) {
+  const r = detectMaven(detectRoot);
+  process.stdout.write(`\n  Maven Liquibase detection — ${r.projectRoot}\n  modules: ${r.modules}\n`);
+  for (const c of r.candidates) process.stdout.write(`    [${c.confidence.toFixed(2)}] ${c.module} via ${c.detectedBy}${c.isTest ? ' (TEST)' : ''}${c.sqlUnsupported ? ' (SQL — unsupported)' : ''} → ${c.changelog}\n`);
+  for (const w of r.warnings) process.stdout.write(`    ! ${w}\n`);
+  process.stdout.write(`\n  Plan (one unit per module):\n${JSON.stringify(detectionToPlan(r, { includeTest }), null, 2)}\n\n`);
+  process.exit(0);
+}
+
+if (!manifest && !mavenRoot && (!repo || !changelog)) {
+  process.stderr.write('Usage: --repo <path> --changelog <file> [--src <dir>] [opts]\n   or: --manifest <repos.json>   (multi-repo)\n   or: --maven <projectRoot>     (auto-detect a Maven project, multi-module)\n   or: --detect <projectRoot>    (print detection only)\n');
   process.exit(2);
 }
 
@@ -66,21 +82,27 @@ function confluenceConfig(): ConfluenceConfig | undefined {
   return saved?.enabled && saved.baseUrl && saved.spaceKey ? saved : undefined;
 }
 
-const { summary, drift } = await runReverseEngineer({
-  repoRoot: repo,
-  changelog,
-  srcDir: src,
+const onProgress: ProgressFn = (e) => { process.stderr.write(`  · ${e.stage}/${e.status}${e.detail ? ' — ' + e.detail : ''}\n`); };
+const shared = {
   jira: jiraConfig(),
   confluence: confluenceConfig(),
   out,
   emitDico,
   update,
-  synthesis: synthesisMode === 'review' || synthesisMode === 'direct' ? { mode: synthesisMode } : undefined,
-  onProgress: (e) => process.stderr.write(`  · ${e.stage}/${e.status}${e.detail ? ' — ' + e.detail : ''}\n`),
-});
+  synthesis: synthesisMode === 'review' || synthesisMode === 'direct' ? { mode: synthesisMode as 'review' | 'direct' } : undefined,
+  onProgress,
+};
+
+const mavenRepos: RepoSpec[] | undefined = mavenRoot ? detectionToPlan(detectMaven(mavenRoot), { includeTest }) : undefined;
+if (mavenRoot) process.stderr.write(`  · detected ${mavenRepos!.length} module(s) in ${mavenRoot}\n`);
+
+const { summary, drift, crossRepo } = manifest || mavenRoot
+  ? await runReverseEngineerMulti({ repos: mavenRepos ?? (JSON.parse(fs.readFileSync(manifest!, 'utf-8')) as RepoSpec[]), ...shared })
+  : await runReverseEngineer({ repoRoot: repo!, changelog: changelog!, srcDir: src, ...shared });
+
 const lines = [
   '',
-  `  Reverse-engineer — ${repo}`,
+  `  Reverse-engineer — ${manifest || mavenRoot ? `multi-repo (${summary.repos?.join(', ')})` : repo}`,
   `  changeSets:  ${summary.changeSets}`,
   `  elements:    ${summary.elements}`,
   `  events:      ${summary.events}`,
@@ -94,6 +116,18 @@ const lines = [
   `  dico project:${summary.dicoProject ? ' ' + summary.dicoProject : ' (not emitted)'}`,
   `  synthesis:   ${summary.synthesisDir ? summary.synthesisDir : '(not generated)'}`,
 ];
+if (crossRepo) {
+  lines.push(
+    '',
+    `  Cross-repo (${crossRepo.repos.join(', ')}):`,
+    `    shared entities:   ${crossRepo.sharedEntities.length}`,
+    `    cross-repo rels:   ${crossRepo.crossRepoRelationships.length}`,
+    `    conflicts:         ${crossRepo.conflicts.length}`,
+    `    dangling refs:     ${crossRepo.danglingReferences.length}`,
+  );
+  for (const r of crossRepo.crossRepoRelationships) lines.push(`    • ${r.from} → ${r.to}  (${r.fromRepos.join(',')} → ${r.toRepos.join(',')})`);
+  for (const d of crossRepo.danglingReferences) lines.push(`    • dangling: ${d.relationship.replace('relationship:', '')} → ${d.target} (not found in any repo)`);
+}
 if (drift.length) {
   lines.push('', '  Drift findings:');
   for (const d of drift) lines.push(`    • [${d.kind}] ${d.element} — ${d.detail}`);

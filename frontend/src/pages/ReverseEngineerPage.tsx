@@ -15,6 +15,7 @@ const STAGES: Array<[string, string]> = [
   ['correlate', 'Correlate git / tickets'],
   ['jpa', 'Scan JPA'],
   ['drift', 'Compute drift'],
+  ['crossrepo', 'Resolve cross-repo'],
   ['jira', 'Enrich from Jira'],
   ['confluence', 'Dump Confluence'],
   ['emit', 'Emit dico project'],
@@ -22,6 +23,13 @@ const STAGES: Array<[string, string]> = [
 ];
 
 export default function ReverseEngineerPage() {
+  const [multi, setMulti] = useState(false);
+  const [mavenRoot, setMavenRoot] = useState('');
+  const [detecting, setDetecting] = useState(false);
+  const [detectMsg, setDetectMsg] = useState<string | null>(null);
+  const [reposJson, setReposJson] = useState(
+    '[\n  { "name": "svc-a", "repoRoot": "/path/to/svc-a", "changelog": "db/db.changelog-master.yaml", "srcDir": "src/main/java" },\n  { "name": "svc-b", "repoRoot": "/path/to/svc-b", "changelog": "db/db.changelog-master.yaml" }\n]',
+  );
   const [repoRoot, setRepoRoot] = useState('');
   const [changelog, setChangelog] = useState('db/db.changelog-master.yaml');
   const [srcDir, setSrcDir] = useState('');
@@ -35,14 +43,47 @@ export default function ReverseEngineerPage() {
   const [result, setResult] = useState<ReverseEngineerResult | null>(null);
   const [progress, setProgress] = useState<Record<string, { status: string; detail?: string }>>({});
 
+  const detect = async () => {
+    if (!mavenRoot.trim()) return;
+    setDetecting(true);
+    setDetectMsg(null);
+    try {
+      const r = await reverseEngineerApi.detectMaven(mavenRoot);
+      setReposJson(JSON.stringify(r.plan, null, 2));
+      setDetectMsg(
+        r.plan.length
+          ? `Detected ${r.plan.length} module(s) across ${r.modules} pom(s). Review below, then Run.${r.warnings.length ? ` ⚠ ${r.warnings.length} warning(s).` : ''}`
+          : (r.warnings[0] ?? 'No Liquibase changelogs detected.'),
+      );
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { error?: string; message?: string } } };
+      setDetectMsg(err?.response?.data?.error ?? err?.response?.data?.message ?? 'Detection failed');
+    } finally {
+      setDetecting(false);
+    }
+  };
+
   const run = async () => {
     setBusy(true);
     setError(null);
     setResult(null);
     setProgress({});
+    const common = { out: out || undefined, emitDico: emitDico || undefined, update, synthesis: synthesis || undefined, enrich };
+    let input;
+    if (multi) {
+      try {
+        input = { repos: JSON.parse(reposJson), ...common };
+      } catch {
+        setError('Multi-repo: the repos JSON is not valid.');
+        setBusy(false);
+        return;
+      }
+    } else {
+      input = { repoRoot, changelog, srcDir: srcDir || undefined, ...common };
+    }
     try {
       const r = await reverseEngineerApi.runStream(
-        { repoRoot, changelog, srcDir: srcDir || undefined, out: out || undefined, emitDico: emitDico || undefined, update, synthesis: synthesis || undefined, enrich },
+        input,
         (e: ReProgressEvent) => setProgress((p) => ({ ...p, [e.stage]: { status: e.status, detail: e.detail } })),
       );
       setResult(r);
@@ -61,16 +102,48 @@ export default function ReverseEngineerPage() {
         description="Mine a repository's Liquibase changelog + git history into data-dictionary elements, each traced to the commit and ticket that introduced it."
       />
 
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }} title="Mine several repos at once and analyse cross-repo relationships (a FK whose referenced table lives in another repo).">
+        <input type="checkbox" checked={multi} onChange={(e) => setMulti(e.target.checked)} />
+        Multi-repo (cross-repo analysis)
+      </label>
+
+      {multi && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <Field label="Maven project root → auto-detect Liquibase changelogs">
+            <Input value={mavenRoot} onChange={(e) => setMavenRoot(e.target.value)} placeholder="/path/to/maven-project" width={340} />
+          </Field>
+          <Button variant="secondary" disabled={detecting || !mavenRoot.trim()} onClick={detect}>
+            {detecting ? 'Detecting…' : 'Detect changelogs'}
+          </Button>
+          {detectMsg && <span style={{ fontSize: 12, opacity: 0.75 }}>{detectMsg}</span>}
+        </div>
+      )}
+
+      {multi && (
+        <Field label="Repos (JSON: name, repoRoot, changelog, srcDir) — edit or auto-fill via Detect">
+          <textarea
+            value={reposJson}
+            onChange={(e) => setReposJson(e.target.value)}
+            spellCheck={false}
+            style={{ width: '100%', minHeight: 130, fontFamily: 'monospace', fontSize: 12, borderRadius: 6, padding: 8 }}
+          />
+        </Field>
+      )}
+
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-        <Field label="Repository path">
-          <Input value={repoRoot} onChange={(e) => setRepoRoot(e.target.value)} placeholder="/path/to/repo" width={320} />
-        </Field>
-        <Field label="Changelog (repo-relative)">
-          <Input value={changelog} onChange={(e) => setChangelog(e.target.value)} width={300} />
-        </Field>
-        <Field label="Java source dir (optional → drift)">
-          <Input value={srcDir} onChange={(e) => setSrcDir(e.target.value)} placeholder="src/main/java" width={220} />
-        </Field>
+        {!multi && (
+          <>
+            <Field label="Repository path">
+              <Input value={repoRoot} onChange={(e) => setRepoRoot(e.target.value)} placeholder="/path/to/repo" width={320} />
+            </Field>
+            <Field label="Changelog (repo-relative)">
+              <Input value={changelog} onChange={(e) => setChangelog(e.target.value)} width={300} />
+            </Field>
+            <Field label="Java source dir (optional → drift)">
+              <Input value={srcDir} onChange={(e) => setSrcDir(e.target.value)} placeholder="src/main/java" width={220} />
+            </Field>
+          </>
+        )}
         <Field label="Output store (optional)">
           <Input value={out} onChange={(e) => setOut(e.target.value)} placeholder=".dico-re" width={160} />
         </Field>
@@ -96,7 +169,7 @@ export default function ReverseEngineerPage() {
           <input type="checkbox" checked={enrich} onChange={(e) => setEnrich(e.target.checked)} />
           Enrich with Jira
         </label>
-        <Button variant="primary" disabled={busy || !repoRoot || !changelog} onClick={run}>
+        <Button variant="primary" disabled={busy || (multi ? !reposJson.trim() : !repoRoot || !changelog)} onClick={run}>
           {busy ? 'Running…' : 'Run extraction'}
         </Button>
       </div>
@@ -136,6 +209,10 @@ export default function ReverseEngineerPage() {
             {result.summary.driftFindings > 0 && <Chip tone="warning">{result.summary.driftFindings} drift</Chip>}
             {result.summary.jiraIssues > 0 && <Chip tone="success">{result.summary.jiraIssues} Jira</Chip>}
             {result.summary.confluencePages > 0 && <Chip tone="success">{result.summary.confluencePages} Confluence</Chip>}
+            {result.summary.repos && <Chip tone="info">{result.summary.repos.length} repos</Chip>}
+            {(result.summary.crossRepoRelationships ?? 0) > 0 && <Chip tone="info">{result.summary.crossRepoRelationships} cross-repo rels</Chip>}
+            {(result.summary.danglingReferences ?? 0) > 0 && <Chip tone="warning">{result.summary.danglingReferences} dangling</Chip>}
+            {(result.summary.conflicts ?? 0) > 0 && <Chip tone="danger">{result.summary.conflicts} conflicts</Chip>}
             {result.summary.tickets.map((t) => (
               <Chip key={t} tone="info">{t}</Chip>
             ))}
@@ -149,6 +226,33 @@ export default function ReverseEngineerPage() {
                   <Chip tone="warning">{d.kind}</Chip>
                   <span style={{ fontFamily: 'monospace' }}>{d.element.replace(/^[a-z]+:/, '')}</span>
                   <span style={{ opacity: 0.75 }}>{d.detail}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {result.crossRepo && (result.crossRepo.crossRepoRelationships.length > 0 || result.crossRepo.danglingReferences.length > 0 || result.crossRepo.conflicts.length > 0) && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <strong style={{ fontSize: 13 }}>Cross-repo analysis</strong>
+              {result.crossRepo.crossRepoRelationships.map((r, i) => (
+                <div key={`x${i}`} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
+                  <Chip tone="info">cross-repo</Chip>
+                  <span style={{ fontFamily: 'monospace' }}>{r.from} → {r.to}</span>
+                  <span style={{ opacity: 0.75 }}>{r.fromRepos.join(',')} → {r.toRepos.join(',')}</span>
+                </div>
+              ))}
+              {result.crossRepo.danglingReferences.map((d, i) => (
+                <div key={`d${i}`} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
+                  <Chip tone="warning">dangling</Chip>
+                  <span style={{ fontFamily: 'monospace' }}>{d.relationship.replace(/^relationship:/, '')}</span>
+                  <span style={{ opacity: 0.75 }}>{d.target} not found in any repo</span>
+                </div>
+              ))}
+              {result.crossRepo.conflicts.map((c, i) => (
+                <div key={`c${i}`} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
+                  <Chip tone="danger">conflict</Chip>
+                  <span style={{ fontFamily: 'monospace' }}>{c.element.replace(/^[a-z]+:/, '')}</span>
+                  <span style={{ opacity: 0.75 }}>{c.detail} ({c.repos.join(', ')})</span>
                 </div>
               ))}
             </div>

@@ -54,6 +54,8 @@ export const CIRElementSchema = z.object({
   }),
   confidence: z.number().min(0).max(1).optional(),
   flags: z.array(z.string()).optional(),
+  /** Repos that contributed this element (multi-repo runs). */
+  repos: z.array(z.string()).optional(),
 });
 export type CIRElement = z.infer<typeof CIRElementSchema>;
 

@@ -7,6 +7,7 @@ import { Router } from 'express';
 import {
   reverseEngineerRun,
   reverseEngineerRunStream,
+  detectMavenChangelogs,
   jiraGetConfig,
   jiraSaveConfig,
   jiraTestConnection,
@@ -16,6 +17,10 @@ import {
 } from '../controllers/reverseEngineerController.js';
 import { UserRole } from '../middleware/auth.js';
 import { authorizeJwt } from '../middleware/jwtAuth.js';
+import { registerReverseEngineerAgentTools } from '../services/reverseEngineer/agentTools.js';
+
+// Contribute the reverse-engineer agent tools to the AI chat (no edits to aiController).
+registerReverseEngineerAgentTools();
 
 const router: Router = Router();
 
@@ -24,6 +29,7 @@ const ADMIN = authorizeJwt([UserRole.ADMIN]);
 
 router.post('/api/reverse-engineer/run', WRITE, reverseEngineerRun);
 router.post('/api/reverse-engineer/run-stream', WRITE, reverseEngineerRunStream);
+router.post('/api/reverse-engineer/detect', WRITE, detectMavenChangelogs);
 router.get('/api/reverse-engineer/jira-config', ADMIN, jiraGetConfig);
 router.post('/api/reverse-engineer/jira-config', ADMIN, jiraSaveConfig);
 router.post('/api/reverse-engineer/jira-test', ADMIN, jiraTestConnection);

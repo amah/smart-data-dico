@@ -378,13 +378,28 @@ export const sqlRunApi = {
 
 // Reverse-engineer plugin (#reverse-engineer) — mine a repo's Liquibase changelog
 // + git history into data-dictionary CIR elements/events.
-export interface ReverseEngineerInput { repoRoot: string; changelog: string; srcDir?: string; out?: string; emitDico?: string; update?: boolean; synthesis?: 'review' | 'direct'; enrich?: boolean }
+export interface RepoSpecInput { name?: string; repoRoot: string; changelog: string; srcDir?: string }
+export interface ReverseEngineerInput { repoRoot?: string; changelog?: string; srcDir?: string; repos?: RepoSpecInput[]; out?: string; emitDico?: string; update?: boolean; synthesis?: 'review' | 'direct'; enrich?: boolean }
+export interface CrossRepoReport {
+  repos: string[];
+  sharedEntities: Array<{ table: string; repos: string[] }>;
+  conflicts: Array<{ element: string; repos: string[]; detail: string }>;
+  crossRepoRelationships: Array<{ relationship: string; from: string; to: string; fromRepos: string[]; toRepos: string[] }>;
+  danglingReferences: Array<{ relationship: string; target: string }>;
+}
 export interface DriftFinding { element: string; kind: string; detail: string }
 export interface JiraConfigView { baseUrl: string; authType: 'token' | 'basic'; user: string; token: string; hasPassword: boolean; enabled: boolean; configPath?: string }
 export interface JiraConfigInput { baseUrl: string; authType: 'token' | 'basic'; user?: string; token?: string; password?: string; enabled: boolean }
 export interface ConfluenceConfigView { baseUrl: string; authType: 'token' | 'basic'; user: string; token: string; hasPassword: boolean; spaceKey: string; limit: number; enabled: boolean; configPath?: string }
 export interface ConfluenceConfigInput { baseUrl: string; authType: 'token' | 'basic'; user?: string; token?: string; password?: string; spaceKey?: string; limit?: number; enabled: boolean }
 export interface ReProgressEvent { stage: string; status: 'start' | 'progress' | 'done'; detail?: string; count?: number }
+export interface MavenDetection {
+  projectRoot: string;
+  modules: number;
+  candidates: Array<{ module: string; changelog: string; detectedBy: string; confidence: number; isTest: boolean; sqlUnsupported?: boolean }>;
+  warnings: string[];
+  plan: RepoSpecInput[];
+}
 export interface ReverseEngineerElement {
   id: string;
   kind: string;
@@ -396,10 +411,11 @@ export interface ReverseEngineerElement {
   flags?: string[];
 }
 export interface ReverseEngineerResult {
-  summary: { elements: number; events: number; changeSets: number; withCommit: number; jpaFiles: number; driftFindings: number; jiraIssues: number; confluencePages: number; tickets: string[]; storeDir?: string; dicoProject?: string; synthesisDir?: string };
+  summary: { elements: number; events: number; changeSets: number; withCommit: number; jpaFiles: number; driftFindings: number; jiraIssues: number; confluencePages: number; tickets: string[]; storeDir?: string; dicoProject?: string; synthesisDir?: string; repos?: string[]; crossRepoRelationships?: number; sharedEntities?: number; conflicts?: number; danglingReferences?: number };
   elements: ReverseEngineerElement[];
   events: Array<Record<string, unknown>>;
   drift: DriftFinding[];
+  crossRepo?: CrossRepoReport;
 }
 
 export const reverseEngineerApi = {
@@ -448,6 +464,8 @@ export const reverseEngineerApi = {
     (await api.post('/reverse-engineer/jira-config', cfg)).data,
   testJira: async (): Promise<{ ok: boolean; user?: string; error?: string }> =>
     (await api.post('/reverse-engineer/jira-test')).data,
+  detectMaven: async (repoRoot: string, includeTest = false): Promise<MavenDetection> =>
+    (await api.post('/reverse-engineer/detect', { repoRoot, includeTest })).data.data,
   getConfluenceConfig: async (): Promise<ConfluenceConfigView> => (await api.get('/reverse-engineer/confluence-config')).data,
   saveConfluenceConfig: async (cfg: ConfluenceConfigInput): Promise<{ message: string; configPath?: string }> =>
     (await api.post('/reverse-engineer/confluence-config', cfg)).data,
