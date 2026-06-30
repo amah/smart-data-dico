@@ -31,6 +31,7 @@ function buildOptions(body: Record<string, unknown> | undefined): { opts?: Rever
   const on = b.enrich !== false; // enrichment opts in by default
   const jiraCfg = getConfigSection<JiraConfig>('jira');
   const confCfg = getConfigSection<ConfluenceConfig>('confluence');
+  const synthMode = b.synthesis === 'review' || b.synthesis === 'direct' ? b.synthesis : undefined;
   return {
     opts: {
       repoRoot: b.repoRoot,
@@ -40,6 +41,7 @@ function buildOptions(body: Record<string, unknown> | undefined): { opts?: Rever
       emitDico: typeof b.emitDico === 'string' && b.emitDico ? b.emitDico : undefined,
       jira: on && jiraCfg?.enabled && jiraCfg.baseUrl ? jiraCfg : undefined,
       confluence: on && confCfg?.enabled && confCfg.baseUrl && confCfg.spaceKey ? confCfg : undefined,
+      synthesis: synthMode ? { mode: synthMode } : undefined,
     },
   };
 }

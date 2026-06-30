@@ -128,10 +128,23 @@ Two halves, deterministic first:
    `re.drift` metadata; entity descriptions seed from the Jira summary. Enabled
    via `emitDico` (CLI `--emit-dico`, API `emitDico`). **Verified: the output
    passes the repo's own `validateDico` with 0 errors/0 warnings.**
-2. **AI prose pass (next):** per entity, retrieve facts + lifecycle + linked
-   Jira/Conf/PR → prompt the model to rewrite descriptions and propose candidate
-   `rules`/stereotypes on top of the grounded skeleton. Guardrails: **cite or
-   stay silent**, **confidence-gated**, **incremental**, **human-override-safe**.
+2. **AI prose pass — provider-agnostic (done).** Reframed from "call an LLM" to
+   "prepare grounded input + define the output contract + provide tools":
+   - **Synthesis package** (`synthesisBrief.ts` → `synthesis/`): per-entity
+     **briefs** (`briefs/<Entity>.md` — facts, drift, linked Jira issues, matched
+     Confluence excerpts, cite-or-stay-silent TODO), an **`AGENT.md` handoff**,
+     and (review mode) **proposal templates** (`proposals/<Entity>.md`).
+   - **Output modes** (`synthesis: review|direct`): *review* → agent writes
+     plain structured markdown for human approval; *direct* → agent edits the
+     dico YAML.
+   - **Any agent** runs it: external (opencode / claude-code / cursor) needs no
+     API key — point it at the package; or the **integrated** Smart Data Dico
+     agent, which now has read tools `listSynthesisBriefs` / `getSynthesisBrief`
+     (registered in both provider paths) to ground its existing `updateEntity` /
+     `createRule` writes.
+   - Guardrails live in the handoff/briefs: **cite or stay silent**, don't invent,
+     surface drift, human-override-safe (review mode). An `apply` step
+     (review → dico) is the remaining follow-up.
 
 ## Surfaces — implemented as a plugin (front + back)
 

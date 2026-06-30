@@ -2,7 +2,8 @@ import { Request, Response } from 'express';
 import { streamText, generateText, tool, jsonSchema, stepCountIs, convertToModelMessages } from 'ai';
 import { z } from 'zod';
 import { logger } from '../utils/logger.js';
-import { AI_MAX_STEPS } from '../kernel/config.js';
+import { AI_MAX_STEPS, config } from '../kernel/config.js';
+import { listSynthesisBriefs, getSynthesisBrief } from '../services/reverseEngineer/synthesisAccess.js';
 import { getConfigSection, setConfigSection, CONFIG_FILE } from '../utils/appDir.js';
 import { conversationService } from '../services/conversationService.js';
 import { promptService } from '../services/promptService.js';
@@ -67,6 +68,8 @@ const TOOL_CATEGORY_MAP: Record<string, AIToolCategory> = {
   listEntities: 'read',
   listStereotypes: 'read',
   getEntityDetails: 'read',
+  listSynthesisBriefs: 'read',
+  getSynthesisBrief: 'read',
   getModelOverview: 'read',
   generateMermaid: 'read',
   getSqlSchema: 'read',
@@ -122,6 +125,8 @@ const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   'listEntities',
   'listStereotypes',
   'getEntityDetails',
+  'listSynthesisBriefs',
+  'getSynthesisBrief',
   'getModelOverview',
   'generateMermaid',
   'getSqlSchema',
@@ -856,6 +861,8 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
     { type: 'function' as const, function: { name: 'createStateMachine', description: 'Create a state machine on an entity (ownerEntityName) — its states, initialState, and transitions (from/to/on). Model an entity lifecycle, e.g. Order PENDING→PAID→SHIPPED.', parameters: createStateMachineParameters as Record<string, unknown> } },
     { type: 'function' as const, function: { name: 'listEntities', description: 'List packages or entities in a package', parameters: { type: 'object', properties: { packageName: { type: 'string', description: 'Package name (omit to list all)' } } } } },
     { type: 'function' as const, function: { name: 'getEntityDetails', description: 'Get full detail for one entity: attributes with type/required/primaryKey AND field validation, the PHYSICAL mapping (entity table name + schema, each attribute physical column name + DB type), physical constraints, and inline business rules. Call this before writing SQL/DDL so you use the real physical names and types.', parameters: { type: 'object', required: ['packageName', 'entityName'], properties: { packageName: { type: 'string' }, entityName: { type: 'string' } } } } },
+    { type: 'function' as const, function: { name: 'listSynthesisBriefs', description: 'List entities that have a reverse-engineering synthesis brief in the open project. Use when completing a reverse-engineered dictionary: each brief grounds the prose pass (facts, drift, Jira/Confluence context) for one entity.', parameters: { type: 'object', properties: {} } } },
+    { type: 'function' as const, function: { name: 'getSynthesisBrief', description: 'Get the grounded synthesis brief (markdown) for one entity — its attributes, drift, linked Jira issues and Confluence excerpts. Read this BEFORE writing an entity description or proposing rules, and cite the sources it lists. Do not invent business logic beyond the brief.', parameters: { type: 'object', required: ['entityName'], properties: { entityName: { type: 'string' } } } } },
     { type: 'function' as const, function: { name: 'getModelOverview', description: 'Get a whole-model outline: every package with its entity names, and a count of each concept (entities, relationships, cases, rules, events, actions, state machines, derived types, stereotypes). A snapshot is already in your context; call this to refresh after changes.', parameters: { type: 'object', properties: {} } } },
     { type: 'function' as const, function: { name: 'generateMermaid', description: 'Convert the model to Mermaid diagram source. diagram: "er" (entity-relationship of a package, or all), "class" (class diagram), "state" (a single entity state machine — pass entityName), "flow" (actions+events saga). Returns { mermaid }. Present it inside a ```mermaid code block.', parameters: generateMermaidParameters as Record<string, unknown> } },
     { type: 'function' as const, function: { name: 'getSqlSchema', description: 'Get the PHYSICAL relational schema for writing SQL: per-entity table name + schema, each column (physical name, dbType, nullable, primaryKey), and relationships as join hints. Optional packageName scope and dialect. Call this before writing any SQL query or DDL so you use real physical names/types, not the conceptual (logical) names.', parameters: getSqlSchemaParameters as Record<string, unknown> } },
@@ -942,6 +949,12 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
         const entity = await services.serviceService.getEntitySchema(args.packageName || 'default', args.entityName);
         if (!entity) return { error: 'Entity not found' };
         return buildEntityDetails(entity, args.packageName);
+      }
+      if (name === 'listSynthesisBriefs') {
+        return listSynthesisBriefs(config.dataDir);
+      }
+      if (name === 'getSynthesisBrief') {
+        return getSynthesisBrief(config.dataDir, args.entityName);
       }
       if (name === 'getModelOverview') {
         return await buildModelOverview(services);
@@ -1461,6 +1474,18 @@ export const aiChat = async (req: Request, res: Response) => {
           },
         }),
 
+        listSynthesisBriefs: tool({
+          description: 'List entities that have a reverse-engineering synthesis brief in the open project. Each brief grounds the prose pass (facts, drift, Jira/Confluence context) for one entity.',
+          inputSchema: z.object({}),
+          execute: async () => listSynthesisBriefs(config.dataDir),
+        }),
+
+        getSynthesisBrief: tool({
+          description: 'Get the grounded synthesis brief (markdown) for one entity — attributes, drift, linked Jira issues and Confluence excerpts. Read this BEFORE writing an entity description or proposing rules, and cite the sources it lists. Do not invent business logic beyond the brief.',
+          inputSchema: z.object({ entityName: z.string() }),
+          execute: async (params) => getSynthesisBrief(config.dataDir, params.entityName),
+        }),
+
         getModelOverview: tool({
           description: 'Get a whole-model outline: every package with its entity names, and a count of each concept (entities, relationships, cases, rules, events, actions, state machines, derived types, stereotypes). Use to orient yourself before answering; a snapshot is already in your system context, so only call this to refresh after changes.',
           inputSchema: z.object({}),
@@ -1974,6 +1999,20 @@ export const aiTools = async (_req: Request, res: Response) => {
       source: 'builtin' as const,
       parameters: [
         { name: 'packageName', type: 'string', required: true, description: 'Package name' },
+        { name: 'entityName', type: 'string', required: true, description: 'Entity name' },
+      ],
+    },
+    {
+      name: 'listSynthesisBriefs',
+      description: 'List entities that have a reverse-engineering synthesis brief in the open project (grounds the AI prose pass on a reverse-engineered dictionary).',
+      source: 'builtin' as const,
+      parameters: [],
+    },
+    {
+      name: 'getSynthesisBrief',
+      description: 'Get the grounded synthesis brief (markdown) for one entity — facts, drift, Jira/Confluence context. Read before writing a description or proposing rules; cite the sources it lists.',
+      source: 'builtin' as const,
+      parameters: [
         { name: 'entityName', type: 'string', required: true, description: 'Entity name' },
       ],
     },

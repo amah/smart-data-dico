@@ -18,6 +18,7 @@ const STAGES: Array<[string, string]> = [
   ['jira', 'Enrich from Jira'],
   ['confluence', 'Dump Confluence'],
   ['emit', 'Emit dico project'],
+  ['synthesize', 'Build synthesis package'],
 ];
 
 export default function ReverseEngineerPage() {
@@ -26,6 +27,7 @@ export default function ReverseEngineerPage() {
   const [srcDir, setSrcDir] = useState('');
   const [out, setOut] = useState('');
   const [emitDico, setEmitDico] = useState('');
+  const [synthesis, setSynthesis] = useState<'' | 'review' | 'direct'>('');
   const [enrich, setEnrich] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +41,7 @@ export default function ReverseEngineerPage() {
     setProgress({});
     try {
       const r = await reverseEngineerApi.runStream(
-        { repoRoot, changelog, srcDir: srcDir || undefined, out: out || undefined, emitDico: emitDico || undefined, enrich },
+        { repoRoot, changelog, srcDir: srcDir || undefined, out: out || undefined, emitDico: emitDico || undefined, synthesis: synthesis || undefined, enrich },
         (e: ReProgressEvent) => setProgress((p) => ({ ...p, [e.stage]: { status: e.status, detail: e.detail } })),
       );
       setResult(r);
@@ -73,6 +75,17 @@ export default function ReverseEngineerPage() {
         </Field>
         <Field label="Emit dico project to (optional)">
           <Input value={emitDico} onChange={(e) => setEmitDico(e.target.value)} placeholder="/path/to/new-project" width={200} />
+        </Field>
+        <Field label="AI synthesis package">
+          <select
+            value={synthesis}
+            onChange={(e) => setSynthesis(e.target.value as '' | 'review' | 'direct')}
+            style={{ height: 32, borderRadius: 6, padding: '0 8px' }}
+          >
+            <option value="">none</option>
+            <option value="review">review (markdown for approval)</option>
+            <option value="direct">direct (agent edits dico)</option>
+          </select>
         </Field>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
           <input type="checkbox" checked={enrich} onChange={(e) => setEnrich(e.target.checked)} />
@@ -167,6 +180,9 @@ export default function ReverseEngineerPage() {
           )}
           {result.summary.dicoProject && (
             <div style={{ fontSize: 12, opacity: 0.7 }}>smart-data-dico project emitted to {result.summary.dicoProject}</div>
+          )}
+          {result.summary.synthesisDir && (
+            <div style={{ fontSize: 12, opacity: 0.7 }}>AI synthesis package at {result.summary.synthesisDir} (briefs + AGENT.md)</div>
           )}
         </>
       )}

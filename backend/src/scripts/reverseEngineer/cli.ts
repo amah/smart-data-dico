@@ -25,6 +25,7 @@ const changelog = arg('changelog');
 const src = arg('src');
 const out = arg('out', '.dico-re');
 const emitDico = arg('emit-dico');
+const synthesisMode = arg('synthesis'); // 'review' | 'direct'
 
 if (!repo || !changelog) {
   process.stderr.write('Usage: --repo <path> --changelog <master-changelog> [--src <java-dir>] [--out <dir>] [--no-jira]\n');
@@ -72,6 +73,7 @@ const { summary, drift } = await runReverseEngineer({
   confluence: confluenceConfig(),
   out,
   emitDico,
+  synthesis: synthesisMode === 'review' || synthesisMode === 'direct' ? { mode: synthesisMode } : undefined,
   onProgress: (e) => process.stderr.write(`  · ${e.stage}/${e.status}${e.detail ? ' — ' + e.detail : ''}\n`),
 });
 const lines = [
@@ -88,6 +90,7 @@ const lines = [
   `  tickets:     ${summary.tickets.join(', ') || '(none)'}`,
   `  store:       ${summary.storeDir}`,
   `  dico project:${summary.dicoProject ? ' ' + summary.dicoProject : ' (not emitted)'}`,
+  `  synthesis:   ${summary.synthesisDir ? summary.synthesisDir : '(not generated)'}`,
 ];
 if (drift.length) {
   lines.push('', '  Drift findings:');

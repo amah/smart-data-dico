@@ -24,10 +24,11 @@ import { mergeJpa, type DriftFinding } from './drift.js';
 import { enrichWithJira, attachJira, type JiraConfig, type JiraIssue } from './jira.js';
 import { dumpConfluenceSpace, type ConfluenceConfig } from './confluence.js';
 import { emitDicoProject } from './synthesize.js';
+import { emitSynthesisPackage, type SynthesisMode } from './synthesisBrief.js';
 
 /** A pipeline progress event, surfaced to the UI's analysis panel. */
 export interface ProgressEvent {
-  stage: 'liquibase' | 'correlate' | 'jpa' | 'drift' | 'jira' | 'confluence' | 'emit' | 'done';
+  stage: 'liquibase' | 'correlate' | 'jpa' | 'drift' | 'jira' | 'confluence' | 'emit' | 'synthesize' | 'done';
   status: 'start' | 'progress' | 'done';
   detail?: string;
   count?: number;
@@ -57,6 +58,8 @@ export interface ReverseEngineerOptions {
   out?: string;
   /** Optional output dir for a loadable smart-data-dico project projected from the CIR. */
   emitDico?: string;
+  /** Optional synthesis package (briefs + handoff + proposal templates) for an AI agent. */
+  synthesis?: { mode: SynthesisMode };
   /** Optional progress callback — emits stage events for the UI analysis panel. */
   onProgress?: ProgressFn;
 }
@@ -73,6 +76,7 @@ export interface ReverseEngineerSummary {
   tickets: string[];
   storeDir?: string;
   dicoProject?: string;
+  synthesisDir?: string;
 }
 
 export interface ReverseEngineerOutput {
@@ -320,6 +324,24 @@ export async function runReverseEngineer(opts: ReverseEngineerOptions): Promise<
     progress({ stage: 'emit', status: 'done', detail: dicoProject });
   }
 
+  // ── Synthesis package (grounded input + handoff for an AI agent) ───────────
+  let synthesisDir: string | undefined;
+  if (opts.synthesis) {
+    const target = dicoProject ?? storeDir;
+    if (target) {
+      progress({ stage: 'synthesize', status: 'start', detail: `building ${opts.synthesis.mode} package` });
+      const r = emitSynthesisPackage(model, drift, {
+        outDir: target,
+        mode: opts.synthesis.mode,
+        jiraIssues: jiraIssueMap,
+        confluenceDir: storeDir ? path.join(storeDir, 'enrichment', 'confluence') : undefined,
+        repoRoot,
+      });
+      synthesisDir = r.synthesisDir;
+      progress({ stage: 'synthesize', status: 'done', count: r.briefs, detail: `${r.briefs} briefs (${opts.synthesis.mode})` });
+    }
+  }
+
   progress({ stage: 'done', status: 'done', detail: `${model.length} elements` });
 
   return {
@@ -335,6 +357,7 @@ export async function runReverseEngineer(opts: ReverseEngineerOptions): Promise<
       tickets: [...allTickets].sort(),
       storeDir,
       dicoProject,
+      synthesisDir,
     },
     elements: model,
     events,
