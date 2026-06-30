@@ -9,6 +9,11 @@
  */
 import type { PluginModule } from '@hamak/microkernel-spi';
 import { reverseEngineerApi, type ReverseEngineerInput } from '../../services/api';
+import { registerSettingsSection } from '../settingsContributions';
+import ReverseEngineerSettings from './ReverseEngineerSettings';
+
+// Contribute the Jira/Confluence config to the Settings page (no edits to Settings.tsx).
+registerSettingsSection(ReverseEngineerSettings);
 
 export function createReverseEngineerPlugin(): PluginModule {
   return {

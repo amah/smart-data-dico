@@ -17,6 +17,10 @@ import {
 } from '../controllers/reverseEngineerController.js';
 import { UserRole } from '../middleware/auth.js';
 import { authorizeJwt } from '../middleware/jwtAuth.js';
+import { registerReverseEngineerAgentTools } from '../services/reverseEngineer/agentTools.js';
+
+// Contribute the reverse-engineer agent tools to the AI chat (no edits to aiController).
+registerReverseEngineerAgentTools();
 
 const router: Router = Router();
 
