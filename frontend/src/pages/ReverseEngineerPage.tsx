@@ -176,6 +176,18 @@ export default function ReverseEngineerPage() {
 
       {error && <div role="alert"><Chip tone="danger">{error}</Chip></div>}
 
+      {result && result.warnings.length > 0 && (
+        <div role="status" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <strong style={{ fontSize: 13 }}>⚠ Warnings ({result.warnings.length})</strong>
+          {result.warnings.map((w, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
+              <Chip tone="warning">warning</Chip>
+              <span style={{ opacity: 0.8 }}>{w}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {(busy || Object.keys(progress).length > 0) && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 12, borderRadius: 8, background: 'var(--surface-2, rgba(127,127,127,0.06))' }}>
           <strong style={{ fontSize: 13 }}>Analysis progress</strong>

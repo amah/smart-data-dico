@@ -416,6 +416,7 @@ export interface ReverseEngineerResult {
   events: Array<Record<string, unknown>>;
   drift: DriftFinding[];
   crossRepo?: CrossRepoReport;
+  warnings: string[];
 }
 
 export const reverseEngineerApi = {
@@ -432,8 +433,10 @@ export const reverseEngineerApi = {
       body: JSON.stringify(input),
     });
     if (!res.ok || !res.body) {
-      const msg = await res.text().catch(() => res.statusText);
-      throw new Error(msg || `HTTP ${res.status}`);
+      const raw = await res.text().catch(() => '');
+      let msg = raw;
+      try { const j = JSON.parse(raw); msg = j.error ?? j.message ?? raw; } catch { /* not JSON */ }
+      throw new Error(msg || `HTTP ${res.status} ${res.statusText}`);
     }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
