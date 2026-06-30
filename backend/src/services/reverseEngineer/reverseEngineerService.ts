@@ -58,6 +58,8 @@ export interface ReverseEngineerOptions {
   out?: string;
   /** Optional output dir for a loadable smart-data-dico project projected from the CIR. */
   emitDico?: string;
+  /** When emitting, merge into the existing project (update mode) instead of overwriting. */
+  update?: boolean;
   /** Optional synthesis package (briefs + handoff + proposal templates) for an AI agent. */
   synthesis?: { mode: SynthesisMode };
   /** Optional progress callback — emits stage events for the UI analysis panel. */
@@ -319,9 +321,10 @@ export async function runReverseEngineer(opts: ReverseEngineerOptions): Promise<
   // ── Project the CIR into a loadable smart-data-dico project ────────────────
   let dicoProject: string | undefined;
   if (opts.emitDico) {
-    progress({ stage: 'emit', status: 'start', detail: 'writing smart-data-dico project' });
-    dicoProject = emitDicoProject(model, opts.emitDico, { issues: jiraIssueMap }).projectDir;
-    progress({ stage: 'emit', status: 'done', detail: dicoProject });
+    progress({ stage: 'emit', status: 'start', detail: opts.update ? 'merging into existing project' : 'writing smart-data-dico project' });
+    const r = emitDicoProject(model, opts.emitDico, { issues: jiraIssueMap, mode: opts.update ? 'merge' : 'overwrite' });
+    dicoProject = r.projectDir;
+    progress({ stage: 'emit', status: 'done', detail: r.mode === 'merge' ? `${r.merged} merged, ${r.added} added` : dicoProject });
   }
 
   // ── Synthesis package (grounded input + handoff for an AI agent) ───────────

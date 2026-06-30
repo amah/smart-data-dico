@@ -378,7 +378,7 @@ export const sqlRunApi = {
 
 // Reverse-engineer plugin (#reverse-engineer) — mine a repo's Liquibase changelog
 // + git history into data-dictionary CIR elements/events.
-export interface ReverseEngineerInput { repoRoot: string; changelog: string; srcDir?: string; out?: string; emitDico?: string; synthesis?: 'review' | 'direct'; enrich?: boolean }
+export interface ReverseEngineerInput { repoRoot: string; changelog: string; srcDir?: string; out?: string; emitDico?: string; update?: boolean; synthesis?: 'review' | 'direct'; enrich?: boolean }
 export interface DriftFinding { element: string; kind: string; detail: string }
 export interface JiraConfigView { baseUrl: string; authType: 'token' | 'basic'; user: string; token: string; hasPassword: boolean; enabled: boolean; configPath?: string }
 export interface JiraConfigInput { baseUrl: string; authType: 'token' | 'basic'; user?: string; token?: string; password?: string; enabled: boolean }

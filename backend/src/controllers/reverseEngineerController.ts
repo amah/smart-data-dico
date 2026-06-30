@@ -39,6 +39,7 @@ function buildOptions(body: Record<string, unknown> | undefined): { opts?: Rever
       srcDir: typeof b.srcDir === 'string' ? b.srcDir : undefined,
       out: typeof b.out === 'string' ? b.out : undefined,
       emitDico: typeof b.emitDico === 'string' && b.emitDico ? b.emitDico : undefined,
+      update: b.update === true,
       jira: on && jiraCfg?.enabled && jiraCfg.baseUrl ? jiraCfg : undefined,
       confluence: on && confCfg?.enabled && confCfg.baseUrl && confCfg.spaceKey ? confCfg : undefined,
       synthesis: synthMode ? { mode: synthMode } : undefined,

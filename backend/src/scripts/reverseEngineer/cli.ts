@@ -25,6 +25,7 @@ const changelog = arg('changelog');
 const src = arg('src');
 const out = arg('out', '.dico-re');
 const emitDico = arg('emit-dico');
+const update = flag('update');
 const synthesisMode = arg('synthesis'); // 'review' | 'direct'
 
 if (!repo || !changelog) {
@@ -73,6 +74,7 @@ const { summary, drift } = await runReverseEngineer({
   confluence: confluenceConfig(),
   out,
   emitDico,
+  update,
   synthesis: synthesisMode === 'review' || synthesisMode === 'direct' ? { mode: synthesisMode } : undefined,
   onProgress: (e) => process.stderr.write(`  · ${e.stage}/${e.status}${e.detail ? ' — ' + e.detail : ''}\n`),
 });

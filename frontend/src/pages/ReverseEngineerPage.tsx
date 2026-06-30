@@ -27,6 +27,7 @@ export default function ReverseEngineerPage() {
   const [srcDir, setSrcDir] = useState('');
   const [out, setOut] = useState('');
   const [emitDico, setEmitDico] = useState('');
+  const [update, setUpdate] = useState(false);
   const [synthesis, setSynthesis] = useState<'' | 'review' | 'direct'>('');
   const [enrich, setEnrich] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -41,7 +42,7 @@ export default function ReverseEngineerPage() {
     setProgress({});
     try {
       const r = await reverseEngineerApi.runStream(
-        { repoRoot, changelog, srcDir: srcDir || undefined, out: out || undefined, emitDico: emitDico || undefined, synthesis: synthesis || undefined, enrich },
+        { repoRoot, changelog, srcDir: srcDir || undefined, out: out || undefined, emitDico: emitDico || undefined, update, synthesis: synthesis || undefined, enrich },
         (e: ReProgressEvent) => setProgress((p) => ({ ...p, [e.stage]: { status: e.status, detail: e.detail } })),
       );
       setResult(r);
@@ -87,6 +88,10 @@ export default function ReverseEngineerPage() {
             <option value="direct">direct (agent edits dico)</option>
           </select>
         </Field>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }} title="Merge into the existing project at the emit path: reuse UUIDs, keep descriptions/rules, refresh structure.">
+          <input type="checkbox" checked={update} onChange={(e) => setUpdate(e.target.checked)} />
+          Update existing (merge)
+        </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
           <input type="checkbox" checked={enrich} onChange={(e) => setEnrich(e.target.checked)} />
           Enrich with Jira

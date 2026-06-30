@@ -86,39 +86,32 @@ any dictionary — entities, attributes, relationships, the diagram.
 
 ## Re-running / updating an existing dictionary
 
-**Current behaviour: one-shot generation, NOT an in-place update.**
+Two behaviours, chosen by the **Update existing (merge)** toggle (CLI `--update`):
 
-`Emit dico project` writes a **fresh** project: it `writeFileSync`-overwrites the
-files for the entities it knows and assigns **new random UUIDs each run**
-(`crypto.randomUUID`). Consequently, pointing it at an **existing** dico project:
+**Overwrite (default).** Writes a fresh project. UUIDs are now **deterministic**
+(UUIDv5 of the canonical key), so repeated overwrite runs on the *same* input are
+idempotent — same entities, same UUIDs. It still replaces the files it generates,
+so don't point it at a hand-maintained project.
 
-- **changes all UUIDs** (breaking anything keyed by uuid — references, diagram
-  layouts, history);
-- **overwrites** the regenerated entity YAML, **clobbering human-authored
-  descriptions / rules / review comments**;
-- leaves unrelated entities untouched (a partial overwrite).
+**Update / merge (toggle on).** Patches the existing project at the emit path **in
+place**:
+- **Reuses existing UUIDs** (matched by physical table/column) — references,
+  diagram layouts and history stay intact.
+- **Preserves human prose** — non-empty entity/attribute descriptions, `rules`,
+  review comments, and any fields the tool doesn't model are kept untouched.
+- **Refreshes structural facts** — types, required, validation, constraints,
+  relationships, and the `re.*` provenance/drift metadata are updated from the
+  new extraction.
+- **Adds** new entities/attributes; **tags** attributes that vanished from the
+  source with `re.removedFromSource: true` (kept, not deleted).
+- The run reports `N merged, M added`. The result still passes `validateDico`.
 
-What **is** re-run-friendly today: the CIR store and synthesis briefs are
-regenerated deterministically (except those UUIDs), and **Jira/Confluence
-enrichment is cached with a 24h TTL** (re-fetches only stale items).
+Also re-run-friendly: the CIR store + synthesis briefs regenerate deterministically,
+and **Jira/Confluence enrichment is cached (24h TTL)** — only stale items re-fetch.
 
-**So: always emit into a NEW directory, then bring changes into your real
-dictionary via the AI prose pass / manual review — do not emit on top of a
-maintained project yet.**
-
-### True update mode — roadmap (not yet built)
-To support safe re-runs onto a maintained dictionary we need:
-1. **Stable identity** — derive UUIDs deterministically (UUIDv5 from the canonical
-   `table` / `table.column` key) or reuse existing UUIDs by matching physical names,
-   instead of `randomUUID`.
-2. **Merge, don't clobber** — load the existing project, update **structural** facts
-   (types, required, constraints) from the new extraction while **preserving
-   human prose** (non-empty descriptions, rules, review comments); add new
-   elements; mark removed ones **deprecated** rather than deleting; surface
-   conflicts.
-
-This is the "incremental + human-override-safe" guardrail from
-`reverse-engineering-strategy.md` — designed, not yet implemented.
+> Known limit: matching is by **physical name**. A renamed table/column is seen as
+> a remove + add (the old one is tagged `re.removedFromSource`, a new one is
+> created) rather than a rename — reconcile those by hand.
 
 ## CLI equivalent
 
