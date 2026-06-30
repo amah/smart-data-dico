@@ -5,6 +5,27 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.0] — 2026-06-30
+
+### Added
+- **Reverse-engineer a data dictionary from a codebase** (new `/reverse-engineer`
+  page + plugin, CLI, and streaming API). Mines a repo's **Liquibase** changelog
+  (YAML + XML), overlays **JPA** entities, and correlates every element to the
+  git commit and Jira ticket that introduced it.
+  - **Drift report** — JPA (logical) ⇄ Liquibase (physical): nullable / length
+    mismatches, columns missing in the DB, orphan columns.
+  - **Enrichment (Atlassian Server/DC)** — **Jira** ticket fetch + **Confluence**
+    space dump, configured and tested from **Settings**, cached locally.
+  - **Projection** — emits a loadable smart-data-dico project (passes
+    `validateDico`), provenance/drift kept as `re.*` metadata.
+  - **Provider-agnostic AI synthesis package** — per-entity grounded briefs +
+    `AGENT.md` hand-off for an external agent (opencode / claude-code) or the
+    integrated agent (new `listSynthesisBriefs` / `getSynthesisBrief` tools);
+    review (markdown) or direct output modes.
+  - **Update mode** — deterministic UUIDv5 ids + merge into an existing project
+    (reuse UUIDs, preserve human descriptions/rules, refresh structure).
+  - **Live analysis-progress panel** in the UI, fed by a streaming run endpoint.
+
 ## [1.14.1] — 2026-06-29
 
 ### Changed
