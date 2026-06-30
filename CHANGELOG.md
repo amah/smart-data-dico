@@ -5,6 +5,16 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.1] — 2026-06-30
+
+### Fixed
+- **Reverse-engineer now surfaces non-fatal failures.** A wrong changelog/repo
+  path, a missing JPA source dir, or Jira/Confluence fetch errors were swallowed
+  (logged server-side, returning a "successful" empty run) so nothing showed in
+  the UI. The run now returns a `warnings[]` — changelog/repo not found, 0
+  changeSets parsed, no `.java` files, enrichment errors, empty result — rendered
+  as a Warnings section in the page (and printed by the CLI).
+
 ## [1.16.0] — 2026-06-30
 
 ### Added
