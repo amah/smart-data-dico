@@ -66,6 +66,19 @@ Results show as chips (repos / cross-repo rels / dangling / conflicts) and a
 the store, and each element carries its `repos` (→ `re.repos` in the dico). The
 CLI equivalent is `--manifest <repos.json>`.
 
+#### Maven auto-detect (no changelog paths needed)
+
+In multi-repo mode, enter a **Maven project root** and click **Detect changelogs**.
+It walks the reactor (root `pom.xml` `<modules>`, recursively) and finds each
+module's Liquibase master via — in confidence order — the **liquibase-maven-plugin**
+config (`<changeLogFile>` / `<propertyFile>`), **`liquibase.properties`**, then
+**`db/changelog` conventions**; `classpath:` is resolved against the resource
+roots, `src/test/resources` changelogs are deprioritized, and SQL-formatted
+masters are flagged (the SQL loader isn't built yet). The detected plan (one unit
+per module) is written into the repos box for you to **review, then Run** — which
+gives cross-**module** relationship analysis. CLI: `--maven <projectRoot>` (run)
+or `--detect <projectRoot>` (report only); `--include-test` to keep test changelogs.
+
 ## 3. Watch the live progress panel
 
 Stages stream as they complete:

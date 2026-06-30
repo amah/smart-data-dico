@@ -11,6 +11,7 @@
  */
 import fs from 'fs';
 import { runReverseEngineer, runReverseEngineerMulti, type RepoSpec, type ProgressFn } from '../../services/reverseEngineer/reverseEngineerService.js';
+import { detectMaven, detectionToPlan } from '../../services/reverseEngineer/mavenDetect.js';
 import type { JiraConfig } from '../../services/reverseEngineer/jira.js';
 import type { ConfluenceConfig } from '../../services/reverseEngineer/confluence.js';
 import { getConfigSection } from '../../utils/appDir.js';
@@ -29,9 +30,22 @@ const emitDico = arg('emit-dico');
 const update = flag('update');
 const synthesisMode = arg('synthesis'); // 'review' | 'direct'
 const manifest = arg('manifest'); // JSON file: [{name,repoRoot,changelog,srcDir}] → multi-repo
+const detectRoot = arg('detect'); // print detected Liquibase changelogs for a Maven project, then exit
+const mavenRoot = arg('maven'); // auto-detect a Maven project's modules → run multi
+const includeTest = flag('include-test');
 
-if (!manifest && (!repo || !changelog)) {
-  process.stderr.write('Usage: --repo <path> --changelog <file> [--src <dir>] [--out <dir>] [--emit-dico <dir>] [--synthesis review|direct] [--update] [--no-jira] [--no-confluence]\n   or: --manifest <repos.json>  (multi-repo: [{name,repoRoot,changelog,srcDir}])\n');
+// --detect: report what auto-detection finds, then exit (confirm-first).
+if (detectRoot) {
+  const r = detectMaven(detectRoot);
+  process.stdout.write(`\n  Maven Liquibase detection — ${r.projectRoot}\n  modules: ${r.modules}\n`);
+  for (const c of r.candidates) process.stdout.write(`    [${c.confidence.toFixed(2)}] ${c.module} via ${c.detectedBy}${c.isTest ? ' (TEST)' : ''}${c.sqlUnsupported ? ' (SQL — unsupported)' : ''} → ${c.changelog}\n`);
+  for (const w of r.warnings) process.stdout.write(`    ! ${w}\n`);
+  process.stdout.write(`\n  Plan (one unit per module):\n${JSON.stringify(detectionToPlan(r, { includeTest }), null, 2)}\n\n`);
+  process.exit(0);
+}
+
+if (!manifest && !mavenRoot && (!repo || !changelog)) {
+  process.stderr.write('Usage: --repo <path> --changelog <file> [--src <dir>] [opts]\n   or: --manifest <repos.json>   (multi-repo)\n   or: --maven <projectRoot>     (auto-detect a Maven project, multi-module)\n   or: --detect <projectRoot>    (print detection only)\n');
   process.exit(2);
 }
 
@@ -79,13 +93,16 @@ const shared = {
   onProgress,
 };
 
-const { summary, drift, crossRepo } = manifest
-  ? await runReverseEngineerMulti({ repos: JSON.parse(fs.readFileSync(manifest, 'utf-8')) as RepoSpec[], ...shared })
+const mavenRepos: RepoSpec[] | undefined = mavenRoot ? detectionToPlan(detectMaven(mavenRoot), { includeTest }) : undefined;
+if (mavenRoot) process.stderr.write(`  · detected ${mavenRepos!.length} module(s) in ${mavenRoot}\n`);
+
+const { summary, drift, crossRepo } = manifest || mavenRoot
+  ? await runReverseEngineerMulti({ repos: mavenRepos ?? (JSON.parse(fs.readFileSync(manifest!, 'utf-8')) as RepoSpec[]), ...shared })
   : await runReverseEngineer({ repoRoot: repo!, changelog: changelog!, srcDir: src, ...shared });
 
 const lines = [
   '',
-  `  Reverse-engineer — ${manifest ? `multi-repo (${summary.repos?.join(', ')})` : repo}`,
+  `  Reverse-engineer — ${manifest || mavenRoot ? `multi-repo (${summary.repos?.join(', ')})` : repo}`,
   `  changeSets:  ${summary.changeSets}`,
   `  elements:    ${summary.elements}`,
   `  events:      ${summary.events}`,

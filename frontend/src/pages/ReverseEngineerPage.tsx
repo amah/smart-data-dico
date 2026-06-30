@@ -24,6 +24,9 @@ const STAGES: Array<[string, string]> = [
 
 export default function ReverseEngineerPage() {
   const [multi, setMulti] = useState(false);
+  const [mavenRoot, setMavenRoot] = useState('');
+  const [detecting, setDetecting] = useState(false);
+  const [detectMsg, setDetectMsg] = useState<string | null>(null);
   const [reposJson, setReposJson] = useState(
     '[\n  { "name": "svc-a", "repoRoot": "/path/to/svc-a", "changelog": "db/db.changelog-master.yaml", "srcDir": "src/main/java" },\n  { "name": "svc-b", "repoRoot": "/path/to/svc-b", "changelog": "db/db.changelog-master.yaml" }\n]',
   );
@@ -39,6 +42,26 @@ export default function ReverseEngineerPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ReverseEngineerResult | null>(null);
   const [progress, setProgress] = useState<Record<string, { status: string; detail?: string }>>({});
+
+  const detect = async () => {
+    if (!mavenRoot.trim()) return;
+    setDetecting(true);
+    setDetectMsg(null);
+    try {
+      const r = await reverseEngineerApi.detectMaven(mavenRoot);
+      setReposJson(JSON.stringify(r.plan, null, 2));
+      setDetectMsg(
+        r.plan.length
+          ? `Detected ${r.plan.length} module(s) across ${r.modules} pom(s). Review below, then Run.${r.warnings.length ? ` ⚠ ${r.warnings.length} warning(s).` : ''}`
+          : (r.warnings[0] ?? 'No Liquibase changelogs detected.'),
+      );
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { error?: string; message?: string } } };
+      setDetectMsg(err?.response?.data?.error ?? err?.response?.data?.message ?? 'Detection failed');
+    } finally {
+      setDetecting(false);
+    }
+  };
 
   const run = async () => {
     setBusy(true);
@@ -85,7 +108,19 @@ export default function ReverseEngineerPage() {
       </label>
 
       {multi && (
-        <Field label="Repos (JSON: name, repoRoot, changelog, srcDir)">
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <Field label="Maven project root → auto-detect Liquibase changelogs">
+            <Input value={mavenRoot} onChange={(e) => setMavenRoot(e.target.value)} placeholder="/path/to/maven-project" width={340} />
+          </Field>
+          <Button variant="secondary" disabled={detecting || !mavenRoot.trim()} onClick={detect}>
+            {detecting ? 'Detecting…' : 'Detect changelogs'}
+          </Button>
+          {detectMsg && <span style={{ fontSize: 12, opacity: 0.75 }}>{detectMsg}</span>}
+        </div>
+      )}
+
+      {multi && (
+        <Field label="Repos (JSON: name, repoRoot, changelog, srcDir) — edit or auto-fill via Detect">
           <textarea
             value={reposJson}
             onChange={(e) => setReposJson(e.target.value)}

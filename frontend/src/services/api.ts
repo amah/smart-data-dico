@@ -393,6 +393,13 @@ export interface JiraConfigInput { baseUrl: string; authType: 'token' | 'basic';
 export interface ConfluenceConfigView { baseUrl: string; authType: 'token' | 'basic'; user: string; token: string; hasPassword: boolean; spaceKey: string; limit: number; enabled: boolean; configPath?: string }
 export interface ConfluenceConfigInput { baseUrl: string; authType: 'token' | 'basic'; user?: string; token?: string; password?: string; spaceKey?: string; limit?: number; enabled: boolean }
 export interface ReProgressEvent { stage: string; status: 'start' | 'progress' | 'done'; detail?: string; count?: number }
+export interface MavenDetection {
+  projectRoot: string;
+  modules: number;
+  candidates: Array<{ module: string; changelog: string; detectedBy: string; confidence: number; isTest: boolean; sqlUnsupported?: boolean }>;
+  warnings: string[];
+  plan: RepoSpecInput[];
+}
 export interface ReverseEngineerElement {
   id: string;
   kind: string;
@@ -457,6 +464,8 @@ export const reverseEngineerApi = {
     (await api.post('/reverse-engineer/jira-config', cfg)).data,
   testJira: async (): Promise<{ ok: boolean; user?: string; error?: string }> =>
     (await api.post('/reverse-engineer/jira-test')).data,
+  detectMaven: async (repoRoot: string, includeTest = false): Promise<MavenDetection> =>
+    (await api.post('/reverse-engineer/detect', { repoRoot, includeTest })).data.data,
   getConfluenceConfig: async (): Promise<ConfluenceConfigView> => (await api.get('/reverse-engineer/confluence-config')).data,
   saveConfluenceConfig: async (cfg: ConfluenceConfigInput): Promise<{ message: string; configPath?: string }> =>
     (await api.post('/reverse-engineer/confluence-config', cfg)).data,

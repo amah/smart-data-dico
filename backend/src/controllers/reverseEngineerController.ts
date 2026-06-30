@@ -9,6 +9,7 @@ import type { Request, Response } from 'express';
 import { runReverseEngineer, runReverseEngineerMulti, type ReverseEngineerOptions, type MultiRepoOptions, type RepoSpec, type ProgressFn } from '../services/reverseEngineer/reverseEngineerService.js';
 import { testJira, type JiraConfig } from '../services/reverseEngineer/jira.js';
 import { testConfluence, type ConfluenceConfig } from '../services/reverseEngineer/confluence.js';
+import { detectMaven, detectionToPlan } from '../services/reverseEngineer/mavenDetect.js';
 import { getConfigSection, setConfigSection, CONFIG_FILE } from '../utils/appDir.js';
 import { config } from '../kernel/config.js';
 import { logger } from '../utils/logger.js';
@@ -91,6 +92,19 @@ export const reverseEngineerRunStream = async (req: Request, res: Response) => {
     write({ type: 'error', error: err instanceof Error ? err.message : String(err) });
   } finally {
     res.end();
+  }
+};
+
+/** POST /api/reverse-engineer/detect — auto-detect Liquibase changelogs in a Maven project. */
+export const detectMavenChangelogs = (req: Request, res: Response) => {
+  if (!localOnly(res)) return;
+  const { repoRoot, includeTest } = req.body ?? {};
+  if (!repoRoot || typeof repoRoot !== 'string') return res.status(400).json({ message: 'repoRoot (string) is required' });
+  try {
+    const result = detectMaven(repoRoot);
+    res.json({ data: { ...result, plan: detectionToPlan(result, { includeTest: includeTest === true }) } });
+  } catch (err: unknown) {
+    res.status(422).json({ message: 'Detection failed', error: err instanceof Error ? err.message : String(err) });
   }
 };
 
