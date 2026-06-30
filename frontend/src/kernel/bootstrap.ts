@@ -18,6 +18,7 @@ import { createGitPlugin } from '../plugins/git/gitPlugin';
 import { createNotificationPlugin } from '../plugins/notification/notificationPlugin';
 import { createLoggingPlugin } from '../plugins/logging/loggingPlugin';
 import { createAiAssistancePlugin } from '../plugins/ai-assistance/aiPlugin';
+import { createReverseEngineerPlugin } from '../plugins/reverse-engineer/reverseEngineerPlugin';
 import type { IStoreManager } from '@hamak/ui-store-api';
 
 // Domain Redux slices
@@ -188,6 +189,13 @@ export function registerPlugins() {
     'ai-assistance',
     { name: 'ai-assistance', version: '1.0.0', entry: '' },
     createAiAssistancePlugin({ enabled: true }),
+  );
+
+  // Reverse-engineer — owns /reverse-engineer; no DI deps (calls the backend API).
+  host.registerPlugin(
+    'reverse-engineer',
+    { name: 'reverse-engineer', version: '1.0.0', entry: '' },
+    createReverseEngineerPlugin(),
   );
 }
 

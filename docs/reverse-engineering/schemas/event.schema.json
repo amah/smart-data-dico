@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hamak.dev/smart-data-dico/re/event.schema.json",
+  "title": "CIR Lifecycle Event",
+  "description": "One line of timeline/events.jsonl — an append-only record of when/why a model element changed. The join between structural change (Liquibase/JPA) and context (git commit → ticket).",
+  "type": "object",
+  "required": ["ts", "element", "type", "source"],
+  "additionalProperties": false,
+  "properties": {
+    "ts": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the change took effect (commit date, or changeSet order time)."
+    },
+    "element": {
+      "type": "string",
+      "description": "Canonical element id this event affects (see element.schema.json#id)."
+    },
+    "type": {
+      "enum": ["born", "modified", "renamed", "deprecated", "removed"],
+      "description": "Lifecycle transition."
+    },
+    "change": {
+      "type": "string",
+      "description": "The concrete operation. Liquibase: createTable, addColumn, dropColumn, renameColumn, addForeignKeyConstraint, addUniqueConstraint, createIndex, addNotNullConstraint, ... JPA: field-added, annotation-changed, ...",
+      "examples": ["createTable", "addColumn", "addForeignKeyConstraint"]
+    },
+    "source": {
+      "type": "object",
+      "required": ["system"],
+      "additionalProperties": false,
+      "description": "Where the structural change was observed.",
+      "properties": {
+        "system": { "enum": ["liquibase", "jpa", "flyway", "ddl"] },
+        "file": { "type": "string", "description": "Changelog / source file (repo-relative)." },
+        "repo": { "type": "string" },
+        "changeSetId": { "type": "string", "description": "Liquibase changeSet id (often embeds the ticket)." },
+        "author": { "type": "string", "description": "Liquibase changeSet author." },
+        "comment": { "type": "string" }
+      }
+    },
+    "commit": {
+      "type": "object",
+      "description": "The git commit that introduced this change (correlation result; absent if not found).",
+      "additionalProperties": false,
+      "properties": {
+        "sha": { "type": "string" },
+        "author": { "type": "string" },
+        "email": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "message": { "type": "string" },
+        "tickets": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9]+-[0-9]+$" },
+          "description": "Tickets parsed from the commit message / branch / changeSet id."
+        }
+      }
+    },
+    "details": {
+      "type": "object",
+      "description": "Raw operation payload (the changeSet op as parsed) — kept verbatim for audit and downstream synthesis.",
+      "additionalProperties": true
+    }
+  }
+}
