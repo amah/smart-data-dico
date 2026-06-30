@@ -376,6 +376,85 @@ export const sqlRunApi = {
   close: async (resultId: string) => { await api.post('/sql/close', { resultId }); },
 };
 
+// Reverse-engineer plugin (#reverse-engineer) — mine a repo's Liquibase changelog
+// + git history into data-dictionary CIR elements/events.
+export interface ReverseEngineerInput { repoRoot: string; changelog: string; srcDir?: string; out?: string; emitDico?: string; enrich?: boolean }
+export interface DriftFinding { element: string; kind: string; detail: string }
+export interface JiraConfigView { baseUrl: string; authType: 'token' | 'basic'; user: string; token: string; hasPassword: boolean; enabled: boolean; configPath?: string }
+export interface JiraConfigInput { baseUrl: string; authType: 'token' | 'basic'; user?: string; token?: string; password?: string; enabled: boolean }
+export interface ConfluenceConfigView { baseUrl: string; authType: 'token' | 'basic'; user: string; token: string; hasPassword: boolean; spaceKey: string; limit: number; enabled: boolean; configPath?: string }
+export interface ConfluenceConfigInput { baseUrl: string; authType: 'token' | 'basic'; user?: string; token?: string; password?: string; spaceKey?: string; limit?: number; enabled: boolean }
+export interface ReProgressEvent { stage: string; status: 'start' | 'progress' | 'done'; detail?: string; count?: number }
+export interface ReverseEngineerElement {
+  id: string;
+  kind: string;
+  names: { physical?: { schema?: string; table?: string; column?: string }; logical?: { fqcn?: string; field?: string } };
+  facts: Record<string, unknown>;
+  provenance: Array<{ source: string; ref: string; commit?: string; ticket?: string; author?: string }>;
+  lifecycle: { status: string; bornEvent?: string };
+  confidence?: number;
+  flags?: string[];
+}
+export interface ReverseEngineerResult {
+  summary: { elements: number; events: number; changeSets: number; withCommit: number; jpaFiles: number; driftFindings: number; jiraIssues: number; confluencePages: number; tickets: string[]; storeDir?: string; dicoProject?: string };
+  elements: ReverseEngineerElement[];
+  events: Array<Record<string, unknown>>;
+  drift: DriftFinding[];
+}
+
+export const reverseEngineerApi = {
+  run: async (input: ReverseEngineerInput): Promise<ReverseEngineerResult> => {
+    const r = await api.post('/reverse-engineer/run', input);
+    return r.data?.data as ReverseEngineerResult;
+  },
+  /** Streaming run: invokes onProgress for each live stage event, resolves with the final result. */
+  runStream: async (input: ReverseEngineerInput, onProgress: (e: ReProgressEvent) => void): Promise<ReverseEngineerResult> => {
+    const token = localStorage.getItem('auth_token') || 'mock-token-for-testing';
+    const res = await fetch('/api/reverse-engineer/run-stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok || !res.body) {
+      const msg = await res.text().catch(() => res.statusText);
+      throw new Error(msg || `HTTP ${res.status}`);
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let result: ReverseEngineerResult | undefined;
+    let streamError: string | undefined;
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl: number;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+        const msg = JSON.parse(line) as { type: string; data?: ReverseEngineerResult; error?: string } & ReProgressEvent;
+        if (msg.type === 'progress') onProgress(msg);
+        else if (msg.type === 'result') result = msg.data;
+        else if (msg.type === 'error') streamError = msg.error;
+      }
+    }
+    if (streamError) throw new Error(streamError);
+    if (!result) throw new Error('No result received');
+    return result;
+  },
+  getJiraConfig: async (): Promise<JiraConfigView> => (await api.get('/reverse-engineer/jira-config')).data,
+  saveJiraConfig: async (cfg: JiraConfigInput): Promise<{ message: string; configPath?: string }> =>
+    (await api.post('/reverse-engineer/jira-config', cfg)).data,
+  testJira: async (): Promise<{ ok: boolean; user?: string; error?: string }> =>
+    (await api.post('/reverse-engineer/jira-test')).data,
+  getConfluenceConfig: async (): Promise<ConfluenceConfigView> => (await api.get('/reverse-engineer/confluence-config')).data,
+  saveConfluenceConfig: async (cfg: ConfluenceConfigInput): Promise<{ message: string; configPath?: string }> =>
+    (await api.post('/reverse-engineer/confluence-config', cfg)).data,
+  testConfluence: async (): Promise<{ ok: boolean; space?: string; error?: string }> =>
+    (await api.post('/reverse-engineer/confluence-test')).data,
+};
+
 // Model-level metadata (#94)
 export const modelApi = {
   getMetadata: async () => {

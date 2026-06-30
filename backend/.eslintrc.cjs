@@ -51,6 +51,9 @@ module.exports = {
         'src/server.ts',
         'src/routes/project.routes.ts',
         'src/scripts/**',
+        // Reverse-engineer plugin reads EXTERNAL repos by absolute path, so it
+        // legitimately uses raw fs (IStorageBackend is scoped to the dico project).
+        'src/services/reverseEngineer/**',
       ],
       rules: { 'no-restricted-imports': 'off' },
     },

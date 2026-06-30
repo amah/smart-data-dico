@@ -8,6 +8,7 @@ import statusRoutes from './status.routes.js';
 import projectRoutes from './project.routes.js';
 import ormRoutes from './orm.routes.js';
 import sqlRoutes from './sql.routes.js';
+import reverseEngineerRoutes from './reverseEngineer.routes.js';
 
 const router: Router = Router();
 router.use(statusRoutes);
@@ -19,4 +20,5 @@ router.use(ormRoutes);
 router.use(dataDictionaryRoutes);
 router.use(aiRoutes);
 router.use(sqlRoutes);
+router.use(reverseEngineerRoutes);
 export default router;

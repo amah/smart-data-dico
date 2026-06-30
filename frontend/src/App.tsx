@@ -38,6 +38,7 @@ import ForgotPassword from './pages/ForgotPassword';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import DerivedTypesPage from './pages/DerivedTypesPage';
+import ReverseEngineerPage from './pages/ReverseEngineerPage';
 import DesignSystemPage from './pages/DesignSystemPage';
 import CommandsDebugPage from './pages/CommandsDebugPage';
 
@@ -106,6 +107,9 @@ function App() {
         {/* Import/Export + Quality */}
         <Route path="import-export" element={<ImportExportPage />} />
         <Route path="quality" element={<QualityDashboardPage />} />
+
+        {/* Reverse-engineer (plugin owns /reverse-engineer) */}
+        <Route path="reverse-engineer" element={<ReverseEngineerPage />} />
 
         {/* Stereotypes */}
         <Route path="stereotypes" element={<StereotypesPage />} />

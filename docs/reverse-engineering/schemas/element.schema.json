@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hamak.dev/smart-data-dico/re/element.schema.json",
+  "title": "CIR Element",
+  "description": "A canonical model element (entity, attribute, relationship, or constraint) reconstructed from one or more sources. Deterministic extraction output — no AI inference. Every fact is traceable via `provenance`.",
+  "type": "object",
+  "required": ["id", "kind", "names", "facts", "provenance", "lifecycle"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Stable canonical id. Convention: '<kind>:<physical-or-logical-key>'.",
+      "examples": ["entity:orders.customer", "attribute:orders.customer.email", "relationship:orders.order->orders.customer", "constraint:orders.uq_customer_email"]
+    },
+    "kind": { "enum": ["entity", "attribute", "relationship", "constraint"] },
+    "names": {
+      "type": "object",
+      "description": "The physical (DB) and/or logical (code) faces of this element. At least one must be present.",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "physical": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schema": { "type": "string" },
+            "table": { "type": "string" },
+            "column": { "type": "string" }
+          }
+        },
+        "logical": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "fqcn": { "type": "string", "description": "Fully-qualified Java class name (the JPA @Entity / @Embeddable)." },
+            "field": { "type": "string" }
+          }
+        }
+      }
+    },
+    "facts": {
+      "type": "object",
+      "description": "Kind-specific structural facts. Open object; shape depends on `kind`.",
+      "properties": {
+        "dataType": { "type": "string", "description": "attribute: physical/logical type, e.g. VARCHAR(254), bigint, java.time.LocalDate." },
+        "nullable": { "type": "boolean", "description": "attribute" },
+        "length": { "type": "integer", "description": "attribute: max length where applicable." },
+        "defaultValue": { "type": ["string", "number", "boolean", "null"], "description": "attribute" },
+        "isPrimaryKey": { "type": "boolean", "description": "attribute" },
+        "validation": {
+          "type": "object",
+          "description": "attribute: maps to smart-data-dico attribute.validation (from Bean Validation / @Column).",
+          "additionalProperties": true
+        },
+        "source": { "type": "string", "description": "relationship: source entity id." },
+        "target": { "type": "string", "description": "relationship: target entity id." },
+        "cardinality": { "enum": ["one-to-one", "one-to-many", "many-to-one", "many-to-many"], "description": "relationship" },
+        "foreignKeyColumns": { "type": "array", "items": { "type": "string" }, "description": "relationship/constraint" },
+        "constraintType": { "enum": ["primaryKey", "foreignKey", "unique", "check", "index", "notNull"], "description": "constraint" },
+        "expression": { "type": "string", "description": "constraint: check expression / index definition." }
+      },
+      "additionalProperties": true
+    },
+    "provenance": {
+      "type": "array",
+      "description": "Every source that contributed a fact. Append-only; ordered by discovery.",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/provenance" }
+    },
+    "lifecycle": {
+      "type": "object",
+      "required": ["status"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "enum": ["active", "deprecated", "removed"] },
+        "bornEvent": { "type": "string", "description": "id/ref of the 'born' event in timeline/events.jsonl." },
+        "lastChangedEvent": { "type": "string" },
+        "firstSeen": { "type": "string", "format": "date-time" },
+        "lastSeen": { "type": "string", "format": "date-time" }
+      }
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Aggregate confidence from corroborating sources (deterministic facts ~1.0)."
+    },
+    "flags": {
+      "type": "array",
+      "description": "Drift / quality findings, e.g. jpa-db-nullable-mismatch, orphan-column, no-introducing-commit.",
+      "items": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "required": ["source", "ref"],
+      "additionalProperties": false,
+      "properties": {
+        "source": { "enum": ["liquibase", "jpa", "flyway", "ddl", "git", "jira", "confluence", "pr"] },
+        "ref": { "type": "string", "description": "Locator within the source, e.g. 'db.changelog.yaml#PROJ-123-add-email' or 'com.eshop.Customer#email'." },
+        "line": { "type": "integer" },
+        "commit": { "type": "string", "description": "Introducing/last-touching git SHA." },
+        "ticket": { "type": "string", "pattern": "^[A-Z][A-Z0-9]+-[0-9]+$" },
+        "author": { "type": "string" },
+        "fetchedAt": { "type": "string", "format": "date-time", "description": "For external-system enrichment (Jira/Confluence) — staleness tracking." }
+      }
+    }
+  }
+}
