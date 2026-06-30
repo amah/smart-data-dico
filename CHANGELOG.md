@@ -5,6 +5,26 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.0] — 2026-06-30
+
+### Added
+- **Reverse-engineer: first-class multi-repo + cross-repo relationship analysis.**
+  Mine several repos in one run; entities are resolved across repos and FKs are
+  classified against the global entity set — **cross-repo** (referenced table in
+  another repo), **dangling** (target in no repo), **shared entity** / **conflict**
+  (same table across repos, differing columns). Emits one combined dictionary + a
+  `cross-repo.json` report; each element carries its `repos`.
+- **Reverse-engineer: auto-detect Liquibase changelogs from Maven projects.**
+  Walks the (multi-module, nested) reactor and finds each module's master via the
+  liquibase-maven-plugin config, `liquibase.properties`, or `db/changelog`
+  conventions — resolving `classpath:`, validating, deprioritizing test changelogs,
+  flagging SQL-format masters. UI "Detect changelogs" / CLI `--maven` / `--detect`.
+
+### Changed
+- **Reverse-engineer is now a self-contained plugin.** New contribution hooks — a
+  backend **agent-tool registry** and a frontend **settings-section slot** — so the
+  shared AI controller and Settings page carry no reverse-engineer-specific code.
+
 ## [1.15.0] — 2026-06-30
 
 ### Added
