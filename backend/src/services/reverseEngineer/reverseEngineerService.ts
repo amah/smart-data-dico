@@ -88,6 +88,8 @@ export interface ReverseEngineerOutput {
   events: CIREvent[];
   drift: DriftFinding[];
   crossRepo?: CrossRepoReport;
+  /** Non-fatal problems worth surfacing (bad path, 0 changeSets, enrichment errors…). */
+  warnings: string[];
 }
 
 const tableId = (t: string) => `entity:${t}`;
@@ -105,14 +107,20 @@ interface RepoCir {
   withCommit: number;
   changeSets: number;
   jpaFiles: number;
+  warnings: string[];
 }
 
 function extractRepoCir(repo: RepoSpec, progress: ProgressFn, label: string): RepoCir {
   const tag = (s: string) => (label ? `[${label}] ${s}` : s);
+  const warnings: string[] = [];
+  const lbl = label ? `${label}: ` : '';
   const repoRoot = path.resolve(repo.repoRoot);
   const masterAbs = path.isAbsolute(repo.changelog) ? repo.changelog : path.join(repoRoot, repo.changelog);
+  if (!fs.existsSync(repoRoot)) warnings.push(`${lbl}repository path not found: ${repoRoot}`);
+  else if (!fs.existsSync(masterAbs)) warnings.push(`${lbl}changelog not found: ${repo.changelog}`);
   progress({ stage: 'liquibase', status: 'start', detail: tag('parsing changelog') });
   const changeSets = loadChangelog(masterAbs, repoRoot);
+  if (fs.existsSync(masterAbs) && changeSets.length === 0) warnings.push(`${lbl}no changeSets parsed from ${repo.changelog} — check the format/includes`);
   progress({ stage: 'liquibase', status: 'done', count: changeSets.length, detail: tag(`${changeSets.length} changeSets`) });
   const hasGit = gitAvailable(repoRoot);
 
@@ -256,6 +264,7 @@ function extractRepoCir(repo: RepoSpec, progress: ProgressFn, label: string): Re
       const prov = (): Provenance => ({ source: 'jpa', ref: rel, commit: commit?.sha, ticket: commit?.tickets?.[0], author: commit?.author });
       jpaElements.push(...extractJpa(fs.readFileSync(file, 'utf-8'), { fileRel: rel, provenance: prov }));
     }
+    if (jpaFiles === 0) warnings.push(`${lbl}no .java files found under ${repo.srcDir} — JPA drift skipped`);
     progress({ stage: 'jpa', status: 'done', count: jpaFiles, detail: tag(`${jpaFiles} Java files`) });
     progress({ stage: 'drift', status: 'start', detail: tag('') });
     drift = mergeJpa(elements, jpaElements);
@@ -263,7 +272,7 @@ function extractRepoCir(repo: RepoSpec, progress: ProgressFn, label: string): Re
   }
 
   if (label) for (const el of elements.values()) el.repos = [label];
-  return { label, repoRoot, elements, events, drift, tickets: allTickets, withCommit, changeSets: changeSets.length, jpaFiles };
+  return { label, repoRoot, elements, events, drift, tickets: allTickets, withCommit, changeSets: changeSets.length, jpaFiles, warnings };
 }
 
 /** Resolve entities across repos and analyse cross-repo relationships. */
@@ -274,13 +283,14 @@ function combineRepos(parts: RepoCir[]): { cir: RepoCir; report: CrossRepoReport
   const drift: DriftFinding[] = [];
   const tickets = new Set<string>();
   const conflicts: CrossRepoReport['conflicts'] = [];
+  const warnings: string[] = [];
   let withCommit = 0, changeSets = 0, jpaFiles = 0;
 
   const addRepo = (id: string, label: string) => (reposById.get(id) ?? reposById.set(id, new Set()).get(id)!).add(label);
   const maxLen = (el: CIRElement) => (el.facts.validation as { maxLength?: number } | undefined)?.maxLength;
 
   for (const p of parts) {
-    events.push(...p.events); drift.push(...p.drift); p.tickets.forEach((t) => tickets.add(t));
+    events.push(...p.events); drift.push(...p.drift); p.tickets.forEach((t) => tickets.add(t)); warnings.push(...p.warnings);
     withCommit += p.withCommit; changeSets += p.changeSets; jpaFiles += p.jpaFiles;
     for (const [id, el] of p.elements) {
       addRepo(id, p.label);
@@ -324,13 +334,14 @@ function combineRepos(parts: RepoCir[]): { cir: RepoCir; report: CrossRepoReport
   }
 
   const report: CrossRepoReport = { repos: parts.map((p) => p.label), sharedEntities, conflicts, crossRepoRelationships, danglingReferences };
-  const cir: RepoCir = { label: `multi(${parts.length})`, repoRoot: parts.map((p) => p.repoRoot).join(', '), elements, events, drift, tickets, withCommit, changeSets, jpaFiles };
+  const cir: RepoCir = { label: `multi(${parts.length})`, repoRoot: parts.map((p) => p.repoRoot).join(', '), elements, events, drift, tickets, withCommit, changeSets, jpaFiles, warnings };
   return { cir, report };
 }
 
 /** Shared tail: enrich → write store → emit dico → synthesis → summary. */
 async function finalize(cir: RepoCir, opts: Enrichment, progress: ProgressFn, crossRepo?: CrossRepoReport): Promise<ReverseEngineerOutput> {
   const allTickets = cir.tickets;
+  const warnings = [...cir.warnings];
 
   let jiraIssues = 0;
   let jiraIssueMap = new Map<string, JiraIssue>();
@@ -339,7 +350,7 @@ async function finalize(cir: RepoCir, opts: Enrichment, progress: ProgressFn, cr
     const enriched = await enrichWithJira([...allTickets].sort(), opts.jira, { outDir: opts.out });
     attachJira(cir.elements.values(), enriched.issues);
     jiraIssues = enriched.issues.size; jiraIssueMap = enriched.issues;
-    for (const e of enriched.errors) process.stderr.write(`[jira] ${e.key}: ${e.error}\n`);
+    for (const e of enriched.errors) { process.stderr.write(`[jira] ${e.key}: ${e.error}\n`); warnings.push(`Jira ${e.key}: ${e.error}`); }
     progress({ stage: 'jira', status: 'done', count: jiraIssues, detail: `${jiraIssues} issues` });
   }
 
@@ -348,7 +359,7 @@ async function finalize(cir: RepoCir, opts: Enrichment, progress: ProgressFn, cr
     progress({ stage: 'confluence', status: 'start', detail: `dumping space ${opts.confluence.spaceKey}` });
     const dump = await dumpConfluenceSpace(opts.confluence, { outDir: opts.out });
     confluencePages = dump.pages.length;
-    for (const e of dump.errors) process.stderr.write(`[confluence] ${e}\n`);
+    for (const e of dump.errors) { process.stderr.write(`[confluence] ${e}\n`); warnings.push(`Confluence: ${e}`); }
     progress({ stage: 'confluence', status: 'done', count: confluencePages, detail: `${confluencePages} pages` });
   }
 
@@ -375,7 +386,9 @@ async function finalize(cir: RepoCir, opts: Enrichment, progress: ProgressFn, cr
     }
   }
 
-  progress({ stage: 'done', status: 'done', detail: `${model.length} elements` });
+  if (model.length === 0) warnings.push('No model elements were extracted — check the repository path and changelog location.');
+
+  progress({ stage: 'done', status: 'done', detail: `${model.length} elements${warnings.length ? `, ${warnings.length} warning(s)` : ''}` });
 
   return {
     summary: {
@@ -390,7 +403,7 @@ async function finalize(cir: RepoCir, opts: Enrichment, progress: ProgressFn, cr
         danglingReferences: crossRepo.danglingReferences.length,
       } : {}),
     },
-    elements: model, events: cir.events, drift: cir.drift, crossRepo,
+    elements: model, events: cir.events, drift: cir.drift, crossRepo, warnings,
   };
 }
 

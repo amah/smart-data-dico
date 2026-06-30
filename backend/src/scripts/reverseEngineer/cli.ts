@@ -96,7 +96,7 @@ const shared = {
 const mavenRepos: RepoSpec[] | undefined = mavenRoot ? detectionToPlan(detectMaven(mavenRoot), { includeTest }) : undefined;
 if (mavenRoot) process.stderr.write(`  · detected ${mavenRepos!.length} module(s) in ${mavenRoot}\n`);
 
-const { summary, drift, crossRepo } = manifest || mavenRoot
+const { summary, drift, crossRepo, warnings } = manifest || mavenRoot
   ? await runReverseEngineerMulti({ repos: mavenRepos ?? (JSON.parse(fs.readFileSync(manifest!, 'utf-8')) as RepoSpec[]), ...shared })
   : await runReverseEngineer({ repoRoot: repo!, changelog: changelog!, srcDir: src, ...shared });
 
@@ -127,6 +127,10 @@ if (crossRepo) {
   );
   for (const r of crossRepo.crossRepoRelationships) lines.push(`    • ${r.from} → ${r.to}  (${r.fromRepos.join(',')} → ${r.toRepos.join(',')})`);
   for (const d of crossRepo.danglingReferences) lines.push(`    • dangling: ${d.relationship.replace('relationship:', '')} → ${d.target} (not found in any repo)`);
+}
+if (warnings.length) {
+  lines.push('', `  ⚠ Warnings (${warnings.length}):`);
+  for (const w of warnings) lines.push(`    • ${w}`);
 }
 if (drift.length) {
   lines.push('', '  Drift findings:');
