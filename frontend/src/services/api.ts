@@ -395,11 +395,18 @@ export interface ConfluenceConfigInput { baseUrl: string; authType: 'token' | 'b
 export interface ReProgressEvent { stage: string; status: 'start' | 'progress' | 'done'; detail?: string; count?: number }
 export interface MavenDetection {
   projectRoot: string;
+  projects: number;
   modules: number;
   candidates: Array<{ module: string; changelog: string; detectedBy: string; confidence: number; isTest: boolean; sqlUnsupported?: boolean }>;
   warnings: string[];
   plan: RepoSpecInput[];
 }
+/** Live event streamed by detectMavenStream as the Maven tree is walked. */
+export type ReDetectEvent =
+  | { type: 'project'; project: string; path: string; index: number; total: number }
+  | { type: 'module'; module: string; project: string }
+  | { type: 'candidate'; candidate: MavenDetection['candidates'][number] }
+  | { type: 'warning'; message: string };
 export interface ReverseEngineerElement {
   id: string;
   kind: string;
@@ -469,6 +476,44 @@ export const reverseEngineerApi = {
     (await api.post('/reverse-engineer/jira-test')).data,
   detectMaven: async (repoRoot: string, includeTest = false): Promise<MavenDetection> =>
     (await api.post('/reverse-engineer/detect', { repoRoot, includeTest })).data.data,
+  /** Streaming detect: invokes onEvent for each live scan event, resolves with the final detection + plan. */
+  detectMavenStream: async (repoRoot: string, onEvent: (e: ReDetectEvent) => void, includeTest = false): Promise<MavenDetection> => {
+    const token = localStorage.getItem('auth_token') || 'mock-token-for-testing';
+    const res = await fetch('/api/reverse-engineer/detect-stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ repoRoot, includeTest }),
+    });
+    if (!res.ok || !res.body) {
+      const raw = await res.text().catch(() => '');
+      let msg = raw;
+      try { const j = JSON.parse(raw); msg = j.error ?? j.message ?? raw; } catch { /* not JSON */ }
+      throw new Error(msg || `HTTP ${res.status} ${res.statusText}`);
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let result: MavenDetection | undefined;
+    let streamError: string | undefined;
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl: number;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+        const msg = JSON.parse(line) as ReDetectEvent | { type: 'result'; data: MavenDetection } | { type: 'error'; error: string };
+        if (msg.type === 'result') result = msg.data;
+        else if (msg.type === 'error') streamError = msg.error;
+        else onEvent(msg);
+      }
+    }
+    if (streamError) throw new Error(streamError);
+    if (!result) throw new Error('No detection result received');
+    return result;
+  },
   getConfluenceConfig: async (): Promise<ConfluenceConfigView> => (await api.get('/reverse-engineer/confluence-config')).data,
   saveConfluenceConfig: async (cfg: ConfluenceConfigInput): Promise<{ message: string; configPath?: string }> =>
     (await api.post('/reverse-engineer/confluence-config', cfg)).data,

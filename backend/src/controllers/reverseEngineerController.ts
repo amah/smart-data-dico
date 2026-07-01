@@ -9,7 +9,7 @@ import type { Request, Response } from 'express';
 import { runReverseEngineer, runReverseEngineerMulti, type ReverseEngineerOptions, type MultiRepoOptions, type RepoSpec, type ProgressFn } from '../services/reverseEngineer/reverseEngineerService.js';
 import { testJira, type JiraConfig } from '../services/reverseEngineer/jira.js';
 import { testConfluence, type ConfluenceConfig } from '../services/reverseEngineer/confluence.js';
-import { detectMaven, detectionToPlan } from '../services/reverseEngineer/mavenDetect.js';
+import { detectMaven, detectMavenStream, detectionToPlan } from '../services/reverseEngineer/mavenDetect.js';
 import { getConfigSection, setConfigSection, CONFIG_FILE } from '../utils/appDir.js';
 import { config } from '../kernel/config.js';
 import { logger } from '../utils/logger.js';
@@ -96,15 +96,37 @@ export const reverseEngineerRunStream = async (req: Request, res: Response) => {
 };
 
 /** POST /api/reverse-engineer/detect — auto-detect Liquibase changelogs in a Maven project. */
-export const detectMavenChangelogs = (req: Request, res: Response) => {
+export const detectMavenChangelogs = async (req: Request, res: Response) => {
   if (!localOnly(res)) return;
   const { repoRoot, includeTest } = req.body ?? {};
   if (!repoRoot || typeof repoRoot !== 'string') return res.status(400).json({ message: 'repoRoot (string) is required' });
   try {
-    const result = detectMaven(repoRoot);
+    const result = await detectMaven(repoRoot);
     res.json({ data: { ...result, plan: detectionToPlan(result, { includeTest: includeTest === true }) } });
   } catch (err: unknown) {
     res.status(422).json({ message: 'Detection failed', error: err instanceof Error ? err.message : String(err) });
+  }
+};
+
+/** POST /api/reverse-engineer/detect-stream — same, streaming NDJSON scan progress then result. */
+export const detectMavenChangelogsStream = async (req: Request, res: Response) => {
+  if (!localOnly(res)) return;
+  const { repoRoot, includeTest } = req.body ?? {};
+  if (!repoRoot || typeof repoRoot !== 'string') return res.status(400).json({ message: 'repoRoot (string) is required' });
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('X-Accel-Buffering', 'no');
+  const write = (o: unknown) => res.write(JSON.stringify(o) + '\n');
+  try {
+    const gen = detectMavenStream(repoRoot);
+    let r = await gen.next();
+    while (!r.done) { write(r.value); r = await gen.next(); }
+    const result = r.value;
+    write({ type: 'result', data: { ...result, plan: detectionToPlan(result, { includeTest: includeTest === true }) } });
+  } catch (err: unknown) {
+    write({ type: 'error', error: err instanceof Error ? err.message : String(err) });
+  } finally {
+    res.end();
   }
 };
 

@@ -8,6 +8,7 @@ import {
   reverseEngineerRun,
   reverseEngineerRunStream,
   detectMavenChangelogs,
+  detectMavenChangelogsStream,
   jiraGetConfig,
   jiraSaveConfig,
   jiraTestConnection,
@@ -30,6 +31,7 @@ const ADMIN = authorizeJwt([UserRole.ADMIN]);
 router.post('/api/reverse-engineer/run', WRITE, reverseEngineerRun);
 router.post('/api/reverse-engineer/run-stream', WRITE, reverseEngineerRunStream);
 router.post('/api/reverse-engineer/detect', WRITE, detectMavenChangelogs);
+router.post('/api/reverse-engineer/detect-stream', WRITE, detectMavenChangelogsStream);
 router.get('/api/reverse-engineer/jira-config', ADMIN, jiraGetConfig);
 router.post('/api/reverse-engineer/jira-config', ADMIN, jiraSaveConfig);
 router.post('/api/reverse-engineer/jira-test', ADMIN, jiraTestConnection);

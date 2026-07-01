@@ -11,7 +11,7 @@
  */
 import fs from 'fs';
 import { runReverseEngineer, runReverseEngineerMulti, type RepoSpec, type ProgressFn } from '../../services/reverseEngineer/reverseEngineerService.js';
-import { detectMaven, detectionToPlan } from '../../services/reverseEngineer/mavenDetect.js';
+import { detectMaven, detectMavenStream, detectionToPlan } from '../../services/reverseEngineer/mavenDetect.js';
 import type { JiraConfig } from '../../services/reverseEngineer/jira.js';
 import type { ConfluenceConfig } from '../../services/reverseEngineer/confluence.js';
 import { getConfigSection } from '../../utils/appDir.js';
@@ -36,8 +36,20 @@ const includeTest = flag('include-test');
 
 // --detect: report what auto-detection finds, then exit (confirm-first).
 if (detectRoot) {
-  const r = detectMaven(detectRoot);
-  process.stdout.write(`\n  Maven Liquibase detection — ${r.projectRoot}\n  modules: ${r.modules}\n`);
+  // Stream live scan progress to stderr as the tree is walked, then the summary to stdout.
+  process.stderr.write(`\n  Scanning ${detectRoot} …\n`);
+  const gen = detectMavenStream(detectRoot);
+  let ev = await gen.next();
+  while (!ev.done) {
+    const e = ev.value;
+    if (e.type === 'project') process.stderr.write(`  · project [${e.index}/${e.total}] ${e.project}\n`);
+    else if (e.type === 'module') process.stderr.write(`      module ${e.module}\n`);
+    else if (e.type === 'candidate') process.stderr.write(`        ✓ [${e.candidate.confidence.toFixed(2)}] ${e.candidate.changelog} via ${e.candidate.detectedBy}${e.candidate.isTest ? ' (TEST)' : ''}${e.candidate.sqlUnsupported ? ' (SQL — unsupported)' : ''}\n`);
+    else if (e.type === 'warning') process.stderr.write(`      ! ${e.message}\n`);
+    ev = await gen.next();
+  }
+  const r = ev.value;
+  process.stdout.write(`\n  Maven Liquibase detection — ${r.projectRoot}\n  projects: ${r.projects}   modules: ${r.modules}\n`);
   for (const c of r.candidates) process.stdout.write(`    [${c.confidence.toFixed(2)}] ${c.module} via ${c.detectedBy}${c.isTest ? ' (TEST)' : ''}${c.sqlUnsupported ? ' (SQL — unsupported)' : ''} → ${c.changelog}\n`);
   for (const w of r.warnings) process.stdout.write(`    ! ${w}\n`);
   process.stdout.write(`\n  Plan (one unit per module):\n${JSON.stringify(detectionToPlan(r, { includeTest }), null, 2)}\n\n`);
@@ -93,7 +105,7 @@ const shared = {
   onProgress,
 };
 
-const mavenRepos: RepoSpec[] | undefined = mavenRoot ? detectionToPlan(detectMaven(mavenRoot), { includeTest }) : undefined;
+const mavenRepos: RepoSpec[] | undefined = mavenRoot ? detectionToPlan(await detectMaven(mavenRoot), { includeTest }) : undefined;
 if (mavenRoot) process.stderr.write(`  · detected ${mavenRepos!.length} module(s) in ${mavenRoot}\n`);
 
 const { summary, drift, crossRepo, warnings } = manifest || mavenRoot

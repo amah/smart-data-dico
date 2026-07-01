@@ -7,7 +7,10 @@
  */
 import { useState } from 'react';
 import { PageHeader, Field, Input, Button, EmptyState, Chip, Icon } from '../components/ui';
-import { reverseEngineerApi, type ReverseEngineerResult, type ReProgressEvent } from '../services/api';
+import { reverseEngineerApi, type ReverseEngineerResult, type ReProgressEvent, type ReDetectEvent } from '../services/api';
+
+type ScanState = { projects: Array<{ name: string; modules: number; changelogs: number }>; modules: number; changelogs: number; warnings: number };
+const EMPTY_SCAN: ScanState = { projects: [], modules: 0, changelogs: 0, warnings: 0 };
 
 // Ordered pipeline stages for the live analysis panel.
 const STAGES: Array<[string, string]> = [
@@ -27,6 +30,7 @@ export default function ReverseEngineerPage() {
   const [mavenRoot, setMavenRoot] = useState('');
   const [detecting, setDetecting] = useState(false);
   const [detectMsg, setDetectMsg] = useState<string | null>(null);
+  const [scan, setScan] = useState<ScanState | null>(null);
   const [reposJson, setReposJson] = useState(
     '[\n  { "name": "svc-a", "repoRoot": "/path/to/svc-a", "changelog": "db/db.changelog-master.yaml", "srcDir": "src/main/java" },\n  { "name": "svc-b", "repoRoot": "/path/to/svc-b", "changelog": "db/db.changelog-master.yaml" }\n]',
   );
@@ -43,21 +47,45 @@ export default function ReverseEngineerPage() {
   const [result, setResult] = useState<ReverseEngineerResult | null>(null);
   const [progress, setProgress] = useState<Record<string, { status: string; detail?: string }>>({});
 
+  const onDetectEvent = (e: ReDetectEvent) =>
+    setScan((s) => {
+      const cur = s ?? EMPTY_SCAN;
+      if (e.type === 'project') return { ...cur, projects: [...cur.projects, { name: e.project, modules: 0, changelogs: 0 }] };
+      if (e.type === 'module') {
+        const projects = cur.projects.slice();
+        const last = projects.length - 1;
+        if (last >= 0) projects[last] = { ...projects[last], modules: projects[last].modules + 1 };
+        return { ...cur, projects, modules: cur.modules + 1 };
+      }
+      if (e.type === 'candidate') {
+        const projects = cur.projects.slice();
+        // attribute to the clone whose basename prefixes the label (multi-project), else the last one
+        const pfx = e.candidate.module.includes('/') ? e.candidate.module.split('/')[0] : null;
+        let idx = projects.length - 1;
+        if (pfx) { const i = projects.findIndex((p) => p.name === pfx); if (i >= 0) idx = i; }
+        if (idx >= 0) projects[idx] = { ...projects[idx], changelogs: projects[idx].changelogs + 1 };
+        return { ...cur, projects, changelogs: cur.changelogs + 1 };
+      }
+      if (e.type === 'warning') return { ...cur, warnings: cur.warnings + 1 };
+      return cur;
+    });
+
   const detect = async () => {
     if (!mavenRoot.trim()) return;
     setDetecting(true);
     setDetectMsg(null);
+    setScan(EMPTY_SCAN);
     try {
-      const r = await reverseEngineerApi.detectMaven(mavenRoot);
+      const r = await reverseEngineerApi.detectMavenStream(mavenRoot, onDetectEvent);
       setReposJson(JSON.stringify(r.plan, null, 2));
       setDetectMsg(
         r.plan.length
-          ? `Detected ${r.plan.length} module(s) across ${r.modules} pom(s). Review below, then Run.${r.warnings.length ? ` ⚠ ${r.warnings.length} warning(s).` : ''}`
+          ? `Detected ${r.plan.length} module(s) across ${r.projects} ${r.projects === 1 ? 'project' : 'projects (clones)'} / ${r.modules} pom(s). Review below, then Run.${r.warnings.length ? ` ⚠ ${r.warnings.length} warning(s).` : ''}`
           : (r.warnings[0] ?? 'No Liquibase changelogs detected.'),
       );
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { error?: string; message?: string } } };
-      setDetectMsg(err?.response?.data?.error ?? err?.response?.data?.message ?? 'Detection failed');
+      const err = e as { message?: string };
+      setDetectMsg(err?.message ?? 'Detection failed');
     } finally {
       setDetecting(false);
     }
@@ -109,13 +137,32 @@ export default function ReverseEngineerPage() {
 
       {multi && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-          <Field label="Maven project root → auto-detect Liquibase changelogs">
-            <Input value={mavenRoot} onChange={(e) => setMavenRoot(e.target.value)} placeholder="/path/to/maven-project" width={340} />
+          <Field label="Maven project root, or a parent folder of clones → auto-detect Liquibase changelogs">
+            <Input value={mavenRoot} onChange={(e) => setMavenRoot(e.target.value)} placeholder="/path/to/maven-project or /path/to/repos-parent" width={340} />
           </Field>
           <Button variant="secondary" disabled={detecting || !mavenRoot.trim()} onClick={detect}>
             {detecting ? 'Detecting…' : 'Detect changelogs'}
           </Button>
           {detectMsg && <span style={{ fontSize: 12, opacity: 0.75 }}>{detectMsg}</span>}
+        </div>
+      )}
+
+      {multi && scan && (detecting || scan.projects.length > 0) && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 12, borderRadius: 8, background: 'var(--surface-2, rgba(127,127,127,0.06))' }}>
+          <strong style={{ fontSize: 13 }}>
+            {detecting ? 'Scanning…' : 'Scan complete'} — {scan.projects.length} project(s) · {scan.modules} module(s) · {scan.changelogs} changelog(s)
+            {scan.warnings > 0 ? ` · ${scan.warnings} warning(s)` : ''}
+          </strong>
+          <div style={{ maxHeight: 180, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {scan.projects.map((p, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                <Icon name={p.changelogs > 0 ? 'check' : 'dot'} size={13} />
+                <span style={{ minWidth: 220 }}>{p.name}</span>
+                <span style={{ opacity: 0.7 }}>{p.modules} module(s), {p.changelogs} changelog(s)</span>
+              </div>
+            ))}
+            {detecting && <div style={{ fontSize: 12, opacity: 0.6 }}>Walking the tree…</div>}
+          </div>
         </div>
       )}
 
