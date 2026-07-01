@@ -68,16 +68,30 @@ CLI equivalent is `--manifest <repos.json>`.
 
 #### Maven auto-detect (no changelog paths needed)
 
-In multi-repo mode, enter a **Maven project root** and click **Detect changelogs**.
-It walks the reactor (root `pom.xml` `<modules>`, recursively) and finds each
-module's Liquibase master via — in confidence order — the **liquibase-maven-plugin**
-config (`<changeLogFile>` / `<propertyFile>`), **`liquibase.properties`**, then
-**`db/changelog` conventions**; `classpath:` is resolved against the resource
-roots, `src/test/resources` changelogs are deprioritized, and SQL-formatted
-masters are flagged (the SQL loader isn't built yet). The detected plan (one unit
-per module) is written into the repos box for you to **review, then Run** — which
-gives cross-**module** relationship analysis. CLI: `--maven <projectRoot>` (run)
-or `--detect <projectRoot>` (report only); `--include-test` to keep test changelogs.
+In multi-repo mode, enter a **Maven project root** — or a **parent folder that
+holds several cloned repos** — and click **Detect changelogs**. If the folder has
+no `pom.xml` of its own, the scan does *not* stop: it descends to find the topmost
+`pom.xml` in each subtree, treating every one as a separate project (git clone).
+Each project (single- or multi-module) then has its reactor walked (root `pom.xml`
+`<modules>`, recursively), and each module's Liquibase master is found via — in
+confidence order — the **liquibase-maven-plugin** config (`<changeLogFile>` /
+`<propertyFile>`), **`liquibase.properties`**, then **`db/changelog` conventions**;
+`classpath:` is resolved against the resource roots, `src/test/resources`
+changelogs are deprioritized, and SQL-formatted masters are flagged (the SQL loader
+isn't built yet). Each module's `changelog`/`srcDir` are made relative to *its own
+clone*, which becomes that unit's `repoRoot` — so git-history correlation runs
+against the right repo and cross-repo/cross-module relationship analysis sees each
+clone as a distinct repo (labels are clone-prefixed to stay unique). The detected
+plan (one unit per module) is written into the repos box for you to **review, then
+Run**. CLI: `--maven <root>` (run) or `--detect <root>` (report only) — both accept
+a single project or a parent-of-clones; `--include-test` to keep test changelogs.
+
+Detection **streams**: on a very large parent-of-clones the scan runs
+asynchronously (never blocking the server) and a **live panel** fills in as each
+clone/module is walked — a running `N project(s) · M module(s) · C changelog(s)`
+tally plus a per-clone checklist — instead of a spinner that looks frozen until the
+whole tree is done. The CLI mirrors this: `--detect` prints per-project/-module
+progress to stderr as it goes, then the summary + plan to stdout.
 
 ## 3. Watch the live progress panel
 
