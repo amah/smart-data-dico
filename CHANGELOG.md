@@ -5,6 +5,27 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.2] — 2026-07-01
+
+### Added
+- **Reverse-engineer detection accepts a parent folder of clones.** The Maven
+  auto-detect no longer requires a `pom.xml` at the scan root: when absent, the
+  root is treated as a parent directory of cloned repos — it descends to the
+  topmost `pom.xml` in each subtree, and each one becomes a separate project (git
+  clone), single- or multi-module. Each module's `changelog`/`srcDir` are resolved
+  relative to *its own clone*, which becomes that analysis unit's `repoRoot`, so
+  git-history correlation runs against the right repo and cross-repo analysis sees
+  each clone as a distinct repo (labels are clone-prefixed to stay unique). The
+  detection result gains a `projects` count.
+- **Streaming, non-blocking detection with live UI progress.** Detection is now an
+  `async function*` (`detectMavenStream`) over `fs.promises` that yields
+  `project`/`module`/`candidate`/`warning` events and never blocks the event loop
+  on a large tree. New `POST /api/reverse-engineer/detect-stream` (NDJSON) streams
+  those events; the page renders a **live scan panel** (running
+  `projects · modules · changelogs` tally + per-clone checklist) instead of a
+  frozen spinner, and the CLI `--detect` streams per-project/-module progress to
+  stderr. (#208)
+
 ## [1.16.1] — 2026-06-30
 
 ### Fixed
