@@ -44,14 +44,13 @@ const ORDER = node(
 const USER = node('user-uuid', 'User', [{ name: 'physical.tableName', value: 'users' }]);
 
 describe('physical table nodes', () => {
-  it('labels the node with physical.tableName and carries the schema namespace', () => {
+  it('labels the node with physical.tableName only; the schema is carried but not shown in the box', () => {
     expect(physicalTableName(ORDER)).toBe('orders');
     expect(physicalSchema(ORDER)).toBe('commerce');
     const n = buildPhysicalElements([ORDER, USER], []).find((e) => e.data.id === 'order-uuid')!;
     expect(n.data.tableName).toBe('orders');
-    expect(n.data.schema).toBe('commerce');
-    expect(n.data.displayLabel).toContain('orders');
-    expect(n.data.displayLabel).toContain('commerce');
+    expect(n.data.schema).toBe('commerce'); // still carried for the info panel
+    expect(n.data.displayLabel).toBe('orders'); // box shows the table name only — no schema subtitle
     expect(n.data.label).toBe('Order'); // entity name kept for navigation
   });
 
@@ -59,17 +58,16 @@ describe('physical table nodes', () => {
     expect(physicalTableName(node('x', 'Widget'))).toBe('Widget');
   });
 
-  it('omits the schema subtitle when it merely restates the owning package', () => {
-    // schema === service ('svc'): redundant with the package box, so drop it.
-    const sameAsPkg: GraphNode = {
+  it('never shows the schema in the box, even when it names a distinct namespace', () => {
+    const withSchema: GraphNode = {
       ...node('p-uuid', 'Product', [
         { name: 'physical.tableName', value: 'products' },
-        { name: 'physical.schema', value: 'SVC' }, // case-insensitive match
+        { name: 'physical.schema', value: 'inventory' }, // distinct from the package
       ]),
     };
-    const n = buildPhysicalElements([sameAsPkg], []).find((e) => e.data.id === 'p-uuid')!;
-    expect(n.data.schema).toBe('SVC'); // still carried for the info panel
-    expect(n.data.displayLabel).toBe('products'); // no schema subtitle
+    const n = buildPhysicalElements([withSchema], []).find((e) => e.data.id === 'p-uuid')!;
+    expect(n.data.schema).toBe('inventory'); // still carried for the info panel
+    expect(n.data.displayLabel).toBe('products'); // box shows the table name only
   });
 
   it('keeps nodes compact — constraints carried as data, not inline', () => {

@@ -38,25 +38,6 @@ export function physicalSchema(node: GraphNode): string {
 }
 
 /**
- * True when the schema name is redundant with the owning package — the table
- * already lives inside that package's bounding box, so repeating the name as a
- * subtitle adds no information. Compared trimmed + case-insensitively.
- */
-export function schemaMatchesPackage(schema: string, ownerPackage: string): boolean {
-  return schema.trim().toLowerCase() === (ownerPackage ?? '').trim().toLowerCase();
-}
-
-/**
- * Compact multi-line node label: table name · schema namespace. The schema
- * subtitle is omitted when it merely restates the owning package, so only a
- * schema that names a *distinct* namespace is shown.
- */
-function physicalNodeLabel(tableName: string, schema: string, ownerPackage: string): string {
-  const showSchema = schema && !schemaMatchesPackage(schema, ownerPackage);
-  return showSchema ? `${tableName}\n${schema}` : tableName;
-}
-
-/**
  * Resolve a referenced table name to a node id. FK constraints reference a
  * table by its physical name; we match `physical.tableName` first, then fall
  * back to the entity name so unmapped entities still link up.
@@ -197,7 +178,9 @@ export function buildPhysicalElements(
         id: node.id,
         // `label` stays the entity name so node-click navigation still resolves.
         label: node.label,
-        displayLabel: physicalNodeLabel(tableName, schema, node.service),
+        // Box shows only the physical table name; the schema is carried in
+        // `data.schema` for the info panel, not repeated in the entity box.
+        displayLabel: tableName,
         service: node.service,
         type: 'entity',
         viewMode: 'physical',
