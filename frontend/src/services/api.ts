@@ -348,7 +348,8 @@ export const ormApi = {
 // fetch results in chunks, and ask the AI to repair a failed query.
 export type SqlDialect = 'postgres' | 'mysql' | 'mssql' | 'oracle' | 'sqlite';
 export interface SqlRunChunk { resultId: string | null; columns: string[]; rows: unknown[][]; done: boolean; dialect?: SqlDialect }
-export interface SqlConnectInput { packageName: string; dialect: SqlDialect; connection: Record<string, unknown>; user: string; password: string }
+export interface SqlConnectInput { packageName: string; dialect: SqlDialect; connection: Record<string, unknown>; user: string; password: string; remember?: boolean }
+export interface SqlSecretCapabilities { canStore: boolean; provider: string | null; reason?: string }
 
 export const sqlRunApi = {
   /** Stored non-secret physical config for a package (dialect/host/db) to prefill the connect form. */
@@ -360,11 +361,22 @@ export const sqlRunApi = {
     const r = await api.get(`/sql/connection/${encodeURIComponent(pkg)}`);
     return r.data?.data ?? null;
   },
-  connect: async (input: SqlConnectInput) => {
+  connect: async (input: SqlConnectInput): Promise<{ remembered?: boolean; usedSaved?: boolean }> => {
     const r = await api.post('/sql/connect', input);
-    return r.data?.data;
+    return { remembered: r.data?.remembered, usedSaved: r.data?.usedSaved };
   },
   disconnect: async (pkg: string) => { await api.delete(`/sql/connection/${encodeURIComponent(pkg)}`); },
+  /** Can this machine store passwords safely (OS keyring / safeStorage / DICO_SECRET_KEY)? */
+  secretCapabilities: async (): Promise<SqlSecretCapabilities> => {
+    try { const r = await api.get('/sql/secret-capabilities'); return r.data?.data ?? { canStore: false, provider: null }; }
+    catch { return { canStore: false, provider: null }; }
+  },
+  /** Is a password already saved for this exact connection identity? */
+  secretStatus: async (input: { packageName: string; dialect: SqlDialect; connection: Record<string, unknown>; user: string }): Promise<boolean> => {
+    try { const r = await api.post('/sql/secret-status', input); return !!r.data?.data?.hasSecret; }
+    catch { return false; }
+  },
+  forgetSecret: async (pkg: string) => { await api.delete(`/sql/secret/${encodeURIComponent(pkg)}`); },
   run: async (packageName: string, sql: string, chunk?: number): Promise<SqlRunChunk> => {
     const r = await api.post('/sql/run', { packageName, sql, ...(chunk ? { chunk } : {}) });
     return r.data?.data;

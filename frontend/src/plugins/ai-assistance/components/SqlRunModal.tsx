@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { sqlRunApi, type SqlDialect, type SqlRunChunk } from '../../../services/api';
+import { sqlRunApi, type SqlDialect, type SqlRunChunk, type SqlSecretCapabilities } from '../../../services/api';
 
 /**
  * Runs a generated SQL query against a package's database and shows the result.
@@ -63,6 +63,10 @@ export default function SqlRunModal({ open, sql, packageName, onClose }: {
   const [conn, setConn] = useState<Record<string, string>>({});
   const [user, setUser] = useState('');
   const [password, setPassword] = useState('');
+  // password persistence (secret store)
+  const [caps, setCaps] = useState<SqlSecretCapabilities | null>(null);
+  const [remember, setRemember] = useState(false);
+  const [hasSaved, setHasSaved] = useState(false);
 
   const gridRef = useRef<HTMLDivElement>(null);
   const resultIdRef = useRef<string | null>(null);
@@ -94,14 +98,18 @@ export default function SqlRunModal({ open, sql, packageName, onClose }: {
     startedRef.current = true;
     setCurrentSql(sql);
     (async () => {
-      const [phys, existing] = await Promise.all([
+      const [phys, existing, capabilities] = await Promise.all([
         sqlRunApi.getPhysicalConfig(packageName).catch(() => null),
         sqlRunApi.getConnection(packageName).catch(() => null),
+        sqlRunApi.secretCapabilities(),
       ]);
-      if (phys?.dialect) setDialect(phys.dialect);
-      if (phys?.connection) setConn(Object.fromEntries(Object.entries(phys.connection).map(([k, v]) => [k, String(v ?? '')])));
-      if (existing) { setUser(existing.user); await runQuery(sql); }
-      else setPhase('connect');
+      setCaps(capabilities);
+      const dial = phys?.dialect ?? 'postgres';
+      const connObj = phys?.connection ? Object.fromEntries(Object.entries(phys.connection).map(([k, v]) => [k, String(v ?? '')])) : {};
+      if (phys?.dialect) setDialect(dial);
+      if (phys?.connection) setConn(connObj);
+      if (existing) { setUser(existing.user); await runQuery(sql); return; }
+      setPhase('connect');
     })();
   }, [open, sql, packageName, runQuery]);
 
@@ -111,16 +119,30 @@ export default function SqlRunModal({ open, sql, packageName, onClose }: {
     startedRef.current = false;
     if (resultIdRef.current) { sqlRunApi.close(resultIdRef.current).catch(() => {}); resultIdRef.current = null; }
     setPhase('running'); setChunk(null); setRows([]); setErrorMsg(''); setSentToChat(false); setPassword('');
+    setRemember(false); setHasSaved(false);
   }, [open]);
+
+  // Whether a password is already saved for the current (package, connection, user)
+  // identity — drives the "saved password will be used" hint + Forget button.
+  useEffect(() => {
+    if (!open || phase !== 'connect' || dialect === 'sqlite' || !user) { setHasSaved(false); return; }
+    let cancelled = false;
+    sqlRunApi.secretStatus({ packageName, dialect, connection: conn, user }).then(s => { if (!cancelled) setHasSaved(s); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [open, phase, dialect, user, conn, packageName]);
 
   const doConnect = async () => {
     setBusy(true); setErrorMsg('');
     try {
-      await sqlRunApi.connect({ packageName, dialect, connection: conn, user, password });
+      await sqlRunApi.connect({ packageName, dialect, connection: conn, user, password, remember });
       await runQuery(currentSql);
     } catch (e: any) {
       setErrorMsg(errOf(e).message); setBusy(false);
     }
+  };
+
+  const forgetPassword = async () => {
+    try { await sqlRunApi.forgetSecret(packageName); setHasSaved(false); setRemember(false); } catch { /* best-effort */ }
   };
 
   const onScroll = async () => {
@@ -156,7 +178,7 @@ export default function SqlRunModal({ open, sql, packageName, onClose }: {
 
         {phase === 'connect' && (
           <div className="space-y-2" data-testid="sql-connect-form">
-            <p className="text-xs text-base-content/60">Connect to the <b>{packageName}</b> database (read-only). Credentials are cached for this session only — never stored.</p>
+            <p className="text-xs text-base-content/60">Connect to the <b>{packageName}</b> database (read-only). Credentials are cached in memory for this session; the password is only stored if you tick <i>Remember</i> below.</p>
             <div className="grid grid-cols-2 gap-2">
               <label className="form-control"><span className="label-text text-xs">Dialect</span>
                 <select className="select select-sm select-bordered" value={dialect} onChange={e => setDialect(e.target.value as SqlDialect)}>
@@ -173,10 +195,22 @@ export default function SqlRunModal({ open, sql, packageName, onClose }: {
                   <input className="input input-sm input-bordered" value={user} onChange={e => setUser(e.target.value)} autoComplete="off" />
                 </label>
                 <label className="form-control"><span className="label-text text-xs">Password</span>
-                  <input type="password" className="input input-sm input-bordered" value={password} onChange={e => setPassword(e.target.value)} autoComplete="off" />
+                  <input type="password" className="input input-sm input-bordered" value={password} onChange={e => setPassword(e.target.value)} autoComplete="off" placeholder={hasSaved ? 'leave blank to use saved password' : undefined} />
                 </label>
               </>)}
             </div>
+            {needsCredentials(dialect) && (
+              <div className="flex items-center gap-2 text-xs" data-testid="sql-remember-row">
+                <label className="flex items-center gap-1.5 cursor-pointer" title={caps && !caps.canStore ? caps.reason : undefined}>
+                  <input type="checkbox" className="checkbox checkbox-xs" checked={remember} disabled={!caps?.canStore} onChange={e => setRemember(e.target.checked)} />
+                  <span className={caps?.canStore ? '' : 'opacity-50'}>Remember password on this machine</span>
+                </label>
+                {caps?.canStore && caps.provider && <span className="text-base-content/40">via {caps.provider}</span>}
+                {!caps?.canStore && <span className="text-warning/80">unavailable here</span>}
+                <span className="flex-1" />
+                {hasSaved && <button type="button" className="btn btn-xs btn-ghost text-error" onClick={forgetPassword} data-testid="sql-forget">Forget saved password</button>}
+              </div>
+            )}
             {errorMsg && <div className="text-error text-xs" data-testid="sql-connect-error">{errorMsg}</div>}
             <div className="flex justify-end gap-2">
               <button className="btn btn-sm" onClick={onClose}>Cancel</button>
