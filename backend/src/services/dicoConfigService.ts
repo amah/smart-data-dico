@@ -56,10 +56,26 @@ export interface DerivedType {
 
 const DOMAIN_KINDS = new Set<ValueDomainKind>(['enum', 'codelist', 'reference']);
 
+/**
+ * A declarative rule that hides model elements whose name matches `pattern`.
+ * Used to bulk-suppress reverse-engineering waste (backup/temp/staging tables)
+ * without touching every element. `pattern` is a glob by default, or a regex
+ * when `regex` is true. See `visibilityService`.
+ */
+export interface HideRule {
+  match: 'physicalTableName' | 'entityName' | 'packageName';
+  pattern: string;
+  regex?: boolean;
+  reason?: string;
+}
+
 export interface DicoConfig {
   version: number;
   types?: DerivedType[];
+  hideRules?: HideRule[];
 }
+
+const HIDE_MATCH_KINDS = new Set(['physicalTableName', 'entityName', 'packageName']);
 
 /** Workspace + path for `dico.config.json` (at the dictionaries-workspace root). */
 const DICT_WS = wsId('dictionaries');
@@ -91,6 +107,38 @@ async function writeConfig(next: DicoConfig): Promise<void> {
 export async function listDerivedTypes(): Promise<DerivedType[]> {
   const cfg = await readConfig();
   return Array.isArray(cfg.types) ? cfg.types : [];
+}
+
+/** Return the current `hideRules[]` list, or `[]` if unset. */
+export async function listHideRules(): Promise<HideRule[]> {
+  const cfg = await readConfig();
+  return Array.isArray(cfg.hideRules) ? cfg.hideRules : [];
+}
+
+/** Structural validation of a hide-rules array: known `match`, non-empty
+ *  `pattern`, and a compilable regex when `regex` is set. */
+export function validateHideRules(rules: HideRule[]): string[] {
+  const errors: string[] = [];
+  rules.forEach((r, i) => {
+    if (!r || typeof r !== 'object') { errors.push(`Rule ${i}: must be an object`); return; }
+    if (!HIDE_MATCH_KINDS.has(r.match)) errors.push(`Rule ${i}: match must be one of ${[...HIDE_MATCH_KINDS].join(', ')}`);
+    if (!r.pattern || typeof r.pattern !== 'string') errors.push(`Rule ${i}: pattern is required`);
+    if (r.regex && typeof r.pattern === 'string') {
+      try { new RegExp(r.pattern); } catch { errors.push(`Rule ${i}: invalid regex "${r.pattern}"`); }
+    }
+  });
+  return errors;
+}
+
+/** Replace the full `hideRules[]` list (validates first). */
+export async function replaceHideRules(next: HideRule[]): Promise<{ success: boolean; errors?: string[] }> {
+  if (!Array.isArray(next)) return { success: false, errors: ['Body must be an array of hide rules'] };
+  const errors = validateHideRules(next);
+  if (errors.length > 0) return { success: false, errors };
+  const cfg = await readConfig();
+  cfg.hideRules = next;
+  await writeConfig(cfg);
+  return { success: true };
 }
 
 /**

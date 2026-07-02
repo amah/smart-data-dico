@@ -14,6 +14,8 @@ import {
   writeComments
 } from '../utils/fileOperations.js';
 import { generateUUID } from '../utils/uuid.js';
+import { listHideRules } from './dicoConfigService.js';
+import { compileHideRules, filterHiddenEntities, HIDDEN_META_KEY } from './visibilityService.js';
 import { getProjection } from '../storage/projection/ProjectionRegistry.js';
 import { wsId } from '../storage/contract/types.js';
 import type { LogicalPath } from '../storage/projection/LogicalProjection.js';
@@ -98,6 +100,41 @@ export class ServiceService {
       logger.error(`Error getting service entities: ${error}`);
       return [];
     }
+  }
+
+  /**
+   * Entities for a service filtered by the hide policy (explicit `system.hidden`
+   * flag + `hideRules`). Default excludes hidden items so lists/diagrams/search
+   * aren't polluted by reverse-engineering waste; pass `includeHidden` to show them
+   * (e.g. the "Show hidden" toggle / Hidden-Items manager). `getServiceEntities`
+   * itself stays unfiltered so internal graph logic keeps the full set.
+   */
+  async getVisibleServiceEntities(service: string, includeHidden = false): Promise<Entity[]> {
+    const entities = await this.getServiceEntities(service);
+    if (includeHidden) return entities;
+    const rules = compileHideRules(await listHideRules());
+    return filterHiddenEntities(entities, rules, false, service);
+  }
+
+  /**
+   * Hide or unhide an entity by setting/removing its reserved `system.hidden`
+   * metadata. Non-destructive and reversible; the reverse-engineer merge preserves
+   * the flag so re-runs don't un-hide.
+   */
+  async setEntityHidden(service: string, entityName: string, hidden: boolean, reason?: string): Promise<{ success: boolean; errors: string[] }> {
+    const entity = await readEntityFile(service, entityName);
+    if (!entity) return { success: false, errors: [`Entity ${service}.${entityName} not found`] };
+    const meta = (entity.metadata ?? []).filter((m) => m.name !== HIDDEN_META_KEY && m.name !== 'system.hiddenReason' && m.name !== 'system.hiddenAt');
+    if (hidden) {
+      meta.push({ name: HIDDEN_META_KEY, value: 'true' });
+      if (reason) meta.push({ name: 'system.hiddenReason', value: reason });
+      meta.push({ name: 'system.hiddenAt', value: new Date().toISOString().slice(0, 10) });
+    } else {
+      // Explicit pin-visible: an unhide wins over any matching hide rule.
+      meta.push({ name: HIDDEN_META_KEY, value: 'false' });
+    }
+    entity.metadata = meta;
+    return this.updateEntity(service, entity);
   }
 
   async getEntitySchema(service: string, entityName: string): Promise<Entity | null> {

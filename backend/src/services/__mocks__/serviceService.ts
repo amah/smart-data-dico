@@ -24,6 +24,14 @@ class ServiceServiceMock {
     return serviceEntities[service] || [];
   }
 
+  async getVisibleServiceEntities(service: string, _includeHidden = false) {
+    return this.getServiceEntities(service);
+  }
+
+  async setEntityHidden(_service: string, _entity: string, _hidden: boolean, _reason?: string) {
+    return { success: true, errors: [] };
+  }
+
   async getEntitySchema(service: string, entity: string) {
     if (service === 'user-service' && entity === 'User') {
       return {

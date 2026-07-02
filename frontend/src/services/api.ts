@@ -39,9 +39,16 @@ export const servicesApi = {
     return response.data;
   },
 
-  // Get all entities for a specific service
-  getServiceEntities: async (service: string) => {
-    const response = await api.get(`/services/${service}/entities`);
+  // Get all entities for a specific service. Hidden entities (RE waste etc.) are
+  // excluded by default; pass includeHidden to surface them ("Show hidden").
+  getServiceEntities: async (service: string, includeHidden = false) => {
+    const response = await api.get(`/services/${service}/entities`, includeHidden ? { params: { includeHidden: true } } : undefined);
+    return response.data;
+  },
+
+  // Hide or unhide an entity (non-destructive; sets reserved system.hidden metadata).
+  setEntityHidden: async (service: string, entity: string, hidden: boolean, reason?: string) => {
+    const response = await api.put(`/services/${service}/entities/${entity}/hidden`, { hidden, reason });
     return response.data;
   },
 
@@ -673,7 +680,24 @@ export const configApi = {
     const response = await api.put('/config/types', types);
     return response.data.data || types;
   },
+  getHideRules: async (): Promise<HideRule[]> => {
+    const response = await api.get('/config/hide-rules');
+    return response.data.data || [];
+  },
+  putHideRules: async (rules: HideRule[]): Promise<HideRule[]> => {
+    const response = await api.put('/config/hide-rules', rules);
+    return response.data.data || rules;
+  },
 };
+
+/** A declarative rule that hides model elements whose name matches `pattern`
+ *  (glob by default, or regex). Bulk-suppresses reverse-engineering waste. */
+export interface HideRule {
+  match: 'physicalTableName' | 'entityName' | 'packageName';
+  pattern: string;
+  regex?: boolean;
+  reason?: string;
+}
 
 // Actions API (#179)
 export const actionsApi = {

@@ -9,8 +9,30 @@ import {
   validateDerivedTypes,
   validateDomain,
   resolveDomain,
+  validateHideRules,
   type DerivedType,
+  type HideRule,
 } from '../dicoConfigService.js';
+
+describe('validateHideRules', () => {
+  it('accepts valid glob and regex rules', () => {
+    const rules: HideRule[] = [
+      { match: 'physicalTableName', pattern: '*_bak' },
+      { match: 'entityName', pattern: 'Tmp*', reason: 'temp' },
+      { match: 'physicalTableName', pattern: '_[0-9]{8}$', regex: true },
+    ];
+    expect(validateHideRules(rules)).toEqual([]);
+  });
+  it('rejects an unknown match kind', () => {
+    expect(validateHideRules([{ match: 'nope' as HideRule['match'], pattern: 'x' }])[0]).toMatch(/match must be/);
+  });
+  it('rejects an empty pattern', () => {
+    expect(validateHideRules([{ match: 'entityName', pattern: '' }])[0]).toMatch(/pattern is required/);
+  });
+  it('rejects an invalid regex', () => {
+    expect(validateHideRules([{ match: 'entityName', pattern: '(', regex: true }])[0]).toMatch(/invalid regex/);
+  });
+});
 
 describe('validateDomain', () => {
   it('enum requires values and forbids a source', () => {

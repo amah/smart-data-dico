@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { entityApi, servicesApi } from '../services/api';
+import { entityApi, servicesApi, configApi } from '../services/api';
+import type { HideRule } from '../services/api';
 import { Entity, Package } from '../types';
+import {
+  compileHideRules,
+  isEntityHidden,
+  HIDDEN_META_KEY,
+  type CompiledRule,
+} from '../utils/visibility';
 import {
   useStereotypeMetadata,
   getMetadataValue,
@@ -43,6 +50,7 @@ interface EntityFlat {
 }
 
 const ENTITY_COL_KEY = 'entity-flat-columns-v2';
+const SHOW_HIDDEN_KEY = 'sdd-show-hidden';
 
 const EntityFlatTable = () => {
   const [rows, setRows] = useState<EntityFlat[]>([]);
@@ -51,6 +59,14 @@ const EntityFlatTable = () => {
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [pkgFilter, setPkgFilter] = useState<string>('');
+
+  const [compiledRules, setCompiledRules] = useState<CompiledRule[]>([]);
+  const [showHidden, setShowHidden] = useState<boolean>(() => {
+    try { return localStorage.getItem(SHOW_HIDDEN_KEY) === 'true'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(SHOW_HIDDEN_KEY, String(showHidden)); } catch { /* ignore */ }
+  }, [showHidden]);
 
   const { allColumns } = useStereotypeMetadata('entity');
   const [metaVisible, setMetaVisible] = useState<Set<string>>(() => {
@@ -75,7 +91,11 @@ const EntityFlatTable = () => {
     setLoading(true);
     setError(null);
     try {
-      const pkgs: Package[] = await entityApi.getAllPackages();
+      const [pkgs, rules] = await Promise.all([
+        entityApi.getAllPackages(),
+        configApi.getHideRules().catch((): HideRule[] => []),
+      ]);
+      setCompiledRules(compileHideRules(rules));
       setPackages(pkgs);
       const next: EntityFlat[] = [];
       for (const pkg of pkgs) {
@@ -123,7 +143,16 @@ const EntityFlatTable = () => {
 
   const activeMetaCols = allColumns.filter(c => metaVisible.has(c.name));
 
-  const filtered = useMemo(() => {
+  // Set of entity uuids that are effectively hidden (explicit flag or rule).
+  const hiddenSet = useMemo(() => {
+    const s = new Set<string>();
+    for (const r of rows) {
+      if (isEntityHidden(r.entity, compiledRules, r.packageName)) s.add(r.entity.uuid);
+    }
+    return s;
+  }, [rows, compiledRules]);
+
+  const searchFiltered = useMemo(() => {
     const needle = searchTerm.trim().toLowerCase();
     return rows.filter(r => {
       if (pkgFilter && r.packageName !== pkgFilter) return false;
@@ -133,6 +162,16 @@ const EntityFlatTable = () => {
         || r.packageName.toLowerCase().includes(needle);
     });
   }, [rows, searchTerm, pkgFilter]);
+
+  const hiddenCount = useMemo(
+    () => searchFiltered.reduce((n, r) => n + (hiddenSet.has(r.entity.uuid) ? 1 : 0), 0),
+    [searchFiltered, hiddenSet],
+  );
+
+  const filtered = useMemo(
+    () => showHidden ? searchFiltered : searchFiltered.filter(r => !hiddenSet.has(r.entity.uuid)),
+    [searchFiltered, showHidden, hiddenSet],
+  );
 
   // ──────────────── Save paths ────────────────
 
@@ -175,6 +214,29 @@ const EntityFlatTable = () => {
     fetchEntities();
   };
 
+  const handleToggleHidden = useCallback(async (target: EntityFlat) => {
+    const currentlyHidden = isEntityHidden(target.entity, compiledRules, target.packageName);
+    const nextHidden = !currentlyHidden;
+    try {
+      await servicesApi.setEntityHidden(target.packageName, target.entity.name, nextHidden);
+      // Mirror the backend write locally so the row flips without a full reload.
+      setRows(prev => prev.map(r => {
+        if (r.entity.uuid === target.entity.uuid && r.packageName === target.packageName) {
+          return {
+            ...r,
+            entity: {
+              ...r.entity,
+              metadata: setMetadataValue(r.entity.metadata, HIDDEN_META_KEY, String(nextHidden)),
+            },
+          };
+        }
+        return r;
+      }));
+    } catch (err) {
+      console.error('Failed to toggle entity visibility:', err);
+    }
+  }, [compiledRules]);
+
   const handleBulkDelete = useCallback(async () => {
     const n = selection.size;
     if (n === 0) return;
@@ -210,6 +272,18 @@ const EntityFlatTable = () => {
         filterable: true,
         width: 'minmax(180px, 1.4fr)',
         accessor: (r) => r.entity.name,
+        render: (r) => {
+          const hidden = hiddenSet.has(r.entity.uuid);
+          return (
+            <span
+              className="mono"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: hidden ? 0.45 : 1 }}
+            >
+              {r.entity.name}
+              {hidden && <Chip tone="neutral" soft>hidden</Chip>}
+            </span>
+          );
+        },
       },
       {
         key: 'package',
@@ -219,7 +293,10 @@ const EntityFlatTable = () => {
         filterable: true,
         width: 160,
         accessor: (r) => r.packageName,
-        render: (r) => <span style={{ color: 'var(--text-muted)' }}>{r.packageName}</span>,
+        render: (r) => dimIfHidden(
+          hiddenSet.has(r.entity.uuid),
+          <span style={{ color: 'var(--text-muted)' }}>{r.packageName}</span>,
+        ),
       },
       {
         key: 'attributes',
@@ -231,9 +308,12 @@ const EntityFlatTable = () => {
         accessor: (r) => r.entity.attributes?.length ?? 0,
         render: (r) => {
           const n = r.entity.attributes?.length ?? 0;
-          return n > 0
-            ? <Chip tone="neutral" soft>{n}</Chip>
-            : <span style={{ color: 'var(--text-subtle)' }}>—</span>;
+          return dimIfHidden(
+            hiddenSet.has(r.entity.uuid),
+            n > 0
+              ? <Chip tone="neutral" soft>{n}</Chip>
+              : <span style={{ color: 'var(--text-subtle)' }}>—</span>,
+          );
         },
       },
       {
@@ -243,9 +323,12 @@ const EntityFlatTable = () => {
         filterable: true,
         width: 'minmax(260px, 2.2fr)',
         accessor: (r) => r.entity.description ?? '',
-        render: (r) => r.entity.description
-          ? <span style={{ color: 'var(--text-muted)' }}>{r.entity.description}</span>
-          : <span style={{ color: 'var(--text-subtle)', fontStyle: 'italic' }}>no description</span>,
+        render: (r) => dimIfHidden(
+          hiddenSet.has(r.entity.uuid),
+          r.entity.description
+            ? <span style={{ color: 'var(--text-muted)' }}>{r.entity.description}</span>
+            : <span style={{ color: 'var(--text-subtle)', fontStyle: 'italic' }}>no description</span>,
+        ),
       },
     ];
 
@@ -258,11 +341,11 @@ const EntityFlatTable = () => {
         const v = getMetadataValue(r.entity, col.name);
         return v === undefined ? '' : (typeof v === 'boolean' ? (v ? 'yes' : 'no') : String(v));
       },
-      render: (r) => renderMetadataCell(r.entity, col),
+      render: (r) => dimIfHidden(hiddenSet.has(r.entity.uuid), renderMetadataCell(r.entity, col)),
     }));
 
     return [...std, ...meta];
-  }, [activeMetaCols]);
+  }, [activeMetaCols, hiddenSet]);
 
   const chooserCols = useMemo(() => columns as unknown as ColumnDef<unknown>[], [columns]);
   const allVisibleKeys = useMemo(() => {
@@ -326,6 +409,16 @@ const EntityFlatTable = () => {
           />
         )}
         <Button
+          size="sm"
+          variant={showHidden ? 'soft' : 'ghost'}
+          icon={showHidden ? 'eye' : 'eyeOff'}
+          onClick={() => setShowHidden(v => !v)}
+          aria-pressed={showHidden}
+          title={showHidden ? 'Hiding filtered model data' : 'Show hidden model data'}
+        >
+          {hiddenCount > 0 ? `Show hidden (${hiddenCount})` : 'Show hidden'}
+        </Button>
+        <Button
           size="md"
           variant="primary"
           icon="plus"
@@ -358,16 +451,31 @@ const EntityFlatTable = () => {
           resizeKey="entity-flat"
           stickyHeader
           stickyFirstColumn
-          rowActions={(r) => (
-            <Button
-              size="sm"
-              variant="ghost"
-              icon="close"
-              iconOnly
-              aria-label={`Delete ${r.entity.name}`}
-              onClick={() => setDeleteTarget(r)}
-            />
-          )}
+          rowActionsWidth={96}
+          rowActions={(r) => {
+            const hidden = hiddenSet.has(r.entity.uuid);
+            return (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={hidden ? 'eye' : 'eyeOff'}
+                  iconOnly
+                  aria-label={`${hidden ? 'Unhide' : 'Hide'} ${r.entity.name}`}
+                  title={hidden ? 'Unhide' : 'Hide'}
+                  onClick={() => handleToggleHidden(r)}
+                />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon="close"
+                  iconOnly
+                  aria-label={`Delete ${r.entity.name}`}
+                  onClick={() => setDeleteTarget(r)}
+                />
+              </span>
+            );
+          }}
           attached
           emptyMessage={
             <EmptyState
@@ -436,6 +544,11 @@ const EntityFlatTable = () => {
 };
 
 // ──────────────── Helpers ────────────────
+
+/** Dim a cell's content when its row is hidden (shown only in "Show hidden" mode). */
+function dimIfHidden(hidden: boolean, node: ReactNode): ReactNode {
+  return hidden ? <span style={{ opacity: 0.45 }}>{node}</span> : node;
+}
 
 function renderMetadataCell(entity: Entity, col: MetadataColumn): ReactNode {
   if (col.name === 'pii') {

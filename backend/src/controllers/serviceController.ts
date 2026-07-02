@@ -39,7 +39,10 @@ export const getServiceEntities = async (req: Request, res: Response) => {
     const { service } = req.params;
 
     logger.info(`Starting to fetch entities for service: ${service}`);
-    const entities = await serviceService.getServiceEntities(service);
+    // Hidden entities (reverse-engineering waste etc.) are excluded by default;
+    // `?includeHidden=true` surfaces them for the "Show hidden" view.
+    const includeHidden = req.query.includeHidden === 'true';
+    const entities = await serviceService.getVisibleServiceEntities(service, includeHidden);
 
     const endTime = process.hrtime(startTime);
     const executionTimeMs = Number((endTime[0] * 1e3 + endTime[1] / 1e6).toFixed(2));
@@ -157,6 +160,25 @@ export const updateEntity = async (req: Request, res: Response) => {
   } catch (error) {
     logger.error(`Error updating entity: ${error}`);
     res.status(500).json({ message: 'Error updating entity', error });
+  }
+};
+
+/** PUT /api/services/:service/entities/:entity/hidden — hide/unhide an entity
+ *  (sets the reserved `system.hidden` metadata). Non-destructive. */
+export const setEntityHidden = async (req: Request, res: Response) => {
+  try {
+    const { service, entity } = req.params;
+    const hidden = req.body?.hidden === true;
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
+    const result = await serviceService.setEntityHidden(service, entity, hidden, reason);
+    if (!result.success) {
+      const notFound = result.errors.some((e) => e.includes('not found'));
+      return res.status(notFound ? 404 : 400).json({ message: 'Failed to update visibility', errors: result.errors });
+    }
+    res.json({ message: hidden ? 'Entity hidden' : 'Entity shown', data: { service, entity, hidden } });
+  } catch (error) {
+    logger.error(`Error setting entity visibility: ${error}`);
+    res.status(500).json({ message: 'Error setting entity visibility', error });
   }
 };
 
