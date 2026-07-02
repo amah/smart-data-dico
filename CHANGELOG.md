@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its width (persisted across sessions); the composer input's dragged height is now
   remembered too.
 
+### Changed
+- **Physical diagram entity boxes no longer show the schema name.** The box shows
+  only the physical table name; the schema is still available in the info panel.
+
 ## [1.16.2] — 2026-07-01
 
 ### Added
