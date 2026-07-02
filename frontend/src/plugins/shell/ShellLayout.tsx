@@ -5,7 +5,7 @@
  * Renders existing Navbar, Sidebar, Breadcrumbs, Footer as slot content.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Outlet } from 'react-router-dom';
 import Navbar from '../../components/Navbar';
 import Sidebar from '../../components/Sidebar';
@@ -28,6 +28,36 @@ const ShellLayout: React.FC = () => {
 
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
   const toggleCollapse = () => setSidebarCollapsed(!sidebarCollapsed);
+
+  // Left-nav width — drag the right edge to resize (desktop, when expanded); persisted.
+  const SIDEBAR_MIN = 180;
+  const SIDEBAR_MAX = 480;
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    const v = Number(localStorage.getItem('sdd-sidebar-width'));
+    return v >= SIDEBAR_MIN && v <= SIDEBAR_MAX ? v : 240;
+  });
+  const [resizingSidebar, setResizingSidebar] = useState(false);
+  const startSidebarResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setResizingSidebar(true);
+    const left = sidebarRef.current?.getBoundingClientRect().left ?? 0;
+    let latest = 0;
+    const onMove = (ev: MouseEvent) => {
+      latest = Math.min(Math.max(ev.clientX - left, SIDEBAR_MIN), SIDEBAR_MAX);
+      setSidebarWidth(latest);
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.userSelect = '';
+      setResizingSidebar(false);
+      if (latest) localStorage.setItem('sdd-sidebar-width', String(Math.round(latest)));
+    };
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
 
   // ⌘K / Ctrl-K — global shortcut to open the AI chat composer. The
   // panel itself handles focus when already open; here we just open
@@ -54,10 +84,24 @@ const ShellLayout: React.FC = () => {
           />
         )}
         <div
-          className={`fixed md:relative z-30 md:z-0 h-full transform transition-all duration-300 ease-in-out bg-surface-subtle border-r border-line ${
+          ref={sidebarRef}
+          style={{ width: sidebarCollapsed ? undefined : sidebarWidth }}
+          className={`fixed md:relative z-30 md:z-0 h-full transform ${resizingSidebar ? '' : 'transition-all duration-300 ease-in-out'} bg-surface-subtle border-r border-line ${
             sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-          } md:translate-x-0 ${sidebarCollapsed ? 'w-12' : 'w-60'}`}
+          } md:translate-x-0 ${sidebarCollapsed ? 'w-12' : ''}`}
         >
+          {/* Right-edge drag handle — resize the expanded nav (desktop); persisted. */}
+          {!sidebarCollapsed && (
+            <div
+              onMouseDown={startSidebarResize}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize sidebar"
+              title="Drag to resize"
+              data-testid="sidebar-resize-handle"
+              className="hidden md:block absolute right-0 top-0 bottom-0 w-1 -mr-0.5 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors z-20"
+            />
+          )}
           {/* Collapse toggle (desktop only) */}
           <button
             className="hidden md:flex absolute -right-3 top-3 z-10 btn btn-circle btn-xs bg-base-100 border border-base-300 shadow-sm hover:bg-base-200"
