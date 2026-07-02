@@ -201,3 +201,41 @@ describe('callWithTools — toolCallId uniqueness (#124)', () => {
     expect(ids).toEqual(['call_abc', 'call_xyz']);
   });
 });
+
+describe('callWithTools — reply never precedes tool calls', () => {
+  let originalFetch: typeof fetch;
+  let fetchMock: FetchMock;
+  beforeEach(() => { originalFetch = global.fetch; fetchMock = jest.fn() as FetchMock; global.fetch = fetchMock as unknown as typeof fetch; });
+  afterEach(() => { global.fetch = originalFetch; });
+
+  it('does not emit a text event mid-loop when a step carries both a preamble and tool calls', async () => {
+    // A weak tool-caller returns a "reply"-looking preamble alongside its tool
+    // call; the final reply comes only in the next, tool-less step.
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({
+        choices: [{ message: { content: 'Sure, let me update that for you.', tool_calls: [{ id: 't1', function: { name: 'updateEntity', arguments: '{}' } }] } }],
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        choices: [{ message: { content: 'Done — the entity was updated.', tool_calls: [] } }],
+      }));
+
+    const events: any[] = [];
+    const result = await callWithTools(
+      { apiKey: 'k', baseURL: 'https://example.test/v1', model: 'm' },
+      [{ role: 'user', content: 'update it' }],
+      [],
+      jest.fn().mockResolvedValue({ ok: true }),
+      5,
+      (e) => events.push(e),
+    );
+
+    // The loop emits ONLY tool events — no `text` events (the controller streams
+    // the final reply once, after the loop). This is what keeps the reply after
+    // the tool calls rather than before them.
+    expect(events.filter((e) => e.type === 'text')).toHaveLength(0);
+    expect(events.filter((e) => e.type === 'tool-start')).toHaveLength(1);
+    expect(events.filter((e) => e.type === 'tool-end')).toHaveLength(1);
+    // The returned text is the FINAL reply, not the preamble.
+    expect(result.text).toBe('Done — the entity was updated.');
+  });
+});

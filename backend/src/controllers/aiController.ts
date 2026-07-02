@@ -1057,15 +1057,17 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
     if (result.aborted) {
       sendEvent({ type: 'cancelled' });
     } else {
-      // If there's final text after tool calls
-      if (result.text && result.toolCalls.length > 0) {
+      // The loop no longer streams text itself (so tool calls always precede the
+      // reply). Emit the final reply ONCE here, after all tool events, for every
+      // turn — with or without tool calls.
+      if (result.text) {
         const id = crypto.randomUUID();
         sendEvent({ type: 'text-start', id });
         for (const word of result.text.split(' ')) {
           sendEvent({ type: 'text-delta', id, delta: word + ' ' });
         }
+        assistantText += ' ' + result.text;
       }
-      if (result.text) assistantText += ' ' + result.text;
 
       // #confab-guard — the model asserted it changed the model but no mutating
       // tool succeeded this turn: surface it instead of letting the false

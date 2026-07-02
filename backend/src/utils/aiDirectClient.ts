@@ -171,10 +171,13 @@ export async function callWithTools(
     const msg = choice.message;
     finalText = msg.content || '';
 
-    // Emit text event
-    if (finalText && onEvent) {
-      onEvent({ type: 'text', text: finalText });
-    }
+    // Deliberately do NOT emit `finalText` here. Weak tool-callers return a
+    // preamble/"reply" in the SAME response as their tool calls; emitting it now
+    // would stream the reply BEFORE the tools run — the reported bug where "tool
+    // calls happen after the model reply". The loop emits only tool events; the
+    // controller streams the returned `result.text` ONCE after the loop (i.e.
+    // after all tools), so the reply always follows the tools. The step content
+    // is still added to the model's own context below.
 
     // Check for tool calls
     if (msg.tool_calls && msg.tool_calls.length > 0) {
