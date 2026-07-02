@@ -12,8 +12,11 @@ You can optionally tick **“Remember password on this machine”** to persist i
 A DB password is a *personal, per-machine* secret, so it is **never** written into
 the project tree (`physical.yaml` is git-tracked/shared and would leak it). Saved
 passwords live under `~/.dico-app/` — the same 0600 area used for Jira/Confluence
-tokens — keyed per **(package, connection identity, user)**, never logged, and
-redacted from every API response.
+tokens — keyed per **(authenticated app user, package, connection identity, DB
+user)**, never logged, and redacted from every API response. Scoping by the
+authenticated app user isolates secrets per user on a shared machine: user B can
+neither reuse nor forget user A's saved password (in desktop/single-user mode the
+app user is `local`).
 
 An **auto-detecting provider chain** picks the strongest at-rest protection
 available on the machine, in order:

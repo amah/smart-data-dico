@@ -56,7 +56,9 @@ function readFileStore(): FileStore {
 function writeFileStore(store: FileStore): void {
   const file = secretsFilePath();
   ensureAppDir();
-  const tmp = `${file}.tmp-${process.pid}`;
+  // Unique temp name so concurrent writes (e.g. a save racing a forget) can't
+  // clobber each other's temp file and drop an entry.
+  const tmp = `${file}.tmp-${process.pid}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
   fs.writeFileSync(tmp, JSON.stringify(store), { mode: 0o600 });
   fs.renameSync(tmp, file);
   try { fs.chmodSync(file, 0o600); } catch { /* best-effort (Windows) */ }
@@ -218,12 +220,20 @@ export async function capabilities(): Promise<SecretCapabilities> {
   };
 }
 
-/** Stable, non-secret key for a (package, connection identity). packageName is a
- *  cleartext prefix so a package's secrets can be forgotten in one call. */
-export function secretKey(packageName: string, dialect: string, connection: Record<string, unknown>, user: string): string {
-  const stable = JSON.stringify({ dialect, connection: sortKeys(connection), user });
+/** Short, non-secret tag for the *app* user (the authenticated JWT subject), so
+ *  one OS account's saved DB passwords are isolated per app user — user B can't
+ *  reuse or forget user A's secret. Defaults to `local` (desktop/single-user). */
+function userTag(appUser: string): string {
+  return crypto.createHash('sha256').update(appUser || 'local').digest('hex').slice(0, 12);
+}
+
+/** Stable, non-secret key for a (package, app-user, connection identity).
+ *  `packageName::userTag` is a cleartext prefix so a package's secrets can be
+ *  forgotten per app user in one call. */
+export function secretKey(packageName: string, dialect: string, connection: Record<string, unknown>, dbUser: string, appUser: string): string {
+  const stable = JSON.stringify({ dialect, connection: sortKeys(connection), dbUser });
   const fp = crypto.createHash('sha256').update(stable).digest('hex').slice(0, 32);
-  return `${packageName}::${fp}`;
+  return `${packageName}::${userTag(appUser)}::${fp}`;
 }
 
 function sortKeys(o: Record<string, unknown>): Record<string, unknown> {
@@ -247,8 +257,9 @@ export async function deleteSecret(key: string): Promise<void> {
   if (p) await p.delete(key).catch(() => {});
 }
 
-/** Forget every saved secret for a package (all connection identities). */
-export async function deleteSecretsForPackage(packageName: string): Promise<void> {
+/** Forget every saved secret for a package, scoped to the given app user (all its
+ *  connection identities). Other app users' secrets are untouched. */
+export async function deleteSecretsForPackage(packageName: string, appUser: string): Promise<void> {
   const p = await resolveProvider();
-  if (p) await p.deleteByPrefix(`${packageName}::`).catch(() => {});
+  if (p) await p.deleteByPrefix(`${packageName}::${userTag(appUser)}::`).catch(() => {});
 }

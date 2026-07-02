@@ -24,8 +24,9 @@ function mockRes() {
   res.json = jest.fn(() => res);
   return res;
 }
-const body = (over: Record<string, unknown> = {}) => ({
+const body = (over: Record<string, unknown> = {}, appUserId?: string) => ({
   body: { packageName: 'orders', dialect: 'postgres', connection: { host: 'h' }, user: 'app', ...over },
+  ...(appUserId ? { user: { id: appUserId } } : {}),
 });
 
 let dir: string;
@@ -94,6 +95,22 @@ it('forget clears the saved password', async () => {
   const resS = mockRes();
   await sqlSecretStatus(body() as any, resS);
   expect(resS.json).toHaveBeenCalledWith({ data: { hasSecret: false } });
+});
+
+it('a secret saved by one app user is not visible to (or forgettable by) another', async () => {
+  // u1 remembers a password
+  await sqlConnect(body({ password: 's3cr3t', remember: true }, 'u1') as any, mockRes());
+
+  // u2 sees no saved secret for the same package/connection
+  const resU2 = mockRes();
+  await sqlSecretStatus(body({}, 'u2') as any, resU2);
+  expect(resU2.json).toHaveBeenCalledWith({ data: { hasSecret: false } });
+
+  // u2 forgetting the package does not remove u1's secret
+  await sqlForgetSecret({ params: { packageName: 'orders' }, user: { id: 'u2' } } as any, mockRes());
+  const resU1 = mockRes();
+  await sqlSecretStatus(body({}, 'u1') as any, resU1);
+  expect(resU1.json).toHaveBeenCalledWith({ data: { hasSecret: true } });
 });
 
 it('remember is a no-op for sqlite (no password to store)', async () => {

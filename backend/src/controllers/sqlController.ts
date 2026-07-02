@@ -13,6 +13,11 @@ import { logger } from '../utils/logger.js';
 
 const DIALECTS = new Set<SqlDialect>(['postgres', 'mysql', 'mssql', 'oracle', 'sqlite']);
 
+/** Authenticated app user (JWT subject), used to isolate saved secrets per user.
+ *  Falls back to `local` in desktop/single-user mode. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const appUserOf = (req: Request): string => (req as any).user?.id ?? 'local';
+
 /** POST /api/sql/connect — validate credentials and cache the connection. Can
  *  optionally remember the password in the OS-keyed secret store (`remember`),
  *  or transparently reuse a previously saved one when no password is supplied. */
@@ -22,12 +27,13 @@ export const sqlConnect = async (req: Request, res: Response) => {
   if (!DIALECTS.has(dialect)) return res.status(400).json({ message: `dialect must be one of ${[...DIALECTS].join(', ')}` });
   if (!connection || typeof connection !== 'object') return res.status(400).json({ message: 'connection (object) is required' });
 
+  const appUser = appUserOf(req);
   // Resolve the password: use the supplied one, else fall back to a saved secret
-  // for this exact (package, connection, user) identity.
+  // for this exact (package, app-user, connection, db-user) identity.
   let pwd = typeof password === 'string' ? password : '';
   let usedSaved = false;
   if (dialect !== 'sqlite' && !pwd && typeof user === 'string' && user) {
-    const saved = await getSecret(secretKey(packageName, dialect, connection, user));
+    const saved = await getSecret(secretKey(packageName, dialect, connection, user, appUser));
     if (saved) { pwd = saved; usedSaved = true; }
   }
   // SQLite is a local file — no user/password. Other dialects require both.
@@ -39,7 +45,7 @@ export const sqlConnect = async (req: Request, res: Response) => {
     const redacted = await sqlRunService.connect(packageName, conn);
     let remembered = false;
     if (remember === true && dialect !== 'sqlite' && pwd) {
-      try { await saveSecret(secretKey(packageName, dialect, connection, user), pwd); remembered = true; }
+      try { await saveSecret(secretKey(packageName, dialect, connection, user, appUser), pwd); remembered = true; }
       catch (e: any) { logger.warn(`Could not persist SQL password for "${packageName}": ${e?.message}`); } // non-fatal
     }
     res.json({ message: 'Connected', data: redacted, remembered, usedSaved });
@@ -58,13 +64,13 @@ export const sqlSecretCapabilities = async (_req: Request, res: Response) => {
 export const sqlSecretStatus = async (req: Request, res: Response) => {
   const { packageName, dialect, connection, user } = req.body ?? {};
   if (!packageName || !dialect || !connection || !user) return res.json({ data: { hasSecret: false } });
-  const saved = await getSecret(secretKey(packageName, dialect, connection, user));
+  const saved = await getSecret(secretKey(packageName, dialect, connection, user, appUserOf(req)));
   res.json({ data: { hasSecret: !!saved } });
 };
 
-/** DELETE /api/sql/secret/:packageName — forget all saved passwords for a package. */
+/** DELETE /api/sql/secret/:packageName — forget the caller's saved passwords for a package. */
 export const sqlForgetSecret = async (req: Request, res: Response) => {
-  await deleteSecretsForPackage(req.params.packageName);
+  await deleteSecretsForPackage(req.params.packageName, appUserOf(req));
   res.json({ message: 'Forgotten' });
 };
 

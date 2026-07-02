@@ -12,8 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dialog gains a **“Remember password on this machine”** option so a package's DB
   password isn't retyped each session. A DB password is a personal, per-machine
   secret, so it is **never** written into the project tree (`physical.yaml` is
-  git-tracked/shared) — it lives under `~/.dico-app/` (0600), keyed per (package,
-  connection identity, user), redacted everywhere. An **auto-detecting provider
+  git-tracked/shared) — it lives under `~/.dico-app/` (0600), keyed per
+  (authenticated app user, package, connection identity, DB user) so secrets are
+  isolated per user on a shared machine, redacted everywhere. An **auto-detecting provider
   chain** picks the strongest at-rest protection available: Electron `safeStorage`
   (OS keychain / DPAPI / libsecret) → OS keyring via `keytar` (optional lazy dep)
   → AES-256-GCM with a master key from `DICO_SECRET_KEY` (never stored beside the
