@@ -5,6 +5,28 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.0] — 2026-07-02
+
+### Added
+- **Optional, safe persistence of DB passwords for SQL Run (#209).** The connect
+  dialog gains a **“Remember password on this machine”** option so a package's DB
+  password isn't retyped each session. A DB password is a personal, per-machine
+  secret, so it is **never** written into the project tree (`physical.yaml` is
+  git-tracked/shared) — it lives under `~/.dico-app/` (0600), keyed per
+  (authenticated app user, package, connection identity, DB user) so secrets are
+  isolated per user on a shared machine, redacted everywhere. An **auto-detecting provider
+  chain** picks the strongest at-rest protection available: Electron `safeStorage`
+  (OS keychain / DPAPI / libsecret) → OS keyring via `keytar` (optional lazy dep)
+  → AES-256-GCM with a master key from `DICO_SECRET_KEY` (never stored beside the
+  ciphertext) → **refuse** (no plaintext fallback; the checkbox is disabled with
+  the reason as a tooltip). A blank-password connect transparently reuses a saved
+  secret; **“Forget saved password”** and `DELETE /api/sql/secret/:packageName`
+  clear it. New `GET /api/sql/secret-capabilities` and `POST /api/sql/secret-status`.
+  See `docs/sql-password-storage.md`.
+- **AI chat panel is horizontally resizable.** Drag the panel's left edge to set
+  its width (persisted across sessions); the composer input's dragged height is now
+  remembered too.
+
 ## [1.16.2] — 2026-07-01
 
 ### Added

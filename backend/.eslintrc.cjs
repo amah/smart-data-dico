@@ -48,6 +48,10 @@ module.exports = {
         'src/storage/git/**',
         'src/storage/contract/registerStorageBackend.ts',
         'src/utils/appDir.ts',
+        // Secret store persists to ~/.dico-app/ (app config outside the dico
+        // project, same layer as appDir.ts) — IStorageBackend is scoped to the
+        // project and must never hold credentials.
+        'src/services/sql/secretStore.ts',
         'src/server.ts',
         'src/routes/project.routes.ts',
         'src/scripts/**',

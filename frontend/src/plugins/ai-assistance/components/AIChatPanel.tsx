@@ -222,6 +222,43 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [input, setInput] = useState('');
+
+  // Panel width — horizontal resize by dragging the left edge; persisted.
+  const PANEL_MIN = 320;
+  const [panelWidth, setPanelWidth] = useState<number>(() => {
+    const v = Number(localStorage.getItem('ai-panel-width'));
+    return v >= PANEL_MIN && v <= 1200 ? v : 420;
+  });
+  const startPanelResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    let latest = 0;
+    const onMove = (ev: MouseEvent) => {
+      // Panel is pinned to the right edge, so width grows as the cursor moves left.
+      latest = Math.min(Math.max(window.innerWidth - ev.clientX, PANEL_MIN), Math.min(1200, window.innerWidth - 80));
+      setPanelWidth(latest);
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.userSelect = '';
+      if (latest) localStorage.setItem('ai-panel-width', String(Math.round(latest)));
+    };
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
+
+  // Restore the user's last composer height (native drag on the bottom-right corner).
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    const saved = Number(localStorage.getItem('ai-composer-height'));
+    if (saved >= 28 && saved <= window.innerHeight) el.style.height = `${saved}px`;
+  }, []);
+  const persistComposerHeight = useCallback(() => {
+    const el = inputRef.current;
+    if (el?.style.height) localStorage.setItem('ai-composer-height', String(parseInt(el.style.height, 10)));
+  }, []);
   const [aiAvailable, setAiAvailable] = useState<boolean | null>(null);
   // #run-sql — the ```sql block to run (Run button), opens SqlRunModal.
   const [sqlToRun, setSqlToRun] = useState<{ sql: string; packageName: string } | null>(null);
@@ -1554,7 +1591,17 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const selectedRaw = selectedMsgId ? messages.find(m => m.id === selectedMsgId)?.rawEvents : null;
 
   return (
-    <div className="fixed right-0 top-10 bottom-0 w-[420px] bg-base-100 border-l border-base-300 shadow-xl z-40 flex flex-col font-mono text-[13px]">
+    <div className="fixed right-0 top-10 bottom-0 bg-base-100 border-l border-base-300 shadow-xl z-40 flex flex-col font-mono text-[13px]" style={{ width: panelWidth }}>
+      {/* Left-edge drag handle — horizontal panel resize, persisted to localStorage. */}
+      <div
+        onMouseDown={startPanelResize}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize panel"
+        title="Drag to resize the panel"
+        data-testid="ai-panel-resize-handle"
+        className="absolute left-0 top-0 bottom-0 w-1 -ml-0.5 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors z-50"
+      />
       {/* Header — IDE style */}
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-base-300 bg-base-200/80 gap-2">
         <div className="flex items-center gap-2 min-w-0 overflow-hidden">
@@ -2713,6 +2760,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
             }}
             disabled={!aiAvailable || isLoading}
             data-testid="ai-composer-input"
+            onMouseUp={persistComposerHeight}
             title="⌘↵ / Ctrl↵ send · ⇧↵ newline · ⌘K focus chat · @ to mention · drag bottom-right corner to resize"
           />
           <div className="flex items-center gap-1.5 px-2 py-1 border-t border-base-300/50">
