@@ -10,9 +10,53 @@ import {
   validateDomain,
   resolveDomain,
   validateHideRules,
+  validateElementStyles,
+  validateStyleRules,
   type DerivedType,
   type HideRule,
+  type ElementStyle,
+  type StyleRule,
 } from '../dicoConfigService.js';
+
+describe('validateElementStyles', () => {
+  it('accepts valid styles', () => {
+    const styles: ElementStyle[] = [
+      { name: 'aggregate-root', label: 'Aggregate Root', border: 'primary', borderWidth: 4, emphasis: true },
+      { name: 'junction', shape: 'hexagon', opacity: 0.7 },
+    ];
+    expect(validateElementStyles(styles)).toEqual([]);
+  });
+  it('rejects a non-kebab name', () => {
+    expect(validateElementStyles([{ name: 'Aggregate Root' }])[0]).toMatch(/kebab/);
+  });
+  it('rejects duplicate names', () => {
+    expect(validateElementStyles([{ name: 'a' }, { name: 'a' }]).some((e) => /duplicate/.test(e))).toBe(true);
+  });
+  it('rejects a bad borderStyle and out-of-range opacity', () => {
+    const errs = validateElementStyles([{ name: 'x', borderStyle: 'wavy' as ElementStyle['borderStyle'], opacity: 2 }]);
+    expect(errs.some((e) => /borderStyle/.test(e))).toBe(true);
+    expect(errs.some((e) => /opacity/.test(e))).toBe(true);
+  });
+});
+
+describe('validateStyleRules', () => {
+  it('accepts valid rules referencing known styles', () => {
+    const rules: StyleRule[] = [
+      { match: 'stereotype', pattern: 'aggregate-root', style: 'aggregate-root' },
+      { match: 'physicalTableName', pattern: '*_link', style: 'junction' },
+    ];
+    expect(validateStyleRules(rules, ['aggregate-root', 'junction'])).toEqual([]);
+  });
+  it('rejects an unknown match kind', () => {
+    expect(validateStyleRules([{ match: 'nope' as StyleRule['match'], pattern: 'x', style: 'junction' }], ['junction'])[0]).toMatch(/match must be/);
+  });
+  it('rejects a rule whose style is not defined', () => {
+    expect(validateStyleRules([{ match: 'role', pattern: 'junction', style: 'ghost' }], ['junction'])[0]).toMatch(/not a defined element style/);
+  });
+  it('rejects an invalid regex', () => {
+    expect(validateStyleRules([{ match: 'entityName', pattern: '(', regex: true, style: 'junction' }], ['junction'])[0]).toMatch(/invalid regex/);
+  });
+});
 
 describe('validateHideRules', () => {
   it('accepts valid glob and regex rules', () => {

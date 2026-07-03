@@ -688,6 +688,22 @@ export const configApi = {
     const response = await api.put('/config/hide-rules', rules);
     return response.data.data || rules;
   },
+  getElementStyles: async (): Promise<ElementStyle[]> => {
+    const response = await api.get('/config/element-styles');
+    return response.data.data || [];
+  },
+  putElementStyles: async (styles: ElementStyle[]): Promise<ElementStyle[]> => {
+    const response = await api.put('/config/element-styles', styles);
+    return response.data.data || styles;
+  },
+  getStyleRules: async (): Promise<StyleRule[]> => {
+    const response = await api.get('/config/style-rules');
+    return response.data.data || [];
+  },
+  putStyleRules: async (rules: StyleRule[]): Promise<StyleRule[]> => {
+    const response = await api.put('/config/style-rules', rules);
+    return response.data.data || rules;
+  },
 };
 
 /** A declarative rule that hides model elements whose name matches `pattern`
@@ -698,6 +714,11 @@ export interface HideRule {
   regex?: boolean;
   reason?: string;
 }
+
+// Element Style types live with the resolver (#element-style); imported for the
+// configApi signatures above and re-exported so callers can import them uniformly.
+import type { ElementStyle, StyleRule } from '../utils/elementStyle';
+export type { ElementStyle, StyleRule };
 
 // Actions API (#179)
 export const actionsApi = {

@@ -4,7 +4,12 @@
  * concerns (versioning, feature flags) can be added as sibling endpoints.
  */
 import { Request, Response } from 'express';
-import { listDerivedTypes, replaceDerivedTypes, DerivedType, listHideRules, replaceHideRules, HideRule } from '../services/dicoConfigService.js';
+import {
+  listDerivedTypes, replaceDerivedTypes, DerivedType,
+  listHideRules, replaceHideRules, HideRule,
+  listElementStyles, replaceElementStyles, ElementStyle,
+  listStyleRules, replaceStyleRules, StyleRule,
+} from '../services/dicoConfigService.js';
 import { logger } from '../utils/logger.js';
 
 export const getDerivedTypes = async (_req: Request, res: Response) => {
@@ -57,5 +62,47 @@ export const putHideRules = async (req: Request, res: Response) => {
   } catch (error) {
     logger.error('Error writing hide rules', error);
     res.status(500).json({ message: 'Error writing hide rules', error });
+  }
+};
+
+export const getElementStyles = async (_req: Request, res: Response) => {
+  try {
+    res.json({ message: 'Success', data: await listElementStyles() });
+  } catch (error) {
+    logger.error('Error reading element styles', error);
+    res.status(500).json({ message: 'Error reading element styles', error });
+  }
+};
+
+export const putElementStyles = async (req: Request, res: Response) => {
+  try {
+    if (!Array.isArray(req.body)) return res.status(400).json({ message: 'Body must be an array of element styles' });
+    const result = await replaceElementStyles(req.body as ElementStyle[]);
+    if (!result.success) return res.status(400).json({ message: 'Invalid element styles', errors: result.errors });
+    res.json({ message: 'Element styles updated', data: req.body });
+  } catch (error) {
+    logger.error('Error writing element styles', error);
+    res.status(500).json({ message: 'Error writing element styles', error });
+  }
+};
+
+export const getStyleRules = async (_req: Request, res: Response) => {
+  try {
+    res.json({ message: 'Success', data: await listStyleRules() });
+  } catch (error) {
+    logger.error('Error reading style rules', error);
+    res.status(500).json({ message: 'Error reading style rules', error });
+  }
+};
+
+export const putStyleRules = async (req: Request, res: Response) => {
+  try {
+    if (!Array.isArray(req.body)) return res.status(400).json({ message: 'Body must be an array of style rules' });
+    const result = await replaceStyleRules(req.body as StyleRule[]);
+    if (!result.success) return res.status(400).json({ message: 'Invalid style rules', errors: result.errors });
+    res.json({ message: 'Style rules updated', data: req.body });
+  } catch (error) {
+    logger.error('Error writing style rules', error);
+    res.status(500).json({ message: 'Error writing style rules', error });
   }
 };

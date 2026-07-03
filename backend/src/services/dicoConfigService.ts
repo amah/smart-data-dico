@@ -69,13 +69,45 @@ export interface HideRule {
   reason?: string;
 }
 
+/**
+ * A named visual style (#element-style) applied to model elements by their role.
+ * Colors are theme-token names (e.g. `primary`, `neutral`, `warning`, `*-subtle`)
+ * or hex; the frontend maps them to the diagram theme. See `docs/element-style.md`.
+ */
+export interface ElementStyle {
+  name: string;                 // stable kebab id
+  label?: string;
+  fill?: string;
+  border?: string;
+  borderWidth?: number;
+  borderStyle?: 'solid' | 'dashed' | 'dotted';
+  shape?: string;
+  opacity?: number;
+  textColor?: string;
+  badge?: string;               // short tag, e.g. "AR"
+  emphasis?: boolean;           // z-order boost + halo
+}
+
+/** Binds an {@link ElementStyle} to elements matching a role/name (glob or regex). */
+export interface StyleRule {
+  match: 'stereotype' | 'role' | 'entityName' | 'physicalTableName';
+  pattern: string;
+  regex?: boolean;
+  style: string;                // → ElementStyle.name
+}
+
 export interface DicoConfig {
   version: number;
   types?: DerivedType[];
   hideRules?: HideRule[];
+  elementStyles?: ElementStyle[];
+  styleRules?: StyleRule[];
 }
 
 const HIDE_MATCH_KINDS = new Set(['physicalTableName', 'entityName', 'packageName']);
+const STYLE_MATCH_KINDS = new Set(['stereotype', 'role', 'entityName', 'physicalTableName']);
+const STYLE_BORDER_STYLES = new Set(['solid', 'dashed', 'dotted']);
+const KEBAB = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 /** Workspace + path for `dico.config.json` (at the dictionaries-workspace root). */
 const DICT_WS = wsId('dictionaries');
@@ -137,6 +169,74 @@ export async function replaceHideRules(next: HideRule[]): Promise<{ success: boo
   if (errors.length > 0) return { success: false, errors };
   const cfg = await readConfig();
   cfg.hideRules = next;
+  await writeConfig(cfg);
+  return { success: true };
+}
+
+// ── Element styles + style rules (#element-style) ────────────────────────────
+
+export async function listElementStyles(): Promise<ElementStyle[]> {
+  const cfg = await readConfig();
+  return Array.isArray(cfg.elementStyles) ? cfg.elementStyles : [];
+}
+
+export async function listStyleRules(): Promise<StyleRule[]> {
+  const cfg = await readConfig();
+  return Array.isArray(cfg.styleRules) ? cfg.styleRules : [];
+}
+
+/** Validate named styles: kebab unique `name`, sane `borderStyle`/`opacity`. */
+export function validateElementStyles(styles: ElementStyle[]): string[] {
+  const errors: string[] = [];
+  const seen = new Set<string>();
+  styles.forEach((s, i) => {
+    if (!s || typeof s !== 'object') { errors.push(`Style ${i}: must be an object`); return; }
+    if (!s.name || !KEBAB.test(s.name)) errors.push(`Style ${i}: name must be kebab-case`);
+    else if (seen.has(s.name)) errors.push(`Style ${i}: duplicate name "${s.name}"`);
+    else seen.add(s.name);
+    if (s.borderStyle && !STYLE_BORDER_STYLES.has(s.borderStyle)) errors.push(`Style ${i}: borderStyle must be one of ${[...STYLE_BORDER_STYLES].join(', ')}`);
+    if (s.opacity != null && (typeof s.opacity !== 'number' || s.opacity < 0 || s.opacity > 1)) errors.push(`Style ${i}: opacity must be 0..1`);
+    if (s.borderWidth != null && (typeof s.borderWidth !== 'number' || s.borderWidth < 0)) errors.push(`Style ${i}: borderWidth must be ≥ 0`);
+  });
+  return errors;
+}
+
+/** Validate style rules: known `match`, non-empty `pattern`, compilable regex,
+ *  and a `style` that names one of `knownStyles` (when provided). */
+export function validateStyleRules(rules: StyleRule[], knownStyles?: string[]): string[] {
+  const errors: string[] = [];
+  const known = knownStyles ? new Set(knownStyles) : null;
+  rules.forEach((r, i) => {
+    if (!r || typeof r !== 'object') { errors.push(`Rule ${i}: must be an object`); return; }
+    if (!STYLE_MATCH_KINDS.has(r.match)) errors.push(`Rule ${i}: match must be one of ${[...STYLE_MATCH_KINDS].join(', ')}`);
+    if (!r.pattern || typeof r.pattern !== 'string') errors.push(`Rule ${i}: pattern is required`);
+    if (!r.style || typeof r.style !== 'string') errors.push(`Rule ${i}: style is required`);
+    else if (known && !known.has(r.style)) errors.push(`Rule ${i}: style "${r.style}" is not a defined element style`);
+    if (r.regex && typeof r.pattern === 'string') {
+      try { new RegExp(r.pattern); } catch { errors.push(`Rule ${i}: invalid regex "${r.pattern}"`); }
+    }
+  });
+  return errors;
+}
+
+export async function replaceElementStyles(next: ElementStyle[]): Promise<{ success: boolean; errors?: string[] }> {
+  if (!Array.isArray(next)) return { success: false, errors: ['Body must be an array of element styles'] };
+  const errors = validateElementStyles(next);
+  if (errors.length > 0) return { success: false, errors };
+  const cfg = await readConfig();
+  cfg.elementStyles = next;
+  await writeConfig(cfg);
+  return { success: true };
+}
+
+export async function replaceStyleRules(next: StyleRule[]): Promise<{ success: boolean; errors?: string[] }> {
+  if (!Array.isArray(next)) return { success: false, errors: ['Body must be an array of style rules'] };
+  const cfg = await readConfig();
+  // Rules may reference styles defined in the same config; validate against them.
+  const known = (Array.isArray(cfg.elementStyles) ? cfg.elementStyles : []).map((s) => s.name);
+  const errors = validateStyleRules(next, known);
+  if (errors.length > 0) return { success: false, errors };
+  cfg.styleRules = next;
   await writeConfig(cfg);
   return { success: true };
 }
