@@ -13,7 +13,7 @@
  * failure; those errors are surfaced inline under the section header.
  */
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   configApi,
   type ElementStyle,
@@ -347,44 +347,78 @@ const COLOR_PRESETS = [
   '#dc2626', '#ea580c', '#d97706', '#059669', '#2563eb', '#7c3aed', '#db2777',
 ];
 
-/** A color field that accepts a theme token OR hex (text), with a native swatch
- *  picker plus a row of standard preset swatches for quick selection. */
+/** A color field that accepts a theme token OR hex (text). The swatch button opens
+ *  a popover with standard preset swatches + a native custom picker. */
 function ColorInput({ value, onChange, placeholder }: { value?: string; onChange: (v: string | undefined) => void; placeholder?: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+  const isHex = !!value && HEX_RE.test(value);
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 5, width: '100%' }}>
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center', width: '100%' }}>
-        <input
-          type="text"
-          value={value ?? ''}
-          onChange={(e) => onChange(e.target.value || undefined)}
-          placeholder={placeholder}
-          style={{ ...fieldStyleMono, flex: '1 1 auto', minWidth: 0 }}
-        />
-        <input
-          type="color"
-          aria-label="Pick a color"
-          title="Pick a color (sets a hex value; the text field also accepts a theme token)"
-          value={toHex(value)}
-          onChange={(e) => onChange(e.target.value)}
-          style={{ width: 28, height: 28, padding: 0, border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', background: 'none', flexShrink: 0 }}
-        />
-      </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-        {COLOR_PRESETS.map((c) => (
-          <button
-            key={c}
-            type="button"
-            title={c}
-            aria-label={`Use ${c}`}
-            onClick={() => onChange(c)}
-            style={{
-              width: 15, height: 15, padding: 0, borderRadius: 3, cursor: 'pointer', background: c,
-              border: value?.toLowerCase() === c ? '2px solid var(--accent)' : '1px solid var(--border)',
-              boxShadow: c === '#ffffff' ? 'inset 0 0 0 1px var(--border)' : undefined,
-            }}
-          />
-        ))}
-      </div>
+    <div ref={ref} style={{ position: 'relative', display: 'flex', gap: 6, alignItems: 'center', width: '100%' }}>
+      <input
+        type="text"
+        value={value ?? ''}
+        onChange={(e) => onChange(e.target.value || undefined)}
+        placeholder={placeholder}
+        style={{ ...fieldStyleMono, flex: '1 1 auto', minWidth: 0 }}
+      />
+      <button
+        type="button"
+        aria-label="Presets & color picker"
+        title="Presets & color picker"
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          width: 28, height: 28, padding: 0, borderRadius: 4, cursor: 'pointer', flexShrink: 0,
+          background: isHex ? value : 'var(--bg-raised)', border: '1px solid var(--border)',
+          // token/empty → a diagonal hint so it's clear no explicit color is set
+          backgroundImage: isHex ? undefined : 'linear-gradient(135deg, transparent 46%, var(--border-strong) 46%, var(--border-strong) 54%, transparent 54%)',
+        }}
+      />
+      {open && (
+        <div
+          role="dialog"
+          style={{
+            position: 'absolute', top: 'calc(100% + 4px)', right: 0, zIndex: 60,
+            background: 'var(--bg-raised)', border: '1px solid var(--border)', borderRadius: 8,
+            padding: 8, boxShadow: 'var(--shadow-lg)', width: 172,
+          }}
+        >
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+            {COLOR_PRESETS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                title={c}
+                aria-label={`Use ${c}`}
+                onClick={() => { onChange(c); setOpen(false); }}
+                style={{
+                  width: 18, height: 18, padding: 0, borderRadius: 3, cursor: 'pointer', background: c,
+                  border: value?.toLowerCase() === c ? '2px solid var(--accent)' : '1px solid var(--border)',
+                  boxShadow: c === '#ffffff' ? 'inset 0 0 0 1px var(--border)' : undefined,
+                }}
+              />
+            ))}
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 11, color: 'var(--text-subtle)' }}>
+            <input
+              type="color"
+              aria-label="Custom color"
+              value={toHex(value)}
+              onChange={(e) => onChange(e.target.value)}
+              style={{ width: 26, height: 22, padding: 0, border: '1px solid var(--border)', borderRadius: 3, cursor: 'pointer', background: 'none' }}
+            />
+            Custom…
+          </label>
+        </div>
+      )}
     </div>
   );
 }
