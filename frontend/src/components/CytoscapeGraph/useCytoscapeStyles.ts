@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef } from 'react';
 import type { Core } from 'cytoscape';
 import { createStylesheet, buildServiceColorMap } from './cytoscapeStylesheet';
+import type { ElementStyle } from '../../utils/elementStyle';
 
 export function useCytoscapeStyles(
   cyRef: React.RefObject<Core | null>,
   services: string[],
+  elementStyles: ElementStyle[] = [],
 ) {
   const serviceColorMap = useMemo(() => buildServiceColorMap(services), [services]);
-  const stylesheet = useMemo(() => createStylesheet(serviceColorMap), [serviceColorMap]);
+  const stylesheet = useMemo(() => createStylesheet(serviceColorMap, elementStyles), [serviceColorMap, elementStyles]);
 
   // Watch for theme changes and rebuild styles
   const prevThemeRef = useRef<string | null>(null);
@@ -19,7 +21,7 @@ export function useCytoscapeStyles(
         prevThemeRef.current = theme;
         const cy = cyRef.current;
         if (cy) {
-          const newStyles = createStylesheet(serviceColorMap);
+          const newStyles = createStylesheet(serviceColorMap, elementStyles);
           cy.style().fromJson(newStyles).update();
         }
       }
@@ -33,7 +35,7 @@ export function useCytoscapeStyles(
     prevThemeRef.current = document.documentElement.getAttribute('data-theme');
 
     return () => observer.disconnect();
-  }, [cyRef, serviceColorMap]);
+  }, [cyRef, serviceColorMap, elementStyles]);
 
   return { stylesheet, serviceColorMap };
 }

@@ -137,6 +137,21 @@ export class ServiceService {
     return this.updateEntity(service, entity);
   }
 
+  /**
+   * Set or clear an entity's explicit Element Style (#element-style) via the
+   * reserved `system.style` metadata. Pass a style name to set it, or
+   * ''/'auto'/'none'/null to clear (falling back to rules/role detection).
+   */
+  async setEntityStyle(service: string, entityName: string, style: string | null): Promise<{ success: boolean; errors: string[] }> {
+    const entity = await readEntityFile(service, entityName);
+    if (!entity) return { success: false, errors: [`Entity ${service}.${entityName} not found`] };
+    const clear = !style || ['auto', 'none', 'default'].includes(style.toLowerCase());
+    const meta = (entity.metadata ?? []).filter((m) => m.name !== 'system.style');
+    if (!clear) meta.push({ name: 'system.style', value: style! });
+    entity.metadata = meta;
+    return this.updateEntity(service, entity);
+  }
+
   async getEntitySchema(service: string, entityName: string): Promise<Entity | null> {
     logger.info(`Getting entity schema: ${service}.${entityName}`);
     try {

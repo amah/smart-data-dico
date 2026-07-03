@@ -5,6 +5,10 @@ import {
 } from '../../controllers/dicoConfigController.js';
 import { UserRole } from '../../middleware/auth.js';
 import { authorizeJwt } from '../../middleware/jwtAuth.js';
+import { registerElementStyleAgentTools } from '../../services/elementStyle/agentTools.js';
+
+// Contribute the element-style tools to the AI chat agent (no aiController edits).
+registerElementStyleAgentTools();
 
 const router: Router = Router();
 const WRITE = authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]);

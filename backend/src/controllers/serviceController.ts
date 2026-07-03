@@ -182,6 +182,24 @@ export const setEntityHidden = async (req: Request, res: Response) => {
   }
 };
 
+/** PUT /api/services/:service/entities/:entity/style — set/clear an entity's
+ *  Element Style (sets reserved `system.style` metadata). Non-destructive. */
+export const setEntityStyle = async (req: Request, res: Response) => {
+  try {
+    const { service, entity } = req.params;
+    const style = typeof req.body?.style === 'string' ? req.body.style : null;
+    const result = await serviceService.setEntityStyle(service, entity, style);
+    if (!result.success) {
+      const notFound = result.errors.some((e) => e.includes('not found'));
+      return res.status(notFound ? 404 : 400).json({ message: 'Failed to set style', errors: result.errors });
+    }
+    res.json({ message: 'Style set', data: { service, entity, style } });
+  } catch (error) {
+    logger.error(`Error setting entity style: ${error}`);
+    res.status(500).json({ message: 'Error setting entity style', error });
+  }
+};
+
 /**
  * @swagger
  * /api/services/{service}/entities/{entity}:

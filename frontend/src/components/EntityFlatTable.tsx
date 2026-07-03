@@ -9,6 +9,13 @@ import {
   type CompiledRule,
 } from '../utils/visibility';
 import {
+  resolveElementStyle,
+  compileStyleRules,
+  type ElementStyle,
+  type StyleRule,
+  type CompiledStyleRule,
+} from '../utils/elementStyle';
+import {
   useStereotypeMetadata,
   getMetadataValue,
   setMetadataValue,
@@ -61,6 +68,8 @@ const EntityFlatTable = () => {
   const [pkgFilter, setPkgFilter] = useState<string>('');
 
   const [compiledRules, setCompiledRules] = useState<CompiledRule[]>([]);
+  const [elementStyles, setElementStyles] = useState<ElementStyle[]>([]);
+  const [compiledStyleRules, setCompiledStyleRules] = useState<CompiledStyleRule[]>([]);
   const [showHidden, setShowHidden] = useState<boolean>(() => {
     try { return localStorage.getItem(SHOW_HIDDEN_KEY) === 'true'; } catch { return false; }
   });
@@ -91,11 +100,15 @@ const EntityFlatTable = () => {
     setLoading(true);
     setError(null);
     try {
-      const [pkgs, rules] = await Promise.all([
+      const [pkgs, rules, styles, styleRules] = await Promise.all([
         entityApi.getAllPackages(),
         configApi.getHideRules().catch((): HideRule[] => []),
+        configApi.getElementStyles().catch((): ElementStyle[] => []),
+        configApi.getStyleRules().catch((): StyleRule[] => []),
       ]);
       setCompiledRules(compileHideRules(rules));
+      setElementStyles(styles);
+      setCompiledStyleRules(compileStyleRules(styleRules));
       setPackages(pkgs);
       const next: EntityFlat[] = [];
       for (const pkg of pkgs) {
@@ -274,11 +287,15 @@ const EntityFlatTable = () => {
         accessor: (r) => r.entity.name,
         render: (r) => {
           const hidden = hiddenSet.has(r.entity.uuid);
+          // The flat list has no FK adjacency, so no role signals are passed;
+          // explicit / rule / stereotype styles still resolve.
+          const resolved = resolveElementStyle(r.entity, undefined, elementStyles, compiledStyleRules);
           return (
             <span
               className="mono"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: hidden ? 0.45 : 1 }}
             >
+              {resolved.styleName && <StyleBadge style={resolved.style} />}
               {r.entity.name}
               {hidden && <Chip tone="neutral" soft>hidden</Chip>}
             </span>
@@ -345,7 +362,7 @@ const EntityFlatTable = () => {
     }));
 
     return [...std, ...meta];
-  }, [activeMetaCols, hiddenSet]);
+  }, [activeMetaCols, hiddenSet, elementStyles, compiledStyleRules]);
 
   const chooserCols = useMemo(() => columns as unknown as ColumnDef<unknown>[], [columns]);
   const allVisibleKeys = useMemo(() => {
@@ -548,6 +565,45 @@ const EntityFlatTable = () => {
 /** Dim a cell's content when its row is hidden (shown only in "Show hidden" mode). */
 function dimIfHidden(hidden: boolean, node: ReactNode): ReactNode {
   return hidden ? <span style={{ opacity: 0.45 }}>{node}</span> : node;
+}
+
+/** Subtle marker for an entity that resolves to a named element style — a small
+ *  colored dot (from the style's border/fill), or its `badge` text when present. */
+function StyleBadge({ style }: { style?: ElementStyle }): ReactNode {
+  if (!style) return null;
+  const color = style.border || style.fill || 'var(--text-subtle)';
+  if (style.badge) {
+    return (
+      <span
+        className="mono"
+        title={style.label || style.name}
+        style={{
+          fontSize: 9,
+          fontWeight: 600,
+          lineHeight: 1,
+          padding: '2px 5px',
+          borderRadius: 3,
+          color,
+          border: `1px solid ${color}`,
+        }}
+      >
+        {style.badge}
+      </span>
+    );
+  }
+  return (
+    <span
+      title={style.label || style.name}
+      style={{
+        display: 'inline-block',
+        width: 8,
+        height: 8,
+        borderRadius: '50%',
+        background: color,
+        flex: '0 0 auto',
+      }}
+    />
+  );
 }
 
 function renderMetadataCell(entity: Entity, col: MetadataColumn): ReactNode {

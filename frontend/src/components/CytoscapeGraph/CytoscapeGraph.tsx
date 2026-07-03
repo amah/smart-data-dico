@@ -4,6 +4,8 @@ import type { ElementDefinition } from 'cytoscape';
 import type { Attribute } from '../../types';
 import type { CytoscapeGraphProps, LayoutName, LayoutDirection } from './CytoscapeGraph.types';
 import { useFetchGraphData } from '../../hooks/useFetchGraphData';
+import { configApi } from '../../services/api';
+import { compileStyleRules, type ElementStyle, type StyleRule } from '../../utils/elementStyle';
 import { buildViewElements } from './viewElementBuilders';
 import { useCytoscapeInstance } from './useCytoscapeInstance';
 import { useCytoscapeLayout } from './useCytoscapeLayout';
@@ -39,6 +41,17 @@ export default function CytoscapeGraph({
   const [layoutRan, setLayoutRan] = useState(false);
   // Structural view: overlay the ORM class model (toggled from the legend).
   const [ormOverlay, setOrmOverlay] = useState(false);
+
+  // Element Styles (#element-style): named styles + binding rules, fetched once.
+  const [elementStyles, setElementStyles] = useState<ElementStyle[]>([]);
+  const [styleRules, setStyleRules] = useState<StyleRule[]>([]);
+  useEffect(() => {
+    let alive = true;
+    Promise.all([configApi.getElementStyles().catch((): ElementStyle[] => []), configApi.getStyleRules().catch((): StyleRule[] => [])])
+      .then(([s, r]) => { if (alive) { setElementStyles(s); setStyleRules(r); } });
+    return () => { alive = false; };
+  }, []);
+  const compiledStyleRules = useMemo(() => compileStyleRules(styleRules), [styleRules]);
 
   // Fetch data
   const { nodes, edges, loading, error, services } = useFetchGraphData(service, entity);
@@ -82,21 +95,24 @@ export default function CytoscapeGraph({
     // Mode-aware element builder (#183) — structural (± ORM overlay) / physical.
     const entityElements = buildViewElements(viewMode, nodes, edges, parentMapping, {
       orm: ormOverlay,
+      elementStyles,
+      compiledStyleRules,
     });
     return [...compoundNodes, ...entityElements];
-  }, [nodes, edges, viewMode, ormOverlay]);
+  }, [nodes, edges, viewMode, ormOverlay, elementStyles, compiledStyleRules]);
 
   // Styles (theme-aware)
   const { stylesheet, serviceColorMap } = useCytoscapeStyles(
     { current: null } as any, // Will be set after instance creation
     services,
+    elementStyles,
   );
 
   // Create Cytoscape instance
   const { cyRef, cy } = useCytoscapeInstance(containerRef, elements, stylesheet);
 
   // Re-apply styles when cyRef changes (for theme sync)
-  useCytoscapeStyles(cyRef, services);
+  useCytoscapeStyles(cyRef, services, elementStyles);
 
   // Layout
   const { runLayout } = useCytoscapeLayout(cyRef);

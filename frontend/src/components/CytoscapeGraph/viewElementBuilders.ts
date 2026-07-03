@@ -21,6 +21,8 @@ import type { ViewMode } from './viewMode';
 import { mapGraphDataToCytoscape } from './mapGraphDataToCytoscape';
 import { buildLogicalElements } from './logicalElements';
 import { buildPhysicalElements } from './physicalElements';
+import { applyElementStyles } from './applyElementStyles';
+import type { ElementStyle, CompiledStyleRule } from '../../utils/elementStyle';
 
 export interface ViewOptions {
   /**
@@ -29,6 +31,10 @@ export interface ViewOptions {
    * fetch/cascade annotation). Toggled from the legend.
    */
   orm?: boolean;
+  /** Element Styles (#element-style) + compiled binding rules; when present, a
+   *  post-pass stamps `styleName` on nodes so the style selectors apply. */
+  elementStyles?: ElementStyle[];
+  compiledStyleRules?: CompiledStyleRule[];
 }
 
 export function buildViewElements(
@@ -38,14 +44,20 @@ export function buildViewElements(
   parentMapping?: Record<string, string>,
   options: ViewOptions = {},
 ): ElementDefinition[] {
+  let elements: ElementDefinition[];
   switch (viewMode) {
     case 'physical':
-      return buildPhysicalElements(nodes, edges, parentMapping);
+      elements = buildPhysicalElements(nodes, edges, parentMapping);
+      break;
     case 'structural':
     default:
       // The ORM overlay reuses the logical builder; plain structural otherwise.
-      return options.orm
+      elements = options.orm
         ? buildLogicalElements(nodes, edges, parentMapping, { showAnnotations: true })
         : mapGraphDataToCytoscape(nodes, edges, parentMapping);
   }
+  if (options.elementStyles?.length) {
+    elements = applyElementStyles(elements, nodes, options.elementStyles, options.compiledStyleRules ?? []);
+  }
+  return elements;
 }
