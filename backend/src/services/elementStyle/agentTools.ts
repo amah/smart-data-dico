@@ -37,6 +37,7 @@ export function registerElementStyleAgentTools(): void {
         opacity: { type: 'number' },
         badge: { type: 'string', description: 'short tag, e.g. "AR"' },
         emphasis: { type: 'boolean', description: 'raise z-order + halo' },
+        default: { type: 'boolean', description: 'use as the fallback style for any element nothing else styles (at most one)' },
       },
     },
     inputSchema: z.object({
@@ -50,10 +51,13 @@ export function registerElementStyleAgentTools(): void {
       opacity: z.number().optional(),
       badge: z.string().optional(),
       emphasis: z.boolean().optional(),
+      default: z.boolean().optional(),
     }),
     execute: async (args) => {
       const style = args as ElementStyle;
-      const next = (await listElementStyles()).filter((s) => s.name !== style.name);
+      let next = (await listElementStyles()).filter((s) => s.name !== style.name);
+      // Single-default invariant: a new default clears the flag on the others.
+      if (style.default) next = next.map((s) => (s.default ? { ...s, default: false } : s));
       next.push(style);
       const errors = validateElementStyles(next);
       if (errors.length) return { success: false, errors };

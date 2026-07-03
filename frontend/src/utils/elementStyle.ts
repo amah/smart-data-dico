@@ -18,6 +18,7 @@ export interface ElementStyle {
   textColor?: string;
   badge?: string;
   emphasis?: boolean;
+  default?: boolean;   // applied to any element nothing else styles (at most one)
 }
 
 export interface StyleRule {
@@ -110,5 +111,9 @@ export function resolveElementStyle(
   }
 
   // 3. detected role → same-named style; 4. stereotype → same-named style
-  return pick(role) ?? pick(element.stereotype) ?? { role };
+  const roleOrStereotype = pick(role) ?? pick(element.stereotype);
+  if (roleOrStereotype) return roleOrStereotype;
+  // 5. the designated default style — applied to anything nothing else styled.
+  const def = styles.find((s) => s.default);
+  return def ? { styleName: def.name, style: def, role } : { role };
 }

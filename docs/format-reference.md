@@ -153,8 +153,9 @@ the data itself:
   (`junction`|`reference`|`remote-ref`) | `entityName` | `physicalTableName`, and its
   `style` must name a defined `elementStyles[]` entry. Effective style precedence:
   explicit `system.style` override → first matching `styleRule` → detected role →
-  stereotype. Manage via `GET/PUT /api/config/element-styles|style-rules`, the
-  `/element-styles` page, or the agent tools `defineElementStyle`/`addStyleRule`.
+  stereotype → the `default`-flagged style (fallback for anything unstyled). Manage
+  via `GET/PUT /api/config/element-styles|style-rules`, the `/element-styles` page,
+  or the agent tools `defineElementStyle`/`addStyleRule`.
   See `element-style.md`.
 
 ---

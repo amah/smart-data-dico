@@ -79,7 +79,12 @@ const ElementStylesPage = () => {
   };
 
   const updateStyle = (idx: number, patch: Partial<ElementStyle>) => {
-    setStyles(prev => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
+    setStyles(prev => prev.map((s, i) => {
+      if (i === idx) return { ...s, ...patch };
+      // Single-default invariant: marking one style default clears the others.
+      if (patch.default === true && s.default) return { ...s, default: false };
+      return s;
+    }));
     setStylesDirty(true);
   };
 
@@ -352,6 +357,7 @@ const StyleRow = ({ style, onChange, onRemove }: StyleRowProps) => {
         <StyleSwatch style={style} />
         {style.badge && <Chip tone="meta" soft>{style.badge}</Chip>}
         {style.emphasis && <Chip tone="accent" soft>emphasis</Chip>}
+        {style.default && <Chip tone="neutral" soft>default</Chip>}
         <div style={{ flex: 1 }} />
         <Button size="sm" variant="ghost" icon="close" iconOnly aria-label="remove style" onClick={onRemove} />
       </div>
@@ -452,6 +458,14 @@ const StyleRow = ({ style, onChange, onRemove }: StyleRowProps) => {
             type="checkbox"
             checked={!!style.emphasis}
             onChange={(e) => onChange({ emphasis: e.target.checked || undefined })}
+          />
+        </Field>
+        <Field label="Default (fallback)" inline>
+          <input
+            type="checkbox"
+            checked={!!style.default}
+            onChange={(e) => onChange({ default: e.target.checked || undefined })}
+            title="Applied to any element that no rule, role, or stereotype styles"
           />
         </Field>
       </div>

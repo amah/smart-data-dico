@@ -52,6 +52,14 @@ describe('resolveElementStyle precedence', () => {
     expect(r.styleName).toBeUndefined();
     expect(r.role).toBeUndefined();
   });
+  it('falls back to the default style when nothing else matches', () => {
+    const styles: ElementStyle[] = [...STYLES, { name: 'base', default: true }];
+    const rules = compileStyleRules([]);
+    // Plain entity, no override/rule/role/stereotype → gets the default
+    expect(resolveElementStyle(el('Plain'), undefined, styles, rules).styleName).toBe('base');
+    // A stereotyped/role element still wins over the default
+    expect(resolveElementStyle(el('Order', [], 'aggregate-root'), undefined, styles, rules).styleName).toBe('aggregate-root');
+  });
   it('carries the resolved style object', () => {
     expect(resolve(el('X'), { isJunction: true }).style?.shape).toBe('hexagon');
   });

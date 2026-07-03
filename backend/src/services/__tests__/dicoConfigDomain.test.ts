@@ -32,6 +32,10 @@ describe('validateElementStyles', () => {
   it('rejects duplicate names', () => {
     expect(validateElementStyles([{ name: 'a' }, { name: 'a' }]).some((e) => /duplicate/.test(e))).toBe(true);
   });
+  it('accepts a single default style, rejects two', () => {
+    expect(validateElementStyles([{ name: 'a', default: true }, { name: 'b' }])).toEqual([]);
+    expect(validateElementStyles([{ name: 'a', default: true }, { name: 'b', default: true }]).some((e) => /one style may be marked default/.test(e))).toBe(true);
+  });
   it('rejects a bad borderStyle and out-of-range opacity', () => {
     const errs = validateElementStyles([{ name: 'x', borderStyle: 'wavy' as ElementStyle['borderStyle'], opacity: 2 }]);
     expect(errs.some((e) => /borderStyle/.test(e))).toBe(true);

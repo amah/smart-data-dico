@@ -86,6 +86,7 @@ export interface ElementStyle {
   textColor?: string;
   badge?: string;               // short tag, e.g. "AR"
   emphasis?: boolean;           // z-order boost + halo
+  default?: boolean;            // applied to any element nothing else styles (at most one)
 }
 
 /** Binds an {@link ElementStyle} to elements matching a role/name (glob or regex). */
@@ -198,6 +199,7 @@ export function validateElementStyles(styles: ElementStyle[]): string[] {
     if (s.opacity != null && (typeof s.opacity !== 'number' || s.opacity < 0 || s.opacity > 1)) errors.push(`Style ${i}: opacity must be 0..1`);
     if (s.borderWidth != null && (typeof s.borderWidth !== 'number' || s.borderWidth < 0)) errors.push(`Style ${i}: borderWidth must be ≥ 0`);
   });
+  if (styles.filter((s) => s?.default).length > 1) errors.push('At most one style may be marked default');
   return errors;
 }
 
