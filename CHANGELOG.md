@@ -5,6 +5,36 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.0] — 2026-07-03
+
+### Added
+- **Element Style (#212)** — style model elements by role so large models stay
+  readable. Named `elementStyles[]` + binding `styleRules[]` in `dico.config.json`
+  (theme-token colors); a resolver picks each element's style by precedence
+  (explicit `system.style` → rule → detected role → stereotype) with **zero-tagging
+  detectors** (junction / FK-target reference / cross-repo remote-ref). Applied in
+  the Cytoscape diagrams via generated `node[styleName="…"]` selectors (emphasis =
+  z-order + halo) and as a badge in the entity flat table. New `/element-styles`
+  manager page; `GET/PUT /api/config/element-styles|style-rules`; AI agent tools
+  `defineElementStyle` / `addStyleRule` / `setEntityStyle`; `PUT
+  …/entities/:entity/style`. See `docs/element-style.md`.
+- **Hide model data** — non-destructive, reversible hiding of entities to declutter
+  reverse-engineering waste (backup/temp/staging tables). Explicit `system.hidden`
+  flag (with a pin-visible override) or `hideRules[]` (glob/regex on table/entity/
+  package); excluded from lists/exports by default, with a "Show hidden" toggle and
+  per-row Hide/Unhide. See `docs/hide-model-data.md`.
+- **Left navigation is drag-resizable** (right edge, clamped, persisted), on top of
+  the existing collapse/expand.
+- **Desktop app — Electron Tier 1 packaging (#206/#207)** — `desktop/` build for
+  macOS/Windows/Linux, released by a tag-only workflow (separate from the npm package).
+
+### Fixed
+- **AI chat: the reply no longer streams before its tool calls** (OpenAI-compatible
+  direct client). A step's text was emitted before the tool-call check, so weak
+  tool-callers streamed the answer ahead of the tools; the loop now emits only tool
+  events and the controller streams the final reply once, after them — matching the
+  Anthropic path.
+
 ## [1.17.0] — 2026-07-02
 
 ### Added
