@@ -11,7 +11,7 @@ import { buildElementStyleSelectors } from '../cytoscapeStylesheet';
 import { compileStyleRules, type ElementStyle, type StyleRule } from '../../../utils/elementStyle';
 
 const STYLES: ElementStyle[] = [
-  { name: 'aggregate-root', border: '#6366F1', emphasis: true },
+  { name: 'aggregate-root', border: '#6366F1', emphasis: true, badge: 'AR' },
   { name: 'junction', shape: 'hexagon' },
   { name: 'reference' },
 ];
@@ -59,6 +59,15 @@ describe('applyElementStyles', () => {
     const els = applyElementStyles([node('a')], nodes, STYLES, rules);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((els[0].data as any).styleName).toBe('reference');
+  });
+
+  it('renders a style badge as a «tag» line on the node label', () => {
+    const nodes = [gnode('a', { name: 'Order', stereotype: 'aggregate-root' })];
+    const els = applyElementStyles([{ group: 'nodes', data: { id: 'a', type: 'entity', label: 'Order', displayLabel: 'Order' } }], nodes, STYLES, []);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const d = els[0].data as any;
+    expect(d.styleBadge).toBe('AR');
+    expect(d.displayLabel).toBe('Order\n«AR»');
   });
 
   it('is a no-op when no styles are defined', () => {

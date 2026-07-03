@@ -69,7 +69,15 @@ export function applyElementStyles(
     );
     if (resolved.styleName) {
       d.styleName = resolved.styleName;
-      if (resolved.style?.badge) d.styleBadge = resolved.style.badge;
+      const badge = resolved.style?.badge;
+      if (badge) {
+        d.styleBadge = badge;
+        // On-node badge: render it as a UML-style «tag» line under the name.
+        // (Cytoscape has no native badge; the label is the only text channel.)
+        const base = String(d.displayLabel ?? d.label ?? '');
+        const tag = `«${badge}»`;
+        if (base && !base.includes(tag)) d.displayLabel = `${base}\n${tag}`;
+      }
     }
   }
   return elements;
