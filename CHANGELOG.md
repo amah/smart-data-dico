@@ -5,6 +5,22 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.1] — 2026-07-03
+
+### Changed
+- **Single source of truth for AI authoring rules.** The format contract the
+  integrated agent must follow (UUID/uniqueness rules, the validation/constraint/
+  rule split, conceptual-vs-physical, and the `system.hidden`/`system.style` +
+  `hideRules`/`elementStyles`/`styleRules` constructs) now lives in one module
+  (`services/ai/authoringRules.ts`) that the in-app agent injects into its system
+  prompt (designer mode, both provider paths); `docs/SKILL.md` mirrors it, guarded
+  by a drift test. The in-app agent previously carried none of these hard rules.
+
+### Docs
+- `format-reference.md` §2.2 (`hideRules[]`/`elementStyles[]`/`styleRules[]`) + §7.1
+  (reserved `system.hidden`/`system.style` metadata); `SKILL.md`, `CLAUDE.md`, and
+  `user-guide.md` updated to cover the Hide and Element Style features + AI tools.
+
 ## [1.18.0] — 2026-07-03
 
 ### Added
