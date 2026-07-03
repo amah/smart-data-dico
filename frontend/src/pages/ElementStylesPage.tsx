@@ -13,7 +13,7 @@
  * failure; those errors are surfaced inline under the section header.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   configApi,
   type ElementStyle,
@@ -351,18 +351,17 @@ const COLOR_PRESETS = [
  *  a popover with standard preset swatches + a native custom picker. */
 function ColorInput({ value, onChange, placeholder }: { value?: string; onChange: (v: string | undefined) => void; placeholder?: string }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  // Escape closes; outside clicks are caught by the backdrop below (no document
+  // mousedown listener — that conflicted with the preset buttons' own click).
   useEffect(() => {
     if (!open) return;
-    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
-    document.addEventListener('mousedown', onDoc);
     document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
+    return () => document.removeEventListener('keydown', onKey);
   }, [open]);
   const isHex = !!value && HEX_RE.test(value);
   return (
-    <div ref={ref} style={{ position: 'relative', display: 'flex', gap: 6, alignItems: 'center', width: '100%' }}>
+    <div style={{ position: 'relative', display: 'flex', gap: 6, alignItems: 'center', width: '100%' }}>
       <input
         type="text"
         value={value ?? ''}
@@ -383,6 +382,10 @@ function ColorInput({ value, onChange, placeholder }: { value?: string; onChange
         }}
       />
       {open && (
+        <>
+          {/* Full-screen backdrop catches outside clicks (closes the popover)
+              without a document mousedown listener that would race the buttons. */}
+          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 55 }} />
         <div
           role="dialog"
           style={{
@@ -418,6 +421,7 @@ function ColorInput({ value, onChange, placeholder }: { value?: string; onChange
             Custom…
           </label>
         </div>
+        </>
       )}
     </div>
   );
