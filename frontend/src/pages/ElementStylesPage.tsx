@@ -316,29 +316,57 @@ const Muted = ({ children }: { children: ReactNode }) => (
 
 // ──────────────── Style row ────────────────
 
-const StyleSwatch = ({ style }: { style: ElementStyle }) => (
-  <span
-    aria-hidden
-    title="preview"
-    style={{
-      display: 'inline-block',
-      width: 34,
-      height: 22,
-      borderRadius: 4,
-      background: style.fill || 'transparent',
-      border: `${style.borderWidth ?? 1}px ${style.borderStyle ?? 'solid'} ${style.border || 'var(--border-strong)'}`,
-      opacity: style.opacity ?? 1,
-      flex: '0 0 auto',
-    }}
-  />
-);
-
-const HEX_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
-/** Expand `#abc` → `#aabbcc`; the native color input requires 6-digit hex. */
-function toHex(v: string | undefined): string {
-  if (!v || !HEX_RE.test(v)) return '#888888'; // token/empty → neutral picker default
-  return v.length === 4 ? '#' + v.slice(1).split('').map(c => c + c).join('') : v;
+// Theme-token → DaisyUI CSS var, so previews/swatches show the *actual* color a
+// token resolves to (matching the diagram) instead of an invalid CSS value.
+const STYLE_TOKEN_VAR: Record<string, string> = {
+  primary: '--p', 'primary-content': '--pc', neutral: '--n', accent: '--accent',
+  base: '--b1', 'base-content': '--bc', warning: '--wa', error: '--er', success: '--su', info: '--in',
+};
+/** Resolve a token/hex color value to a displayable CSS color (+ whether it's a
+ *  `*-subtle` variant). Returns undefined color when nothing can be resolved. */
+function resolveDisplayColor(value?: string): { color?: string; subtle: boolean } {
+  if (!value) return { subtle: false };
+  if (/^(#|rgb|hsl|oklch)/.test(value)) return { color: value, subtle: false };
+  const subtle = value.endsWith('-subtle');
+  const base = subtle ? value.slice(0, -'-subtle'.length) : value;
+  const cssVar = STYLE_TOKEN_VAR[base];
+  if (!cssVar) return { color: value, subtle };
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim();
+  if (!raw) return { color: undefined, subtle };
+  if (/^(#|rgb|hsl|oklch)/.test(raw)) return { color: raw, subtle };
+  return { color: raw.includes('%') ? `hsl(${raw})` : `oklch(${raw})`, subtle };
 }
+
+/** Live preview of a style: a node-like box with its resolved fill/border/shape,
+ *  the badge, and an emphasis ring — so you see what you're building. */
+const StyleSwatch = ({ style }: { style: ElementStyle }) => {
+  const fill = resolveDisplayColor(style.fill);
+  const border = resolveDisplayColor(style.border);
+  const bg = fill.color
+    ? (fill.subtle ? `color-mix(in srgb, ${fill.color} 18%, transparent)` : fill.color)
+    : 'var(--bg-raised)';
+  return (
+    <span
+      aria-hidden
+      title="preview"
+      style={{
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        width: 44, height: 28, flex: '0 0 auto',
+        borderRadius: style.shape === 'hexagon' ? 3 : style.shape === 'ellipse' ? 14 : 7,
+        background: bg,
+        borderStyle: style.borderStyle ?? 'solid',
+        borderWidth: Math.min(style.borderWidth ?? 1.5, 4),
+        borderColor: border.color ?? 'var(--border-strong)',
+        opacity: style.opacity ?? 1,
+        boxShadow: style.emphasis ? '0 0 0 2px var(--accent), 0 1px 3px rgba(0,0,0,0.15)' : undefined,
+        fontSize: 9, fontWeight: 700, letterSpacing: 0.2,
+        color: resolveDisplayColor(style.textColor).color ?? 'var(--text)',
+      }}
+    >
+      {style.badge}
+    </span>
+  );
+};
 
 /** Standard preset swatches — a greyscale ramp then common hues — for quick
  *  selection. The text field still accepts theme tokens (primary/neutral/…). */
@@ -359,7 +387,7 @@ function ColorInput({ value, onChange, placeholder }: { value?: string; onChange
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [open]);
-  const isHex = !!value && HEX_RE.test(value);
+  const shown = resolveDisplayColor(value); // preview the real color for tokens too
   return (
     <div style={{ position: 'relative', display: 'flex', gap: 6, alignItems: 'center', width: '100%' }}>
       <input
@@ -376,9 +404,12 @@ function ColorInput({ value, onChange, placeholder }: { value?: string; onChange
         onClick={() => setOpen((o) => !o)}
         style={{
           width: 28, height: 28, padding: 0, borderRadius: 4, cursor: 'pointer', flexShrink: 0,
-          background: isHex ? value : 'var(--bg-raised)', border: '1px solid var(--border)',
-          // token/empty → a diagonal hint so it's clear no explicit color is set
-          backgroundImage: isHex ? undefined : 'linear-gradient(135deg, transparent 46%, var(--border-strong) 46%, var(--border-strong) 54%, transparent 54%)',
+          background: shown.color
+            ? (shown.subtle ? `color-mix(in srgb, ${shown.color} 22%, var(--bg-raised))` : shown.color)
+            : 'var(--bg-raised)',
+          border: '1px solid var(--border)',
+          // no color set → a diagonal hint so it reads as "unset"
+          backgroundImage: shown.color ? undefined : 'linear-gradient(135deg, transparent 46%, var(--border-strong) 46%, var(--border-strong) 54%, transparent 54%)',
         }}
       />
       {open && (
@@ -410,16 +441,9 @@ function ColorInput({ value, onChange, placeholder }: { value?: string; onChange
               />
             ))}
           </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 11, color: 'var(--text-subtle)' }}>
-            <input
-              type="color"
-              aria-label="Custom color"
-              value={toHex(value)}
-              onChange={(e) => onChange(e.target.value)}
-              style={{ width: 26, height: 22, padding: 0, border: '1px solid var(--border)', borderRadius: 3, cursor: 'pointer', background: 'none' }}
-            />
-            Custom…
-          </label>
+          <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text-subtle)' }}>
+            For a custom color or theme token, type it in the field.
+          </div>
         </div>
         </>
       )}
