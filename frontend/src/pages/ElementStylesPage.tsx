@@ -340,26 +340,51 @@ function toHex(v: string | undefined): string {
   return v.length === 4 ? '#' + v.slice(1).split('').map(c => c + c).join('') : v;
 }
 
+/** Standard preset swatches — a greyscale ramp then common hues — for quick
+ *  selection. The text field still accepts theme tokens (primary/neutral/…). */
+const COLOR_PRESETS = [
+  '#111827', '#374151', '#6b7280', '#9ca3af', '#d1d5db', '#ffffff',
+  '#dc2626', '#ea580c', '#d97706', '#059669', '#2563eb', '#7c3aed', '#db2777',
+];
+
 /** A color field that accepts a theme token OR hex (text), with a native swatch
- *  picker beside it. Picking a color sets a hex value; typing keeps tokens usable. */
+ *  picker plus a row of standard preset swatches for quick selection. */
 function ColorInput({ value, onChange, placeholder }: { value?: string; onChange: (v: string | undefined) => void; placeholder?: string }) {
   return (
-    <div style={{ display: 'flex', gap: 6, alignItems: 'center', width: '100%' }}>
-      <input
-        type="text"
-        value={value ?? ''}
-        onChange={(e) => onChange(e.target.value || undefined)}
-        placeholder={placeholder}
-        style={{ ...fieldStyleMono, flex: '1 1 auto', minWidth: 0 }}
-      />
-      <input
-        type="color"
-        aria-label="Pick a color"
-        title="Pick a color (sets a hex value; the text field also accepts a theme token)"
-        value={toHex(value)}
-        onChange={(e) => onChange(e.target.value)}
-        style={{ width: 28, height: 28, padding: 0, border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', background: 'none', flexShrink: 0 }}
-      />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 5, width: '100%' }}>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', width: '100%' }}>
+        <input
+          type="text"
+          value={value ?? ''}
+          onChange={(e) => onChange(e.target.value || undefined)}
+          placeholder={placeholder}
+          style={{ ...fieldStyleMono, flex: '1 1 auto', minWidth: 0 }}
+        />
+        <input
+          type="color"
+          aria-label="Pick a color"
+          title="Pick a color (sets a hex value; the text field also accepts a theme token)"
+          value={toHex(value)}
+          onChange={(e) => onChange(e.target.value)}
+          style={{ width: 28, height: 28, padding: 0, border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', background: 'none', flexShrink: 0 }}
+        />
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+        {COLOR_PRESETS.map((c) => (
+          <button
+            key={c}
+            type="button"
+            title={c}
+            aria-label={`Use ${c}`}
+            onClick={() => onChange(c)}
+            style={{
+              width: 15, height: 15, padding: 0, borderRadius: 3, cursor: 'pointer', background: c,
+              border: value?.toLowerCase() === c ? '2px solid var(--accent)' : '1px solid var(--border)',
+              boxShadow: c === '#ffffff' ? 'inset 0 0 0 1px var(--border)' : undefined,
+            }}
+          />
+        ))}
+      </div>
     </div>
   );
 }
