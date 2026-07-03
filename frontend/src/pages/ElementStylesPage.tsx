@@ -344,13 +344,13 @@ function toHex(v: string | undefined): string {
  *  picker beside it. Picking a color sets a hex value; typing keeps tokens usable. */
 function ColorInput({ value, onChange, placeholder }: { value?: string; onChange: (v: string | undefined) => void; placeholder?: string }) {
   return (
-    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center', width: '100%' }}>
       <input
         type="text"
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value || undefined)}
         placeholder={placeholder}
-        style={fieldStyleMono}
+        style={{ ...fieldStyleMono, flex: '1 1 auto', minWidth: 0 }}
       />
       <input
         type="color"
@@ -358,7 +358,7 @@ function ColorInput({ value, onChange, placeholder }: { value?: string; onChange
         title="Pick a color (sets a hex value; the text field also accepts a theme token)"
         value={toHex(value)}
         onChange={(e) => onChange(e.target.value)}
-        style={{ width: 30, height: 28, padding: 0, border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', background: 'none', flexShrink: 0 }}
+        style={{ width: 28, height: 28, padding: 0, border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', background: 'none', flexShrink: 0 }}
       />
     </div>
   );
