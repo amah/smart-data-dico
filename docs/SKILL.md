@@ -86,6 +86,13 @@ This skill folder bundles the project's docs. The authoritative format spec is
   the label differs from the slug. UUIDs are minted once and never regenerated. The legacy
   `.dico/stereotypes.yaml` is usually `[]`.
 
+## Views — hiding & styling (non-destructive, `dico.config.json` + reserved metadata)
+
+These affect *views*, not the data. Prefer the app's tools/UI over hand-editing.
+
+- **Hide** an element (declutter reverse-engineering waste): set `system.hidden: "true"` on it (`"false"` pins it visible over a rule), or add a `hideRules[]` entry to `dico.config.json` — `{ match: physicalTableName|entityName|packageName, pattern, regex? }`. Hidden elements stay on disk but drop out of lists/diagrams/search/exports.
+- **Style** an element by role: define named `elementStyles[]` (theme-token colors) + `styleRules[]` (`{ match: stereotype|role|entityName|physicalTableName, pattern, style }`) in `dico.config.json`, or set `system.style: <style-name>` on one element. See `format-reference.md` §2.2 / §7.1.
+
 ## Validate your work
 
 There is no standalone validate CLI. Verify by these means, in order:

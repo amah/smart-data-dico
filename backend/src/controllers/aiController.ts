@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { logger } from '../utils/logger.js';
 import { AI_MAX_STEPS, config } from '../kernel/config.js';
 import { getAgentTools, getAgentTool, jsonSchemaToParamList } from '../services/ai/agentToolRegistry.js';
+import { AUTHORING_RULES } from '../services/ai/authoringRules.js';
 import { getConfigSection, setConfigSection, CONFIG_FILE } from '../utils/appDir.js';
 import { conversationService } from '../services/conversationService.js';
 import { promptService } from '../services/promptService.js';
@@ -728,6 +729,9 @@ function buildSystemPrompt(pageContext?: string, conversationSystemPrompt?: stri
   // lines so the page context stays the last paragraph (the model is more likely
   // to weight late content for "what is the user looking at right now").
   let out = base + getModeSystemSuffix(mode);
+  // Single source of truth for the format contract (#authoring-rules) — injected
+  // only in the authoring (designer) mode, where write tools are available.
+  if (mode === 'designer') out += `\n\n${AUTHORING_RULES}`;
   // #sql-settings — config-driven standing rule (e.g. schema-qualify tables).
   if (typeof sqlInstruction === 'string' && sqlInstruction.trim().length > 0) {
     out += `\n\n${sqlInstruction.trim()}`;

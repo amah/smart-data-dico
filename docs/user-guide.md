@@ -257,6 +257,18 @@ The search feature helps you find entities, attributes, and relationships.
    - Required: Limit search to required/optional fields
 3. Click "Search" to execute the advanced search
 
+## Hiding and styling model elements
+
+Two non-destructive view features keep large models readable — nothing is deleted, and both are reversible.
+
+### Hide clutter (backup/temp tables from reverse-engineering)
+- **Hide one element**: use the Hide action in the entity list; it drops out of lists, diagrams, search, and exports. Toggle **Show hidden** to see and un-hide them.
+- **Hide in bulk** with rules: add patterns (e.g. `*_bak`, `tmp_*`) so matching tables are hidden everywhere at once — useful right after a reverse-engineering run. An explicit Un-hide always wins over a rule. See `hide-model-data.md`.
+
+### Style elements by role
+- Open **Element Styles** (`/element-styles`) to define named styles (colors, border, shape, badge, emphasis) and rules that bind them to a **stereotype**, a detected **role** (aggregate root, relation/junction table, reference/lookup, remote reference), or a name pattern.
+- Styled elements stand out in the diagrams (e.g. aggregate roots emphasized) and carry a colored badge in the entity list. The AI assistant can also define styles and apply them on request. See `element-style.md`.
+
 ## Running Generated SQL
 
 When the AI assistant produces a SQL query, the fenced ```sql block in the chat

@@ -119,6 +119,44 @@ values come from*. This distinguishes three kinds — only `enum` is sourceless;
   clickable **Source** column that deep-links to the type definition
   (`/types?name=<source>`).
 
+### 2.2 Hide rules, Element Styles & style rules
+
+`dico.config.json` may also carry three optional arrays that drive *views*, not
+the data itself:
+
+```json
+{
+  "hideRules": [
+    { "match": "physicalTableName", "pattern": "*_bak", "reason": "backup" },
+    { "match": "entityName", "pattern": "tmp_*" }
+  ],
+  "elementStyles": [
+    { "name": "aggregate-root", "label": "Aggregate Root", "border": "primary", "borderWidth": 4, "emphasis": true, "badge": "AR" },
+    { "name": "junction", "shape": "hexagon", "fill": "neutral-subtle", "opacity": 0.7 }
+  ],
+  "styleRules": [
+    { "match": "stereotype", "pattern": "aggregate-root", "style": "aggregate-root" }
+  ]
+}
+```
+
+- **`hideRules[]`** (#hide-model-data) — declaratively **hide** matching elements
+  (chiefly reverse-engineering waste: backup/temp/staging tables). `match` is
+  `physicalTableName` | `entityName` | `packageName`; `pattern` is a glob (or a
+  regex when `regex: true`). Hidden elements stay on disk but drop out of lists,
+  diagrams, search and exports. Manage via `GET/PUT /api/config/hide-rules` or the
+  UI's Hide/Unhide + "Show hidden". See `hide-model-data.md`.
+- **`elementStyles[]`** + **`styleRules[]`** (#element-style) — named visual styles
+  for diagram elements and the rules that bind them by role. A style's colors are
+  **theme tokens** (`primary`, `neutral`, `warning`, `success`, `info`, `accent`,
+  `base`, or a `*-subtle` variant) or hex. A rule's `match` is `stereotype` | `role`
+  (`junction`|`reference`|`remote-ref`) | `entityName` | `physicalTableName`, and its
+  `style` must name a defined `elementStyles[]` entry. Effective style precedence:
+  explicit `system.style` override → first matching `styleRule` → detected role →
+  stereotype. Manage via `GET/PUT /api/config/element-styles|style-rules`, the
+  `/element-styles` page, or the agent tools `defineElementStyle`/`addStyleRule`.
+  See `element-style.md`.
+
 ---
 
 ## 3. Entities
@@ -282,6 +320,15 @@ entities:
 
 - The reserved metadata key `displayName` holds the human-readable name when it differs from the slug (`aggregate-root` → `Aggregate Root`).
 - **UUID stability:** schema-entity UUIDs are generated once at migration time, committed to git, and never regenerated.
+
+### 7.1 Reserved `system.*` metadata keys
+
+Beyond `displayName`, two reserved keys on an element drive *views* (non-destructive; prefer the dedicated tools/UI over hand-editing):
+
+| Key | Value | Effect |
+|---|---|---|
+| `system.hidden` | `"true"` / `"false"` | `"true"` hides the element from lists/diagrams/search/exports (#hide-model-data); `"false"` **pins it visible**, overriding any matching `hideRules[]`. Companions `system.hiddenReason` / `system.hiddenAt` are written by the Hide action. |
+| `system.style` | a defined Element Style name | Explicitly styles the element in diagrams (#element-style), overriding `styleRules[]` and role detection. `auto` / `none` clears it. |
 
 ---
 
