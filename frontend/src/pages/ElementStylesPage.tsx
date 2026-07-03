@@ -333,6 +333,37 @@ const StyleSwatch = ({ style }: { style: ElementStyle }) => (
   />
 );
 
+const HEX_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+/** Expand `#abc` → `#aabbcc`; the native color input requires 6-digit hex. */
+function toHex(v: string | undefined): string {
+  if (!v || !HEX_RE.test(v)) return '#888888'; // token/empty → neutral picker default
+  return v.length === 4 ? '#' + v.slice(1).split('').map(c => c + c).join('') : v;
+}
+
+/** A color field that accepts a theme token OR hex (text), with a native swatch
+ *  picker beside it. Picking a color sets a hex value; typing keeps tokens usable. */
+function ColorInput({ value, onChange, placeholder }: { value?: string; onChange: (v: string | undefined) => void; placeholder?: string }) {
+  return (
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+      <input
+        type="text"
+        value={value ?? ''}
+        onChange={(e) => onChange(e.target.value || undefined)}
+        placeholder={placeholder}
+        style={fieldStyleMono}
+      />
+      <input
+        type="color"
+        aria-label="Pick a color"
+        title="Pick a color (sets a hex value; the text field also accepts a theme token)"
+        value={toHex(value)}
+        onChange={(e) => onChange(e.target.value)}
+        style={{ width: 30, height: 28, padding: 0, border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', background: 'none', flexShrink: 0 }}
+      />
+    </div>
+  );
+}
+
 interface StyleRowProps {
   style: ElementStyle;
   onChange: (patch: Partial<ElementStyle>) => void;
@@ -381,22 +412,10 @@ const StyleRow = ({ style, onChange, onRemove }: StyleRowProps) => {
           />
         </Field>
         <Field label="Fill">
-          <input
-            type="text"
-            value={style.fill ?? ''}
-            onChange={(e) => onChange({ fill: e.target.value || undefined })}
-            placeholder="#eef / var(--…)"
-            style={fieldStyleMono}
-          />
+          <ColorInput value={style.fill} onChange={(v) => onChange({ fill: v })} placeholder="#eef / var(--…)" />
         </Field>
         <Field label="Border">
-          <input
-            type="text"
-            value={style.border ?? ''}
-            onChange={(e) => onChange({ border: e.target.value || undefined })}
-            placeholder="#88a / var(--…)"
-            style={fieldStyleMono}
-          />
+          <ColorInput value={style.border} onChange={(v) => onChange({ border: v })} placeholder="#88a / var(--…)" />
         </Field>
         <Field label="Border width">
           <input
@@ -436,13 +455,7 @@ const StyleRow = ({ style, onChange, onRemove }: StyleRowProps) => {
           />
         </Field>
         <Field label="Text color">
-          <input
-            type="text"
-            value={style.textColor ?? ''}
-            onChange={(e) => onChange({ textColor: e.target.value || undefined })}
-            placeholder="#222 / var(--…)"
-            style={fieldStyleMono}
-          />
+          <ColorInput value={style.textColor} onChange={(v) => onChange({ textColor: v })} placeholder="#222 / var(--…)" />
         </Field>
         <Field label="Badge">
           <input
