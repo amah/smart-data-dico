@@ -62,6 +62,7 @@ export const ROUTE_PATTERNS: readonly string[] = [
   '/profile',
   '/settings',
   '/types',
+  '/element-styles',
   '/design-system',
   '/design/tokens',
   '/design/primitives',

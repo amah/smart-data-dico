@@ -1,4 +1,12 @@
 import type { StylesheetStyle } from 'cytoscape';
+import type { ElementStyle } from '../../utils/elementStyle';
+
+// Theme-token → DaisyUI CSS var, so Element Styles reference semantic colors
+// (primary/neutral/warning/…) that adapt to the active theme instead of raw hex.
+const STYLE_TOKEN_VAR: Record<string, string> = {
+  primary: '--p', 'primary-content': '--pc', neutral: '--n', accent: '--accent',
+  base: '--b1', 'base-content': '--bc', warning: '--wa', error: '--er', success: '--su', info: '--in',
+};
 
 const SERVICE_COLORS = [
   '#3498db', '#2ecc71', '#e74c3c', '#9b59b6', '#f1c40f',
@@ -67,7 +75,38 @@ function resolveColor(cssVar: string, fallback: string): string {
   return fallback;
 }
 
-export function createStylesheet(serviceColorMap: Record<string, string>): StylesheetStyle[] {
+/** Resolve an Element-Style color: a theme token (adapts to theme), a `*-subtle`
+ *  variant, or a raw CSS color passed through. */
+function styleColor(name: string | undefined): string | undefined {
+  if (!name) return undefined;
+  if (/^(#|rgb|hsl|oklch)/.test(name)) return name;
+  const base = name.endsWith('-subtle') ? name.slice(0, -'-subtle'.length) : name;
+  const cssVar = STYLE_TOKEN_VAR[base];
+  return cssVar ? resolveColor(cssVar, name) : name;
+}
+
+/** One `node[styleName="…"]` selector per named Element Style (#element-style).
+ *  Placed after the base/pk selectors so a style overrides the default border. */
+export function buildElementStyleSelectors(elementStyles: ElementStyle[], primary: string): StylesheetStyle[] {
+  return elementStyles.filter((s) => s?.name).map((s) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const style: any = {};
+    const fill = styleColor(s.fill);
+    if (fill) { style['background-color'] = fill; if (s.fill?.endsWith('-subtle')) style['background-opacity'] = 0.15; }
+    const border = styleColor(s.border);
+    if (border) style['border-color'] = border;
+    if (s.borderWidth != null) style['border-width'] = s.borderWidth;
+    if (s.borderStyle) style['border-style'] = s.borderStyle;
+    if (s.shape) style['shape'] = s.shape;
+    if (s.opacity != null) style['opacity'] = s.opacity;
+    const text = styleColor(s.textColor);
+    if (text) style['color'] = text;
+    if (s.emphasis) { style['z-index'] = 20; style['overlay-opacity'] = 0.06; style['overlay-color'] = border ?? primary; }
+    return { selector: `node[styleName = "${s.name}"]`, style };
+  });
+}
+
+export function createStylesheet(serviceColorMap: Record<string, string>, elementStyles: ElementStyle[] = []): StylesheetStyle[] {
   const bg = resolveColor('--b1', '#ffffff');
   const fg = resolveColor('--bc', '#1f2937');
   const primary = resolveColor('--p', '#570df8');
@@ -455,6 +494,10 @@ export function createStylesheet(serviceColorMap: Record<string, string>): Style
       } as any,
     });
   }
+
+  // Element Styles (#element-style): one selector per named style, after the base
+  // + pk selectors so `styleName` overrides the default node styling.
+  sheets.push(...buildElementStyleSelectors(elementStyles, primary));
 
   return sheets;
 }

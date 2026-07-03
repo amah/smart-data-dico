@@ -32,6 +32,10 @@ class ServiceServiceMock {
     return { success: true, errors: [] };
   }
 
+  async setEntityStyle(_service: string, _entity: string, _style: string | null) {
+    return { success: true, errors: [] };
+  }
+
   async getEntitySchema(service: string, entity: string) {
     if (service === 'user-service' && entity === 'User') {
       return {

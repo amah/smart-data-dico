@@ -38,6 +38,7 @@ import ForgotPassword from './pages/ForgotPassword';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import DerivedTypesPage from './pages/DerivedTypesPage';
+import ElementStylesPage from './pages/ElementStylesPage';
 import ReverseEngineerPage from './pages/ReverseEngineerPage';
 import DesignSystemPage from './pages/DesignSystemPage';
 import CommandsDebugPage from './pages/CommandsDebugPage';
@@ -165,6 +166,7 @@ function App() {
         } />
         <Route path="settings" element={<Settings />} />
         <Route path="types" element={<DerivedTypesPage />} />
+        <Route path="element-styles" element={<ElementStylesPage />} />
 
         {/* Living style guide — tokens + every ui/* primitive + the
             patterns that hold them together. */}

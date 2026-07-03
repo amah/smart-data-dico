@@ -19,6 +19,7 @@ import {
   addEntityComment,
   resolveEntityComment,
   setEntityHidden,
+  setEntityStyle,
 } from '../../controllers/serviceController.js';
 import { UserRole } from '../../middleware/auth.js';
 import { authorizeJwt } from '../../middleware/jwtAuth.js';
@@ -39,6 +40,8 @@ router.put('/api/services/:service/entities/:entity', authorizeJwt([UserRole.ADM
 router.delete('/api/services/:service/entities/:entity', authorizeJwt([UserRole.ADMIN]), deleteEntity);
 // Hide/unhide (non-destructive) — sets reserved `system.hidden` metadata
 router.put('/api/services/:service/entities/:entity/hidden', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), setEntityHidden);
+// Element Style (non-destructive) — sets reserved `system.style` metadata
+router.put('/api/services/:service/entities/:entity/style', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), setEntityStyle);
 // Entity review workflow
 router.post('/api/services/:service/entities/:entity/submit', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), submitEntity);
 router.post('/api/services/:service/entities/:entity/approve', authorizeJwt([UserRole.ADMIN]), approveEntity);
