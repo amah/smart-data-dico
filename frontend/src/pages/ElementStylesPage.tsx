@@ -389,8 +389,8 @@ const COLOR_PRESETS = [
 ];
 
 /** A color field that accepts a theme token OR hex (text). The swatch button opens
- *  a popover with standard preset swatches + a native custom picker. */
-function ColorInput({ value, onChange, placeholder }: { value?: string; onChange: (v: string | undefined) => void; placeholder?: string }) {
+ *  a popover with standard preset swatches. Exported for unit testing. */
+export function ColorInput({ value, onChange, placeholder }: { value?: string; onChange: (v: string | undefined) => void; placeholder?: string }) {
   const [open, setOpen] = useState(false);
   // Escape closes; outside clicks are caught by the backdrop below (no document
   // mousedown listener — that conflicted with the preset buttons' own click).
@@ -417,12 +417,15 @@ function ColorInput({ value, onChange, placeholder }: { value?: string; onChange
         onClick={() => setOpen((o) => !o)}
         style={{
           width: 28, height: 28, padding: 0, borderRadius: 4, cursor: 'pointer', flexShrink: 0,
-          background: shown.color
+          // longhand backgroundColor (NOT the `background` shorthand) so it never
+          // conflicts with backgroundImage on re-render — that mismatch left the
+          // swatch color stuck on a second selection.
+          backgroundColor: shown.color
             ? (shown.subtle ? `color-mix(in srgb, ${shown.color} 22%, var(--bg-raised))` : shown.color)
             : 'var(--bg-raised)',
           border: '1px solid var(--border)',
           // no color set → a diagonal hint so it reads as "unset"
-          backgroundImage: shown.color ? undefined : 'linear-gradient(135deg, transparent 46%, var(--border-strong) 46%, var(--border-strong) 54%, transparent 54%)',
+          backgroundImage: shown.color ? 'none' : 'linear-gradient(135deg, transparent 46%, var(--border-strong) 46%, var(--border-strong) 54%, transparent 54%)',
         }}
       />
       {open && (
