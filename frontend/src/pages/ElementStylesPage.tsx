@@ -438,6 +438,19 @@ export function ColorInput({ value, onChange, placeholder }: { value?: string; o
           }}
         >
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+            {/* Reset: clear the color back to unset (inherit the default). */}
+            <button
+              type="button"
+              title="None (clear)"
+              aria-label="Clear color"
+              onClick={() => { onChange(undefined); setTimeout(() => setOpen(false), 0); }}
+              style={{
+                width: 18, height: 18, padding: 0, borderRadius: 3, cursor: 'pointer',
+                backgroundColor: 'var(--bg-raised)',
+                backgroundImage: 'linear-gradient(135deg, transparent 44%, var(--danger) 44%, var(--danger) 56%, transparent 56%)',
+                border: !value ? '2px solid var(--accent)' : '1px solid var(--border)',
+              }}
+            />
             {COLOR_PRESETS.map((c) => (
               <button
                 key={c}
@@ -448,7 +461,7 @@ export function ColorInput({ value, onChange, placeholder }: { value?: string; o
                 // click). Esc / the swatch also close the popover.
                 onClick={() => { onChange(c); setTimeout(() => setOpen(false), 0); }}
                 style={{
-                  width: 18, height: 18, padding: 0, borderRadius: 3, cursor: 'pointer', background: c,
+                  width: 18, height: 18, padding: 0, borderRadius: 3, cursor: 'pointer', backgroundColor: c,
                   border: value?.toLowerCase() === c ? '2px solid var(--accent)' : '1px solid var(--border)',
                   boxShadow: c === '#ffffff' ? 'inset 0 0 0 1px var(--border)' : undefined,
                 }}
@@ -456,7 +469,7 @@ export function ColorInput({ value, onChange, placeholder }: { value?: string; o
             ))}
           </div>
           <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text-subtle)' }}>
-            For a custom color or theme token, type it in the field. Esc to close.
+            The ⟋ swatch clears the color. For a custom color or theme token, type it in the field. Esc to close.
           </div>
         </div>
       )}

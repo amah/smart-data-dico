@@ -41,6 +41,23 @@ describe('ColorInput', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
+  it('clears the color with the None (reset) swatch', async () => {
+    render(<Harness />);
+    const swatch = () => screen.getByLabelText('Presets & color picker');
+
+    fireEvent.click(swatch());
+    fireEvent.click(screen.getByLabelText('Use #2563eb'));
+    expect(value()).toBe('#2563eb');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+    // Reopen and reset to none.
+    fireEvent.click(swatch());
+    fireEvent.click(screen.getByLabelText('Clear color'));
+    expect(value()).toBe('');                                            // cleared (undefined)
+    expect(getComputedStyle(swatch()).backgroundImage).toContain('linear-gradient'); // unset hint back
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
   it('toggles closed when the swatch is clicked again without selecting', () => {
     render(<Harness />);
     const swatch = screen.getByLabelText('Presets & color picker');
