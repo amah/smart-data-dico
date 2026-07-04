@@ -322,6 +322,23 @@ const STYLE_TOKEN_VAR: Record<string, string> = {
   primary: '--p', 'primary-content': '--pc', neutral: '--n', accent: '--accent',
   base: '--b1', 'base-content': '--bc', warning: '--wa', error: '--er', success: '--su', info: '--in',
 };
+// Token→color cache. `getComputedStyle` is expensive and was previously called
+// per color field on every render; resolve all tokens ONCE per theme instead.
+let _tokenCache: { theme: string; map: Record<string, string> } | null = null;
+function tokenColor(token: string): string | undefined {
+  const theme = document.documentElement.getAttribute('data-theme') ?? '';
+  if (!_tokenCache || _tokenCache.theme !== theme) {
+    const cs = getComputedStyle(document.documentElement);
+    const map: Record<string, string> = {};
+    for (const [name, cssVar] of Object.entries(STYLE_TOKEN_VAR)) {
+      const raw = cs.getPropertyValue(cssVar).trim();
+      map[name] = !raw ? '' : /^(#|rgb|hsl|oklch)/.test(raw) ? raw : raw.includes('%') ? `hsl(${raw})` : `oklch(${raw})`;
+    }
+    _tokenCache = { theme, map };
+  }
+  return _tokenCache.map[token] || undefined;
+}
+
 /** Resolve a token/hex color value to a displayable CSS color (+ whether it's a
  *  `*-subtle` variant). Returns undefined color when nothing can be resolved. */
 function resolveDisplayColor(value?: string): { color?: string; subtle: boolean } {
@@ -329,12 +346,8 @@ function resolveDisplayColor(value?: string): { color?: string; subtle: boolean 
   if (/^(#|rgb|hsl|oklch)/.test(value)) return { color: value, subtle: false };
   const subtle = value.endsWith('-subtle');
   const base = subtle ? value.slice(0, -'-subtle'.length) : value;
-  const cssVar = STYLE_TOKEN_VAR[base];
-  if (!cssVar) return { color: value, subtle };
-  const raw = getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim();
-  if (!raw) return { color: undefined, subtle };
-  if (/^(#|rgb|hsl|oklch)/.test(raw)) return { color: raw, subtle };
-  return { color: raw.includes('%') ? `hsl(${raw})` : `oklch(${raw})`, subtle };
+  if (!(base in STYLE_TOKEN_VAR)) return { color: value, subtle };
+  return { color: tokenColor(base), subtle };
 }
 
 /** Live preview of a style: a node-like box with its resolved fill/border/shape,
@@ -413,10 +426,6 @@ function ColorInput({ value, onChange, placeholder }: { value?: string; onChange
         }}
       />
       {open && (
-        <>
-          {/* Full-screen backdrop catches outside clicks (closes the popover)
-              without a document mousedown listener that would race the buttons. */}
-          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 55 }} />
         <div
           role="dialog"
           style={{
@@ -432,7 +441,9 @@ function ColorInput({ value, onChange, placeholder }: { value?: string; onChange
                 type="button"
                 title={c}
                 aria-label={`Use ${c}`}
-                onClick={() => { onChange(c); setOpen(false); }}
+                // Apply the color and close (deferred so the button survives the
+                // click). Esc / the swatch also close the popover.
+                onClick={() => { onChange(c); setTimeout(() => setOpen(false), 0); }}
                 style={{
                   width: 18, height: 18, padding: 0, borderRadius: 3, cursor: 'pointer', background: c,
                   border: value?.toLowerCase() === c ? '2px solid var(--accent)' : '1px solid var(--border)',
@@ -442,10 +453,9 @@ function ColorInput({ value, onChange, placeholder }: { value?: string; onChange
             ))}
           </div>
           <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text-subtle)' }}>
-            For a custom color or theme token, type it in the field.
+            For a custom color or theme token, type it in the field. Esc to close.
           </div>
         </div>
-        </>
       )}
     </div>
   );
