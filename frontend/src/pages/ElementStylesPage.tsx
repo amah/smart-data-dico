@@ -350,6 +350,40 @@ function resolveDisplayColor(value?: string): { color?: string; subtle: boolean 
   return { color: tokenColor(base), subtle };
 }
 
+type Rgb = { r: number; g: number; b: number };
+const clamp255 = (n: number) => Math.max(0, Math.min(255, Math.round(Number.isFinite(n) ? n : 0)));
+const rgbToHex = ({ r, g, b }: Rgb) =>
+  '#' + [r, g, b].map((n) => clamp255(n).toString(16).padStart(2, '0')).join('');
+
+/** Any CSS color (hex/rgb/hsl/token-resolved) → {r,g,b}, via a throwaway canvas
+ *  (the browser normalizes `fillStyle`). Falls back to mid-grey. */
+function cssToRgb(css?: string): Rgb {
+  const fallback: Rgb = { r: 136, g: 136, b: 136 };
+  if (!css) return fallback;
+  try {
+    const ctx = document.createElement('canvas').getContext('2d');
+    if (!ctx) return fallback;
+    ctx.fillStyle = '#000';
+    ctx.fillStyle = css;
+    const s = ctx.fillStyle; // normalized to #rrggbb (opaque) or rgba(...)
+    if (/^#[0-9a-f]{6}$/i.test(s))
+      return { r: parseInt(s.slice(1, 3), 16), g: parseInt(s.slice(3, 5), 16), b: parseInt(s.slice(5, 7), 16) };
+    const m = s.match(/(\d+)\D+(\d+)\D+(\d+)/);
+    if (m) return { r: +m[1], g: +m[2], b: +m[3] };
+  } catch { /* jsdom / no canvas — fall through */ }
+  return fallback;
+}
+
+/** Current value → RGB for the sliders. Parses hex fast; resolves tokens/other via canvas. */
+function parseRgb(value?: string): Rgb {
+  if (value && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(value)) {
+    let h = value.slice(1);
+    if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+    return { r: parseInt(h.slice(0, 2), 16), g: parseInt(h.slice(2, 4), 16), b: parseInt(h.slice(4, 6), 16) };
+  }
+  return cssToRgb(resolveDisplayColor(value).color);
+}
+
 /** Live preview of a style: a node-like box with its resolved fill/border/shape,
  *  the badge, and an emphasis ring — so you see what you're building. */
 const StyleSwatch = ({ style }: { style: ElementStyle }) => {
@@ -401,6 +435,8 @@ export function ColorInput({ value, onChange, placeholder }: { value?: string; o
     return () => document.removeEventListener('keydown', onKey);
   }, [open]);
   const shown = resolveDisplayColor(value); // preview the real color for tokens too
+  const rgb = parseRgb(value); // current color for the precise RGB sliders
+  const setCh = (ch: keyof Rgb, v: number) => onChange(rgbToHex({ ...rgb, [ch]: clamp255(v) }));
   return (
     <div style={{ position: 'relative', display: 'flex', gap: 6, alignItems: 'center', width: '100%' }}>
       <input
@@ -434,7 +470,7 @@ export function ColorInput({ value, onChange, placeholder }: { value?: string; o
           style={{
             position: 'absolute', top: 'calc(100% + 4px)', right: 0, zIndex: 60,
             background: 'var(--bg-raised)', border: '1px solid var(--border)', borderRadius: 8,
-            padding: 8, boxShadow: 'var(--shadow-lg)', width: 172,
+            padding: 8, boxShadow: 'var(--shadow-lg)', width: 200,
           }}
         >
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
@@ -468,8 +504,45 @@ export function ColorInput({ value, onChange, placeholder }: { value?: string; o
               />
             ))}
           </div>
+
+          {/* Precise RGB picker — a custom DOM control (NOT <input type="color">,
+              which opens the blocking OS color panel). Sliders + numeric fields set
+              an exact hex live. */}
+          <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-subtle)' }}>Precise (RGB)</span>
+              <span
+                aria-hidden
+                style={{ width: 16, height: 16, borderRadius: 3, border: '1px solid var(--border)', backgroundColor: rgbToHex(rgb) }}
+              />
+            </div>
+            {(['r', 'g', 'b'] as const).map((ch) => (
+              <div key={ch} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <span style={{ width: 9, fontSize: 10, textTransform: 'uppercase', color: 'var(--text-subtle)' }}>{ch}</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={255}
+                  value={rgb[ch]}
+                  aria-label={`${ch.toUpperCase()} channel`}
+                  onChange={(e) => setCh(ch, +e.target.value)}
+                  style={{ flex: '1 1 auto', minWidth: 0, accentColor: ch === 'r' ? '#dc2626' : ch === 'g' ? '#059669' : '#2563eb' }}
+                />
+                <input
+                  type="number"
+                  min={0}
+                  max={255}
+                  value={rgb[ch]}
+                  aria-label={`${ch.toUpperCase()} value`}
+                  onChange={(e) => setCh(ch, +e.target.value)}
+                  style={{ ...fieldStyleMono, width: 42, flexShrink: 0, textAlign: 'right', padding: '2px 4px' }}
+                />
+              </div>
+            ))}
+          </div>
+
           <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text-subtle)' }}>
-            The ⟋ swatch clears the color. For a custom color or theme token, type it in the field. Esc to close.
+            The ⟋ swatch clears the color. For a theme token, type it in the field. Esc to close.
           </div>
         </div>
       )}

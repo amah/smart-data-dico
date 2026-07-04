@@ -58,6 +58,27 @@ describe('ColorInput', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
+  it('sets an exact color with the precise RGB sliders/fields', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByLabelText('Presets & color picker'));
+
+    // Drag R, G, B to build #dc2626 (220,38,38). jsdom has no canvas, so an unset
+    // value starts the sliders at mid-grey (136); each change writes a full hex.
+    fireEvent.change(screen.getByLabelText('R channel'), { target: { value: '220' } });
+    fireEvent.change(screen.getByLabelText('G channel'), { target: { value: '38' } });
+    fireEvent.change(screen.getByLabelText('B value'), { target: { value: '38' } }); // numeric field
+    expect(value()).toBe('#dc2626');
+  });
+
+  it('reflects the current hex on the RGB sliders', () => {
+    render(<Harness />);
+    fireEvent.change(screen.getByPlaceholderText('#eef'), { target: { value: '#2563eb' } }); // 37,99,235
+    fireEvent.click(screen.getByLabelText('Presets & color picker'));
+    expect((screen.getByLabelText('R channel') as HTMLInputElement).value).toBe('37');
+    expect((screen.getByLabelText('G value') as HTMLInputElement).value).toBe('99');
+    expect((screen.getByLabelText('B channel') as HTMLInputElement).value).toBe('235');
+  });
+
   it('toggles closed when the swatch is clicked again without selecting', () => {
     render(<Harness />);
     const swatch = screen.getByLabelText('Presets & color picker');
