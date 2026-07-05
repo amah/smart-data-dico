@@ -119,6 +119,26 @@ describe('buildElementStyleSelectors', () => {
     expect(l3['background-color']).toBe('#eef');              // only level 3 shows the fill
   });
 
+  it('ramps a greyscale font by emphasis level (base readable → top darkest)', () => {
+    const [none, l1, l2, l3, explicit] = buildElementStyleSelectors([
+      { name: 'none' },
+      { name: 'l1', emphasis: 1 },
+      { name: 'l2', emphasis: 2 },
+      { name: 'l3', emphasis: 3 },
+      { name: 'x', emphasis: 3, textColor: '#ff0000' },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ]).map((sh) => sh.style as any);
+    // No explicit textColor → base-content colour + a text-opacity that rises with level.
+    expect(none['text-opacity']).toBe(0.75);   // base, still well visible
+    expect(l1['text-opacity']).toBe(0.83);
+    expect(l2['text-opacity']).toBe(0.92);
+    expect(l3['text-opacity']).toBe(1);        // top, darkest
+    expect(none['color']).toBeTruthy();
+    // Explicit textColor wins and skips the ramp.
+    expect(explicit['color']).toBe('#ff0000');
+    expect(explicit['text-opacity']).toBeUndefined();
+  });
+
   it('treats emphasis:true as level 3 (legacy) and lets explicit borderWidth win', () => {
     const [legacy, pinned] = buildElementStyleSelectors([
       { name: 'legacy', fill: '#eef', emphasis: true },

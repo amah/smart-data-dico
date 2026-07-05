@@ -87,6 +87,11 @@ function styleColor(name: string | undefined): string | undefined {
 
 /** One `node[styleName="…"]` selector per named Element Style (#element-style).
  *  Placed after the base/pk selectors so a style overrides the default border. */
+/** Greyscale font ramp by emphasis level (index 0–3): the label darkens as emphasis
+ *  rises, but the base level stays well visible. Applied as text-opacity over the
+ *  theme's base-content so it stays greyscale and adapts to dark/light. */
+const FONT_OPACITY_BY_LEVEL = [0.75, 0.83, 0.92, 1] as const;
+
 export function buildElementStyleSelectors(elementStyles: ElementStyle[]): StylesheetStyle[] {
   return elementStyles.filter((s) => s?.name).map((s) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -105,7 +110,13 @@ export function buildElementStyleSelectors(elementStyles: ElementStyle[]): Style
     if (s.shape) style['shape'] = s.shape;
     if (s.opacity != null) style['opacity'] = s.opacity;
     const text = styleColor(s.textColor);
-    if (text) style['color'] = text;
+    if (text) {
+      style['color'] = text; // explicit textColor wins
+    } else {
+      // Greyscale font ramp: base stays readable, darkening up to the top level.
+      style['color'] = styleColor('base-content');
+      style['text-opacity'] = FONT_OPACITY_BY_LEVEL[lvl];
+    }
     // Emphasis draws the node above others (border weight handled above, fill gated) —
     // no overlay tint, so it reads through its border, not a coloured wash.
     if (lvl > 0) { style['z-index'] = 20; }

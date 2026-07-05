@@ -495,7 +495,9 @@ const StyleSwatch = ({ style }: { style: ElementStyle }) => {
         // Greyscale emphasis ring, thickening with the level (no purple accent).
         boxShadow: lvl > 0 ? `0 0 0 ${lvl}px var(--border-strong), 0 1px 3px rgba(0,0,0,0.15)` : undefined,
         fontSize: 9, fontWeight: 700, letterSpacing: 0.2,
-        color: resolveDisplayColor(style.textColor).color ?? 'var(--text)',
+        // Greyscale font ramp by emphasis level — base readable, darkening to the top.
+        color: resolveDisplayColor(style.textColor).color
+          ?? `color-mix(in srgb, var(--text) ${[75, 83, 92, 100][lvl]}%, transparent)`,
       }}
     >
       {style.badge}
