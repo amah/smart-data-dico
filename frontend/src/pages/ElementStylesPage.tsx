@@ -49,6 +49,14 @@ export const FACTORY_RULES: StyleRule[] = [
   { match: 'physicalTableName', pattern: '*_link', style: 'junction' },
 ];
 
+/** Revert a single style to its factory definition (matched by name), or return it
+ *  unchanged when it has no factory default. Returns a fresh copy so the whole entry
+ *  is replaced — a partial merge wouldn't drop fields the factory lacks. */
+export function resetStyleToFactory(style: ElementStyle): ElementStyle {
+  const factory = FACTORY_STYLES.find(f => f.name === style.name);
+  return factory ? { ...factory } : style;
+}
+
 const ElementStylesPage = () => {
   const [styles, setStyles] = useState<ElementStyle[]>([]);
   const [rules, setRules] = useState<StyleRule[]>([]);
@@ -111,6 +119,13 @@ const ElementStylesPage = () => {
 
   const removeStyle = (idx: number) => {
     setStyles(prev => prev.filter((_, i) => i !== idx));
+    setStylesDirty(true);
+  };
+
+  // Revert one style to its factory definition (matched by name). Replaces the
+  // whole entry so fields the factory lacks are dropped — a merge wouldn't clear them.
+  const resetStyle = (idx: number) => {
+    setStyles(prev => prev.map((s, i) => (i === idx ? resetStyleToFactory(s) : s)));
     setStylesDirty(true);
   };
 
@@ -260,6 +275,7 @@ const ElementStylesPage = () => {
                 style={s}
                 onChange={(patch) => updateStyle(i, patch)}
                 onRemove={() => removeStyle(i)}
+                onReset={FACTORY_STYLES.some(f => f.name === s.name) ? () => resetStyle(i) : undefined}
               />
             ))}
           </div>
@@ -620,9 +636,12 @@ interface StyleRowProps {
   style: ElementStyle;
   onChange: (patch: Partial<ElementStyle>) => void;
   onRemove: () => void;
+  /** Revert this style to its factory definition. Provided only for styles that
+   *  have a factory default (name in FACTORY_STYLES). */
+  onReset?: () => void;
 }
 
-const StyleRow = ({ style, onChange, onRemove }: StyleRowProps) => {
+const StyleRow = ({ style, onChange, onRemove, onReset }: StyleRowProps) => {
   const numOrUndef = (raw: string): number | undefined => (raw === '' ? undefined : Number(raw));
   return (
     <div
@@ -642,6 +661,11 @@ const StyleRow = ({ style, onChange, onRemove }: StyleRowProps) => {
         {style.emphasis && <Chip tone="accent" soft>emphasis</Chip>}
         {style.default && <Chip tone="neutral" soft>default</Chip>}
         <div style={{ flex: 1 }} />
+        {onReset && (
+          <Button size="sm" variant="ghost" onClick={onReset} title="Revert this style to its factory default">
+            Reset
+          </Button>
+        )}
         <Button size="sm" variant="ghost" icon="close" iconOnly aria-label="remove style" onClick={onRemove} />
       </div>
 
