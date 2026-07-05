@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Attribute } from '../../types';
 import type { InfoPanelData } from './CytoscapeGraph.types';
+import type { ElementStyle } from '../../utils/elementStyle';
+import { CLEAR_STYLE } from './useFormatPainter';
 import { buildNodeInfo } from './nodeInfo';
 
 interface CytoscapeInfoPanelProps {
@@ -9,13 +11,25 @@ interface CytoscapeInfoPanelProps {
   onNavigate?: (service: string, entity: string) => void;
   /** Embeddable entities (name → attributes) for flattening @Embedded columns. */
   embeddables?: Map<string, Attribute[]>;
+  /** Element styles for the Appearance picker (format painter). */
+  styles?: ElementStyle[];
+  /** Apply a style name (or null to clear) to this entity. */
+  onApplyStyle?: (styleName: string | null) => void;
+  /** Copy this entity's style to the painter clipboard and arm the brush. */
+  onCopyFormat?: (styleName: string | null) => void;
+  /** Paste the clipboard style onto this entity. */
+  onPasteFormat?: () => void;
+  /** Current painter clipboard (drives the Paste button's enabled state). */
+  clipboard?: string | null;
 }
 
 const MIN_WIDTH = 280;
 const MAX_WIDTH = 760;
 const DEFAULT_WIDTH = 320;
 
-export default function CytoscapeInfoPanel({ data, onClose, onNavigate, embeddables }: CytoscapeInfoPanelProps) {
+export default function CytoscapeInfoPanel({
+  data, onClose, onNavigate, embeddables, styles, onApplyStyle, onCopyFormat, onPasteFormat, clipboard,
+}: CytoscapeInfoPanelProps) {
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const draggingRef = useRef(false);
 
@@ -84,6 +98,44 @@ export default function CytoscapeInfoPanel({ data, onClose, onNavigate, embeddab
             &times;
           </button>
         </div>
+
+        {/* Appearance (#element-style) — pick a style from the list, or copy/paste
+            the format between entities (the toolbar brush paints many). */}
+        {data.type === 'node' && styles && styles.length > 0 && onApplyStyle && (
+          <div className="mb-3 pb-3 border-b border-base-300">
+            <h4 className="font-semibold text-sm mb-2">Appearance</h4>
+            <select
+              className="select select-xs select-bordered w-full"
+              value={data.styleName ?? ''}
+              onChange={(e) => onApplyStyle(e.target.value || null)}
+              title="Element style for this entity (persists as a non-destructive override)"
+            >
+              <option value="">Default (no explicit style)</option>
+              {styles.map((s) => (
+                <option key={s.name} value={s.name}>{s.label || s.name}</option>
+              ))}
+            </select>
+            <div className="flex items-center gap-1 mt-2">
+              <button
+                className="btn btn-xs btn-ghost"
+                onClick={() => onCopyFormat?.(data.styleName ?? null)}
+                title="Copy this entity's style, then click other entities to paint it"
+              >
+                Copy format
+              </button>
+              <button
+                className="btn btn-xs btn-ghost"
+                onClick={() => onPasteFormat?.()}
+                disabled={clipboard == null}
+                title={clipboard == null
+                  ? 'Nothing copied yet'
+                  : `Apply the copied style (${clipboard === CLEAR_STYLE ? 'Default' : clipboard}) to this entity`}
+              >
+                Paste format
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Per-mode node detail (#188) — compact nodes, detail here. */}
         {data.type === 'node' && <NodeDetail data={data} embeddables={embeddables} />}

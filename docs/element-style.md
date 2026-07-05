@@ -60,6 +60,14 @@ Stereotype stays the primary *human* tag; rules + detectors cover the rest with 
 - **Diagrams** — full styling (fill/border/shape/badge) + a clickable **legend**
   with live counts (`aggregate-root: 12 · junction: 340 · …`) to isolate/highlight a role.
 - **Lists / search** — a small colored **badge** per row.
+- **Format painter (diagram)** — style entities straight from the canvas,
+  PowerPoint-style. The entity **info panel** has an *Appearance* picker (choose a
+  named style / clear) plus **Copy format** / **Paste format**; the **toolbar brush**
+  applies a copied format to clicked entities (single click = one target,
+  double-click = keep painting; Esc / *Done* stops). Every apply persists the
+  non-destructive `system.style` override via `PUT …/entities/:entity/style` and
+  restyles the node live. Code: `useFormatPainter.ts` (clipboard/arm + apply),
+  `useCytoscapeInteractions` tap-intercept, `CytoscapeToolbar` brush, `CytoscapeInfoPanel` Appearance.
 
 ## Architecture
 - **Config CRUD (backend)** — `elementStyles[]` + `styleRules[]` in `dico.config.json`

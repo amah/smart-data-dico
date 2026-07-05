@@ -11,6 +11,7 @@ import { useCytoscapeInstance } from './useCytoscapeInstance';
 import { useCytoscapeLayout } from './useCytoscapeLayout';
 import { useCytoscapeStyles } from './useCytoscapeStyles';
 import { useCytoscapeInteractions } from './useCytoscapeInteractions';
+import { useFormatPainter, CLEAR_STYLE } from './useFormatPainter';
 import { useCytoscapePersistence } from './useCytoscapePersistence';
 import { useCytoscapeCaseOverlay } from './useCytoscapeCaseOverlay';
 import CytoscapeToolbar from './CytoscapeToolbar';
@@ -133,12 +134,32 @@ export default function CytoscapeGraph({
     [navigate],
   );
 
+  // Format painter (#element-style) — style entities from the diagram: copy a
+  // format from an entity or the list, then paint targets. Persists system.style.
+  const painter = useFormatPainter(cy, elementStyles, service);
+
   // Interactions — default tap navigates; Alt/Option click opens info panel.
   // Pass `cy` (state) so the hook re-runs when the instance is created.
   const { tooltip, infoPanel, setInfoPanel, applySearchFilter, focusedId, exitFocus } =
-    useCytoscapeInteractions(cy, (packageName) =>
-      navigate(`/diagram/${encodeURIComponent(packageName)}`),
+    useCytoscapeInteractions(
+      cy,
+      (packageName) => navigate(`/diagram/${encodeURIComponent(packageName)}`),
+      painter.interceptTap,
     );
+
+  // Apply a style to the currently-detailed entity (info-panel list + Paste),
+  // reflecting the change back into the panel.
+  const applyStyleFromPanel = useCallback(
+    async (styleName: string | null) => {
+      if (!infoPanel || infoPanel.type !== 'node' || !infoPanel.id || !cyRef.current) return;
+      const node = cyRef.current.getElementById(infoPanel.id);
+      if (!node || node.length === 0) return;
+      await painter.applyToNode(node as any, styleName);
+      const cleared = !styleName || styleName === CLEAR_STYLE;
+      setInfoPanel({ ...infoPanel, styleName: cleared ? undefined : styleName });
+    },
+    [infoPanel, cyRef, painter, setInfoPanel],
+  );
 
   // Case overlay (renamed from perspective in #121)
   useCytoscapeCaseOverlay(cyRef, caseId);
@@ -227,6 +248,8 @@ export default function CytoscapeGraph({
         onDeleteLayout={persistence.deleteLayout}
         exportFilenameBase={service}
         onAddEntity={packageOptions.length > 0 ? () => entityCreation.startCreate(service || packageOptions[0]) : undefined}
+        painter={painter}
+        styles={elementStyles}
       />
 
       <div className="relative flex-1 min-h-0">
@@ -276,6 +299,11 @@ export default function CytoscapeGraph({
             onClose={() => setInfoPanel(null)}
             onNavigate={handleNodeClick}
             embeddables={embeddableIndex}
+            styles={elementStyles}
+            onApplyStyle={applyStyleFromPanel}
+            onCopyFormat={(name) => painter.copyAndArm(name)}
+            onPasteFormat={() => painter.clipboard && applyStyleFromPanel(painter.clipboard === CLEAR_STYLE ? null : painter.clipboard)}
+            clipboard={painter.clipboard}
           />
         )}
 

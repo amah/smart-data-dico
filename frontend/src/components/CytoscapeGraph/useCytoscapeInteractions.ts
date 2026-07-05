@@ -25,6 +25,9 @@ export function focusSubtitle(pkCount: number, attrCount: number): string {
 export function useCytoscapeInteractions(
   cy: Core | null,
   onOpenPackage?: (packageName: string) => void,
+  /** Format painter (#element-style): when it returns true it has painted the
+   *  tapped node, so we skip opening the info panel. */
+  interceptNodeTap?: (node: any) => boolean,
 ): InteractionState {
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
   const [infoPanel, setInfoPanel] = useState<InfoPanelData | null>(null);
@@ -35,6 +38,9 @@ export function useCytoscapeInteractions(
   // Latest open-package callback, read from handlers without re-binding.
   const onOpenPackageRef = useRef(onOpenPackage);
   onOpenPackageRef.current = onOpenPackage;
+  // Latest painter interceptor, read from the tap handler without re-binding.
+  const interceptNodeTapRef = useRef(interceptNodeTap);
+  interceptNodeTapRef.current = interceptNodeTap;
 
   const exitFocus = useCallback(() => {
     if (!cy || !focusedIdRef.current) return;
@@ -126,6 +132,8 @@ export function useCytoscapeInteractions(
       const node = evt.target;
       if (node.isParent()) return;
       if (cy.nodes('.connect-source').length > 0) return;
+      // Format painter armed → paint this node instead of opening the panel.
+      if (interceptNodeTapRef.current?.(node)) return;
       setInfoPanel(nodePanelData(node));
     };
 
@@ -235,5 +243,6 @@ function nodePanelData(node: any): InfoPanelData {
     attributes: node.data('attributes') as Attribute[],
     viewMode: node.data('viewMode'),
     constraints: node.data('constraints'),
+    styleName: node.data('styleName'),
   };
 }

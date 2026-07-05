@@ -2,6 +2,8 @@ import { useState } from 'react';
 import type { Core } from 'cytoscape';
 import type { LayoutName, LayoutDirection } from './CytoscapeGraph.types';
 import type { DiagramLayout } from '../../types';
+import type { ElementStyle } from '../../utils/elementStyle';
+import { CLEAR_STYLE, type FormatPainter } from './useFormatPainter';
 
 interface CytoscapeToolbarProps {
   cyRef: React.RefObject<Core | null>;
@@ -24,6 +26,9 @@ interface CytoscapeToolbarProps {
   // handler is provided, i.e. in the logical view).
   ormAnnotations?: boolean;
   onToggleOrmAnnotations?: () => void;
+  // Format painter (#element-style) — style entities from the diagram.
+  painter?: FormatPainter;
+  styles?: ElementStyle[];
 }
 
 export default function CytoscapeToolbar({
@@ -42,6 +47,8 @@ export default function CytoscapeToolbar({
   onAddEntity,
   ormAnnotations,
   onToggleOrmAnnotations,
+  painter,
+  styles = [],
 }: CytoscapeToolbarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSaveDialog, setShowSaveDialog] = useState(false);
@@ -165,6 +172,40 @@ export default function CytoscapeToolbar({
           + Entity
         </button>
       )}
+
+      {/* Format painter — copy a style from an entity (info panel) or paint with the
+          clipboard style: click the brush (once = one target, double-click = keep on),
+          then click entities. Esc / Done stops. */}
+      {painter && (() => {
+        const clip = painter.clipboard;
+        const clipLabel = clip === null ? ''
+          : clip === CLEAR_STYLE ? 'Default'
+          : (styles.find((s) => s.name === clip)?.label || clip);
+        const empty = clip === null;
+        return (
+          <div className="flex items-center gap-1">
+            <button
+              className={`btn btn-xs ${painter.armed ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={painter.toggle}
+              onDoubleClick={painter.armSticky}
+              disabled={empty}
+              title={empty
+                ? 'Copy a style first — select an entity, then “Copy format” in its panel'
+                : painter.armed
+                  ? `Painting «${clipLabel}»${painter.sticky ? ' (keep on — Esc to stop)' : ' — click an entity'}. Double-click to keep on.`
+                  : `Paint «${clipLabel}» — click the brush then click entities (double-click = keep on)`}
+            >
+              🖌 {painter.armed ? (painter.sticky ? 'Painting…' : 'Paint') : 'Format'}
+              {clipLabel && `: ${clipLabel}`}
+            </button>
+            {painter.armed && (
+              <button className="btn btn-xs btn-ghost" onClick={painter.disarm} title="Stop painting (Esc)">
+                Done
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       <div className="divider divider-horizontal mx-0 h-6" />
 

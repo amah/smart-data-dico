@@ -50,6 +50,8 @@ export interface InfoPanelData {
   viewMode?: DetailMode;
   /** Entity physical constraints, for the physical-view node detail (#188). */
   constraints?: PhysicalConstraint[];
+  /** Resolved element-style name on the node, for the Appearance picker (format painter). */
+  styleName?: string;
   sourceLabel?: string;
   targetLabel?: string;
   sourceCardinality?: string;
