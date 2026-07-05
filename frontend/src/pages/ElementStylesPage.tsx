@@ -31,6 +31,24 @@ import {
 const BORDER_STYLES: NonNullable<ElementStyle['borderStyle']>[] = ['solid', 'dashed', 'dotted'];
 const MATCH_KINDS: StyleRule['match'][] = ['stereotype', 'role', 'entityName', 'physicalTableName'];
 
+/**
+ * Factory defaults — the starter palette from docs/element-style.md, plus a
+ * neutral-grey `base` marked `default` so unstyled elements look uniform. Used by
+ * the header "Reset to defaults" action. Kept in sync with the doc by
+ * elementStyleDefaults.test.ts (invariants: kebab names, one default, rules ref known styles).
+ */
+export const FACTORY_STYLES: ElementStyle[] = [
+  { name: 'base', label: 'Base (default)', fill: 'neutral-subtle', border: 'neutral', default: true },
+  { name: 'aggregate-root', label: 'Aggregate Root', fill: 'primary-subtle', border: 'primary', borderWidth: 4, shape: 'round-rectangle', badge: 'AR', emphasis: true },
+  { name: 'junction', label: 'Relation table', fill: 'neutral-subtle', shape: 'hexagon', opacity: 0.7 },
+  { name: 'reference', label: 'Reference / lookup', border: 'neutral', borderStyle: 'dashed' },
+  { name: 'remote-ref', label: 'Remote reference', fill: 'warning-subtle', border: 'warning', borderStyle: 'dotted' },
+];
+export const FACTORY_RULES: StyleRule[] = [
+  { match: 'stereotype', pattern: 'aggregate-root', style: 'aggregate-root' },
+  { match: 'physicalTableName', pattern: '*_link', style: 'junction' },
+];
+
 const ElementStylesPage = () => {
   const [styles, setStyles] = useState<ElementStyle[]>([]);
   const [rules, setRules] = useState<StyleRule[]>([]);
@@ -44,6 +62,9 @@ const ElementStylesPage = () => {
   const [rulesMessage, setRulesMessage] = useState<string | null>(null);
   const [stylesErrors, setStylesErrors] = useState<string[]>([]);
   const [rulesErrors, setRulesErrors] = useState<string[]>([]);
+
+  const [confirmingReset, setConfirmingReset] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -153,21 +174,66 @@ const ElementStylesPage = () => {
     }
   };
 
+  // ──────────────── Reset to factory defaults ────────────────
+
+  // Replaces BOTH lists with the starter palette and persists them. Styles are
+  // saved before rules so the rules' style references validate against them.
+  const resetToDefaults = async () => {
+    setResetting(true);
+    setStylesErrors([]);
+    setRulesErrors([]);
+    setStylesMessage(null);
+    setRulesMessage(null);
+    try {
+      const savedStyles = await configApi.putElementStyles(FACTORY_STYLES);
+      const savedRules = await configApi.putStyleRules(FACTORY_RULES);
+      setStyles(savedStyles);
+      setRules(savedRules);
+      setStylesDirty(false);
+      setRulesDirty(false);
+      setStylesMessage('Reset to defaults.');
+      setTimeout(() => setStylesMessage(null), 2500);
+      setConfirmingReset(false);
+    } catch (e: any) {
+      const resp = e?.response?.data;
+      setStylesErrors(resp?.errors ?? [resp?.message || e?.message || 'Reset failed']);
+    } finally {
+      setResetting(false);
+    }
+  };
+
   // ──────────────── Render ────────────────
 
   return (
     <div className="flex flex-col gap-3" style={{ padding: 12, height: '100%', overflow: 'auto' }}>
-      <div>
-        <h1
-          className="mono"
-          style={{ fontSize: 'var(--fs-2xl)', fontWeight: 600, margin: 0 }}
-        >
-          Element styles
-        </h1>
-        <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 4 }}>
-          Named visual styles for diagram elements plus the rules that map
-          stereotypes, roles, entity names, or physical tables onto them.
-        </p>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <h1
+            className="mono"
+            style={{ fontSize: 'var(--fs-2xl)', fontWeight: 600, margin: 0 }}
+          >
+            Element styles
+          </h1>
+          <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 4 }}>
+            Named visual styles for diagram elements plus the rules that map
+            stereotypes, roles, entity names, or physical tables onto them.
+          </p>
+        </div>
+        {/* Reset to factory defaults — inline two-step confirm (destructive: replaces
+            every style + rule with the starter palette). */}
+        {confirmingReset ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>Replace all styles &amp; rules?</span>
+            <Button size="sm" variant="secondary" onClick={() => setConfirmingReset(false)} disabled={resetting}>Cancel</Button>
+            <Button size="sm" variant="danger" onClick={resetToDefaults} disabled={resetting}>
+              {resetting ? 'Resetting…' : 'Reset to defaults'}
+            </Button>
+          </div>
+        ) : (
+          <Button size="sm" variant="ghost" onClick={() => setConfirmingReset(true)} disabled={loading}>
+            Reset to defaults
+          </Button>
+        )}
       </div>
 
       {/* ── Named styles ── */}
