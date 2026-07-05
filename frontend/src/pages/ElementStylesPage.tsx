@@ -39,7 +39,7 @@ const MATCH_KINDS: StyleRule['match'][] = ['stereotype', 'role', 'entityName', '
  */
 export const FACTORY_STYLES: ElementStyle[] = [
   { name: 'base', label: 'Base (default)', fill: 'neutral-subtle', border: 'neutral', default: true },
-  { name: 'aggregate-root', label: 'Aggregate Root', fill: 'primary-subtle', border: 'primary', borderWidth: 4, shape: 'round-rectangle', emphasis: true },
+  { name: 'aggregate-root', label: 'Aggregate Root', fill: 'neutral-subtle', border: 'base-content', borderWidth: 4, shape: 'round-rectangle', emphasis: true },
   { name: 'junction', label: 'Relation table', fill: 'neutral-subtle', shape: 'hexagon', opacity: 0.7 },
   { name: 'reference', label: 'Reference / lookup', border: 'neutral', borderStyle: 'dashed' },
   { name: 'remote-ref', label: 'Remote reference', fill: 'warning-subtle', border: 'warning', borderStyle: 'dotted' },

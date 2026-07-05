@@ -19,8 +19,8 @@ Same config pattern as `hideRules` / `types`. Colors are **theme tokens**
 
 ```json
 "elementStyles": [
-  { "name": "aggregate-root", "label": "Aggregate Root", "fill": "primary-subtle",
-    "border": "primary", "borderWidth": 4, "shape": "round-rectangle", "emphasis": true },
+  { "name": "aggregate-root", "label": "Aggregate Root", "fill": "neutral-subtle",
+    "border": "base-content", "borderWidth": 4, "shape": "round-rectangle", "emphasis": true },
   { "name": "junction",  "label": "Relation table",     "fill": "neutral-subtle", "shape": "hexagon", "opacity": 0.7 },
   { "name": "reference", "label": "Reference / lookup",  "border": "neutral",  "borderStyle": "dashed" },
   { "name": "remote-ref","label": "Remote reference",    "border": "warning", "borderStyle": "dotted", "fill": "warning-subtle" }

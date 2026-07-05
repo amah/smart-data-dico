@@ -87,7 +87,7 @@ function styleColor(name: string | undefined): string | undefined {
 
 /** One `node[styleName="…"]` selector per named Element Style (#element-style).
  *  Placed after the base/pk selectors so a style overrides the default border. */
-export function buildElementStyleSelectors(elementStyles: ElementStyle[], primary: string): StylesheetStyle[] {
+export function buildElementStyleSelectors(elementStyles: ElementStyle[], emphasisFallback: string): StylesheetStyle[] {
   return elementStyles.filter((s) => s?.name).map((s) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const style: any = {};
@@ -101,7 +101,9 @@ export function buildElementStyleSelectors(elementStyles: ElementStyle[], primar
     if (s.opacity != null) style['opacity'] = s.opacity;
     const text = styleColor(s.textColor);
     if (text) style['color'] = text;
-    if (s.emphasis) { style['z-index'] = 20; style['overlay-opacity'] = 0.06; style['overlay-color'] = border ?? primary; }
+    // Emphasis halo: use the style's own border, else a neutral grey (never the
+    // purple primary — emphasis reads through weight/greyscale, not accent colour).
+    if (s.emphasis) { style['z-index'] = 20; style['overlay-opacity'] = 0.06; style['overlay-color'] = border ?? emphasisFallback; }
     return { selector: `node[styleName = "${s.name}"]`, style };
   });
 }
@@ -497,7 +499,7 @@ export function createStylesheet(serviceColorMap: Record<string, string>, elemen
 
   // Element Styles (#element-style): one selector per named style, after the base
   // + pk selectors so `styleName` overrides the default node styling.
-  sheets.push(...buildElementStyleSelectors(elementStyles, primary));
+  sheets.push(...buildElementStyleSelectors(elementStyles, neutral));
 
   return sheets;
 }
