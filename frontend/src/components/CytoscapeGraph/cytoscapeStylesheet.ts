@@ -87,12 +87,13 @@ function styleColor(name: string | undefined): string | undefined {
 
 /** One `node[styleName="…"]` selector per named Element Style (#element-style).
  *  Placed after the base/pk selectors so a style overrides the default border. */
-export function buildElementStyleSelectors(elementStyles: ElementStyle[], emphasisFallback: string): StylesheetStyle[] {
+export function buildElementStyleSelectors(elementStyles: ElementStyle[]): StylesheetStyle[] {
   return elementStyles.filter((s) => s?.name).map((s) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const style: any = {};
     const fill = styleColor(s.fill);
-    if (fill) { style['background-color'] = fill; if (s.fill?.endsWith('-subtle')) style['background-opacity'] = 0.15; }
+    // `-subtle` fills render as a light wash; keep it faint so the inner fill stays light.
+    if (fill) { style['background-color'] = fill; if (s.fill?.endsWith('-subtle')) style['background-opacity'] = 0.08; }
     const border = styleColor(s.border);
     if (border) style['border-color'] = border;
     if (s.borderWidth != null) style['border-width'] = s.borderWidth;
@@ -101,9 +102,9 @@ export function buildElementStyleSelectors(elementStyles: ElementStyle[], emphas
     if (s.opacity != null) style['opacity'] = s.opacity;
     const text = styleColor(s.textColor);
     if (text) style['color'] = text;
-    // Emphasis halo: use the style's own border, else a neutral grey (never the
-    // purple primary — emphasis reads through weight/greyscale, not accent colour).
-    if (s.emphasis) { style['z-index'] = 20; style['overlay-opacity'] = 0.06; style['overlay-color'] = border ?? emphasisFallback; }
+    // Emphasis is z-order + border weight only — no overlay tint (the outer fill),
+    // so the node reads through its thick border, not a coloured wash.
+    if (s.emphasis) { style['z-index'] = 20; }
     return { selector: `node[styleName = "${s.name}"]`, style };
   });
 }
@@ -499,7 +500,7 @@ export function createStylesheet(serviceColorMap: Record<string, string>, elemen
 
   // Element Styles (#element-style): one selector per named style, after the base
   // + pk selectors so `styleName` overrides the default node styling.
-  sheets.push(...buildElementStyleSelectors(elementStyles, neutral));
+  sheets.push(...buildElementStyleSelectors(elementStyles));
 
   return sheets;
 }

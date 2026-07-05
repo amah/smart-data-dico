@@ -82,7 +82,6 @@ describe('buildElementStyleSelectors', () => {
   it('emits one node[styleName] selector per style with mapped props', () => {
     const sheets = buildElementStyleSelectors(
       [{ name: 'aggregate-root', fill: '#eef', border: '#333', borderWidth: 4, borderStyle: 'dashed', shape: 'hexagon', opacity: 0.8, emphasis: true }],
-      '#570df8',
     );
     expect(sheets).toHaveLength(1);
     expect(sheets[0].selector).toBe('node[styleName = "aggregate-root"]');
