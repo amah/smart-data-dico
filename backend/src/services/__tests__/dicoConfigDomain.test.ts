@@ -41,6 +41,12 @@ describe('validateElementStyles', () => {
     expect(errs.some((e) => /borderStyle/.test(e))).toBe(true);
     expect(errs.some((e) => /opacity/.test(e))).toBe(true);
   });
+  it('accepts emphasis as boolean or a level 1–3, rejects other values', () => {
+    expect(validateElementStyles([{ name: 'a', emphasis: true }, { name: 'b', emphasis: 2 }])).toEqual([]);
+    expect(validateElementStyles([{ name: 'c', emphasis: 0 }]).some((e) => /emphasis/.test(e))).toBe(true);
+    expect(validateElementStyles([{ name: 'd', emphasis: 4 }]).some((e) => /emphasis/.test(e))).toBe(true);
+    expect(validateElementStyles([{ name: 'e', emphasis: 1.5 }]).some((e) => /emphasis/.test(e))).toBe(true);
+  });
 });
 
 describe('validateStyleRules', () => {

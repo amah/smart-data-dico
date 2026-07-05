@@ -95,4 +95,38 @@ describe('buildElementStyleSelectors', () => {
     expect(s.opacity).toBe(0.8);
     expect(s['z-index']).toBe(20); // emphasis
   });
+
+  it('grades emphasis levels: border weight + fill gating + z-order', () => {
+    const [none, l1, l2, l3] = buildElementStyleSelectors([
+      { name: 'none', fill: '#eef' },
+      { name: 'light', fill: '#eef', emphasis: 1 },
+      { name: 'medium', fill: '#eef', emphasis: 2 },
+      { name: 'strong', fill: '#eef', emphasis: 3 },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ]).map((sh) => sh.style as any);
+
+    expect(none['z-index']).toBeUndefined();
+    expect(none['background-color']).toBe('#eef');            // no emphasis → fill shows
+
+    expect(l1['z-index']).toBe(20);
+    expect(l1['border-width']).toBe(2);                       // light → thin border
+    expect(l1['background-color']).toBeUndefined();           // levels 1–2 suppress the fill
+
+    expect(l2['border-width']).toBe(4);                       // medium → thick border
+    expect(l2['background-color']).toBeUndefined();           // still no fill (current w/o fill)
+
+    expect(l3['border-width']).toBe(4);                       // strong → thick border
+    expect(l3['background-color']).toBe('#eef');              // only level 3 shows the fill
+  });
+
+  it('treats emphasis:true as level 3 (legacy) and lets explicit borderWidth win', () => {
+    const [legacy, pinned] = buildElementStyleSelectors([
+      { name: 'legacy', fill: '#eef', emphasis: true },
+      { name: 'pinned', emphasis: 1, borderWidth: 6 },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ]).map((sh) => sh.style as any);
+    expect(legacy['border-width']).toBe(4);
+    expect(legacy['background-color']).toBe('#eef');          // true == strong → fill shows
+    expect(pinned['border-width']).toBe(6);                   // explicit borderWidth overrides the level
+  });
 });

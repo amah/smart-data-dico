@@ -85,7 +85,7 @@ export interface ElementStyle {
   opacity?: number;
   textColor?: string;
   badge?: string;               // short tag, e.g. "AR"
-  emphasis?: boolean;           // z-order boost + halo
+  emphasis?: boolean | number;  // level 1 light / 2 medium / 3 strong (true = 3); z-order boost
   default?: boolean;            // applied to any element nothing else styles (at most one)
 }
 
@@ -198,6 +198,8 @@ export function validateElementStyles(styles: ElementStyle[]): string[] {
     if (s.borderStyle && !STYLE_BORDER_STYLES.has(s.borderStyle)) errors.push(`Style ${i}: borderStyle must be one of ${[...STYLE_BORDER_STYLES].join(', ')}`);
     if (s.opacity != null && (typeof s.opacity !== 'number' || s.opacity < 0 || s.opacity > 1)) errors.push(`Style ${i}: opacity must be 0..1`);
     if (s.borderWidth != null && (typeof s.borderWidth !== 'number' || s.borderWidth < 0)) errors.push(`Style ${i}: borderWidth must be ≥ 0`);
+    if (s.emphasis != null && typeof s.emphasis !== 'boolean' && !(typeof s.emphasis === 'number' && Number.isInteger(s.emphasis) && s.emphasis >= 1 && s.emphasis <= 3))
+      errors.push(`Style ${i}: emphasis must be a boolean or a level 1–3`);
   });
   if (styles.filter((s) => s?.default).length > 1) errors.push('At most one style may be marked default');
   return errors;

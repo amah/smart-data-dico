@@ -17,8 +17,18 @@ export interface ElementStyle {
   opacity?: number;
   textColor?: string;
   badge?: string;
-  emphasis?: boolean;
+  /** Emphasis level: 1 light (thin border), 2 medium (thick border, no fill wash),
+   *  3 strong (thick border + fill wash). `true` = 3 (legacy), falsy/undefined = none.
+   *  All levels draw the node above its neighbours (z-order). */
+  emphasis?: boolean | 1 | 2 | 3;
   default?: boolean;   // applied to any element nothing else styles (at most one)
+}
+
+/** Normalise the `emphasis` field to a 0–3 level (true → 3, falsy → 0, clamped). */
+export function emphasisLevel(emphasis?: boolean | number): 0 | 1 | 2 | 3 {
+  if (emphasis === true) return 3;
+  if (!emphasis || typeof emphasis !== 'number') return 0;
+  return Math.max(1, Math.min(3, Math.round(emphasis))) as 1 | 2 | 3;
 }
 
 export interface StyleRule {

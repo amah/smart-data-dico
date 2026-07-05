@@ -19,6 +19,7 @@ import {
   type ElementStyle,
   type StyleRule,
 } from '../services/api';
+import { emphasisLevel } from '../utils/elementStyle';
 import {
   Button,
   Chip,
@@ -39,7 +40,7 @@ const MATCH_KINDS: StyleRule['match'][] = ['stereotype', 'role', 'entityName', '
  */
 export const FACTORY_STYLES: ElementStyle[] = [
   { name: 'base', label: 'Base (default)', fill: 'neutral-subtle', border: 'neutral', default: true },
-  { name: 'aggregate-root', label: 'Aggregate Root', fill: 'neutral-subtle', border: 'base-content', borderWidth: 4, shape: 'round-rectangle', emphasis: true },
+  { name: 'aggregate-root', label: 'Aggregate Root', fill: 'neutral-subtle', border: 'base-content', shape: 'round-rectangle', emphasis: 3 },
   { name: 'junction', label: 'Relation table', fill: 'neutral-subtle', shape: 'hexagon', opacity: 0.7 },
   { name: 'reference', label: 'Reference / lookup', border: 'neutral', borderStyle: 'dashed' },
   { name: 'remote-ref', label: 'Remote reference', fill: 'warning-subtle', border: 'warning', borderStyle: 'dotted' },
@@ -469,11 +470,15 @@ function parseRgb(value?: string): Rgb {
 /** Live preview of a style: a node-like box with its resolved fill/border/shape,
  *  the badge, and an emphasis ring — so you see what you're building. */
 const StyleSwatch = ({ style }: { style: ElementStyle }) => {
+  const lvl = emphasisLevel(style.emphasis);
   const fill = resolveDisplayColor(style.fill);
   const border = resolveDisplayColor(style.border);
-  const bg = fill.color
+  const suppressFill = lvl > 0 && lvl < 3; // emphasis 1–2 show no fill wash
+  const bg = fill.color && !suppressFill
     ? (fill.subtle ? `color-mix(in srgb, ${fill.color} 18%, transparent)` : fill.color)
     : 'var(--bg-raised)';
+  // Border weight: explicit wins; else emphasis level (1 → thin, 2/3 → thick).
+  const borderW = style.borderWidth ?? (lvl === 1 ? 2 : lvl >= 2 ? 4 : 1.5);
   return (
     <span
       aria-hidden
@@ -484,10 +489,11 @@ const StyleSwatch = ({ style }: { style: ElementStyle }) => {
         borderRadius: style.shape === 'hexagon' ? 3 : style.shape === 'ellipse' ? 14 : 7,
         background: bg,
         borderStyle: style.borderStyle ?? 'solid',
-        borderWidth: Math.min(style.borderWidth ?? 1.5, 4),
+        borderWidth: Math.min(borderW, 4),
         borderColor: border.color ?? 'var(--border-strong)',
         opacity: style.opacity ?? 1,
-        boxShadow: style.emphasis ? '0 0 0 2px var(--accent), 0 1px 3px rgba(0,0,0,0.15)' : undefined,
+        // Greyscale emphasis ring, thickening with the level (no purple accent).
+        boxShadow: lvl > 0 ? `0 0 0 ${lvl}px var(--border-strong), 0 1px 3px rgba(0,0,0,0.15)` : undefined,
         fontSize: 9, fontWeight: 700, letterSpacing: 0.2,
         color: resolveDisplayColor(style.textColor).color ?? 'var(--text)',
       }}
@@ -658,7 +664,7 @@ const StyleRow = ({ style, onChange, onRemove, onReset }: StyleRowProps) => {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <StyleSwatch style={style} />
         {style.badge && <Chip tone="meta" soft>{style.badge}</Chip>}
-        {style.emphasis && <Chip tone="accent" soft>emphasis</Chip>}
+        {emphasisLevel(style.emphasis) > 0 && <Chip tone="accent" soft>emphasis {emphasisLevel(style.emphasis)}</Chip>}
         {style.default && <Chip tone="neutral" soft>default</Chip>}
         <div style={{ flex: 1 }} />
         {onReset && (
@@ -742,12 +748,21 @@ const StyleRow = ({ style, onChange, onRemove, onReset }: StyleRowProps) => {
             style={fieldStyle}
           />
         </Field>
-        <Field label="Emphasis" inline>
-          <input
-            type="checkbox"
-            checked={!!style.emphasis}
-            onChange={(e) => onChange({ emphasis: e.target.checked || undefined })}
-          />
+        <Field label="Emphasis">
+          <select
+            value={emphasisLevel(style.emphasis)}
+            onChange={(e) => {
+              const lvl = Number(e.target.value) as 0 | 1 | 2 | 3;
+              onChange({ emphasis: lvl === 0 ? undefined : (lvl as 1 | 2 | 3) });
+            }}
+            style={fieldStyleMono}
+            title="Draws the node above others. 1 light (thin border) · 2 medium (thick, no fill) · 3 strong (thick + fill)"
+          >
+            <option value={0}>None</option>
+            <option value={1}>1 · Light</option>
+            <option value={2}>2 · Medium</option>
+            <option value={3}>3 · Strong</option>
+          </select>
         </Field>
         <Field label="Default (fallback)" inline>
           <input

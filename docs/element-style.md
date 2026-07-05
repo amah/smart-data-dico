@@ -29,8 +29,10 @@ Same config pattern as `hideRules` / `types`. Colors are **theme tokens**
 
 Fields: `name` (stable id), `label`, `fill`, `border`, `borderWidth`,
 `borderStyle` (solid|dashed|dotted), `shape`, `opacity`, `textColor`, `badge`
-(short tag), `emphasis` (z-order boost — the node draws above others; no overlay
-wash, so it reads through its border weight), `default` (mark **one** style as
+(short tag), `emphasis` (level **1** light / **2** medium / **3** strong, or `true` =
+3 — the node draws above others; the level sets border weight and gates the fill wash:
+1 = thin border no fill, 2 = thick border no fill, 3 = thick border + fill; no overlay
+tint), `default` (mark **one** style as
 the fallback — applied to any element no rule/role/stereotype styles; e.g. a
 neutral-grey base so unstyled entities look uniform).
 

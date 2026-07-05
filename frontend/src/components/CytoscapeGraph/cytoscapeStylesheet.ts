@@ -1,5 +1,5 @@
 import type { StylesheetStyle } from 'cytoscape';
-import type { ElementStyle } from '../../utils/elementStyle';
+import { emphasisLevel, type ElementStyle } from '../../utils/elementStyle';
 
 // Theme-token → DaisyUI CSS var, so Element Styles reference semantic colors
 // (primary/neutral/warning/…) that adapt to the active theme instead of raw hex.
@@ -91,20 +91,24 @@ export function buildElementStyleSelectors(elementStyles: ElementStyle[]): Style
   return elementStyles.filter((s) => s?.name).map((s) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const style: any = {};
+    const lvl = emphasisLevel(s.emphasis);
     const fill = styleColor(s.fill);
     // `-subtle` fills render as a light wash; keep it faint so the inner fill stays light.
-    if (fill) { style['background-color'] = fill; if (s.fill?.endsWith('-subtle')) style['background-opacity'] = 0.08; }
+    // Emphasis gates the wash: only level 3 (strong) shows a fill; 1–2 stay unfilled.
+    if (fill && !(lvl > 0 && lvl < 3)) { style['background-color'] = fill; if (s.fill?.endsWith('-subtle')) style['background-opacity'] = 0.08; }
     const border = styleColor(s.border);
     if (border) style['border-color'] = border;
+    // Explicit borderWidth wins; else emphasis level sets it (1 → thin, 2/3 → thick).
     if (s.borderWidth != null) style['border-width'] = s.borderWidth;
+    else if (lvl > 0) style['border-width'] = lvl === 1 ? 2 : 4;
     if (s.borderStyle) style['border-style'] = s.borderStyle;
     if (s.shape) style['shape'] = s.shape;
     if (s.opacity != null) style['opacity'] = s.opacity;
     const text = styleColor(s.textColor);
     if (text) style['color'] = text;
-    // Emphasis is z-order + border weight only — no overlay tint (the outer fill),
-    // so the node reads through its thick border, not a coloured wash.
-    if (s.emphasis) { style['z-index'] = 20; }
+    // Emphasis draws the node above others (border weight handled above, fill gated) —
+    // no overlay tint, so it reads through its border, not a coloured wash.
+    if (lvl > 0) { style['z-index'] = 20; }
     return { selector: `node[styleName = "${s.name}"]`, style };
   });
 }
