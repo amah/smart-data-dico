@@ -279,6 +279,18 @@ export default function CytoscapeGraph({
           />
         )}
 
+        {/* Format-painter save error — a style change that couldn't be persisted
+            was rolled back; tell the user why instead of failing silently. */}
+        {painter.error && (
+          <div
+            className="absolute top-2 left-1/2 -translate-x-1/2 z-50 alert alert-error shadow-lg py-2 px-3 text-sm max-w-md flex items-center gap-3"
+            role="alert"
+          >
+            <span>{painter.error}</span>
+            <button className="btn btn-xs btn-ghost" onClick={painter.clearError} aria-label="Dismiss">&times;</button>
+          </div>
+        )}
+
         {/* Tooltip overlay */}
         {tooltip && <CytoscapeTooltip data={tooltip} />}
 

@@ -87,6 +87,24 @@ describe('applyToNode', () => {
     expect(node.store.displayLabel).toBe('Order');
     expect(setEntityStyle).toHaveBeenCalledWith('shop', 'Order', null);
   });
+
+  it('rolls back the optimistic change and surfaces the error when the save fails', async () => {
+    setEntityStyle.mockRejectedValueOnce({ response: { status: 403 } });
+    const { result } = renderHook(() => useFormatPainter(null, STYLES, 'shop'));
+    const node = fakeNode({ styleName: 'base', displayLabel: 'Order' });
+    await act(async () => { await result.current.applyToNode(node as never, 'aggregate-root'); });
+    expect(node.store.styleName).toBe('base');       // reverted, not left as aggregate-root
+    expect(node.store.displayLabel).toBe('Order');
+    expect(result.current.error).toMatch(/not authorised/i);
+  });
+
+  it('sets an error (no request) when the node has no resolvable package', async () => {
+    const { result } = renderHook(() => useFormatPainter(null, STYLES, undefined));
+    const node = { store: {}, data: (k: string) => (k === 'label' ? 'Ghost' : undefined), removeData: () => {}, id: () => 'x' };
+    await act(async () => { await result.current.applyToNode(node as never, 'junction'); });
+    expect(result.current.error).toMatch(/package is unknown/i);
+    expect(setEntityStyle).not.toHaveBeenCalled();
+  });
 });
 
 describe('interceptTap', () => {

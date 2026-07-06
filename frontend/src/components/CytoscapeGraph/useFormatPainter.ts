@@ -50,6 +50,9 @@ export interface FormatPainter {
   applyToNode: (node: NodeSingular, styleName: string | null) => Promise<void>;
   /** Node-tap interceptor for useCytoscapeInteractions: paints + returns true when armed. */
   interceptTap: (node: NodeSingular) => boolean;
+  /** Last save failure (rolled back on the canvas), or null. Auto-clears after a few seconds. */
+  error: string | null;
+  clearError: () => void;
 }
 
 export function useFormatPainter(
@@ -61,6 +64,7 @@ export function useFormatPainter(
   const [clipboard, setClipboard] = useState<string | null>(null);
   const [armed, setArmed] = useState(false);
   const [sticky, setSticky] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Refs so the tap interceptor (bound once inside the interactions hook) always
   // reads the latest state without re-binding.
@@ -83,21 +87,39 @@ export function useFormatPainter(
     const clear = !styleName || styleName === CLEAR_STYLE;
     const service = (node.data('service') as string) || fallbackServiceRef.current || '';
     const entity = (node.data('name') as string) || (node.data('label') as string);
-    if (!service || !entity) return;
+    if (!service || !entity) {
+      setError(`Can't style "${entity || node.id()}" — its package is unknown.`);
+      return;
+    }
 
-    // 1) Live restyle: styleName drives the node[styleName="…"] selectors; refresh
-    //    the «badge» line in the label from the resolved style.
+    // Snapshot for rollback if the save fails (optimistic update below).
+    const prevStyle = node.data('styleName') as string | undefined;
+    const prevDisplay = node.data('displayLabel') as string | undefined;
+
+    // 1) Optimistic live restyle: styleName drives the node[styleName="…"] selectors;
+    //    refresh the «badge» line in the label from the resolved style.
     const badge = clear ? undefined : stylesRef.current.get(styleName!)?.badge;
     if (clear) node.removeData('styleName');
     else node.data('styleName', styleName);
     node.data('displayLabel', labelWithBadge((node.data('label') as string) || '', badge));
 
-    // 2) Persist the override (non-destructive system.style metadata).
+    // 2) Persist the override (non-destructive system.style metadata). On failure,
+    //    roll the canvas back and surface why — never leave a change that didn't save.
     try {
       await servicesApi.setEntityStyle(service, entity, clear ? null : styleName);
+      setError(null);
       onAppliedRef.current?.(service, entity, clear ? null : styleName!);
-    } catch {
-      /* keep the live change; the next reload re-resolves from persisted state */
+    } catch (e: unknown) {
+      if (prevStyle == null) node.removeData('styleName');
+      else node.data('styleName', prevStyle);
+      node.data('displayLabel', prevDisplay ?? ((node.data('label') as string) || ''));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const err = e as any;
+      const status = err?.response?.status;
+      const reason = status === 401 || status === 403 ? 'not authorised (need editor access)'
+        : status === 404 ? 'entity not found'
+        : (err?.response?.data?.message || err?.message || 'save failed');
+      setError(`Couldn't save style for "${entity}": ${reason}.`);
     }
   }, []);
 
@@ -120,6 +142,14 @@ export function useFormatPainter(
   const toggle = useCallback(() => { setArmed((a) => !a); setSticky(false); }, []);
   const armSticky = useCallback(() => { setArmed(true); setSticky(true); }, []);
   const disarm = useCallback(() => { setArmed(false); setSticky(false); }, []);
+  const clearError = useCallback(() => setError(null), []);
+
+  // Auto-dismiss a save error after a few seconds.
+  useEffect(() => {
+    if (!error) return;
+    const t = setTimeout(() => setError(null), 6000);
+    return () => clearTimeout(t);
+  }, [error]);
 
   // Esc disarms the brush (mirrors focus-mode Esc).
   useEffect(() => {
@@ -135,5 +165,5 @@ export function useFormatPainter(
     return () => { if (el) el.style.cursor = ''; };
   }, [cy, armed]);
 
-  return { clipboard, armed, sticky, copyStyle, copyAndArm, toggle, armSticky, disarm, applyToNode, interceptTap };
+  return { clipboard, armed, sticky, copyStyle, copyAndArm, toggle, armSticky, disarm, applyToNode, interceptTap, error, clearError };
 }

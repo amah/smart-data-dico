@@ -56,7 +56,7 @@ export const servicesApi = {
   // system.style metadata). Pass a style name to set, or null/'default' to clear
   // (falls back to rules/role detection). Used by the diagram format painter.
   setEntityStyle: async (service: string, entity: string, style: string | null) => {
-    const response = await api.put(`/services/${service}/entities/${entity}/style`, { style });
+    const response = await api.put(`/services/${encodeURIComponent(service)}/entities/${encodeURIComponent(entity)}/style`, { style });
     return response.data;
   },
 
