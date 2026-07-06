@@ -5,6 +5,40 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.2] — 2026-07-06
+
+### Added
+- **Color picker in the Element Styles manager.** Each color field gets a swatch that
+  opens a popover with standard presets, a **precise RGB** picker (sliders + numeric
+  fields), and a **None** reset; the field still accepts a raw hex or theme token, and
+  swatches/previews resolve tokens to real colors.
+- **Diagram format painter (#element-style).** Style entities straight from the canvas,
+  PowerPoint-style: the entity info panel gains an **Appearance** picker (choose a named
+  style / clear) plus **Copy format** / **Paste format**, and a toolbar **brush** applies
+  a copied format to clicked entities (single click = one target, double-click = keep
+  painting; Esc / Done stops). Every apply persists the non-destructive `system.style`
+  override and restyles the node live.
+- **Reset controls.** Page-level **Reset to defaults** (revert the whole palette to the
+  starter set) and per-style **Reset** (revert one style to its factory definition).
+- **Graded emphasis — 3 levels.** `emphasis` is now a level **1** light / **2** medium /
+  **3** strong (`true` = 3): the level sets border weight and gates the fill wash (only
+  level 3 shows a wash), and all levels boost z-order. A **greyscale font ramp** darkens
+  the label with the level (base kept light and readable).
+- **Default (fallback) style**, **on-node style badges**, and a **sidebar link** to
+  `/element-styles`.
+
+### Changed
+- **Emphasis is greyscale, not purple.** The emphasis halo no longer falls back to the
+  accent color; emphasis now reads through border weight + greyscale, with no overlay
+  wash. The aggregate-root default uses `base-content`/`neutral-subtle` (was `primary`),
+  drops the `AR` badge, and `-subtle` fills were lightened.
+
+### Fixed
+- Color-picker issues: swatch overflow into the next field, a hang when selecting a
+  preset, the native OS color-panel freeze (native input removed), and the swatch color
+  stuck on a second pick (`background` shorthand vs `backgroundImage`). Token→color
+  resolution is cached.
+
 ## [1.18.1] — 2026-07-03
 
 ### Changed
