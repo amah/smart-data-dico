@@ -55,6 +55,17 @@ describe('conversationToMarkdown', () => {
     expect(md).toContain('_(cancelled)_');
   });
 
+  it('includes a folded System context section when a system prompt is set', () => {
+    const withSys: Conversation = { ...conv, systemPrompt: 'You are a data steward. Follow the format contract.' };
+    const out = conversationToMarkdown(withSys, NOW);
+    expect(out).toContain('<details><summary>⚙️ System context</summary>');
+    expect(out).toContain('You are a data steward. Follow the format contract.');
+  });
+
+  it('omits the System context section when no system prompt is set', () => {
+    expect(md).not.toContain('System context'); // base `conv` has no systemPrompt
+  });
+
   it('handles an empty/untitled conversation without throwing', () => {
     const empty: Conversation = { id: 'x', title: '', messages: [], createdAt: '', updatedAt: '' };
     const out = conversationToMarkdown(empty, NOW);

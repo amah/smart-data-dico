@@ -565,9 +565,10 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       createdAt: '',
       updatedAt: new Date().toISOString(),
       mode,
+      ...(systemPromptOverride ? { systemPrompt: systemPromptOverride } : {}),
       usage: usage ? { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, ...(usage.cost != null ? { totalCost: usage.cost } : {}) } : undefined,
     });
-  }, [conversationId, conversationList, messages, mode, usage, downloadConversationMd]);
+  }, [conversationId, conversationList, messages, mode, usage, systemPromptOverride, downloadConversationMd]);
 
   const toggleTool = (toolId: string) => {
     setExpandedTools(prev => {

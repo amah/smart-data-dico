@@ -111,6 +111,12 @@ export function conversationToMarkdown(conv: Conversation, now = new Date()): st
   }
   out.push('| Field | |', '|---|---|', ...rows.map(([k, v]) => `| ${k} | ${v} |`), '', '---', '');
 
+  // System context — the per-conversation system prompt the agent ran under, if set.
+  const sys = (conv.systemPrompt || '').trim();
+  if (sys) {
+    out.push('<details><summary>⚙️ System context</summary>', '', '```text', sys, '```', '</details>', '', '---', '');
+  }
+
   for (const m of (conv.messages ?? []) as ConversationChatMessage[]) {
     const who = m.role === 'user' ? '👤 User' : '🤖 Assistant';
     const ts = m.timestamp ? ` · ${fmtDate(m.timestamp)}` : '';
