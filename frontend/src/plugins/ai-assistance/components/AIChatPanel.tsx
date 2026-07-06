@@ -33,7 +33,8 @@ import {
   buildHelpMessage,
 } from '../utils/aiSlashCommands';
 import { runAiCommand } from '../commands';
-import type { AIToolDef } from '../services/AIService';
+import type { AIToolDef, Conversation } from '../services/AIService';
+import { conversationToMarkdown, conversationFilename } from '../utils/conversationExport';
 
 SyntaxHighlighter.registerLanguage('ts', typescript);
 SyntaxHighlighter.registerLanguage('typescript', typescript);
@@ -529,6 +530,38 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       if (id === conversationId) startNewConversation();
     }).catch(() => {});
   }, [conversationId, startNewConversation]);
+
+  // Export a conversation as readable Markdown (#ai-export).
+  const downloadConversationMd = useCallback((conv: Conversation) => {
+    const blob = new Blob([conversationToMarkdown(conv)], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = conversationFilename(conv);
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
+  // History rows export the saved copy by id.
+  const exportConversation = useCallback(async (id: string) => {
+    try {
+      const conv = (await runAiCommand('ai.conversation.get', { id })) as Conversation | null;
+      if (conv) downloadConversationMd(conv);
+    } catch { /* export is best-effort */ }
+  }, [downloadConversationMd]);
+  // The header exports the current conversation from live state (always up to date).
+  const exportCurrentConversation = useCallback(() => {
+    const title = conversationList.find(c => c.id === conversationId)?.title
+      || messages.find(m => m.role === 'user')?.text?.slice(0, 60) || 'AI conversation';
+    downloadConversationMd({
+      id: conversationId,
+      title,
+      messages: messages as unknown as Conversation['messages'],
+      createdAt: '',
+      updatedAt: new Date().toISOString(),
+      mode,
+      usage: usage ? { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, ...(usage.cost != null ? { totalCost: usage.cost } : {}) } : undefined,
+    });
+  }, [conversationId, conversationList, messages, mode, usage, downloadConversationMd]);
 
   const toggleTool = (toolId: string) => {
     setExpandedTools(prev => {
@@ -1703,6 +1736,15 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
               <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
             </svg>
           </a>
+          {messages.length > 0 && (
+            <button
+              className="btn btn-ghost btn-xs"
+              onClick={exportCurrentConversation}
+              title="Export this conversation as Markdown"
+              aria-label="Export conversation as Markdown"
+              data-testid="ai-export-current"
+            >↓</button>
+          )}
           <button className="btn btn-ghost btn-xs" onClick={startNewConversation} title="New">+</button>
           <button className="btn btn-ghost btn-xs" onClick={onClose} title="Close">&times;</button>
         </div>
@@ -2425,6 +2467,13 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                     <span className="badge badge-xs badge-ghost">{conv.messageCount}</span>
                   </button>
                 )}
+                <button
+                  className="btn btn-xs btn-ghost opacity-0 group-hover:opacity-100"
+                  title="Export as Markdown"
+                  aria-label={`Export ${conv.title} as Markdown`}
+                  data-testid={`ai-export-${conv.id}`}
+                  onClick={() => exportConversation(conv.id)}
+                >↓</button>
                 <button className="btn btn-xs btn-ghost text-error opacity-0 group-hover:opacity-100" onClick={() => deleteConversation(conv.id)}>&times;</button>
               </div>
             ))}
