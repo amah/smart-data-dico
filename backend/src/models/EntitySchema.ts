@@ -673,6 +673,27 @@ export const relationshipSchema: Schema = {
 };
 
 /**
+ * Backfill the safely-defaultable, schema-required attribute fields so a
+ * *non-destructive* re-save (e.g. setting `system.style`/`system.hidden` metadata)
+ * isn't blocked by a pre-existing gap in an attribute. Imported / reverse-engineered
+ * entities commonly omit `required` (which defaults to false) or `description`.
+ * Only fills these two — a missing `uuid`/`name`/`type` is genuinely broken and
+ * still fails validation. Mutates and returns the entity. Recurses into nested
+ * `properties` (embedded attributes).
+ */
+export function fillAttributeDefaults(entity: Entity): Entity {
+  const fix = (attrs?: Attribute[]): void => {
+    for (const a of attrs ?? []) {
+      if (a.required === undefined) a.required = false;
+      if (a.description === undefined) a.description = '';
+      if (a.properties) fix(a.properties);
+    }
+  };
+  fix(entity.attributes);
+  return entity;
+}
+
+/**
  * Validates an entity definition against the schema
  */
 export function validateEntity(entity: Entity): { valid: boolean; errors: string[] } {

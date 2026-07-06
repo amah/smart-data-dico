@@ -1,6 +1,45 @@
-import { AttributeType, validateEntity } from '../EntitySchema.js';
+import { AttributeType, validateEntity, fillAttributeDefaults } from '../EntitySchema.js';
 
 describe('EntitySchema', () => {
+  describe('fillAttributeDefaults', () => {
+    // Reproduces the "instance.attribute[1] requires property \"required\"" failure
+    // that blocked a metadata-only save (e.g. setting system.style from the diagram).
+    const brokenEntity = () => ({
+      uuid: 'a38d1597-cc4f-4934-bb08-c876c023f693',
+      name: 'BrokenAttr',
+      attributes: [
+        { uuid: 'b49e2608-dd5f-4045-aa09-d464c234e694', name: 'id', description: 'id', type: AttributeType.STRING, required: true },
+        // 2nd attribute is missing `required` AND `description` (imported/RE gap)
+        { uuid: 'c5af3719-ee6f-4156-bb1a-e575d345f7a5', name: 'label', type: AttributeType.STRING },
+      ],
+    });
+
+    it('the gap fails validation before healing', () => {
+      const r = validateEntity(brokenEntity() as any);
+      expect(r.valid).toBe(false);
+      expect(r.errors.join(' ')).toMatch(/required|description/);
+    });
+
+    it('backfills required:false and description:"" so the entity validates', () => {
+      const healed = fillAttributeDefaults(brokenEntity() as any);
+      expect(healed.attributes![1].required).toBe(false);
+      expect(healed.attributes![1].description).toBe('');
+      expect(healed.attributes![0].required).toBe(true); // existing values untouched
+      expect(validateEntity(healed).valid).toBe(true);
+    });
+
+    it('recurses into nested embedded properties', () => {
+      const e: any = {
+        uuid: 'a38d1597-cc4f-4934-bb08-c876c023f693', name: 'E',
+        attributes: [{ uuid: 'b49e2608-dd5f-4045-aa09-d464c234e694', name: 'addr', type: AttributeType.OBJECT,
+          properties: [{ uuid: 'c5af3719-ee6f-4156-bb1a-e575d345f7a5', name: 'city', type: AttributeType.STRING }] }],
+      };
+      fillAttributeDefaults(e);
+      expect(e.attributes[0].properties[0].required).toBe(false);
+      expect(e.attributes[0].properties[0].description).toBe('');
+    });
+  });
+
   describe('validateEntity', () => {
     it('should validate a valid entity', () => {
       const validEntity = {

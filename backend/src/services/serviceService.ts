@@ -1,4 +1,4 @@
-import { Entity, Relationship, EntityStatus, ReviewComment, LineageResult } from '../models/EntitySchema.js';
+import { Entity, Relationship, EntityStatus, ReviewComment, LineageResult, fillAttributeDefaults } from '../models/EntitySchema.js';
 import { stereotypeService } from './stereotypeService.js';
 import { logger } from '../utils/logger.js';
 import { metadataValueToSearchString } from './metadata/metadataValueToSearchString.js';
@@ -134,6 +134,8 @@ export class ServiceService {
       meta.push({ name: HIDDEN_META_KEY, value: 'false' });
     }
     entity.metadata = meta;
+    // Heal any pre-existing attribute gap so this metadata-only change isn't rejected.
+    fillAttributeDefaults(entity);
     return this.updateEntity(service, entity);
   }
 
@@ -149,6 +151,8 @@ export class ServiceService {
     const meta = (entity.metadata ?? []).filter((m) => m.name !== 'system.style');
     if (!clear) meta.push({ name: 'system.style', value: style! });
     entity.metadata = meta;
+    // Heal any pre-existing attribute gap so this metadata-only change isn't rejected.
+    fillAttributeDefaults(entity);
     return this.updateEntity(service, entity);
   }
 
