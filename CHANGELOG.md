@@ -5,6 +5,29 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.3] — 2026-07-06
+
+### Added
+- **Bulk style application from the package page.** The entity list gains a select
+  column (per-row + a tri-state select-all) and, once anything is selected, a **Set
+  style** menu whose options are **visual excerpts** of each style (swatch with
+  fill/border/shape/badge/emphasis, not just a name). Picking one applies it to every
+  selected entity **immediately** — no separate Apply step — including a "Default
+  (clear override)" entry. A new **Style** column shows each entity's current override.
+
+### Fixed
+- **Styling from the diagram silently not persisting.** A style set from the canvas
+  optimistically restyled the node, then swallowed any save error — so a failed PUT
+  (no editor access, a 404, a network drop) looked applied but never saved. Failures
+  now **roll the node back** and surface a transient banner explaining why; the
+  service/entity are URL-encoded so odd names don't 404.
+- **"Invalid entity: … requires property `required`" blocking a style/hide save.**
+  The attribute schema requires `required`/`description` on every attribute, but
+  imported / reverse-engineered entities often omit them, so a metadata-only change
+  was rejected over an unrelated gap. `setEntityStyle`/`setEntityHidden` now backfill
+  the safely-defaultable fields (`required` → false, `description` → "") before saving,
+  healing the entity instead of failing.
+
 ## [1.18.2] — 2026-07-06
 
 ### Added
