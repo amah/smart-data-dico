@@ -538,8 +538,14 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     const a = document.createElement('a');
     a.href = url;
     a.download = conversationFilename(conv);
+    a.rel = 'noopener';
+    // Anchor must be in the DOM for the click to trigger a download in some
+    // browsers, and the object URL must NOT be revoked synchronously — that
+    // cancels the download before the browser reads the blob.
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
   }, []);
   // History rows export the saved copy by id.
   const exportConversation = useCallback(async (id: string) => {
