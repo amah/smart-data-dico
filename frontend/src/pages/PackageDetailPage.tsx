@@ -7,6 +7,7 @@ import PackageForm from '../components/PackageForm';
 import DiagramViewer from '../components/CytoscapeGraph/DiagramViewer';
 import Breadcrumbs from '../components/Breadcrumbs';
 import { Button, Chip, PageHeader } from '../components/ui';
+import { StyleSwatch } from './ElementStylesPage';
 import { useRecordRecentPackage } from '../hooks/useRecentPackages';
 import { useStoredState } from '../hooks/useStoredState';
 
@@ -51,7 +52,6 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
   // Bulk style application (#element-style): select entities → apply a style to all.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [elementStyles, setElementStyles] = useState<ElementStyle[]>([]);
-  const [bulkStyle, setBulkStyle] = useState('');
   const [bulkApplying, setBulkApplying] = useState(false);
   const [bulkMsg, setBulkMsg] = useState<string | null>(null);
   const [entitySort, setEntitySort] = useState<{ key: 'name' | 'description' | 'attributes'; dir: 'asc' | 'desc' }>({
@@ -98,16 +98,18 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
   });
   const setSelectAll = (names: string[], checked: boolean) => setSelected(checked ? new Set(names) : new Set());
 
-  // Apply the chosen style to every selected entity (empty = clear the override).
-  const handleBulkApplyStyle = async () => {
-    if (selected.size === 0) return;
+  // Apply a style to every selected entity immediately (no separate Apply step).
+  // `style` empty/undefined clears the override (Default).
+  const applyBulkStyle = async (style: string) => {
+    if (selected.size === 0 || bulkApplying) return;
+    (document.activeElement as HTMLElement | null)?.blur(); // close the dropdown
     setBulkApplying(true);
     setBulkMsg(null);
     const names = [...selected];
     const failed: string[] = [];
     for (const name of names) {
       try {
-        await servicesApi.setEntityStyle(rootPackage, name, bulkStyle || null);
+        await servicesApi.setEntityStyle(rootPackage, name, style || null);
       } catch {
         failed.push(name);
       }
@@ -117,7 +119,7 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
       setPkg(updated);
     } catch { /* keep current view */ }
     const ok = names.length - failed.length;
-    const label = bulkStyle ? `"${bulkStyle}"` : 'Default (cleared)';
+    const label = style ? `"${style}"` : 'Default (cleared)';
     setBulkMsg(failed.length
       ? `Applied ${label} to ${ok}/${names.length} — failed: ${failed.slice(0, 3).join(', ')}${failed.length > 3 ? '…' : ''}`
       : `Applied ${label} to ${ok} ${ok === 1 ? 'entity' : 'entities'}.`);
@@ -380,20 +382,29 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
                 {selected.size > 0 && (
                   <div className="flex flex-wrap items-center gap-2 mb-2 p-2 rounded-lg bg-base-200 border border-base-300">
                     <span className="text-sm font-medium">{selected.size} selected</span>
-                    <select
-                      className="select select-sm select-bordered"
-                      value={bulkStyle}
-                      onChange={(e) => setBulkStyle(e.target.value)}
-                      aria-label="Style to apply"
-                    >
-                      <option value="">Default (clear override)</option>
-                      {elementStyles.map((s) => (
-                        <option key={s.name} value={s.name}>{s.label || s.name}</option>
-                      ))}
-                    </select>
-                    <Button size="sm" variant="primary" onClick={handleBulkApplyStyle} disabled={bulkApplying}>
-                      {bulkApplying ? 'Applying…' : 'Apply style'}
-                    </Button>
+                    {/* Pick a style → applies to all selected immediately (no Apply button).
+                        Each option is a visual excerpt of the style, not just its name. */}
+                    <div className="dropdown">
+                      <label tabIndex={0} className={`btn btn-sm btn-primary ${bulkApplying ? 'btn-disabled' : ''}`}>
+                        {bulkApplying ? 'Applying…' : 'Set style ▾'}
+                      </label>
+                      <ul tabIndex={0} className="dropdown-content menu z-50 mt-1 p-1 shadow-lg bg-base-100 rounded-box w-64 max-h-80 overflow-y-auto flex-nowrap">
+                        <li>
+                          <button className="flex items-center gap-2" onClick={() => applyBulkStyle('')}>
+                            <span className="inline-flex items-center justify-center w-11 h-7 shrink-0 rounded border border-dashed border-base-300 text-base-content/40 text-xs">none</span>
+                            <span>Default (clear override)</span>
+                          </button>
+                        </li>
+                        {elementStyles.map((s) => (
+                          <li key={s.name}>
+                            <button className="flex items-center gap-2" onClick={() => applyBulkStyle(s.name)}>
+                              <StyleSwatch style={s} />
+                              <span className="truncate">{s.label || s.name}</span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                     <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())} disabled={bulkApplying}>
                       Clear
                     </Button>

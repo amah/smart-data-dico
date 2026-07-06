@@ -469,7 +469,7 @@ function parseRgb(value?: string): Rgb {
 
 /** Live preview of a style: a node-like box with its resolved fill/border/shape,
  *  the badge, and an emphasis ring — so you see what you're building. */
-const StyleSwatch = ({ style }: { style: ElementStyle }) => {
+export const StyleSwatch = ({ style }: { style: ElementStyle }) => {
   const lvl = emphasisLevel(style.emphasis);
   const fill = resolveDisplayColor(style.fill);
   const border = resolveDisplayColor(style.border);
