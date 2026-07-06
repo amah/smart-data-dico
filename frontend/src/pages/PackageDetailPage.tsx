@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useHighlightOnArrival } from '../hooks/useHighlightOnArrival';
-import { packageApi, servicesApi, stereotypeApi } from '../services/api';
+import { packageApi, servicesApi, stereotypeApi, configApi, type ElementStyle } from '../services/api';
 import type { Package, Entity, Stereotype, Breadcrumb } from '../types';
 import PackageForm from '../components/PackageForm';
 import DiagramViewer from '../components/CytoscapeGraph/DiagramViewer';
@@ -48,6 +48,12 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
   const [batchCreating, setBatchCreating] = useState(false);
   const [stereotypes, setStereotypes] = useState<Stereotype[]>([]);
   const [entityFilter, setEntityFilter] = useState('');
+  // Bulk style application (#element-style): select entities → apply a style to all.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [elementStyles, setElementStyles] = useState<ElementStyle[]>([]);
+  const [bulkStyle, setBulkStyle] = useState('');
+  const [bulkApplying, setBulkApplying] = useState(false);
+  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
   const [entitySort, setEntitySort] = useState<{ key: 'name' | 'description' | 'attributes'; dir: 'asc' | 'desc' }>({
     key: 'name',
     dir: 'asc',
@@ -58,6 +64,7 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
 
   useEffect(() => {
     stereotypeApi.getAll('entity').then(setStereotypes).catch(() => {});
+    configApi.getElementStyles().then(setElementStyles).catch(() => {});
   }, []);
 
   const rootPackage = packagePath[0];
@@ -81,7 +88,43 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
     };
 
     fetchPackage();
+    setSelected(new Set()); // reset selection when navigating between packages
   }, [rootPackage, subPath.join('/')]);
+
+  const toggleSelect = (name: string) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (next.has(name)) next.delete(name); else next.add(name);
+    return next;
+  });
+  const setSelectAll = (names: string[], checked: boolean) => setSelected(checked ? new Set(names) : new Set());
+
+  // Apply the chosen style to every selected entity (empty = clear the override).
+  const handleBulkApplyStyle = async () => {
+    if (selected.size === 0) return;
+    setBulkApplying(true);
+    setBulkMsg(null);
+    const names = [...selected];
+    const failed: string[] = [];
+    for (const name of names) {
+      try {
+        await servicesApi.setEntityStyle(rootPackage, name, bulkStyle || null);
+      } catch {
+        failed.push(name);
+      }
+    }
+    try {
+      const updated = await packageApi.getPackageByPath(rootPackage, subPath);
+      setPkg(updated);
+    } catch { /* keep current view */ }
+    const ok = names.length - failed.length;
+    const label = bulkStyle ? `"${bulkStyle}"` : 'Default (cleared)';
+    setBulkMsg(failed.length
+      ? `Applied ${label} to ${ok}/${names.length} — failed: ${failed.slice(0, 3).join(', ')}${failed.length > 3 ? '…' : ''}`
+      : `Applied ${label} to ${ok} ${ok === 1 ? 'entity' : 'entities'}.`);
+    setSelected(new Set());
+    setBulkApplying(false);
+    setTimeout(() => setBulkMsg(null), 5000);
+  };
 
   const handleCreateSubPackage = async (data: { name: string; description: string; type: string }) => {
     try {
@@ -327,40 +370,95 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
               s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' },
             );
             const arrow = (key: string) => entitySort.key === key ? (entitySort.dir === 'asc' ? ' ▲' : ' ▼') : '';
+            const styleOf = (e: Entity) => e.metadata?.find((m) => m.name === 'system.style')?.value as string | undefined;
+            const names = filtered.map((e) => e.name);
+            const allChecked = names.length > 0 && names.every((n) => selected.has(n));
+            const someChecked = names.some((n) => selected.has(n));
             return (
-              <div className="overflow-x-auto" ref={entityListRef}>
-                <table className="table table-sm">
-                  <thead>
-                    <tr>
-                      <th className="cursor-pointer select-none" onClick={() => toggleSort('name')}>Name{arrow('name')}</th>
-                      <th className="cursor-pointer select-none" onClick={() => toggleSort('description')}>Description{arrow('description')}</th>
-                      <th className="cursor-pointer select-none" onClick={() => toggleSort('attributes')}>Attributes{arrow('attributes')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((entity) => (
-                      <tr key={entity.uuid} className="hover" data-ttrowkey={entity.name}>
-                        <td>
-                          <Link to={`${packageUrl}/entities/${entity.name}`} className="link link-primary font-mono">
-                            {entity.name}
-                          </Link>
-                        </td>
-                        <td className="text-sm text-base-content/70 max-w-xs truncate">
-                          {entity.description || '-'}
-                        </td>
-                        <td>{entity.attributes?.length ?? 0}</td>
-                      </tr>
-                    ))}
-                    {filtered.length === 0 && (
+              <>
+                {/* Bulk style bar — appears once entities are selected. */}
+                {selected.size > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 mb-2 p-2 rounded-lg bg-base-200 border border-base-300">
+                    <span className="text-sm font-medium">{selected.size} selected</span>
+                    <select
+                      className="select select-sm select-bordered"
+                      value={bulkStyle}
+                      onChange={(e) => setBulkStyle(e.target.value)}
+                      aria-label="Style to apply"
+                    >
+                      <option value="">Default (clear override)</option>
+                      {elementStyles.map((s) => (
+                        <option key={s.name} value={s.name}>{s.label || s.name}</option>
+                      ))}
+                    </select>
+                    <Button size="sm" variant="primary" onClick={handleBulkApplyStyle} disabled={bulkApplying}>
+                      {bulkApplying ? 'Applying…' : 'Apply style'}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())} disabled={bulkApplying}>
+                      Clear
+                    </Button>
+                  </div>
+                )}
+                {bulkMsg && <div className="text-sm mb-2 text-base-content/70">{bulkMsg}</div>}
+                <div className="overflow-x-auto" ref={entityListRef}>
+                  <table className="table table-sm">
+                    <thead>
                       <tr>
-                        <td colSpan={3} className="text-center text-base-content/50 py-4">
-                          No entities match "{entityFilter}"
-                        </td>
+                        <th className="w-8">
+                          <input
+                            type="checkbox"
+                            className="checkbox checkbox-sm"
+                            aria-label="Select all entities"
+                            checked={allChecked}
+                            ref={(el) => { if (el) el.indeterminate = someChecked && !allChecked; }}
+                            onChange={(e) => setSelectAll(names, e.target.checked)}
+                          />
+                        </th>
+                        <th className="cursor-pointer select-none" onClick={() => toggleSort('name')}>Name{arrow('name')}</th>
+                        <th className="cursor-pointer select-none" onClick={() => toggleSort('description')}>Description{arrow('description')}</th>
+                        <th className="cursor-pointer select-none" onClick={() => toggleSort('attributes')}>Attributes{arrow('attributes')}</th>
+                        <th>Style</th>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {filtered.map((entity) => (
+                        <tr key={entity.uuid} className="hover" data-ttrowkey={entity.name}>
+                          <td>
+                            <input
+                              type="checkbox"
+                              className="checkbox checkbox-sm"
+                              aria-label={`Select ${entity.name}`}
+                              checked={selected.has(entity.name)}
+                              onChange={() => toggleSelect(entity.name)}
+                            />
+                          </td>
+                          <td>
+                            <Link to={`${packageUrl}/entities/${entity.name}`} className="link link-primary font-mono">
+                              {entity.name}
+                            </Link>
+                          </td>
+                          <td className="text-sm text-base-content/70 max-w-xs truncate">
+                            {entity.description || '-'}
+                          </td>
+                          <td>{entity.attributes?.length ?? 0}</td>
+                          <td>
+                            {styleOf(entity)
+                              ? <Chip tone="meta" soft>{styleOf(entity)}</Chip>
+                              : <span className="text-base-content/40">—</span>}
+                          </td>
+                        </tr>
+                      ))}
+                      {filtered.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="text-center text-base-content/50 py-4">
+                            No entities match "{entityFilter}"
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             );
           })()}
         </div>
