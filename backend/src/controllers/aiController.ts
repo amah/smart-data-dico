@@ -1033,15 +1033,11 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
       executeTool,
       AI_MAX_STEPS,
       (event) => {
-        if (event.type === 'text') {
-          assistantText += ' ' + event.text;
-          const id = crypto.randomUUID();
-          sendEvent({ type: 'text-start', id });
-          // Split text into words for streaming effect
-          for (const word of event.text.split(' ')) {
-            sendEvent({ type: 'text-delta', id, delta: word + ' ' });
-          }
-        }
+        // NOTE: callWithTools deliberately never emits `text` events — the loop
+        // streams only tool events and the final reply is emitted ONCE below (from
+        // result.text), so tool calls always precede the answer. Do NOT re-add a
+        // `text` handler here: doing so streams the reply twice and the assistant
+        // message is saved doubled (the pre-fix bug behind old duplicated turns).
         if (event.type === 'tool-start') {
           // Emit tool category so the frontend can apply per-category
           // auto-approve policy without duplicating the switch (#59). Use the

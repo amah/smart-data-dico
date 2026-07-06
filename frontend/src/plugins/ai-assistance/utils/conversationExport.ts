@@ -22,6 +22,28 @@ interface ToolCallLike {
 
 const MAX_JSON = 4000; // cap a single input/output block so exports stay readable
 
+/**
+ * Collapse a message whose text is exactly the same content twice back-to-back — a
+ * historical artifact of the pre-fix streaming path (the reply was streamed both
+ * during the tool loop and once after it, so it was saved doubled). Deliberately
+ * narrow: only an *exact* doubling (two identical halves, optional single
+ * separator) is collapsed, so genuinely repetitive prose is never touched.
+ */
+export function dedupeDoubledText(text: string): string {
+  const s = (text || '').trim();
+  if (s.length < 40) return text;
+  for (const sep of ['', ' ', '\n', '\n\n']) {
+    const half = (s.length - sep.length) / 2;
+    if (Number.isInteger(half) && half > 20) {
+      const a = s.slice(0, half);
+      const mid = s.slice(half, half + sep.length);
+      const b = s.slice(half + sep.length);
+      if (mid === sep && a === b) return a;
+    }
+  }
+  return text;
+}
+
 /** 15230 → "15.2k". */
 function compact(n?: number): string {
   if (n == null) return '?';
@@ -84,7 +106,7 @@ export function conversationToMarkdown(conv: Conversation, now = new Date()): st
     const ts = m.timestamp ? ` · ${fmtDate(m.timestamp)}` : '';
     out.push(`### ${who}${ts}`, '');
     if (m.condensed) out.push(`> _${m.condensed.count} earlier message${m.condensed.count === 1 ? '' : 's'} condensed._`, '');
-    out.push((m.text || '').trim() || '_(no text)_', '');
+    out.push(dedupeDoubledText(m.text || '').trim() || '_(no text)_', '');
     if (m.cancelled) out.push('> _(cancelled)_', '');
 
     const tools = (Array.isArray(m.toolCalls) ? m.toolCalls : []) as ToolCallLike[];

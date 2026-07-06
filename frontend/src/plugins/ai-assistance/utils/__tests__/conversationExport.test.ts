@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { conversationToMarkdown, conversationFilename } from '../conversationExport';
+import { conversationToMarkdown, conversationFilename, dedupeDoubledText } from '../conversationExport';
 import type { Conversation } from '../../services/AIService';
 
 const NOW = new Date('2026-07-06T17:05:00Z');
@@ -60,6 +60,25 @@ describe('conversationToMarkdown', () => {
     const out = conversationToMarkdown(empty, NOW);
     expect(out).toContain('# AI conversation');
     expect(out).toContain('| Messages | 0 |');
+  });
+});
+
+describe('dedupeDoubledText', () => {
+  const line = 'Based on the physical schema, here is a SQL query to select all active loans from the Loan table.';
+  it('collapses an exact back-to-back doubling (no separator)', () => {
+    expect(dedupeDoubledText(line + line)).toBe(line);
+  });
+  it('collapses a doubling joined by a single space or newline', () => {
+    expect(dedupeDoubledText(`${line} ${line}`)).toBe(line);
+    expect(dedupeDoubledText(`${line}\n\n${line}`)).toBe(line);
+  });
+  it('leaves non-doubled text untouched', () => {
+    expect(dedupeDoubledText(line)).toBe(line);
+    expect(dedupeDoubledText(`${line} And then a different follow-up sentence entirely.`)).toBe(`${line} And then a different follow-up sentence entirely.`);
+  });
+  it('ignores short strings and legitimate repetition that is not an exact half-split', () => {
+    expect(dedupeDoubledText('hi hi')).toBe('hi hi');           // too short
+    expect(dedupeDoubledText(`${line} ${line} ${line}`)).toBe(`${line} ${line} ${line}`); // tripled, not exact halves
   });
 });
 
