@@ -49,6 +49,10 @@ export interface Conversation {
   // #55 — chat mode ('designer' | 'ask' | 'review'). Absent on
   // legacy conversations; the frontend defaults to 'designer'.
   mode?: 'designer' | 'ask' | 'review';
+  // #ai-export — digest of the effective standing system prompt this conversation
+  // ran under, resolved via systemPromptStore. Content-addressed so shared prompts
+  // aren't duplicated per conversation.
+  systemContextDigest?: string;
 }
 
 export interface ConversationSummary {

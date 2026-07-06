@@ -42,6 +42,9 @@ export interface Conversation {
   systemPrompt?: string;
   mode?: 'designer' | 'ask' | 'review';
   usage?: { inputTokens: number; outputTokens: number; totalCost?: number };
+  /** #ai-export — digest of the effective standing system prompt this conversation
+   *  ran under; resolve via GET /api/ai/system-prompt/:digest for the export. */
+  systemContextDigest?: string;
 }
 
 export interface ConversationChatMessage {
@@ -221,6 +224,16 @@ export class AIService {
 
   async saveConversation(conv: Conversation): Promise<void> {
     await this.http.post('/ai/conversations', conv);
+  }
+
+  /** #ai-export — resolve a system-prompt digest to its full body for the export. */
+  async getSystemPrompt(digest: string): Promise<string | null> {
+    try {
+      const response = await this.http.get<{ data: { digest: string; prompt: string } }>(`/ai/system-prompt/${encodeURIComponent(digest)}`);
+      return response.data.data?.prompt ?? null;
+    } catch {
+      return null;
+    }
   }
 
   async patchConversation(id: string, patch: Partial<Pick<Conversation, 'title' | 'pinned' | 'systemPrompt'>>): Promise<void> {

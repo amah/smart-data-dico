@@ -43,6 +43,7 @@ export interface AiCommandMap {
   'ai.conversation.save':   { input: { conversation: Conversation };                output: void };
   'ai.conversation.patch':  { input: { id: string; patch: Partial<Pick<Conversation, 'title' | 'pinned' | 'systemPrompt'>> }; output: void };
   'ai.conversation.delete': { input: { id: string };                                output: void };
+  'ai.system-prompt.get':   { input: { digest: string };                            output: string | null };
 
   // Prompts
   'ai.prompt.list':   { input: void;                                       output: SavedPrompt[] };

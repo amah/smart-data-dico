@@ -68,6 +68,7 @@ export function createAiAssistancePlugin(options: AiPluginOptions = {}): PluginM
       ctx.commands.register('ai.conversation.save', ({ conversation }: { conversation: Parameters<typeof ai.saveConversation>[0] }) => ai.saveConversation(conversation));
       ctx.commands.register('ai.conversation.patch', ({ id, patch }: { id: string; patch: Parameters<typeof ai.patchConversation>[1] }) => ai.patchConversation(id, patch));
       ctx.commands.register('ai.conversation.delete', ({ id }: { id: string }) => ai.deleteConversation(id));
+      ctx.commands.register('ai.system-prompt.get', ({ digest }: { digest: string }) => ai.getSystemPrompt(digest));
 
       ctx.commands.register('ai.prompt.list', () => ai.listPrompts());
       ctx.commands.register('ai.prompt.create', ({ name, content }: { name: string; content: string }) => ai.createPrompt({ name, content }));

@@ -392,6 +392,10 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   // timer to keep one setState per window instead of per token.
   const deltaBufferRef = useRef<string>('');
   const deltaFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // #ai-export — digest of the standing system prompt this conversation ran under
+  // (from the backend `system-context` SSE event), saved with the conversation and
+  // resolved for the export.
+  const systemContextDigestRef = useRef<string | null>(null);
 
   // Tracks transient "Copied!" / "Copy failed" feedback per code block,
   // keyed by the code text so we don't need ids on every block. (#129)
@@ -467,6 +471,8 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       updatedAt: new Date().toISOString(),
       ...(existing?.pinned ? { pinned: true } : {}),
       ...(systemPromptOverride.trim() ? { systemPrompt: systemPromptOverride.trim() } : {}),
+      // #ai-export — record which standing system prompt this conversation ran under.
+      ...(systemContextDigestRef.current ? { systemContextDigest: systemContextDigestRef.current } : {}),
       // #55 — persist chat mode so reopening this conversation restores
       // the same Designer / Ask / Review framing. Only emit when non-default.
       ...(mode !== 'designer' ? { mode } : {}),
@@ -488,6 +494,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     runAiCommand('ai.conversation.get', { id }).then(d => {
       if (d) {
         setConversationId(d.id);
+        systemContextDigestRef.current = (d as { systemContextDigest?: string }).systemContextDigest ?? null;
         setMessages(d.messages as any[]);
         // Restore the meter chip from the saved conversation (#128).
         // Older conversations saved before the meter shipped have no
@@ -514,6 +521,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
 
   const startNewConversation = useCallback(() => {
     setConversationId(crypto.randomUUID());
+    systemContextDigestRef.current = null;
     setMessages([]);
     setUsage(null);
     setSystemPromptOverride('');
@@ -532,8 +540,8 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   }, [conversationId, startNewConversation]);
 
   // Export a conversation as readable Markdown (#ai-export).
-  const downloadConversationMd = useCallback((conv: Conversation) => {
-    const blob = new Blob([conversationToMarkdown(conv)], { type: 'text/markdown;charset=utf-8' });
+  const downloadConversationMd = useCallback((conv: Conversation, defaultSystemPrompt?: string | null) => {
+    const blob = new Blob([conversationToMarkdown(conv, new Date(), defaultSystemPrompt || undefined)], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -551,13 +559,19 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const exportConversation = useCallback(async (id: string) => {
     try {
       const conv = (await runAiCommand('ai.conversation.get', { id })) as Conversation | null;
-      if (conv) downloadConversationMd(conv);
+      if (!conv) return;
+      const sys = conv.systemContextDigest
+        ? ((await runAiCommand('ai.system-prompt.get', { digest: conv.systemContextDigest })) as string | null)
+        : null;
+      downloadConversationMd(conv, sys);
     } catch { /* export is best-effort */ }
   }, [downloadConversationMd]);
   // The header exports the current conversation from live state (always up to date).
-  const exportCurrentConversation = useCallback(() => {
+  const exportCurrentConversation = useCallback(async () => {
     const title = conversationList.find(c => c.id === conversationId)?.title
       || messages.find(m => m.role === 'user')?.text?.slice(0, 60) || 'AI conversation';
+    const digest = systemContextDigestRef.current;
+    const sys = digest ? ((await runAiCommand('ai.system-prompt.get', { digest })) as string | null) : null;
     downloadConversationMd({
       id: conversationId,
       title,
@@ -565,9 +579,10 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       createdAt: '',
       updatedAt: new Date().toISOString(),
       mode,
+      ...(digest ? { systemContextDigest: digest } : {}),
       ...(systemPromptOverride ? { systemPrompt: systemPromptOverride } : {}),
       usage: usage ? { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, ...(usage.cost != null ? { totalCost: usage.cost } : {}) } : undefined,
-    });
+    }, sys);
   }, [conversationId, conversationList, messages, mode, usage, systemPromptOverride, downloadConversationMd]);
 
   const toggleTool = (toolId: string) => {
@@ -816,6 +831,13 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
             // Capture the per-turn streamId so tool-approval POSTs can
             // target this stream. Direct path emits it on `start`; the AI
             // SDK path emits a dedicated `stream-id` event after headers.
+            // #ai-export — the backend persisted the standing system prompt and sent
+            // its digest; remember it so this conversation records what it ran under.
+            if (data.type === 'system-context' && typeof data.digest === 'string') {
+              systemContextDigestRef.current = data.digest;
+              continue;
+            }
+
             if ((data.type === 'start' || data.type === 'stream-id') && typeof data.streamId === 'string') {
               streamIdRef.current = data.streamId;
               continue;

@@ -5,6 +5,7 @@ import { logger } from '../utils/logger.js';
 import { AI_MAX_STEPS, config } from '../kernel/config.js';
 import { getAgentTools, getAgentTool, jsonSchemaToParamList } from '../services/ai/agentToolRegistry.js';
 import { AUTHORING_RULES } from '../services/ai/authoringRules.js';
+import { systemPromptStore } from '../services/systemPromptStore.js';
 import { getConfigSection, setConfigSection, CONFIG_FILE } from '../utils/appDir.js';
 import { conversationService } from '../services/conversationService.js';
 import { promptService } from '../services/promptService.js';
@@ -718,27 +719,34 @@ export function sqlSettingsInstruction(cfg: { sql?: { schemaQualifyTables?: bool
       : 'For any table that has no physical schema, note that its schema is unknown and ask the user which schema to use rather than emitting an unqualified name.');
 }
 
-function buildSystemPrompt(pageContext?: string, conversationSystemPrompt?: string, mode: AIChatMode = 'designer', modelOutline?: string, sqlInstruction?: string): string {
+/**
+ * The STANDING part of the system prompt — canonical body (or the per-conversation
+ * override) + mode suffix + AUTHORING_RULES (designer) + SQL settings. Excludes the
+ * per-turn model outline and page context. This is what gets content-addressed and
+ * persisted for the conversation export (#ai-export) — it's identical across every
+ * conversation sharing a mode/config, so the store dedupes it.
+ */
+export function standingSystemPrompt(conversationSystemPrompt?: string, mode: AIChatMode = 'designer', sqlInstruction?: string): string {
   // #127 — per-conversation override replaces the canonical body when set.
-  // It still gets the page-context paragraph appended so cross-cutting hints
-  // (current entity, package) don't get lost when the user customizes.
   const base = (typeof conversationSystemPrompt === 'string' && conversationSystemPrompt.trim().length > 0)
     ? conversationSystemPrompt.trim().slice(0, 8000)
     : SYSTEM_PROMPT;
-  // #55 — append the mode-specific suffix BEFORE the model-outline / page-context
-  // lines so the page context stays the last paragraph (the model is more likely
-  // to weight late content for "what is the user looking at right now").
+  // #55 — mode suffix, then the format contract (#authoring-rules) in designer mode.
   let out = base + getModeSystemSuffix(mode);
-  // Single source of truth for the format contract (#authoring-rules) — injected
-  // only in the authoring (designer) mode, where write tools are available.
   if (mode === 'designer') out += `\n\n${AUTHORING_RULES}`;
   // #sql-settings — config-driven standing rule (e.g. schema-qualify tables).
   if (typeof sqlInstruction === 'string' && sqlInstruction.trim().length > 0) {
     out += `\n\n${sqlInstruction.trim()}`;
   }
+  return out;
+}
+
+function buildSystemPrompt(pageContext?: string, conversationSystemPrompt?: string, mode: AIChatMode = 'designer', modelOutline?: string, sqlInstruction?: string): string {
+  // Standing part first, then the per-turn lines. Page context stays LAST so the
+  // model weights "what is the user looking at right now" most heavily.
+  let out = standingSystemPrompt(conversationSystemPrompt, mode, sqlInstruction);
   // Per-turn model snapshot (#grounding) — a compact outline so the model is
-  // oriented without spending tool calls to discover the model. Placed before
-  // page context so the page context remains the final, most-salient line.
+  // oriented without spending tool calls to discover the model.
   if (typeof modelOutline === 'string' && modelOutline.trim().length > 0) {
     out += `\n\n${modelOutline.trim().slice(0, 2000)}`;
   }
@@ -1020,6 +1028,14 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
   };
 
   sendEvent({ type: 'start', streamId });
+
+  // #ai-export — persist the standing system prompt (content-addressed, deduped) and
+  // hand the client its digest so the saved conversation can reference it for the
+  // export/audit. Guarded: this must never break the chat stream.
+  try {
+    const digest = await systemPromptStore.put(standingSystemPrompt(conversationSystemPrompt, mode, sqlInstruction));
+    sendEvent({ type: 'system-context', digest, mode });
+  } catch { /* non-fatal */ }
 
   // #confab-guard — accumulate streamed assistant text so we can check, at the
   // end of the turn, whether it claimed a change that no successful tool made.
@@ -1584,6 +1600,12 @@ export const aiChat = async (req: Request, res: Response) => {
     try {
       res.write(`data: ${JSON.stringify({ type: 'stream-id', streamId })}\n\n`);
     } catch { /* response may have closed already */ }
+
+    // #ai-export — persist + reference the standing system prompt (see the direct path).
+    try {
+      const digest = await systemPromptStore.put(standingSystemPrompt(conversationSystemPrompt, mode, sqlInstruction));
+      res.write(`data: ${JSON.stringify({ type: 'system-context', digest, mode })}\n\n`);
+    } catch { /* non-fatal */ }
 
     if (response.body) {
       const reader = response.body.getReader();
@@ -2271,6 +2293,13 @@ export const patchConversation = async (req: Request, res: Response) => {
 export const deleteConversation = async (req: Request, res: Response) => {
   await conversationService.delete(req.params.id);
   res.json({ message: 'Conversation deleted' });
+};
+
+// #ai-export — resolve a system-prompt digest to its full body (for the export).
+export const getSystemPromptByDigest = async (req: Request, res: Response) => {
+  const body = await systemPromptStore.get(req.params.digest);
+  if (body == null) return res.status(404).json({ message: 'System prompt not found' });
+  res.json({ data: { digest: req.params.digest, prompt: body } });
 };
 
 // --- Saved prompts endpoints (#123) ---
