@@ -497,7 +497,7 @@ const StyleSwatch = ({ style }: { style: ElementStyle }) => {
         fontSize: 9, fontWeight: 700, letterSpacing: 0.2,
         // Greyscale font ramp by emphasis level — base readable, darkening to the top.
         color: resolveDisplayColor(style.textColor).color
-          ?? `color-mix(in srgb, var(--text) ${[75, 83, 92, 100][lvl]}%, transparent)`,
+          ?? `color-mix(in srgb, var(--text) ${[67.5, 83, 92, 100][lvl]}%, transparent)`,
       }}
     >
       {style.badge}

@@ -33,7 +33,7 @@ Fields: `name` (stable id), `label`, `fill`, `border`, `borderWidth`,
 3 — the node draws above others; the level sets border weight and gates the fill wash:
 1 = thin border no fill, 2 = thick border no fill, 3 = thick border + fill; no overlay
 tint. The label also darkens with the level — a greyscale font ramp over
-`base-content`, base stays well visible), `default` (mark **one** style as
+`base-content` (~0.68 at base → 1.0 at top), base stays visible), `default` (mark **one** style as
 the fallback — applied to any element no rule/role/stereotype styles; e.g. a
 neutral-grey base so unstyled entities look uniform).
 

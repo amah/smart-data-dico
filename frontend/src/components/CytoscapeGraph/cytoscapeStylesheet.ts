@@ -90,7 +90,7 @@ function styleColor(name: string | undefined): string | undefined {
 /** Greyscale font ramp by emphasis level (index 0–3): the label darkens as emphasis
  *  rises, but the base level stays well visible. Applied as text-opacity over the
  *  theme's base-content so it stays greyscale and adapts to dark/light. */
-const FONT_OPACITY_BY_LEVEL = [0.75, 0.83, 0.92, 1] as const;
+const FONT_OPACITY_BY_LEVEL = [0.675, 0.83, 0.92, 1] as const;
 
 export function buildElementStyleSelectors(elementStyles: ElementStyle[]): StylesheetStyle[] {
   return elementStyles.filter((s) => s?.name).map((s) => {

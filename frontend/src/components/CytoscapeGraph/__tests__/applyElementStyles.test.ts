@@ -129,7 +129,7 @@ describe('buildElementStyleSelectors', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ]).map((sh) => sh.style as any);
     // No explicit textColor → base-content colour + a text-opacity that rises with level.
-    expect(none['text-opacity']).toBe(0.75);   // base, still well visible
+    expect(none['text-opacity']).toBe(0.675);  // base, lightened but still visible
     expect(l1['text-opacity']).toBe(0.83);
     expect(l2['text-opacity']).toBe(0.92);
     expect(l3['text-opacity']).toBe(1);        // top, darkest
