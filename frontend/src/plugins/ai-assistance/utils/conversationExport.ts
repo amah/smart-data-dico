@@ -78,11 +78,21 @@ function toolResult(t: ToolCallLike): string {
   return t.output !== undefined ? '→ ✓' : '';
 }
 
-/** A short kebab filename for the conversation's .md export. */
+/** A readable filename for the conversation's .md export:
+ *  `ai-chat-<title-slug>-<YYYY-MM-DD>.md`. The title is kebab-slugged and capped at
+ *  ~48 chars on a word boundary (auto-titled conversations use the first user
+ *  message, which can be long), with an `ai-chat-` prefix so exports are obvious in
+ *  a downloads folder. */
 export function conversationFilename(conv: Pick<Conversation, 'title'>, now = new Date()): string {
-  const slug = (conv.title || 'ai-conversation')
-    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'ai-conversation';
-  return `${slug}-${now.toISOString().slice(0, 10)}.md`;
+  const full = (conv.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  let slug = full;
+  if (full.length > 48) {
+    slug = full.slice(0, 48);
+    const onWord = slug.replace(/-[^-]*$/, ''); // drop a trailing partial word
+    if (onWord.length >= 12) slug = onWord;
+  }
+  slug = slug.replace(/^-+|-+$/g, '') || 'conversation';
+  return `ai-chat-${slug}-${now.toISOString().slice(0, 10)}.md`;
 }
 
 export function conversationToMarkdown(conv: Conversation, now = new Date()): string {

@@ -83,10 +83,14 @@ describe('dedupeDoubledText', () => {
 });
 
 describe('conversationFilename', () => {
-  it('slugifies the title + date', () => {
-    expect(conversationFilename({ title: 'Design the Ordering Model!' }, NOW)).toBe('design-the-ordering-model-2026-07-06.md');
+  it('prefixes ai-chat-, slugifies the title, appends the date', () => {
+    expect(conversationFilename({ title: 'Design the Ordering Model!' }, NOW)).toBe('ai-chat-design-the-ordering-model-2026-07-06.md');
+  });
+  it('caps a long auto-title on a word boundary', () => {
+    const name = conversationFilename({ title: 'Can generate an SQL that select all active loans in the servicing package?' }, NOW);
+    expect(name).toBe('ai-chat-can-generate-an-sql-that-select-all-active-2026-07-06.md');
   });
   it('falls back when there is no title', () => {
-    expect(conversationFilename({ title: '' }, NOW)).toBe('ai-conversation-2026-07-06.md');
+    expect(conversationFilename({ title: '' }, NOW)).toBe('ai-chat-conversation-2026-07-06.md');
   });
 });
