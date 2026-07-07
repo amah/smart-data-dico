@@ -1,10 +1,11 @@
 /**
  * SpotlightSearch — the top-bar live search.
  *
- * Replaces the old button-that-navigates with a real input backed by an
- * in-memory Fuse.js index (see plugins/search/services/searchIndex). The index
- * is built lazily on first focus from `getAllPackages()` + the stereotype list,
- * then cached in a module singleton so re-opening is instant.
+ * Server-first (#search-index): typing queries the backend FTS5 index via
+ * `entityApi.suggest()`, which is always fresh and never ships the whole model
+ * to the browser. If the index isn't built yet (`ready:false`) or the request
+ * fails, it falls back to the legacy client-side Fuse.js index (built lazily
+ * from `getAllPackages()` and cached in a module singleton).
  *
  * - Typeahead: fuzzy, case-insensitive suggestions update as you type.
  * - ↑/↓ moves the active suggestion, Enter opens it, Esc closes.
@@ -17,21 +18,39 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Fuse from 'fuse.js';
-import { entityApi, stereotypeApi } from '../services/api';
+import { entityApi, stereotypeApi, type SearchSuggestHit } from '../services/api';
 import { Icon } from './ui';
 import {
   buildRecords,
   createSearchIndex,
   rankedSearch,
   type IndexRecord,
-  type RecordKind,
 } from '../plugins/search/services/searchIndex';
 
-/** Module-level cache so the index survives remounts; rebuilt on demand. */
+/** Unified display row produced by both the server and the Fuse fallback. */
+interface SpotlightHit {
+  id: string;
+  kind: string;
+  name: string;
+  entityName?: string;
+  service: string;
+  route: string;
+}
+
+const fromServer = (h: SearchSuggestHit): SpotlightHit => ({
+  id: h.id, kind: h.kind, name: h.name, entityName: h.entityName || undefined, service: h.package, route: h.route,
+});
+const fromRecord = (r: IndexRecord): SpotlightHit => ({
+  id: r.id, kind: r.kind, name: r.name, entityName: r.entityName, service: r.service, route: r.route,
+});
+
+/** Module-level cache so the Fuse fallback index survives remounts. */
 let cachedIndex: Fuse<IndexRecord> | null = null;
 let buildingPromise: Promise<Fuse<IndexRecord>> | null = null;
+/** Latches once the server index is confirmed unreachable, so we stop retrying it. */
+let preferFuse = false;
 
-async function getIndex(): Promise<Fuse<IndexRecord>> {
+async function getFuseIndex(): Promise<Fuse<IndexRecord>> {
   if (cachedIndex) return cachedIndex;
   if (buildingPromise) return buildingPromise;
   buildingPromise = (async () => {
@@ -45,72 +64,90 @@ async function getIndex(): Promise<Fuse<IndexRecord>> {
   return buildingPromise;
 }
 
-/** Invalidate the cache (e.g. after a project switch). */
+/** Invalidate the fallback cache (e.g. after a project switch). */
 export function resetSpotlightIndex(): void {
   cachedIndex = null;
   buildingPromise = null;
+  preferFuse = false;
 }
 
-const KIND_LABEL: Record<RecordKind, string> = {
+const KIND_LABEL: Record<string, string> = {
   entity: 'Entity',
   attribute: 'Attribute',
   package: 'Package',
   relationship: 'Relationship',
+  rule: 'Rule',
   metadata: 'Metadata',
   case: 'Case',
   stereotype: 'Stereotype',
 };
 
-const KIND_BADGE: Record<RecordKind, string> = {
+const KIND_BADGE: Record<string, string> = {
   entity: 'var(--accent)',
   attribute: 'var(--info, #3b82f6)',
   package: 'var(--warning, #d97706)',
   relationship: 'var(--success, #16a34a)',
+  rule: 'var(--success, #16a34a)',
   metadata: 'var(--text-subtle)',
   case: 'var(--text-subtle)',
   stereotype: 'var(--text-subtle)',
 };
 
+/**
+ * Run a query server-first, falling back to the Fuse index. Returns the ranked
+ * hits (already capped by the server; the Fuse path uses rankedSearch's cap).
+ */
+async function runSearch(q: string): Promise<SpotlightHit[]> {
+  if (!preferFuse) {
+    try {
+      const { ready, hits } = await entityApi.suggest(q, 8);
+      if (ready) return hits.map(fromServer);
+      // Index not built yet — fall through to the client index this round.
+    } catch {
+      preferFuse = true; // server unreachable → use Fuse for the rest of the session
+    }
+  }
+  const fuse = await getFuseIndex();
+  return rankedSearch(fuse, q).map(fromRecord);
+}
+
 export default function SpotlightSearch() {
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
-  const [results, setResults] = useState<IndexRecord[]>([]);
+  const [results, setResults] = useState<SpotlightHit[]>([]);
   const [active, setActive] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [ready, setReady] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const fuseRef = useRef<Fuse<IndexRecord> | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Guards against a slow response overwriting a newer query's results.
+  const seqRef = useRef(0);
 
-  // Warm the index on first focus. `ready` flips when the Fuse index is built,
-  // re-triggering the search effect for whatever the user has typed by then
-  // (the index often finishes loading after the last keystroke).
-  const ensureIndex = async () => {
-    if (fuseRef.current) return;
-    setLoading(true);
-    try {
-      fuseRef.current = await getIndex();
-      setReady(true);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Debounced query → results. Re-runs when the index becomes ready.
+  // Debounced query → results.
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      const fuse = fuseRef.current;
-      if (!fuse) return;
-      setResults(rankedSearch(fuse, query));
+    const q = query.trim();
+    if (!q) {
+      setResults([]);
       setActive(0);
-    }, 100);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    debounceRef.current = setTimeout(() => {
+      const seq = ++seqRef.current;
+      void runSearch(q).then((hits) => {
+        if (seq !== seqRef.current) return; // a newer query superseded this one
+        setResults(hits);
+        setActive(0);
+        setLoading(false);
+      });
+    }, 120);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, ready]);
+  }, [query]);
 
   // Close on outside click.
   useEffect(() => {
@@ -131,14 +168,12 @@ export default function SpotlightSearch() {
       e.preventDefault();
       inputRef.current?.focus();
       setOpen(true);
-      void ensureIndex();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const go = (record: IndexRecord) => {
+  const go = (record: SpotlightHit) => {
     setOpen(false);
     setQuery('');
     setResults([]);
@@ -170,7 +205,7 @@ export default function SpotlightSearch() {
     }
   };
 
-  const showDropdown = open && (loading || query.trim().length > 0);
+  const showDropdown = open && query.trim().length > 0;
 
   return (
     <div ref={wrapRef} style={{ position: 'relative', width: 360, maxWidth: '50%' }}>
@@ -189,7 +224,7 @@ export default function SpotlightSearch() {
           type="text"
           placeholder="Search entities, attributes, rules…"
           value={query}
-          onFocus={() => { setOpen(true); ensureIndex(); }}
+          onFocus={() => setOpen(true)}
           onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
           onKeyDown={onKeyDown}
           style={{
@@ -221,7 +256,7 @@ export default function SpotlightSearch() {
         >
           {loading && results.length === 0 ? (
             <div style={{ padding: '10px 12px', color: 'var(--text-subtle)', fontSize: 'var(--fs-sm)' }}>
-              Building index…
+              Searching…
             </div>
           ) : results.length === 0 ? (
             <div style={{ padding: '10px 12px', color: 'var(--text-subtle)', fontSize: 'var(--fs-sm)' }}>
@@ -244,11 +279,11 @@ export default function SpotlightSearch() {
                 <span
                   style={{
                     fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4,
-                    color: '#fff', background: KIND_BADGE[r.kind], borderRadius: 3,
+                    color: '#fff', background: KIND_BADGE[r.kind] ?? 'var(--text-subtle)', borderRadius: 3,
                     padding: '1px 5px', flexShrink: 0, minWidth: 62, textAlign: 'center',
                   }}
                 >
-                  {KIND_LABEL[r.kind]}
+                  {KIND_LABEL[r.kind] ?? r.kind}
                 </span>
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ color: 'var(--text)', fontSize: 'var(--fs-sm)', fontWeight: 500 }}>

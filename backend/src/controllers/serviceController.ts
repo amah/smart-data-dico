@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { serviceService } from '../services/serviceService.js';
 import { logger } from '../utils/logger.js';
 import { Entity, Relationship } from '../models/EntitySchema.js';
+import { getSearchIndex } from '../services/search/searchIndexService.js';
 
 /**
  * @swagger
@@ -264,6 +265,26 @@ export const searchEntities = async (req: Request, res: Response) => {
   } catch (error) {
     logger.error(`Error searching entities: ${error}`);
     res.status(500).json({ message: 'Error searching entities', error });
+  }
+};
+
+/**
+ * Typeahead suggestions for the top-bar spotlight (#search-index). Serves raw
+ * ranked hits straight from the FTS5 index — each carries a precomputed `route`
+ * so the client can navigate without reconstructing paths, and covers every
+ * indexed kind (incl. cases). `ready:false` tells the client the index isn't
+ * available yet so it can fall back to its client-side index.
+ */
+export const suggestSearch = async (req: Request, res: Response) => {
+  try {
+    const q = typeof req.query.q === 'string' ? req.query.q : '';
+    const limit = Math.min(Math.max(Number(req.query.limit) || 8, 1), 25);
+    const idx = getSearchIndex();
+    if (!idx) return res.json({ ready: false, hits: [] });
+    return res.json({ ready: true, hits: idx.search(q, { limit }) });
+  } catch (error) {
+    logger.error(`Error building search suggestions: ${error}`);
+    return res.json({ ready: false, hits: [] });
   }
 };
 

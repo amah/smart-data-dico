@@ -274,11 +274,34 @@ export const relationshipApi = {
 /**
  * Entity/Package API endpoints for navigation, flat, and hierarchical views
  */
+/** One ranked hit from the server-side full-text index (#search-index). */
+export interface SearchSuggestHit {
+  id: string;
+  kind: 'entity' | 'attribute' | 'package' | 'relationship' | 'rule' | 'metadata' | 'case';
+  name: string;
+  description: string;
+  package: string;
+  entityName: string;
+  route: string;
+  score: number;
+  snippet: string;
+}
+
 export const entityApi = {
   // Get all packages and their entities
   getAllPackages: async (): Promise<Package[]> => {
     const response = await api.get('/packages/all');
     return response.data.data; // Unwrap the data from the API response
+  },
+
+  /**
+   * Top-bar typeahead suggestions from the server FTS5 index (#search-index).
+   * `ready:false` means the index isn't built yet — the caller falls back to
+   * its client-side index. Never throws for a normal miss; returns [].
+   */
+  suggest: async (q: string, limit = 8): Promise<{ ready: boolean; hits: SearchSuggestHit[] }> => {
+    const response = await api.get('/search/suggest', { params: { q, limit } });
+    return response.data;
   },
 
   // Get flat list of entities/attributes with optional filters
