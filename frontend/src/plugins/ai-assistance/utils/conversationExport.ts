@@ -95,7 +95,7 @@ export function conversationFilename(conv: Pick<Conversation, 'title'>, now = ne
   return `ai-chat-${slug}-${now.toISOString().slice(0, 10)}.md`;
 }
 
-export function conversationToMarkdown(conv: Conversation, now = new Date(), defaultSystemPrompt?: string): string {
+export function conversationToMarkdown(conv: Conversation, now = new Date(), systemContext?: string): string {
   const out: string[] = [];
   out.push(`# ${conv.title?.trim() || 'AI conversation'}`, '');
 
@@ -111,16 +111,11 @@ export function conversationToMarkdown(conv: Conversation, now = new Date(), def
   }
   out.push('| Field | |', '|---|---|', ...rows.map(([k, v]) => `| ${k} | ${v} |`), '', '---', '');
 
-  // System context the agent ran under. Prefer the resolved standing prompt (canonical
-  // body + mode suffix + AUTHORING_RULES, fetched via the digest) — it already folds in
-  // any per-conversation override. Fall back to the stored override for older
-  // conversations that predate the digest.
-  const sysBody = (defaultSystemPrompt || '').trim() || (conv.systemPrompt || '').trim();
-  if (sysBody) {
-    const label = (defaultSystemPrompt || '').trim()
-      ? `System context (${conv.mode || 'designer'} mode)`
-      : 'System context (override)';
-    out.push(`<details><summary>⚙️ ${label}</summary>`, '', '```text', sysBody, '```', '</details>', '', '---', '');
+  // System context — included only when the caller passes it (the "with system
+  // context" download); the plain download omits it entirely.
+  const sys = (systemContext || '').trim();
+  if (sys) {
+    out.push(`<details><summary>⚙️ System context (${conv.mode || 'designer'} mode)</summary>`, '', '```text', sys, '```', '</details>', '', '---', '');
   }
 
   for (const m of (conv.messages ?? []) as ConversationChatMessage[]) {

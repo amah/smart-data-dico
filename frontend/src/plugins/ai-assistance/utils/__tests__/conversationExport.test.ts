@@ -55,22 +55,16 @@ describe('conversationToMarkdown', () => {
     expect(md).toContain('_(cancelled)_');
   });
 
-  it('renders the resolved standing prompt (digest) as System context (<mode>)', () => {
-    const withMode: Conversation = { ...conv, mode: 'designer' };
-    const out = conversationToMarkdown(withMode, NOW, 'You are an AI assistant for a Data Dictionary. AUTHORING_RULES: …');
+  it('renders the passed system context as "System context (<mode>)"', () => {
+    const out = conversationToMarkdown({ ...conv, mode: 'designer' }, NOW, 'You are an AI assistant for a Data Dictionary. AUTHORING_RULES: …');
     expect(out).toContain('<details><summary>⚙️ System context (designer mode)</summary>');
     expect(out).toContain('You are an AI assistant for a Data Dictionary.');
   });
 
-  it('falls back to the stored override (labelled) when no digest prompt is passed', () => {
-    const withSys: Conversation = { ...conv, systemPrompt: 'You are a data steward. Follow the format contract.' };
-    const out = conversationToMarkdown(withSys, NOW);
-    expect(out).toContain('<details><summary>⚙️ System context (override)</summary>');
-    expect(out).toContain('You are a data steward. Follow the format contract.');
-  });
-
-  it('omits the System context section when neither a digest prompt nor an override is present', () => {
-    expect(md).not.toContain('System context'); // base `conv` has neither
+  it('omits system context when none is passed — the plain download excludes it even with an override set', () => {
+    const withSys: Conversation = { ...conv, systemPrompt: 'You are a data steward.' };
+    expect(conversationToMarkdown(withSys, NOW)).not.toContain('System context');
+    expect(md).not.toContain('System context'); // base conv, no context passed
   });
 
   it('handles an empty/untitled conversation without throwing', () => {

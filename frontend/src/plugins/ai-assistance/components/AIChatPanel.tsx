@@ -540,8 +540,8 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   }, [conversationId, startNewConversation]);
 
   // Export a conversation as readable Markdown (#ai-export).
-  const downloadConversationMd = useCallback((conv: Conversation, defaultSystemPrompt?: string | null) => {
-    const blob = new Blob([conversationToMarkdown(conv, new Date(), defaultSystemPrompt || undefined)], { type: 'text/markdown;charset=utf-8' });
+  const downloadConversationMd = useCallback((conv: Conversation, systemContext?: string | null) => {
+    const blob = new Blob([conversationToMarkdown(conv, new Date(), systemContext || undefined)], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -556,22 +556,28 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
   }, []);
   // History rows export the saved copy by id.
-  const exportConversation = useCallback(async (id: string) => {
+  const exportConversation = useCallback(async (id: string, withContext = false) => {
     try {
       const conv = (await runAiCommand('ai.conversation.get', { id })) as Conversation | null;
       if (!conv) return;
-      const sys = conv.systemContextDigest
-        ? ((await runAiCommand('ai.system-prompt.get', { digest: conv.systemContextDigest })) as string | null)
-        : null;
+      let sys: string | null = null;
+      if (withContext) {
+        sys = conv.systemContextDigest
+          ? ((await runAiCommand('ai.system-prompt.get', { digest: conv.systemContextDigest })) as string | null)
+          : (conv.systemPrompt || null); // older conversations: fall back to the stored override
+      }
       downloadConversationMd(conv, sys);
     } catch { /* export is best-effort */ }
   }, [downloadConversationMd]);
   // The header exports the current conversation from live state (always up to date).
-  const exportCurrentConversation = useCallback(async () => {
+  const exportCurrentConversation = useCallback(async (withContext = false) => {
     const title = conversationList.find(c => c.id === conversationId)?.title
       || messages.find(m => m.role === 'user')?.text?.slice(0, 60) || 'AI conversation';
     const digest = systemContextDigestRef.current;
-    const sys = digest ? ((await runAiCommand('ai.system-prompt.get', { digest })) as string | null) : null;
+    let sys: string | null = null;
+    if (withContext) {
+      sys = digest ? ((await runAiCommand('ai.system-prompt.get', { digest })) as string | null) : (systemPromptOverride || null);
+    }
     downloadConversationMd({
       id: conversationId,
       title,
@@ -1766,13 +1772,22 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
             </svg>
           </a>
           {messages.length > 0 && (
-            <button
-              className="btn btn-ghost btn-xs"
-              onClick={exportCurrentConversation}
-              title="Export this conversation as Markdown"
-              aria-label="Export conversation as Markdown"
-              data-testid="ai-export-current"
-            >↓</button>
+            <div className="join">
+              <button
+                className="btn btn-ghost btn-xs join-item"
+                onClick={() => exportCurrentConversation(false)}
+                title="Download conversation (Markdown)"
+                aria-label="Download conversation"
+                data-testid="ai-export-current"
+              >↓</button>
+              <div className="dropdown dropdown-end join-item">
+                <label tabIndex={0} className="btn btn-ghost btn-xs px-0.5" title="Download options" aria-label="Download options">▾</label>
+                <ul tabIndex={0} className="dropdown-content menu z-50 mt-1 p-1 shadow-lg bg-base-100 rounded-box w-56 text-sm">
+                  <li><button onClick={() => exportCurrentConversation(false)}>Download conversation</button></li>
+                  <li><button onClick={() => exportCurrentConversation(true)} data-testid="ai-export-current-ctx">Download with system context</button></li>
+                </ul>
+              </div>
+            </div>
           )}
           <button className="btn btn-ghost btn-xs" onClick={startNewConversation} title="New">+</button>
           <button className="btn btn-ghost btn-xs" onClick={onClose} title="Close">&times;</button>
@@ -2496,13 +2511,22 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                     <span className="badge badge-xs badge-ghost">{conv.messageCount}</span>
                   </button>
                 )}
-                <button
-                  className="btn btn-xs btn-ghost opacity-0 group-hover:opacity-100"
-                  title="Export as Markdown"
-                  aria-label={`Export ${conv.title} as Markdown`}
-                  data-testid={`ai-export-${conv.id}`}
-                  onClick={() => exportConversation(conv.id)}
-                >↓</button>
+                <div className="join opacity-0 group-hover:opacity-100">
+                  <button
+                    className="btn btn-xs btn-ghost join-item"
+                    title="Download conversation (Markdown)"
+                    aria-label={`Download ${conv.title}`}
+                    data-testid={`ai-export-${conv.id}`}
+                    onClick={() => exportConversation(conv.id, false)}
+                  >↓</button>
+                  <div className="dropdown dropdown-end join-item">
+                    <label tabIndex={0} className="btn btn-xs btn-ghost px-0.5" title="Download options" aria-label="Download options">▾</label>
+                    <ul tabIndex={0} className="dropdown-content menu z-50 mt-1 p-1 shadow-lg bg-base-100 rounded-box w-56 text-sm">
+                      <li><button onClick={() => exportConversation(conv.id, false)}>Download conversation</button></li>
+                      <li><button onClick={() => exportConversation(conv.id, true)} data-testid={`ai-export-ctx-${conv.id}`}>Download with system context</button></li>
+                    </ul>
+                  </div>
+                </div>
                 <button className="btn btn-xs btn-ghost text-error opacity-0 group-hover:opacity-100" onClick={() => deleteConversation(conv.id)}>&times;</button>
               </div>
             ))}
