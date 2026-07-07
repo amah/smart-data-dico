@@ -78,4 +78,19 @@ describe('resolveToolCategory + isGatedCategory', () => {
     expect(resolveToolCategory('functions.listEntities:2', noTrust)).toBe('read');
     expect(resolveToolCategory('createEntity:0', noTrust)).toBe('create');
   });
+
+  // Plugin-contributed agent tools carry their own category — a read tool
+  // (e.g. searchModel) must resolve to "read" (not the "modify" default),
+  // matching the enforcement path in getToolCategory.
+  it('honours a registered plugin tool\'s own category', () => {
+    const { registerAgentTool } = require('../../services/ai/agentToolRegistry');
+    registerAgentTool({
+      name: 'testReadTool', category: 'read', description: 'x',
+      jsonSchema: { type: 'object', properties: {} }, inputSchema: { parse: (v: unknown) => v },
+      execute: () => ({}),
+    });
+    const cat = resolveToolCategory('testReadTool', noTrust);
+    expect(cat).toBe('read');
+    expect(isGatedCategory(cat)).toBe(false);
+  });
 });

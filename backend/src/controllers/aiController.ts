@@ -449,6 +449,11 @@ export function resolveToolCategory(
   const clean = toolName.replace(/^functions\./, '').split(':')[0];
   const builtin = TOOL_CATEGORY_MAP[clean];
   if (builtin) return builtin;
+  // Plugin-contributed agent tools carry their own category (e.g. searchModel
+  // is 'read'). Honour it so read-only plugin tools aren't mislabelled/treated
+  // as 'modify' — matches the enforcement path in getToolCategory (~L226).
+  const registered = getAgentTool(clean)?.category;
+  if (registered) return registered;
   // MCP tools are namespaced `<connectionId>.<toolName>`.
   if (clean.includes('.')) {
     const trust = trustByName.get(clean);
