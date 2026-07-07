@@ -128,6 +128,35 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
     setTimeout(() => setBulkMsg(null), 5000);
   };
 
+  // Hide or unhide every selected entity (non-destructive; toggles the reserved
+  // system.hidden flag). Mirrors applyBulkStyle — immediate, with a result banner.
+  const applyBulkHidden = async (hidden: boolean) => {
+    if (selected.size === 0 || bulkApplying) return;
+    setBulkApplying(true);
+    setBulkMsg(null);
+    const names = [...selected];
+    const failed: string[] = [];
+    for (const name of names) {
+      try {
+        await servicesApi.setEntityHidden(rootPackage, name, hidden);
+      } catch {
+        failed.push(name);
+      }
+    }
+    try {
+      const updated = await packageApi.getPackageByPath(rootPackage, subPath);
+      setPkg(updated);
+    } catch { /* keep current view */ }
+    const ok = names.length - failed.length;
+    const verb = hidden ? 'Hid' : 'Unhid';
+    setBulkMsg(failed.length
+      ? `${verb} ${ok}/${names.length} — failed: ${failed.slice(0, 3).join(', ')}${failed.length > 3 ? '…' : ''}`
+      : `${verb} ${ok} ${ok === 1 ? 'entity' : 'entities'}.`);
+    setSelected(new Set());
+    setBulkApplying(false);
+    setTimeout(() => setBulkMsg(null), 5000);
+  };
+
   const handleCreateSubPackage = async (data: { name: string; description: string; type: string }) => {
     try {
       await packageApi.createSubPackage(rootPackage, [...subPath, data.name], {
@@ -373,6 +402,7 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
             );
             const arrow = (key: string) => entitySort.key === key ? (entitySort.dir === 'asc' ? ' ▲' : ' ▼') : '';
             const styleOf = (e: Entity) => e.metadata?.find((m) => m.name === 'system.style')?.value as string | undefined;
+            const hiddenOf = (e: Entity) => e.metadata?.find((m) => m.name === 'system.hidden')?.value === 'true';
             const names = filtered.map((e) => e.name);
             const allChecked = names.length > 0 && names.every((n) => selected.has(n));
             const someChecked = names.some((n) => selected.has(n));
@@ -405,6 +435,14 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
                         ))}
                       </ul>
                     </div>
+                    {/* Bulk hide / unhide — toggles the reserved system.hidden flag on all selected. */}
+                    <span className="w-px h-5 bg-base-300" aria-hidden />
+                    <Button size="sm" variant="secondary" icon="eyeOff" onClick={() => applyBulkHidden(true)} disabled={bulkApplying}>
+                      Hide
+                    </Button>
+                    <Button size="sm" variant="secondary" icon="eye" onClick={() => applyBulkHidden(false)} disabled={bulkApplying}>
+                      Unhide
+                    </Button>
                     <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())} disabled={bulkApplying}>
                       Clear
                     </Button>
@@ -429,11 +467,12 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
                         <th className="cursor-pointer select-none" onClick={() => toggleSort('description')}>Description{arrow('description')}</th>
                         <th className="cursor-pointer select-none" onClick={() => toggleSort('attributes')}>Attributes{arrow('attributes')}</th>
                         <th>Style</th>
+                        <th>Hidden</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filtered.map((entity) => (
-                        <tr key={entity.uuid} className="hover" data-ttrowkey={entity.name}>
+                        <tr key={entity.uuid} className={`hover ${hiddenOf(entity) ? 'opacity-50' : ''}`} data-ttrowkey={entity.name}>
                           <td>
                             <input
                               type="checkbox"
@@ -457,11 +496,16 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
                               ? <Chip tone="meta" soft>{styleOf(entity)}</Chip>
                               : <span className="text-base-content/40">—</span>}
                           </td>
+                          <td>
+                            {hiddenOf(entity)
+                              ? <Chip tone="meta" soft>hidden</Chip>
+                              : <span className="text-base-content/40">—</span>}
+                          </td>
                         </tr>
                       ))}
                       {filtered.length === 0 && (
                         <tr>
-                          <td colSpan={5} className="text-center text-base-content/50 py-4">
+                          <td colSpan={6} className="text-center text-base-content/50 py-4">
                             No entities match "{entityFilter}"
                           </td>
                         </tr>
