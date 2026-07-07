@@ -5,6 +5,39 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.0] — 2026-07-07
+
+### Added
+- **Full-text search index over the whole dictionary.** A derived SQLite **FTS5**
+  index (via Node's built-in `node:sqlite`, no new dependency) now powers search.
+  It's a rebuildable cache — files stay canonical — living per-project under
+  `~/.dico-app/storage/search/`. It replaces the previous O(n²) per-query scan in
+  `/api/search` (which re-read every entity file — ~159s for 2000 entities) with
+  ranked **BM25** matching, prefix/boolean queries and snippet highlighting.
+  Rebuilt on boot and kept fresh incrementally by subscribing to the same write
+  event bus the UUID index uses. All searches are best-effort: any index failure
+  falls back to the legacy scan so search never hard-breaks.
+- **Top-bar spotlight runs on the server index.** The ⌘K / "/" search no longer
+  ships the entire model to the browser and rebuilds it per session — it queries
+  the server index (`/api/search/suggest`) so results are always fresh, covering
+  entities, attributes, packages, relationships, rules and cases. The old
+  client-side index is retained only as an offline fallback.
+- **`searchModel` AI agent tool.** The assistant can now full-text search the
+  dictionary to locate an entity/attribute/rule by fuzzy query (then drill in with
+  `getEntityDetails`) instead of relying on the truncated whole-model outline in
+  its prompt. Read-only — available in every chat mode, no approval.
+- **Bulk hide / unhide from the package page.** The entity-list selection bar
+  (already offering "Set style") gains **Hide** / **Unhide** actions that toggle
+  the reserved `system.hidden` flag on every selected entity at once, plus a
+  **Hidden** column and dimmed rows for hidden entities.
+
+### Fixed
+- **Plugin agent tools were miscategorised as "modify".** `resolveToolCategory`
+  ignored a plugin tool's own category and defaulted to `modify`, so the
+  read-only `searchModel` would have been gated for approval under a stricter
+  auto-approve policy. It now honours the registered category (matching the
+  enforcement path).
+
 ## [1.18.4] — 2026-07-07
 
 ### Added
