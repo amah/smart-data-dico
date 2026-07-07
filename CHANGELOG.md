@@ -5,6 +5,37 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.4] — 2026-07-07
+
+### Added
+- **Export an AI agent conversation as readable Markdown.** The chat panel (header and
+  each history row) gains a **download** control that writes the conversation to a
+  well-named file — `ai-chat-<title-slug>-<date>.md`. The format is "readable + folded
+  tools": a title + metadata table (exported/created/mode/messages/usage), one
+  `👤 User` / `🤖 Assistant` section per turn with full text, and each turn's tool
+  calls folded into a `<details>` block (a one-line result summary followed by
+  input/output JSON). Condensed and cancelled turns are annotated inline.
+- **Include the system context in the export.** The download control is a **split
+  button**: the primary action downloads the conversation only; the caret opens a
+  menu with **Download with system context**, which appends the effective standing
+  system prompt (canonical body + mode suffix + authoring rules + SQL settings) as a
+  folded `⚙️ System context` block. The effective prompt is captured live from the
+  stream and **content-addressed** — stored once under its digest and referenced by a
+  short `systemContextDigest` on each conversation, so the same prompt shared across
+  many conversations is never duplicated on disk.
+
+### Fixed
+- **Duplicated assistant text in some conversations.** A pre-fix streaming path saved
+  the reply twice (streamed during the tool loop *and* once after it). The streaming
+  footgun is removed, and the exporter collapses any exact back-to-back doubling so
+  historical conversations export clean.
+- **Export download did nothing.** The blob download revoked its object URL
+  synchronously (cancelling the download) from a detached anchor (which never fires);
+  the anchor is now appended to the DOM and the URL revoked on a delay.
+- **The split button read as two unrelated buttons.** The download + caret are now a
+  single bordered, filled segmented control with a divider before the caret, so it
+  clearly reads as one control with a "more options" affordance.
+
 ## [1.18.3] — 2026-07-06
 
 ### Added
