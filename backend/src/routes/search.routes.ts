@@ -1,6 +1,11 @@
 import { Router } from 'express';
 import { searchEntities } from '../controllers/serviceController.js';
 import { getFlatEntitiesAndAttributes } from '../controllers/dictionaryController.js';
+import { registerSearchAgentTools } from '../services/search/agentTools.js';
+
+// Contribute the read-only `searchModel` tool to the AI agent (#search-index).
+// Registered at module load, mirroring elementStyle / reverse-engineer.
+registerSearchAgentTools();
 
 const router: Router = Router();
 // /api/entities/flat MUST be declared before any 2-segment /api/entities POST

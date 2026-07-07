@@ -58,6 +58,11 @@ module.exports = {
         // Reverse-engineer plugin reads EXTERNAL repos by absolute path, so it
         // legitimately uses raw fs (IStorageBackend is scoped to the dico project).
         'src/services/reverseEngineer/**',
+        // Search index is a derived SQLite (node:sqlite) cache under ~/.dico-app/
+        // — SQLite must lock/mmap a real local file, so it cannot go through
+        // IStorageBackend (which may be git-backed or in-memory). Same layer as
+        // appDir.ts / secretStore.ts. Only fs use is mkdir for the cache dir.
+        'src/services/search/searchIndex.ts',
       ],
       rules: { 'no-restricted-imports': 'off' },
     },

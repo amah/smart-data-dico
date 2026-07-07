@@ -653,7 +653,7 @@ This system models a RICH domain — not just entities. You can author all of th
 - Events — domain events emitted by aggregates, e.g. OrderPlaced (createEvent)
 - Actions — commands/queries on aggregates with a flow; emitEvent/wait steps wire a saga/process (createAction)
 - State machines — entity lifecycles: states + transitions, e.g. Order PENDING→PAID→SHIPPED (createStateMachine)
-- Read/inspect: getModelOverview (whole-model outline — packages, entities, and concept counts; a current snapshot is already shown to you below), getEntityDetails (one entity in full incl. physical mapping), listEntities, listStereotypes; navigate with navigateTo (call listRoutes first if unsure)
+- Read/inspect: searchModel (full-text search across the whole dictionary — use it to LOCATE an entity/attribute/rule when you don't know its exact name, then drill in), getModelOverview (whole-model outline — packages, entities, and concept counts; a current snapshot is already shown to you below), getEntityDetails (one entity in full incl. physical mapping), listEntities, listStereotypes; navigate with navigateTo (call listRoutes first if unsure)
 - Diagram: generateMermaid converts the model to Mermaid source — diagram: "er" (entity-relationship of a package/all), "class" (class diagram), "state" (an entity's state machine, needs entityName), or "flow" (actions+events saga). Use it when the user asks for a diagram, ERD, or visualization, and present the result in a fenced mermaid code block.
 
 A "process" or "saga" is NOT a separate object — it is the graph that emerges from Actions (with emitEvent/wait flow steps) and Events. To model a process, create the Actions and Events; the saga view is derived automatically.

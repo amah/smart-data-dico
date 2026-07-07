@@ -19,6 +19,8 @@ import { compileHideRules, filterHiddenEntities, HIDDEN_META_KEY } from './visib
 import { getProjection } from '../storage/projection/ProjectionRegistry.js';
 import { wsId } from '../storage/contract/types.js';
 import type { LogicalPath } from '../storage/projection/LogicalProjection.js';
+import { getSearchIndex } from './search/searchIndexService.js';
+import type { SearchKind } from './search/searchDocuments.js';
 
 /**
  * Interface for search result
@@ -428,6 +430,35 @@ export class ServiceService {
 
   async searchEntities(query: string, filters?: SearchFilters): Promise<SearchResult[]> {
     logger.info(`Searching with query: ${query}, filters: ${JSON.stringify(filters)}`);
+
+    // Fast path (#search-index): serve from the FTS5 index when it's live. The
+    // legacy full-scan below stays as a fallback for when the index is absent
+    // (SQLite unavailable / not yet built) or when a filter it doesn't model is
+    // used (stereotype / hasMetadata).
+    const idx = getSearchIndex();
+    const unsupportedFilter = Boolean(filters?.stereotype || filters?.hasMetadata);
+    if (idx && query.trim() && !unsupportedFilter) {
+      const kinds = filters?.type ? [filters.type as SearchKind] : undefined;
+      const hits = idx.search(query, { package: filters?.service, kinds, limit: 50 });
+      const supported = new Set(['entity', 'attribute', 'metadata', 'relationship', 'package']);
+      const filtered = hits.filter((h) => supported.has(h.kind));
+      // The index already returns hits best-first (bm25 + per-kind tier). Legacy
+      // score semantics are "higher = better", so emit a rank-based descending
+      // score in (0,1] that preserves that order regardless of bm25 magnitude.
+      return filtered.map((h, i) => ({
+        type: h.kind as SearchResult['type'],
+        service: h.package,
+        entityName: h.entityName,
+        attributeName: h.kind === 'attribute' ? h.name : undefined,
+        name: h.name,
+        description: h.description,
+        path: h.kind === 'entity' ? `${h.package}/${h.name}`
+          : h.kind === 'attribute' ? `${h.package}/${h.entityName}`
+          : h.package,
+        score: 1 - i / (filtered.length || 1),
+        matchContext: h.snippet,
+      }));
+    }
 
     try {
       const results: SearchResult[] = [];

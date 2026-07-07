@@ -138,6 +138,20 @@ async function mountFrameworkRoutes() {
       } else {
         logger.info('RawFsWatcher disabled (DICO_WATCH_RAW=0)');
       }
+
+      // Full-text search index (#search-index) — a derived FTS5 cache built
+      // once here and kept fresh by subscribing to the SAME projection bus the
+      // UuidIndex uses. Best-effort: on failure search falls back to the scan.
+      try {
+        const { initSearchIndex, subscribeSearchIndex } = await import('./services/search/searchIndexService.js');
+        const built = await initSearchIndex();
+        if (built) {
+          subscribeSearchIndex(projection);
+          logger.info('SearchIndex initialized + subscribed to projection (#search-index)');
+        }
+      } catch (searchError) {
+        logger.warn(`SearchIndex initialization failed: ${searchError instanceof Error ? searchError.message : String(searchError)}`);
+      }
     } catch (e) {
       logger.warn(`Projection/UuidIndex initialization failed: ${e instanceof Error ? e.message : String(e)}`);
     }
