@@ -1772,7 +1772,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
             </svg>
           </a>
           {messages.length > 0 && (
-            <div className="join">
+            <div className="join rounded-md border border-base-content/20 bg-base-200">
               <button
                 className="btn btn-ghost btn-xs join-item"
                 onClick={() => exportCurrentConversation(false)}
@@ -1781,7 +1781,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                 data-testid="ai-export-current"
               >↓</button>
               <div className="dropdown dropdown-end join-item">
-                <label tabIndex={0} className="btn btn-ghost btn-xs px-0.5" title="Download options" aria-label="Download options">▾</label>
+                <label tabIndex={0} className="btn btn-ghost btn-xs join-item px-1 border-l border-base-content/20" title="More download options" aria-label="More download options">▾</label>
                 <ul tabIndex={0} className="dropdown-content menu z-50 mt-1 p-1 shadow-lg bg-base-100 rounded-box w-56 text-sm">
                   <li><button onClick={() => exportCurrentConversation(false)}>Download conversation</button></li>
                   <li><button onClick={() => exportCurrentConversation(true)} data-testid="ai-export-current-ctx">Download with system context</button></li>
@@ -2511,7 +2511,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                     <span className="badge badge-xs badge-ghost">{conv.messageCount}</span>
                   </button>
                 )}
-                <div className="join opacity-0 group-hover:opacity-100">
+                <div className="join rounded-md border border-base-content/20 bg-base-200 opacity-0 group-hover:opacity-100">
                   <button
                     className="btn btn-xs btn-ghost join-item"
                     title="Download conversation (Markdown)"
@@ -2520,7 +2520,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                     onClick={() => exportConversation(conv.id, false)}
                   >↓</button>
                   <div className="dropdown dropdown-end join-item">
-                    <label tabIndex={0} className="btn btn-xs btn-ghost px-0.5" title="Download options" aria-label="Download options">▾</label>
+                    <label tabIndex={0} className="btn btn-xs btn-ghost join-item px-1 border-l border-base-content/20" title="More download options" aria-label="More download options">▾</label>
                     <ul tabIndex={0} className="dropdown-content menu z-50 mt-1 p-1 shadow-lg bg-base-100 rounded-box w-56 text-sm">
                       <li><button onClick={() => exportConversation(conv.id, false)}>Download conversation</button></li>
                       <li><button onClick={() => exportConversation(conv.id, true)} data-testid={`ai-export-ctx-${conv.id}`}>Download with system context</button></li>
