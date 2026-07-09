@@ -4,7 +4,7 @@ import type { ElementDefinition } from 'cytoscape';
 import type { Attribute } from '../../types';
 import type { CytoscapeGraphProps, LayoutName, LayoutDirection } from './CytoscapeGraph.types';
 import { useFetchGraphData } from '../../hooks/useFetchGraphData';
-import { configApi } from '../../services/api';
+import { configApi, servicesApi } from '../../services/api';
 import { compileStyleRules, type ElementStyle, type StyleRule } from '../../utils/elementStyle';
 import { buildViewElements } from './viewElementBuilders';
 import { useCytoscapeInstance } from './useCytoscapeInstance';
@@ -159,6 +159,53 @@ export default function CytoscapeGraph({
       setInfoPanel({ ...infoPanel, styleName: cleared ? undefined : styleName });
     },
     [infoPanel, cyRef, painter, setInfoPanel],
+  );
+
+  // All package names, for the info panel's "Move to package" picker (#move-entity).
+  const [allPackages, setAllPackages] = useState<string[]>([]);
+  useEffect(() => {
+    servicesApi.getAllServices().then((r) => setAllPackages(r?.data ?? [])).catch(() => {});
+  }, []);
+
+  // Move the detailed entity to another package (#move-entity). The UUID is kept
+  // so references survive; the node then lives elsewhere, so we drop it from this
+  // (visible-only) diagram and close the panel.
+  const moveEntityFromPanel = useCallback(
+    async (targetPackage: string) => {
+      if (!infoPanel || infoPanel.type !== 'node' || !infoPanel.id || !infoPanel.service || !cyRef.current) return;
+      try {
+        await servicesApi.moveEntity(infoPanel.service, infoPanel.label, targetPackage);
+      } catch {
+        return;
+      }
+      const node = cyRef.current.getElementById(infoPanel.id);
+      if (node && node.length > 0) node.remove();
+      setInfoPanel(null);
+    },
+    [infoPanel, cyRef, setInfoPanel],
+  );
+
+  // Hide / unhide the detailed entity (#hide-model-data). Persists the reserved
+  // system.hidden flag, then dims the node in place for immediate feedback — the
+  // node stays this session so the toggle works both ways; a fresh diagram fetch
+  // (visible-only) drops hidden entities as usual.
+  const toggleHiddenFromPanel = useCallback(
+    async () => {
+      if (!infoPanel || infoPanel.type !== 'node' || !infoPanel.id || !infoPanel.service || !cyRef.current) return;
+      const next = !infoPanel.hidden;
+      try {
+        await servicesApi.setEntityHidden(infoPanel.service, infoPanel.label, next);
+      } catch {
+        return; // leave the panel state untouched on failure
+      }
+      const node = cyRef.current.getElementById(infoPanel.id);
+      if (node && node.length > 0) {
+        node.data('hidden', next);
+        node.style('opacity', next ? 0.35 : 1);
+      }
+      setInfoPanel({ ...infoPanel, hidden: next });
+    },
+    [infoPanel, cyRef, setInfoPanel],
   );
 
   // Case overlay (renamed from perspective in #121)
@@ -316,6 +363,9 @@ export default function CytoscapeGraph({
             onCopyFormat={(name) => painter.copyAndArm(name)}
             onPasteFormat={() => painter.clipboard && applyStyleFromPanel(painter.clipboard === CLEAR_STYLE ? null : painter.clipboard)}
             clipboard={painter.clipboard}
+            onToggleHidden={toggleHiddenFromPanel}
+            packages={allPackages}
+            onMoveEntity={moveEntityFromPanel}
           />
         )}
 

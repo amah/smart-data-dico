@@ -244,5 +244,6 @@ function nodePanelData(node: any): InfoPanelData {
     viewMode: node.data('viewMode'),
     constraints: node.data('constraints'),
     styleName: node.data('styleName'),
+    hidden: node.data('hidden') === true,
   };
 }

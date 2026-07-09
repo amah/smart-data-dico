@@ -52,6 +52,8 @@ export interface InfoPanelData {
   constraints?: PhysicalConstraint[];
   /** Resolved element-style name on the node, for the Appearance picker (format painter). */
   styleName?: string;
+  /** Whether the entity is currently hidden (system.hidden), for the hide/unhide toggle. */
+  hidden?: boolean;
   sourceLabel?: string;
   targetLabel?: string;
   sourceCardinality?: string;

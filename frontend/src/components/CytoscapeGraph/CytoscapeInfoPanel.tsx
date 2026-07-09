@@ -21,6 +21,12 @@ interface CytoscapeInfoPanelProps {
   onPasteFormat?: () => void;
   /** Current painter clipboard (drives the Paste button's enabled state). */
   clipboard?: string | null;
+  /** Toggle the entity's hidden state (system.hidden, #hide-model-data). */
+  onToggleHidden?: () => void;
+  /** All package names, for the "Move to package" picker (#move-entity). */
+  packages?: string[];
+  /** Move this entity to another package. */
+  onMoveEntity?: (targetPackage: string) => void;
 }
 
 const MIN_WIDTH = 280;
@@ -28,8 +34,12 @@ const MAX_WIDTH = 760;
 const DEFAULT_WIDTH = 320;
 
 export default function CytoscapeInfoPanel({
-  data, onClose, onNavigate, embeddables, styles, onApplyStyle, onCopyFormat, onPasteFormat, clipboard,
+  data, onClose, onNavigate, embeddables, styles, onApplyStyle, onCopyFormat, onPasteFormat, clipboard, onToggleHidden, packages, onMoveEntity,
 }: CytoscapeInfoPanelProps) {
+  const hasAppearance = !!(styles && styles.length > 0 && onApplyStyle);
+  const moveTargets = (packages ?? []).filter((p) => p !== data.service);
+  const canMove = !!onMoveEntity && moveTargets.length > 0;
+  const showActionsMenu = data.type === 'node' && (hasAppearance || !!onToggleHidden || canMove);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const draggingRef = useRef(false);
 
@@ -75,10 +85,10 @@ export default function CytoscapeInfoPanel({
       />
       <div className="flex-1 overflow-y-auto min-w-0">
         <div className="p-4">
-        {/* Header — name, a compact "view details" icon, and close. Description,
-            package badge and the Focus button are dropped to make room for the
-            attribute list (focus is still available via double-click). */}
-        <div className="flex items-center justify-between gap-1 mb-3">
+        {/* Header — name, a compact "view details" icon, an Appearance menu, and
+            close. Appearance is an infrequent action, so it lives behind a palette
+            dropdown rather than a permanently-visible toolbar. */}
+        <div className="flex items-center justify-between gap-1 mb-2">
           <div className="flex items-center gap-1 min-w-0">
             <h3 className="font-bold text-lg text-base-content truncate">{data.label}</h3>
             {data.type === 'node' && data.service && onNavigate && (
@@ -94,47 +104,121 @@ export default function CytoscapeInfoPanel({
               </button>
             )}
           </div>
-          <button onClick={onClose} className="btn btn-ghost btn-sm btn-circle shrink-0">
-            &times;
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            {/* Entity actions menu (palette dropdown): Appearance (#element-style)
+                — style picker + copy/paste the format between entities — and the
+                hide/unhide toggle (#hide-model-data). Infrequent, so tucked away. */}
+            {showActionsMenu && (
+              <div className="dropdown dropdown-end">
+                <div
+                  tabIndex={0}
+                  role="button"
+                  className="btn btn-ghost btn-xs btn-circle"
+                  title="Entity actions"
+                  aria-label="Entity actions"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="13.5" cy="6.5" r=".5" fill="currentColor" /><circle cx="17.5" cy="10.5" r=".5" fill="currentColor" /><circle cx="8.5" cy="7.5" r=".5" fill="currentColor" /><circle cx="6.5" cy="12.5" r=".5" fill="currentColor" /><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2Z" />
+                  </svg>
+                </div>
+                <div tabIndex={0} className="dropdown-content z-50 mt-1 w-56 rounded-box border border-base-300 bg-base-100 p-2 shadow-lg">
+                  {hasAppearance && (
+                    <>
+                      <div className="text-xs font-semibold mb-1.5 opacity-70">Appearance</div>
+                      <select
+                        className="select select-xs select-bordered w-full"
+                        value={data.styleName ?? ''}
+                        onChange={(e) => onApplyStyle!(e.target.value || null)}
+                        title="Element style for this entity (persists as a non-destructive override)"
+                      >
+                        <option value="">Default (no explicit style)</option>
+                        {styles!.map((s) => (
+                          <option key={s.name} value={s.name}>{s.label || s.name}</option>
+                        ))}
+                      </select>
+                      <div className="flex items-center gap-1 mt-2">
+                        <button
+                          className="btn btn-xs btn-ghost flex-1"
+                          onClick={() => onCopyFormat?.(data.styleName ?? null)}
+                          title="Copy this entity's style, then click other entities to paint it"
+                        >
+                          Copy format
+                        </button>
+                        <button
+                          className="btn btn-xs btn-ghost flex-1"
+                          onClick={() => onPasteFormat?.()}
+                          disabled={clipboard == null}
+                          title={clipboard == null
+                            ? 'Nothing copied yet'
+                            : `Apply the copied style (${clipboard === CLEAR_STYLE ? 'Default' : clipboard}) to this entity`}
+                        >
+                          Paste format
+                        </button>
+                      </div>
+                    </>
+                  )}
+                  {onToggleHidden && (
+                    <>
+                      {hasAppearance && <div className="border-t border-base-300 my-2" />}
+                      <button
+                        className="btn btn-xs btn-ghost w-full justify-start gap-2"
+                        onClick={onToggleHidden}
+                        title={data.hidden
+                          ? 'Show this entity again (clears system.hidden)'
+                          : 'Hide this entity from lists & diagrams (non-destructive; sets system.hidden)'}
+                      >
+                        {data.hidden ? (
+                          <>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" />
+                            </svg>
+                            Unhide entity
+                          </>
+                        ) : (
+                          <>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61M2 2l20 20" />
+                            </svg>
+                            Hide entity
+                          </>
+                        )}
+                      </button>
+                    </>
+                  )}
+                  {canMove && (
+                    <>
+                      {(hasAppearance || onToggleHidden) && <div className="border-t border-base-300 my-2" />}
+                      <div className="text-xs font-semibold mb-1.5 opacity-70">Move to package</div>
+                      <select
+                        className="select select-xs select-bordered w-full"
+                        value=""
+                        onChange={(e) => { if (e.target.value) onMoveEntity!(e.target.value); }}
+                        title="Move this entity to another package (keeps its UUID, so references survive)"
+                      >
+                        <option value="">Choose package…</option>
+                        {moveTargets.map((p) => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+            <button onClick={onClose} className="btn btn-ghost btn-sm btn-circle">
+              &times;
+            </button>
+          </div>
         </div>
 
-        {/* Appearance (#element-style) — pick a style from the list, or copy/paste
-            the format between entities (the toolbar brush paints many). */}
-        {data.type === 'node' && styles && styles.length > 0 && onApplyStyle && (
-          <div className="mb-3 pb-3 border-b border-base-300">
-            <h4 className="font-semibold text-sm mb-2">Appearance</h4>
-            <select
-              className="select select-xs select-bordered w-full"
-              value={data.styleName ?? ''}
-              onChange={(e) => onApplyStyle(e.target.value || null)}
-              title="Element style for this entity (persists as a non-destructive override)"
-            >
-              <option value="">Default (no explicit style)</option>
-              {styles.map((s) => (
-                <option key={s.name} value={s.name}>{s.label || s.name}</option>
-              ))}
-            </select>
-            <div className="flex items-center gap-1 mt-2">
-              <button
-                className="btn btn-xs btn-ghost"
-                onClick={() => onCopyFormat?.(data.styleName ?? null)}
-                title="Copy this entity's style, then click other entities to paint it"
-              >
-                Copy format
-              </button>
-              <button
-                className="btn btn-xs btn-ghost"
-                onClick={() => onPasteFormat?.()}
-                disabled={clipboard == null}
-                title={clipboard == null
-                  ? 'Nothing copied yet'
-                  : `Apply the copied style (${clipboard === CLEAR_STYLE ? 'Default' : clipboard}) to this entity`}
-              >
-                Paste format
-              </button>
-            </div>
-          </div>
+        {/* Entity description, right below the header. */}
+        {data.type === 'node' && data.description && (
+          <p className="text-xs opacity-70 whitespace-pre-wrap mb-3">{data.description}</p>
+        )}
+
+        {/* Divider before the attribute/column detail. */}
+        {data.type === 'node' && data.description && (
+          <div className="border-b border-base-300 mb-3" />
         )}
 
         {/* Per-mode node detail (#188) — compact nodes, detail here. */}
