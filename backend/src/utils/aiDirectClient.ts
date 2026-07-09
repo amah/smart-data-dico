@@ -222,7 +222,9 @@ export async function callWithTools(
           onEvent({ type: 'tool-end', name: toolName, toolCallId, input: toolArgs, output: result });
         }
 
-        // Add tool result to context
+        // Add tool result to context. Deliberately uncapped in the live loop
+        // (matching the Vercel path) — DIRECT_TOOL_RESULT_MAX_CHARS only bounds
+        // results reconstructed into history on later turns.
         currentMessages.push({
           role: 'tool',
           tool_call_id: tc.id,

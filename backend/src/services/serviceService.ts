@@ -182,9 +182,29 @@ export class ServiceService {
     entityName: string,
     preferredPackage?: string,
   ): Promise<{ entity: Entity; packageName: string } | null> {
+    const matches = await this.findEntityMatches(entityName, preferredPackage);
+    if (matches.length === 0) return null;
+    if (matches.length === 1) return matches[0];
+    const where = matches.map(m => m.packageName).join(', ');
+    throw new Error(
+      `Entity "${entityName}" exists in multiple packages: ${where}. Specify the package explicitly.`,
+    );
+  }
+
+  /**
+   * All `{ entity, packageName }` matches for a name. A hit in
+   * `preferredPackage` wins outright (single match, no wider scan) —
+   * same precedence findEntityAcrossPackages always had. Callers that
+   * want a disambiguation list instead of a thrown ambiguity error
+   * (e.g. the AI getEntityDetails tool) consume this directly.
+   */
+  async findEntityMatches(
+    entityName: string,
+    preferredPackage?: string,
+  ): Promise<{ entity: Entity; packageName: string }[]> {
     if (preferredPackage) {
       const e = await this.getEntitySchema(preferredPackage, entityName);
-      if (e) return { entity: e, packageName: preferredPackage };
+      if (e) return [{ entity: e, packageName: preferredPackage }];
     }
     const allPackages = await listMicroservices();
     const matches: { entity: Entity; packageName: string }[] = [];
@@ -193,12 +213,7 @@ export class ServiceService {
       const e = await this.getEntitySchema(p, entityName);
       if (e) matches.push({ entity: e, packageName: p });
     }
-    if (matches.length === 0) return null;
-    if (matches.length === 1) return matches[0];
-    const where = matches.map(m => m.packageName).join(', ');
-    throw new Error(
-      `Entity "${entityName}" exists in multiple packages: ${where}. Specify the package explicitly.`,
-    );
+    return matches;
   }
 
   async createEntity(service: string, entity: Entity): Promise<{ success: boolean; errors: string[] }> {

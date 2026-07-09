@@ -3,7 +3,7 @@
  * protocol from the frontend conversation so the model sees that it actually
  * called tools in prior turns (not just its own confirmation prose).
  */
-import { buildDirectChatMessages } from '../aiController.js';
+import { buildDirectChatMessages, TOOL_RESULT_TRUNCATION_MARKER } from '../aiController.js';
 
 function userMsg(text: string) {
   return { id: 'u1', role: 'user', parts: [{ type: 'text', text }] };
@@ -77,11 +77,41 @@ describe('buildDirectChatMessages', () => {
     expect(out).toEqual([{ role: 'assistant', content: 'done' }]);
   });
 
-  it('caps oversized tool-result content', () => {
+  it('caps oversized tool-result content LOUDLY — appends the truncation marker', () => {
     const big = { rows: 'x'.repeat(5000) };
     const out = buildDirectChatMessages([
       { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: '' }], toolCalls: [{ id: 't1', name: 'getSqlSchema', input: {}, output: big }] },
     ], 100);
-    expect((out[1] as any).content.length).toBe(100);
+    const content = (out[1] as any).content as string;
+    expect(content.length).toBe(100 + TOOL_RESULT_TRUNCATION_MARKER.length);
+    expect(content.endsWith(TOOL_RESULT_TRUNCATION_MARKER)).toBe(true);
+  });
+
+  it('leaves a within-cap tool result untouched (no marker)', () => {
+    const out = buildDirectChatMessages([
+      { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: '' }], toolCalls: [{ id: 't1', name: 'getSqlSchema', input: {}, output: { ok: true } }] },
+    ], 100);
+    expect((out[1] as any).content).toBe(JSON.stringify({ ok: true }));
+  });
+
+  it('a result of EXACTLY the cap length passes through untouched (boundary, no marker)', () => {
+    // JSON.stringify({ rows: 'x'.repeat(89) }) → `{"rows":"` (9) + 89 x's + `"}` (2) = 100 chars
+    const exact = { rows: 'x'.repeat(89) };
+    expect(JSON.stringify(exact)).toHaveLength(100);
+    const out = buildDirectChatMessages([
+      { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: '' }], toolCalls: [{ id: 't1', name: 'getSqlSchema', input: {}, output: exact }] },
+    ], 100);
+    const content = (out[1] as any).content as string;
+    expect(content).toBe(JSON.stringify(exact));
+    expect(content).not.toContain(TOOL_RESULT_TRUNCATION_MARKER);
+  });
+
+  it('the truncation marker tells the model to retry with a NARROWER scope', () => {
+    // the marker is the model's only recovery hint — it must say the result was
+    // cut AND name the scoping levers (packageName / entityNames)
+    expect(TOOL_RESULT_TRUNCATION_MARKER).toMatch(/truncated/);
+    expect(TOOL_RESULT_TRUNCATION_MARKER).toMatch(/narrower scope/);
+    expect(TOOL_RESULT_TRUNCATION_MARKER).toContain('packageName');
+    expect(TOOL_RESULT_TRUNCATION_MARKER).toContain('entityNames');
   });
 });

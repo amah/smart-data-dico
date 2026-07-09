@@ -25,6 +25,8 @@ export type SqlDialect = 'generic' | 'postgres' | 'mysql' | 'mssql' | 'oracle' |
 
 export const getSqlSchemaInputSchema = z.object({
   packageName: z.string().optional().describe('Scope to one package (omit for the whole model)'),
+  entityNames: z.array(z.string()).optional()
+    .describe('PREFERRED scope on large models: the target entity names (resolved across all packages). Their directly-related entities are included automatically so JOINs can be derived.'),
   dialect: z.enum(['generic', 'postgres', 'mysql', 'mssql', 'oracle', 'sqlite']).optional()
     .describe('Target SQL dialect — tunes fallback column types (default generic)'),
 });
@@ -34,6 +36,7 @@ export const getSqlSchemaParameters = {
   type: 'object',
   properties: {
     packageName: { type: 'string', description: 'Scope to one package (omit for the whole model)' },
+    entityNames: { type: 'array', items: { type: 'string' }, description: 'PREFERRED scope on large models: target entity names, resolved across all packages; directly-related entities are included automatically for JOINs' },
     dialect: { type: 'string', enum: ['generic', 'postgres', 'mysql', 'mssql', 'oracle', 'sqlite'], description: 'Target SQL dialect (default generic)' },
   },
 } as const;
@@ -122,24 +125,95 @@ export interface SqlSchemaOptions {
 export async function buildSqlSchema(input: GetSqlSchemaInput, services: SqlSchemaServices, opts?: SqlSchemaOptions): Promise<Record<string, unknown>> {
   const dialect = (input.dialect ?? 'generic') as SqlDialect;
   const { listMicroservices } = await import('../utils/fileOperations.js');
-  const pkgs = input.packageName ? [input.packageName] : await listMicroservices();
+  const allPkgs = await listMicroservices();
+  // Direct-path args arrive unvalidated — normalize entityNames defensively.
+  // A non-array (e.g. entityNames: "Order") must error like the zod path does,
+  // NOT silently fall through to the whole-model schema.
+  if (input.entityNames !== undefined && !Array.isArray(input.entityNames)) {
+    return {
+      error: `entityNames must be an array of entity names, e.g. entityNames: ['Order']. `
+        + `Retry with an array, or call searchModel({ query: '<entity or business term>' }) to locate the entity first.`,
+    };
+  }
+  const requestedNames = Array.isArray(input.entityNames)
+    ? input.entityNames.map(n => String(n).trim()).filter(Boolean)
+    : undefined;
+
+  if (input.packageName && !allPkgs.includes(input.packageName)) {
+    return {
+      error: `Package '${input.packageName}' not found. Known packages: ${nameList(allPkgs, 12) || 'none'}. `
+        + `Call searchModel({ query: '<entity or business term>' }) to locate the element, `
+        + `or retry with entityNames: ['<EntityName>'] — entity names resolve across all packages.`,
+    };
+  }
 
   const derivedList = await services.derivedTypes.list().catch(() => []);
   const derived = new Map(derivedList.map(d => [d.name, d]));
 
-  // Build across all packages for cross-package endpoint name resolution,
-  // but only emit tables for the requested scope.
-  const allPkgs = await listMicroservices();
-  const nameByUuid = new Map<string, string>();
+  // Load every package's entities ONCE — powers cross-package endpoint name
+  // resolution AND (for entityNames) cross-package entity lookup.
+  const entitiesByPkg = new Map<string, Entity[]>();
   for (const p of allPkgs) {
-    for (const e of await services.serviceService.getServiceEntities(p).catch(() => [])) nameByUuid.set(e.uuid, e.name);
+    entitiesByPkg.set(p, await services.serviceService.getServiceEntities(p).catch(() => []));
+  }
+  const nameByUuid = new Map<string, string>();
+  for (const ents of entitiesByPkg.values()) {
+    for (const e of ents) nameByUuid.set(e.uuid, e.name);
+  }
+  const relsByPkg = new Map<string, Relationship[]>();
+  const relsFor = async (p: string): Promise<Relationship[]> => {
+    if (!relsByPkg.has(p)) relsByPkg.set(p, await services.serviceService.getPackageRelationships(p).catch(() => []));
+    return relsByPkg.get(p)!;
+  };
+
+  // Resolve the scope: which packages to scan, and (entityNames mode) the
+  // exact entity uuids to emit — the requested entities PLUS every entity
+  // directly related to one, so JOINs always have both endpoints.
+  let pkgs: string[];
+  let include: Set<string> | null = null; // null → every entity in `pkgs`
+  let scope: string;
+  const unresolved: string[] = [];
+  if (requestedNames?.length) {
+    pkgs = allPkgs;
+    const wanted = new Set<string>();
+    for (const name of requestedNames) {
+      const exact: string[] = [];
+      const loose: string[] = [];
+      for (const ents of entitiesByPkg.values()) {
+        for (const e of ents) {
+          if (e.name === name) exact.push(e.uuid);
+          else if (e.name.toLowerCase() === name.toLowerCase()) loose.push(e.uuid);
+        }
+      }
+      const hits = exact.length ? exact : loose;
+      if (hits.length) hits.forEach(u => wanted.add(u));
+      else unresolved.push(name);
+    }
+    if (!wanted.size) {
+      return {
+        error: `None of the requested entities (${requestedNames.join(', ')}) exist in any package. `
+          + `Call searchModel({ query: '<entity or business term>' }) to locate the right entity names, then retry.`,
+      };
+    }
+    include = new Set(wanted);
+    for (const p of allPkgs) {
+      for (const r of await relsFor(p)) {
+        if (wanted.has(r.source.entity)) include.add(r.target.entity);
+        if (wanted.has(r.target.entity)) include.add(r.source.entity);
+      }
+    }
+    const resolved = requestedNames.filter(n => !unresolved.includes(n));
+    scope = `entities: ${resolved.join(', ')} (+directly related)`;
+  } else {
+    pkgs = input.packageName ? [input.packageName] : allPkgs;
+    scope = input.packageName ?? 'all packages';
   }
 
   const tables: unknown[] = [];
   const relationships: unknown[] = [];
   let missing = 0;
   for (const p of pkgs) {
-    const entities = await services.serviceService.getServiceEntities(p).catch(() => []);
+    const entities = (entitiesByPkg.get(p) ?? []).filter(e => !include || include.has(e.uuid));
     for (const e of entities) {
       // The entity's own physical schema, or the configured default schema.
       const schema = metaValue(e.metadata, 'physical.schema') ?? (opts?.defaultSchema?.trim() || undefined);
@@ -151,6 +225,7 @@ export async function buildSqlSchema(input: GetSqlSchemaInput, services: SqlSche
       });
       tables.push({
         entity: e.name,
+        package: p,
         table,
         ...(schema ? { schema } : {}),
         // Ready-to-use name for SQL — schema.table when a schema is known.
@@ -158,7 +233,8 @@ export async function buildSqlSchema(input: GetSqlSchemaInput, services: SqlSche
         columns,
       });
     }
-    for (const r of await services.serviceService.getPackageRelationships(p).catch(() => [])) {
+    for (const r of await relsFor(p)) {
+      if (include && !(include.has(r.source.entity) && include.has(r.target.entity))) continue;
       const from = nameByUuid.get(r.source.entity);
       const to = nameByUuid.get(r.target.entity);
       if (!from || !to) continue;
@@ -171,7 +247,6 @@ export async function buildSqlSchema(input: GetSqlSchemaInput, services: SqlSche
     }
   }
 
-  const scope = input.packageName ?? 'all packages';
   const tableNames = (tables as Array<{ entity: string }>).map(t => t.entity);
   return {
     // #tool-summary — concise line, NAMES the tables for the tool card.
@@ -181,10 +256,14 @@ export async function buildSqlSchema(input: GetSqlSchemaInput, services: SqlSche
     schemaQualifyTables: !!opts?.schemaQualifyTables,
     tables,
     relationships,
+    ...(unresolved.length ? { unresolvedEntityNames: unresolved } : {}),
     note: 'Use these PHYSICAL table/column names and dbTypes when writing SQL. '
       + (opts?.schemaQualifyTables ? 'Schema-qualify every table (use each table\'s qualifiedName). ' : '')
       + (missing > 0
         ? `${missing} column(s) have no physical mapping — their dbType is a fallback derived from the logical type; flag this to the user.`
-        : 'All columns have an explicit physical mapping.'),
+        : 'All columns have an explicit physical mapping.')
+      + (unresolved.length
+        ? ` Requested entities not found: ${unresolved.join(', ')} — call searchModel({ query: '<name>' }) to locate them.`
+        : ''),
   };
 }
