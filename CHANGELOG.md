@@ -5,6 +5,35 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.0] — 2026-07-09
+
+### Added
+- **Move an entity to another package.** A relocation that keeps the entity's
+  UUID, so relationships (cross-package is first-class), cases and diagrams that
+  reference it keep resolving — nothing is orphaned. Available from the diagram
+  info panel, from a per-row menu on the package page, and as a `moveEntity` AI
+  agent tool. Backend: `PUT /api/services/:service/entities/:entity/move`.
+- **Sub-package entities in the package table.** The entity list now folds each
+  sub-package in as an expandable group row with its entities indented beneath —
+  same columns, fonts and checkboxes as the package's own entities. Selection
+  spans sub-packages (select-all and a per-group checkbox), so bulk style /
+  hide / unhide / move apply to descendants too.
+- **Reorganized diagram entity info panel.** Appearance controls move into a
+  compact palette dropdown, the entity description shows directly under its name,
+  and the same menu now offers hide/unhide and move-to-package — visible even
+  when no element styles are configured.
+- **Markdown tables in the AI chat.** GitHub-flavored pipe-tables now render (via
+  `remark-gfm`) with bordered, shaded-header, zebra-striped styling in both
+  themes, instead of appearing as raw text.
+
+### Fixed
+- **Sub-package entities were never listed.** The package-hierarchy builder read
+  a sub-package's contents from its leaf name instead of its full path, so its
+  entities/relationships/cases always came back empty.
+- **Non-destructive re-saves could 500.** Hiding or styling an entity whose
+  `attributes`/`properties` is a non-array (e.g. from an import) threw
+  `(attrs ?? []) is not iterable`; `fillAttributeDefaults` now guards against it.
+
 ## [1.19.0] — 2026-07-07
 
 ### Added
