@@ -6,7 +6,7 @@ import type { Package, Entity, Stereotype, Breadcrumb } from '../types';
 import PackageForm from '../components/PackageForm';
 import DiagramViewer from '../components/CytoscapeGraph/DiagramViewer';
 import Breadcrumbs from '../components/Breadcrumbs';
-import { Button, Chip, PageHeader } from '../components/ui';
+import { Button, Chip, PageHeader, Menu, Icon } from '../components/ui';
 import { StyleSwatch } from './ElementStylesPage';
 import { useRecordRecentPackage } from '../hooks/useRecentPackages';
 import { useStoredState } from '../hooks/useStoredState';
@@ -50,7 +50,10 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
   const [stereotypes, setStereotypes] = useState<Stereotype[]>([]);
   const [entityFilter, setEntityFilter] = useState('');
   // Bulk style application (#element-style): select entities → apply a style to all.
+  // Keys are "<packagePath>::<entityName>" so selection can span sub-packages.
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Collapsed sub-package group paths in the entity table (empty = all expanded).
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [elementStyles, setElementStyles] = useState<ElementStyle[]>([]);
   const [bulkApplying, setBulkApplying] = useState(false);
   const [bulkMsg, setBulkMsg] = useState<string | null>(null);
@@ -62,9 +65,13 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
   // Track package visits for the "Recently viewed" strip on Home (#102 P3).
   useRecordRecentPackage(packagePath[0]);
 
+  // All package names, for the per-entity "Move to package" picker (#move-entity).
+  const [allPackages, setAllPackages] = useState<string[]>([]);
+
   useEffect(() => {
     stereotypeApi.getAll('entity').then(setStereotypes).catch(() => {});
     configApi.getElementStyles().then(setElementStyles).catch(() => {});
+    servicesApi.getAllServices().then((r) => setAllPackages(r?.data ?? [])).catch(() => {});
   }, []);
 
   const rootPackage = packagePath[0];
@@ -91,68 +98,88 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
     setSelected(new Set()); // reset selection when navigating between packages
   }, [rootPackage, subPath.join('/')]);
 
-  const toggleSelect = (name: string) => setSelected((prev) => {
+  // Selection is keyed by "<packagePath>::<entityName>" so a bulk action can span
+  // this package AND its sub-packages (each descendant carries its own package path).
+  const entityKey = (pkg: string, name: string) => `${pkg}::${name}`;
+  const parseKey = (key: string): { pkg: string; name: string } => {
+    const i = key.lastIndexOf('::');
+    return { pkg: key.slice(0, i), name: key.slice(i + 2) };
+  };
+  const toggleSelect = (key: string) => setSelected((prev) => {
     const next = new Set(prev);
-    if (next.has(name)) next.delete(name); else next.add(name);
+    if (next.has(key)) next.delete(key); else next.add(key);
     return next;
   });
-  const setSelectAll = (names: string[], checked: boolean) => setSelected(checked ? new Set(names) : new Set());
+  const setSelectKeys = (keys: string[], checked: boolean) => setSelected((prev) => {
+    const next = new Set(prev);
+    for (const k of keys) { if (checked) next.add(k); else next.delete(k); }
+    return next;
+  });
 
-  // Apply a style to every selected entity immediately (no separate Apply step).
-  // `style` empty/undefined clears the override (Default).
-  const applyBulkStyle = async (style: string) => {
+  // Run an async op over every selected (package, entity), tolerating per-item
+  // failures, then refresh once. Shared by the bulk style/hide handlers so both
+  // operate across descendants living in sub-packages.
+  const runBulk = async (
+    verbLabel: (ok: number, total: number, failed: string[]) => string,
+    op: (pkg: string, name: string) => Promise<unknown>,
+  ) => {
     if (selected.size === 0 || bulkApplying) return;
-    (document.activeElement as HTMLElement | null)?.blur(); // close the dropdown
+    (document.activeElement as HTMLElement | null)?.blur(); // close any open dropdown
     setBulkApplying(true);
     setBulkMsg(null);
-    const names = [...selected];
+    const keys = [...selected];
     const failed: string[] = [];
-    for (const name of names) {
-      try {
-        await servicesApi.setEntityStyle(rootPackage, name, style || null);
-      } catch {
-        failed.push(name);
-      }
+    for (const key of keys) {
+      const { pkg, name } = parseKey(key);
+      try { await op(pkg, name); } catch { failed.push(name); }
     }
     try {
       const updated = await packageApi.getPackageByPath(rootPackage, subPath);
       setPkg(updated);
     } catch { /* keep current view */ }
-    const ok = names.length - failed.length;
-    const label = style ? `"${style}"` : 'Default (cleared)';
-    setBulkMsg(failed.length
-      ? `Applied ${label} to ${ok}/${names.length} — failed: ${failed.slice(0, 3).join(', ')}${failed.length > 3 ? '…' : ''}`
-      : `Applied ${label} to ${ok} ${ok === 1 ? 'entity' : 'entities'}.`);
+    setBulkMsg(verbLabel(keys.length - failed.length, keys.length, failed));
     setSelected(new Set());
     setBulkApplying(false);
     setTimeout(() => setBulkMsg(null), 5000);
   };
 
-  // Hide or unhide every selected entity (non-destructive; toggles the reserved
-  // system.hidden flag). Mirrors applyBulkStyle — immediate, with a result banner.
-  const applyBulkHidden = async (hidden: boolean) => {
-    if (selected.size === 0 || bulkApplying) return;
+  // Apply a style to every selected entity. `style` empty clears the override.
+  const applyBulkStyle = (style: string) => {
+    const label = style ? `"${style}"` : 'Default (cleared)';
+    return runBulk(
+      (ok, total, failed) => failed.length
+        ? `Applied ${label} to ${ok}/${total} — failed: ${failed.slice(0, 3).join(', ')}${failed.length > 3 ? '…' : ''}`
+        : `Applied ${label} to ${ok} ${ok === 1 ? 'entity' : 'entities'}.`,
+      (pkg, name) => servicesApi.setEntityStyle(pkg, name, style || null),
+    );
+  };
+
+  // Hide or unhide every selected entity (toggles the reserved system.hidden flag).
+  const applyBulkHidden = (hidden: boolean) => {
+    const verb = hidden ? 'Hid' : 'Unhid';
+    return runBulk(
+      (ok, total, failed) => failed.length
+        ? `${verb} ${ok}/${total} — failed: ${failed.slice(0, 3).join(', ')}${failed.length > 3 ? '…' : ''}`
+        : `${verb} ${ok} ${ok === 1 ? 'entity' : 'entities'}.`,
+      (pkg, name) => servicesApi.setEntityHidden(pkg, name, hidden),
+    );
+  };
+
+  // Move a single entity from its own package to another (#move-entity). Keeps its
+  // UUID, so relationships/cases/diagrams that reference it survive.
+  const moveEntity = async (pkg: string, name: string, targetPackage: string) => {
+    if (bulkApplying) return;
     setBulkApplying(true);
     setBulkMsg(null);
-    const names = [...selected];
-    const failed: string[] = [];
-    for (const name of names) {
-      try {
-        await servicesApi.setEntityHidden(rootPackage, name, hidden);
-      } catch {
-        failed.push(name);
-      }
-    }
     try {
+      await servicesApi.moveEntity(pkg, name, targetPackage);
       const updated = await packageApi.getPackageByPath(rootPackage, subPath);
       setPkg(updated);
-    } catch { /* keep current view */ }
-    const ok = names.length - failed.length;
-    const verb = hidden ? 'Hid' : 'Unhid';
-    setBulkMsg(failed.length
-      ? `${verb} ${ok}/${names.length} — failed: ${failed.slice(0, 3).join(', ')}${failed.length > 3 ? '…' : ''}`
-      : `${verb} ${ok} ${ok === 1 ? 'entity' : 'entities'}.`);
-    setSelected(new Set());
+      setBulkMsg(`Moved "${name}" to ${targetPackage}.`);
+    } catch (err: any) {
+      const detail = err?.response?.data?.errors?.[0] || err?.response?.data?.message || err?.message || 'unknown error';
+      setBulkMsg(`Failed to move "${name}": ${detail}`);
+    }
     setBulkApplying(false);
     setTimeout(() => setBulkMsg(null), 5000);
   };
@@ -378,21 +405,16 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
               </Link>
             </div>
           </div>
-          {entityCount === 0 ? (
+          {(entityCount === 0 && subPackageCount === 0) ? (
             <p className="text-base-content/50">No entities in this package.</p>
           ) : (() => {
+            const INDENT = 18; // px per tree depth
             const q = entityFilter.trim().toLowerCase();
-            const base = q
-              ? pkg.entities!.filter(e =>
-                  e.name.toLowerCase().includes(q) ||
-                  (e.description || '').toLowerCase().includes(q),
-                )
-              : pkg.entities!;
-            const filtered = [...base].sort((a, b) => {
-              const dir = entitySort.dir === 'asc' ? 1 : -1;
-              if (entitySort.key === 'attributes') {
-                return ((a.attributes?.length ?? 0) - (b.attributes?.length ?? 0)) * dir;
-              }
+            const currentPkgPath = packagePath.join('/');
+            const dir = entitySort.dir === 'asc' ? 1 : -1;
+            const matchesQ = (e: Entity) => !q || e.name.toLowerCase().includes(q) || (e.description || '').toLowerCase().includes(q);
+            const sortEntities = (list: Entity[]) => [...list].sort((a, b) => {
+              if (entitySort.key === 'attributes') return ((a.attributes?.length ?? 0) - (b.attributes?.length ?? 0)) * dir;
               const av = (entitySort.key === 'description' ? (a.description || '') : a.name).toLowerCase();
               const bv = (entitySort.key === 'description' ? (b.description || '') : b.name).toLowerCase();
               return av.localeCompare(bv) * dir;
@@ -403,9 +425,46 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
             const arrow = (key: string) => entitySort.key === key ? (entitySort.dir === 'asc' ? ' ▲' : ' ▼') : '';
             const styleOf = (e: Entity) => e.metadata?.find((m) => m.name === 'system.style')?.value as string | undefined;
             const hiddenOf = (e: Entity) => e.metadata?.find((m) => m.name === 'system.hidden')?.value === 'true';
-            const names = filtered.map((e) => e.name);
-            const allChecked = names.length > 0 && names.every((n) => selected.has(n));
-            const someChecked = names.some((n) => selected.has(n));
+            const toggleGroup = (path: string) => setCollapsedGroups((prev) => {
+              const next = new Set(prev);
+              if (next.has(path)) next.delete(path); else next.add(path);
+              return next;
+            });
+
+            // All matching entity keys under a subtree — powers a group's select-all.
+            const collectKeys = (p: Package, pkgPath: string): string[] => {
+              const out: string[] = [];
+              for (const e of (p.entities ?? [])) if (matchesQ(e)) out.push(entityKey(pkgPath, e.name));
+              for (const s of (p.subPackages ?? [])) out.push(...collectKeys(s, `${pkgPath}/${s.name}`));
+              return out;
+            };
+
+            // Flatten parent entities + sub-package groups + descendant entities into
+            // one ordered row list. Groups are expandable; entities indent by depth.
+            type Row =
+              | { kind: 'entity'; entity: Entity; pkg: string; url: string; depth: number; key: string }
+              | { kind: 'group'; pkg: string; name: string; url: string; depth: number; entityCount: number; subCount: number; descKeys: string[]; collapsed: boolean };
+            const rows: Row[] = [];
+            for (const e of sortEntities((pkg.entities ?? []).filter(matchesQ))) {
+              rows.push({ kind: 'entity', entity: e, pkg: currentPkgPath, url: packageUrl, depth: 0, key: entityKey(currentPkgPath, e.name) });
+            }
+            const walkSub = (sub: Package, depth: number, pkgPath: string, url: string) => {
+              const descKeys = collectKeys(sub, pkgPath);
+              if (q && descKeys.length === 0) return; // filtering: skip empty subtrees
+              const collapsed = collapsedGroups.has(pkgPath);
+              rows.push({ kind: 'group', pkg: pkgPath, name: sub.name, url, depth, entityCount: sub.entities?.length ?? 0, subCount: sub.subPackages?.length ?? 0, descKeys, collapsed });
+              if (collapsed) return;
+              for (const e of sortEntities((sub.entities ?? []).filter(matchesQ))) {
+                rows.push({ kind: 'entity', entity: e, pkg: pkgPath, url, depth: depth + 1, key: entityKey(pkgPath, e.name) });
+              }
+              for (const cs of (sub.subPackages ?? [])) walkSub(cs, depth + 1, `${pkgPath}/${cs.name}`, `${url}/${cs.name}`);
+            };
+            for (const sub of (pkg.subPackages ?? [])) walkSub(sub, 0, `${currentPkgPath}/${sub.name}`, `${packageUrl}/${sub.name}`);
+
+            const allKeys = rows.filter((r): r is Extract<Row, { kind: 'entity' }> => r.kind === 'entity').map((r) => r.key);
+            const allChecked = allKeys.length > 0 && allKeys.every((k) => selected.has(k));
+            const someChecked = allKeys.some((k) => selected.has(k));
+            const moveTargetsFor = (pkgPath: string) => allPackages.filter((p) => p !== pkgPath);
             return (
               <>
                 {/* Bulk style bar — appears once entities are selected. */}
@@ -460,7 +519,7 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
                             aria-label="Select all entities"
                             checked={allChecked}
                             ref={(el) => { if (el) el.indeterminate = someChecked && !allChecked; }}
-                            onChange={(e) => setSelectAll(names, e.target.checked)}
+                            onChange={(e) => setSelectKeys(allKeys, e.target.checked)}
                           />
                         </th>
                         <th className="cursor-pointer select-none" onClick={() => toggleSort('name')}>Name{arrow('name')}</th>
@@ -468,44 +527,114 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
                         <th className="cursor-pointer select-none" onClick={() => toggleSort('attributes')}>Attributes{arrow('attributes')}</th>
                         <th>Style</th>
                         <th>Hidden</th>
+                        <th className="w-10"></th>
                       </tr>
                     </thead>
                     <tbody>
-                      {filtered.map((entity) => (
-                        <tr key={entity.uuid} className={`hover ${hiddenOf(entity) ? 'opacity-50' : ''}`} data-ttrowkey={entity.name}>
+                      {rows.map((r) => r.kind === 'group' ? (
+                        <tr key={`g-${r.pkg}`} className="hover">
                           <td>
                             <input
                               type="checkbox"
                               className="checkbox checkbox-sm"
-                              aria-label={`Select ${entity.name}`}
-                              checked={selected.has(entity.name)}
-                              onChange={() => toggleSelect(entity.name)}
+                              aria-label={`Select all entities in ${r.name}`}
+                              checked={r.descKeys.length > 0 && r.descKeys.every((k) => selected.has(k))}
+                              ref={(el) => { if (el) el.indeterminate = r.descKeys.some((k) => selected.has(k)) && !r.descKeys.every((k) => selected.has(k)); }}
+                              onChange={(e) => setSelectKeys(r.descKeys, e.target.checked)}
+                            />
+                          </td>
+                          <td colSpan={6}>
+                            <div className="flex items-center gap-1" style={{ paddingLeft: r.depth * INDENT }}>
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-xs btn-square"
+                                aria-label={r.collapsed ? `Expand ${r.name}` : `Collapse ${r.name}`}
+                                aria-expanded={!r.collapsed}
+                                onClick={() => toggleGroup(r.pkg)}
+                              >
+                                <Icon name={r.collapsed ? 'chevronR' : 'chevron'} />
+                              </button>
+                              <Icon name="folder" className="opacity-60" />
+                              <Link to={r.url} className="link link-primary font-semibold">{r.name}</Link>
+                              <span className="text-xs opacity-50">
+                                {r.entityCount} {r.entityCount === 1 ? 'entity' : 'entities'}{r.subCount ? ` · ${r.subCount} sub` : ''}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : (
+                        <tr key={`e-${r.key}`} className={`hover ${hiddenOf(r.entity) ? 'opacity-50' : ''}`} data-ttrowkey={r.entity.name}>
+                          <td>
+                            <input
+                              type="checkbox"
+                              className="checkbox checkbox-sm"
+                              aria-label={`Select ${r.entity.name}`}
+                              checked={selected.has(r.key)}
+                              onChange={() => toggleSelect(r.key)}
                             />
                           </td>
                           <td>
-                            <Link to={`${packageUrl}/entities/${entity.name}`} className="link link-primary font-mono">
-                              {entity.name}
-                            </Link>
+                            <div style={{ paddingLeft: r.depth * INDENT }}>
+                              <Link to={`${r.url}/entities/${r.entity.name}`} className="link link-primary font-mono">
+                                {r.entity.name}
+                              </Link>
+                            </div>
                           </td>
                           <td className="text-sm text-base-content/70 max-w-xs truncate">
-                            {entity.description || '-'}
+                            {r.entity.description || '-'}
                           </td>
-                          <td>{entity.attributes?.length ?? 0}</td>
+                          <td>{r.entity.attributes?.length ?? 0}</td>
                           <td>
-                            {styleOf(entity)
-                              ? <Chip tone="meta" soft>{styleOf(entity)}</Chip>
+                            {styleOf(r.entity)
+                              ? <Chip tone="meta" soft>{styleOf(r.entity)}</Chip>
                               : <span className="text-base-content/40">—</span>}
                           </td>
                           <td>
-                            {hiddenOf(entity)
+                            {hiddenOf(r.entity)
                               ? <Chip tone="meta" soft>hidden</Chip>
                               : <span className="text-base-content/40">—</span>}
                           </td>
+                          <td className="text-right">
+                            <Menu
+                              align="end"
+                              width={220}
+                              trigger={({ toggle }) => (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  icon="moreV"
+                                  iconOnly
+                                  aria-label={`Actions for ${r.entity.name}`}
+                                  onClick={toggle}
+                                />
+                              )}
+                            >
+                              {({ close }) => (
+                                <div className="p-1">
+                                  <div className="px-2 py-1 text-xs font-semibold opacity-70">Move to package</div>
+                                  {moveTargetsFor(r.pkg).length === 0 ? (
+                                    <div className="px-2 py-1 text-xs opacity-50">No other packages</div>
+                                  ) : (
+                                    moveTargetsFor(r.pkg).map((p) => (
+                                      <button
+                                        key={p}
+                                        className="block w-full text-left px-2 py-1 text-sm rounded hover:bg-base-200 font-mono"
+                                        disabled={bulkApplying}
+                                        onClick={() => { close(); moveEntity(r.pkg, r.entity.name, p); }}
+                                      >
+                                        {p}
+                                      </button>
+                                    ))
+                                  )}
+                                </div>
+                              )}
+                            </Menu>
+                          </td>
                         </tr>
                       ))}
-                      {filtered.length === 0 && (
+                      {rows.length === 0 && (
                         <tr>
-                          <td colSpan={6} className="text-center text-base-content/50 py-4">
+                          <td colSpan={7} className="text-center text-base-content/50 py-4">
                             No entities match "{entityFilter}"
                           </td>
                         </tr>
