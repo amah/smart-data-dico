@@ -5,6 +5,31 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.21.0] — 2026-07-09
+
+### Added
+- **Cross-package entity resolution for the AI agent's tools.** `getEntityDetails`
+  no longer requires `packageName` — a unique entity name resolves across every
+  package (the result names the owning package), several matches return a
+  disambiguation list instead of an error. `getSqlSchema` accepts
+  `entityNames: [...]` and returns just those entities **plus their
+  directly-related neighbours** (so JOIN endpoints are always present), each
+  table stamped with its owning `package`.
+
+### Fixed
+- **AI agent lost the plot on large dictionaries (~40 packages / 3000 entities).**
+  The model snapshot injected into the system prompt was silently cut at 2,000
+  characters, so most packages and entities vanished from the agent's view and
+  it fabricated table names when asked for SQL. Over-budget outlines now switch
+  to a compact package+counts form with an explicit "entity lists omitted — call
+  `searchModel`" banner (never a mid-truncated listing); the per-tool-result cap
+  on the OpenAI-compatible path was raised 2,000 → 20,000 characters with an
+  explicit retry-narrower marker when truncation still occurs; the SQL protocol
+  now mandates `searchModel`-first with `entityNames`/`packageName` scoping and
+  surfaces `physicalMappingMissing` instead of guessing; every not-found tool
+  error steers the model to `searchModel`; a malformed non-array `entityNames`
+  errors instead of silently returning the whole model.
+
 ## [1.20.0] — 2026-07-09
 
 ### Added
