@@ -47,8 +47,9 @@ export const servicesApi = {
   },
 
   // Hide or unhide an entity (non-destructive; sets reserved system.hidden metadata).
+  // Encodes service + entity so nested package paths (e.g. order-service/archive) route.
   setEntityHidden: async (service: string, entity: string, hidden: boolean, reason?: string) => {
-    const response = await api.put(`/services/${service}/entities/${entity}/hidden`, { hidden, reason });
+    const response = await api.put(`/services/${encodeURIComponent(service)}/entities/${encodeURIComponent(entity)}/hidden`, { hidden, reason });
     return response.data;
   },
 
@@ -57,6 +58,14 @@ export const servicesApi = {
   // (falls back to rules/role detection). Used by the diagram format painter.
   setEntityStyle: async (service: string, entity: string, style: string | null) => {
     const response = await api.put(`/services/${encodeURIComponent(service)}/entities/${encodeURIComponent(entity)}/style`, { style });
+    return response.data;
+  },
+
+  // Move an entity to another package (#move-entity). The UUID is preserved, so
+  // relationships/cases/diagrams that reference it keep resolving. Fails if the
+  // target doesn't exist or already has an entity with the same name.
+  moveEntity: async (service: string, entity: string, targetPackage: string) => {
+    const response = await api.put(`/services/${encodeURIComponent(service)}/entities/${encodeURIComponent(entity)}/move`, { targetPackage });
     return response.data;
   },
 

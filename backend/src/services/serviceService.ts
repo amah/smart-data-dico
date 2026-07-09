@@ -351,6 +351,69 @@ export class ServiceService {
     }
   }
 
+  /**
+   * Move an entity from one package to another (#move-entity). The entity keeps
+   * its UUID, so every UUID-based reference (relationships — cross-package is
+   * first-class — cases, diagrams, perspectives) keeps resolving; nothing is
+   * orphaned. We write the entity into the target package, then remove it from
+   * the source via the projection directly — this bypasses deleteEntity's
+   * same-package relationship guard, which is meant for destruction, not a
+   * relocation where the references remain valid.
+   */
+  async moveEntity(
+    sourcePackage: string,
+    entityName: string,
+    targetPackage: string,
+  ): Promise<{ success: boolean; errors: string[] }> {
+    logger.info(`Moving entity: ${sourcePackage}.${entityName} -> ${targetPackage}`);
+
+    if (!targetPackage || targetPackage === sourcePackage) {
+      return { success: false, errors: ['Target package must differ from the source package'] };
+    }
+
+    try {
+      const entity = await readEntityFile(sourcePackage, entityName);
+      if (!entity) {
+        return { success: false, errors: [`Entity ${sourcePackage}.${entityName} not found`] };
+      }
+
+      const packages = await listMicroservices();
+      if (!packages.includes(targetPackage)) {
+        return { success: false, errors: [`Target package '${targetPackage}' does not exist`] };
+      }
+
+      // A move must not collide with an existing entity of the same name in the
+      // target (the loader treats a duplicate name/uuid in a package as a hard error).
+      const existingInTarget = await readEntityFile(targetPackage, entityName);
+      if (existingInTarget) {
+        return {
+          success: false,
+          errors: [`Target package '${targetPackage}' already has an entity named '${entityName}'`],
+        };
+      }
+
+      const projection = getProjection(wsId('dictionaries'));
+      entity.updatedAt = new Date().toISOString();
+
+      // Write into the target first; only drop the source once the write lands,
+      // so a mid-way failure never loses the entity.
+      await projection.writeEntity(`packages/${targetPackage}/entities/${entity.name}` as LogicalPath, entity);
+      const removed = await projection.deleteEntity(`packages/${sourcePackage}/entities/${entity.name}` as LogicalPath);
+      if (!removed) {
+        // Roll back the target write so we don't leave a duplicate behind.
+        await projection
+          .deleteEntity(`packages/${targetPackage}/entities/${entity.name}` as LogicalPath)
+          .catch(() => { /* best-effort rollback */ });
+        return { success: false, errors: ['Failed to remove the entity from the source package'] };
+      }
+
+      return { success: true, errors: [] };
+    } catch (error) {
+      logger.error(`Error moving entity: ${error}`);
+      return { success: false, errors: [`Error moving entity: ${error}`] };
+    }
+  }
+
   // --- Relationship CRUD ---
 
   async getPackageRelationships(packageName: string): Promise<Relationship[]> {

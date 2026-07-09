@@ -20,9 +20,14 @@ import {
   resolveEntityComment,
   setEntityHidden,
   setEntityStyle,
+  moveEntity,
 } from '../../controllers/serviceController.js';
 import { UserRole } from '../../middleware/auth.js';
 import { authorizeJwt } from '../../middleware/jwtAuth.js';
+import { registerMoveEntityAgentTool } from '../../services/entityMove/agentTools.js';
+
+// Contribute the moveEntity tool to the AI chat agent (registry, no aiController edit).
+registerMoveEntityAgentTool();
 
 const router: Router = Router();
 // Legacy /api/entities/:microservice/:entityName/{attributes,related}
@@ -42,6 +47,8 @@ router.delete('/api/services/:service/entities/:entity', authorizeJwt([UserRole.
 router.put('/api/services/:service/entities/:entity/hidden', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), setEntityHidden);
 // Element Style (non-destructive) — sets reserved `system.style` metadata
 router.put('/api/services/:service/entities/:entity/style', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), setEntityStyle);
+// Move an entity to another package (keeps UUID; references survive)
+router.put('/api/services/:service/entities/:entity/move', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), moveEntity);
 // Entity review workflow
 router.post('/api/services/:service/entities/:entity/submit', authorizeJwt([UserRole.ADMIN, UserRole.EDITOR]), submitEntity);
 router.post('/api/services/:service/entities/:entity/approve', authorizeJwt([UserRole.ADMIN]), approveEntity);

@@ -260,7 +260,10 @@ export class DictionaryService {
     let relationships: Relationship[] = [];
     let cases: { uuid: string; name: string; description?: string }[] = [];
     try {
-      const model = await loadPackage(packageName);
+      // Load from the full package path (e.g. "order-service/archive"), not the
+      // leaf name — otherwise a sub-package's entities/relationships/cases are
+      // read from a non-existent top-level folder and come back empty (#move-entity).
+      const model = await loadPackage(String(dirPath));
       entities = model.entities;
       relationships = model.relationships;
       cases = model.cases.map(c => ({

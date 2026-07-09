@@ -183,6 +183,27 @@ export const setEntityHidden = async (req: Request, res: Response) => {
   }
 };
 
+/** PUT /api/services/:service/entities/:entity/move — relocate an entity to
+ *  another package (#move-entity). Keeps the UUID so references survive. */
+export const moveEntity = async (req: Request, res: Response) => {
+  try {
+    const { service, entity } = req.params;
+    const targetPackage = typeof req.body?.targetPackage === 'string' ? req.body.targetPackage : '';
+    if (!targetPackage) {
+      return res.status(400).json({ message: 'targetPackage is required' });
+    }
+    const result = await serviceService.moveEntity(service, entity, targetPackage);
+    if (!result.success) {
+      const notFound = result.errors.some((e) => e.includes('not found'));
+      return res.status(notFound ? 404 : 400).json({ message: 'Failed to move entity', errors: result.errors });
+    }
+    res.json({ message: 'Entity moved', data: { service, entity, targetPackage } });
+  } catch (error) {
+    logger.error(`Error moving entity: ${error}`);
+    res.status(500).json({ message: 'Error moving entity', error });
+  }
+};
+
 /** PUT /api/services/:service/entities/:entity/style — set/clear an entity's
  *  Element Style (sets reserved `system.style` metadata). Non-destructive. */
 export const setEntityStyle = async (req: Request, res: Response) => {

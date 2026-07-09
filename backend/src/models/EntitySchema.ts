@@ -683,7 +683,10 @@ export const relationshipSchema: Schema = {
  */
 export function fillAttributeDefaults(entity: Entity): Entity {
   const fix = (attrs?: Attribute[]): void => {
-    for (const a of attrs ?? []) {
+    // Guard against malformed data where `attributes`/`properties` is a non-array
+    // (e.g. an object map from an import) — a non-destructive re-save must not throw.
+    if (!Array.isArray(attrs)) return;
+    for (const a of attrs) {
       if (a.required === undefined) a.required = false;
       if (a.description === undefined) a.description = '';
       if (a.properties) fix(a.properties);
