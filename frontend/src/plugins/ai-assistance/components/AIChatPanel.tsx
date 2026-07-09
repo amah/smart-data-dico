@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import oneDark from 'react-syntax-highlighter/dist/esm/styles/prism/one-dark';
 import oneLight from 'react-syntax-highlighter/dist/esm/styles/prism/one-light';
@@ -1954,6 +1955,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                   ) : (
                     <div className="prose prose-sm max-w-none [&_p]:my-1 [&_ul]:my-1 [&_li]:my-0 [&_pre]:my-1 [&_code]:text-xs [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm">
                       <Markdown
+                        remarkPlugins={[remarkGfm]}
                         components={{
                           code({ inline, className, children, ...rest }: any) {
                             const lang = /language-(\w+)/.exec(className || '')?.[1];
@@ -2012,8 +2014,24 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                           // literal `@Foo` in a fenced block stays literal.
                           p: ({ children, ...rest }: any) => <p {...rest}>{processMentions(children)}</p>,
                           li: ({ children, ...rest }: any) => <li {...rest}>{processMentions(children)}</li>,
-                          td: ({ children, ...rest }: any) => <td {...rest}>{processMentions(children)}</td>,
-                          th: ({ children, ...rest }: any) => <th {...rest}>{processMentions(children)}</th>,
+                          // GFM tables: bordered cells, a strong header band, and
+                          // zebra rows — all theme tokens so it reads in both light
+                          // and dark. `prose` alone leaves tables borderless.
+                          table: ({ children, ...rest }: any) => (
+                            <table {...rest} className="my-2 w-full border-collapse border border-base-content/30 text-xs">{children}</table>
+                          ),
+                          thead: ({ children, ...rest }: any) => (
+                            <thead {...rest} className="bg-primary/15 text-base-content">{children}</thead>
+                          ),
+                          tr: ({ children, ...rest }: any) => (
+                            <tr {...rest} className="even:bg-base-content/5">{children}</tr>
+                          ),
+                          td: ({ children, ...rest }: any) => (
+                            <td {...rest} className="border border-base-content/30 px-2 py-1 align-top">{processMentions(children)}</td>
+                          ),
+                          th: ({ children, ...rest }: any) => (
+                            <th {...rest} className="border border-base-content/30 px-2 py-1 text-left text-[11px] font-bold uppercase tracking-wide">{processMentions(children)}</th>
+                          ),
                           h1: ({ children, ...rest }: any) => <h1 {...rest}>{processMentions(children)}</h1>,
                           h2: ({ children, ...rest }: any) => <h2 {...rest}>{processMentions(children)}</h2>,
                           h3: ({ children, ...rest }: any) => <h3 {...rest}>{processMentions(children)}</h3>,
