@@ -5,6 +5,8 @@ import { logger } from '../utils/logger.js';
 import { AI_MAX_STEPS, config } from '../kernel/config.js';
 import { getAgentTools, getAgentTool, jsonSchemaToParamList } from '../services/ai/agentToolRegistry.js';
 import { AUTHORING_RULES } from '../services/ai/authoringRules.js';
+import { resolveAttributePhysical } from '../services/ai/physicalMapping.js';
+import { getModelOverviewCached, invalidateModelOverviewCache } from '../services/ai/modelOverviewCache.js';
 import { systemPromptStore } from '../services/systemPromptStore.js';
 import { getConfigSection, setConfigSection, CONFIG_FILE } from '../utils/appDir.js';
 import { conversationService } from '../services/conversationService.js';
@@ -310,17 +312,18 @@ export function buildEntityDetails(entity: any, packageName?: string): Record<st
   const tableName = metaValue(entity.metadata, 'physical.tableName');
   const schema = metaValue(entity.metadata, 'physical.schema');
   const attributes = (entity.attributes ?? []).map((a: any) => {
-    const columnName = metaValue(a.metadata, 'physical.columnName');
-    const dbType = metaValue(a.metadata, 'physical.dbType');
+    // Shared normalization (services/ai/physicalMapping.ts): PK survives the
+    // legacy `isPrimaryKey` metadata form, column/type come from physical.*.
+    const phys = resolveAttributePhysical(a);
     return {
       name: a.name,
       type: a.type,
       description: a.description,
       required: a.required,
-      primaryKey: a.primaryKey,
+      primaryKey: phys.primaryKey,
       ...(a.validation ? { validation: a.validation } : {}),
-      ...((columnName || dbType)
-        ? { physical: { ...(columnName ? { columnName } : {}), ...(dbType ? { dbType } : {}) } }
+      ...((phys.columnName || phys.dbType)
+        ? { physical: { ...(phys.columnName ? { columnName: phys.columnName } : {}), ...(phys.dbType ? { dbType: phys.dbType } : {}) } }
         : {}),
     };
   });
@@ -533,10 +536,18 @@ export function formatModelOutlineWithinBudget(
   return `${head}\n${banner}\nPackages:\n${lines.join('\n')}`;
 }
 
-/** Best-effort outline for prompt injection; '' on any failure so chat never breaks. */
+/**
+ * Best-effort outline for prompt injection; '' on any failure so chat never
+ * breaks. Served from the model-overview cache (#grounding perf) — event-
+ * invalidated on mutations, TTL backstop — so the per-turn cost is zero IO
+ * on an unchanged model instead of a full-project scan.
+ */
 async function safeModelOutline(services: any): Promise<string> {
-  try { return formatModelOutlineWithinBudget(await buildModelOverview(services)); }
-  catch { return ''; }
+  try {
+    return formatModelOutlineWithinBudget(
+      await getModelOverviewCached(() => buildModelOverview(services)),
+    );
+  } catch { return ''; }
 }
 
 export function isGatedCategory(category: AIToolCategory): boolean {
@@ -1093,7 +1104,9 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
         return await executeGetEntityDetails(args, services);
       }
       if (name === 'getModelOverview') {
-        return await buildModelOverview(services);
+        // Cached (event-invalidated on mutations + TTL backstop) — a post-
+        // change call still sees fresh data because mutations invalidate.
+        return await getModelOverviewCached(() => buildModelOverview(services));
       }
       if (name === 'generateMermaid') {
         return await generateMermaidDiagram(args, services as unknown as MermaidServices);
@@ -1145,8 +1158,14 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
       }
     }
     const out = await runTool(name, args);
-    if (isGatedCategory(category) && out && typeof out === 'object' && (out as { success?: boolean }).success === true) {
-      mutatingSuccessCount++;
+    if (isGatedCategory(category)) {
+      // Any gated tool may have changed the model — drop the cached overview
+      // so the next turn's snapshot (and getModelOverview) reflect it, even
+      // where the raw-fs watcher / projection bus isn't running.
+      invalidateModelOverviewCache();
+      if (out && typeof out === 'object' && (out as { success?: boolean }).success === true) {
+        mutatingSuccessCount++;
+      }
     }
     return out;
   };
@@ -1377,7 +1396,14 @@ export const aiChat = async (req: Request, res: Response) => {
         const decision = await awaitApproval(streamId, toolCallId);
         if (decision === 'deny') return { ...DENIED_RESULT };
       }
-      return run();
+      try {
+        return await run();
+      } finally {
+        // Any gated tool may have changed the model — drop the cached
+        // overview so the next turn's snapshot reflects it, even where the
+        // raw-fs watcher / projection bus isn't running.
+        if (isGatedCategory(category)) invalidateModelOverviewCache();
+      }
     };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1615,7 +1641,9 @@ export const aiChat = async (req: Request, res: Response) => {
           inputSchema: z.object({}),
           execute: async () => {
             try {
-              return await buildModelOverview(services);
+              // Cached (event-invalidated on mutations + TTL backstop) — a
+              // post-change call still sees fresh data.
+              return await getModelOverviewCached(() => buildModelOverview(services));
             } catch (err: any) {
               return { error: err.message };
             }

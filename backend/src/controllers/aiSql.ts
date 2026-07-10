@@ -12,6 +12,7 @@
 import { z } from 'zod';
 import type { Attribute, Entity, Relationship } from '../models/EntitySchema.js';
 import type { DerivedType } from '../services/dicoConfigService.js';
+import { metaValue, resolveAttributePhysical } from '../services/ai/physicalMapping.js';
 
 export interface SqlSchemaServices {
   serviceService: {
@@ -42,11 +43,6 @@ export const getSqlSchemaParameters = {
 } as const;
 
 // --- helpers ----------------------------------------------------------------
-
-function metaValue(meta: Array<{ name: string; value: unknown }> | undefined, name: string): string | undefined {
-  const e = meta?.find(m => m.name === name);
-  return e && e.value != null ? String(e.value) : undefined;
-}
 
 /** Join up to `max` names for a tool-card summary; "+N more" past the cap. */
 function nameList(names: string[], max = 8): string {
@@ -100,16 +96,17 @@ function sqlType(base: string, v: Record<string, any>, dialect: SqlDialect): str
 }
 
 function columnFor(a: Attribute, derived: Map<string, DerivedType>, dialect: SqlDialect) {
-  const physName = metaValue(a.metadata, 'physical.columnName');
-  const physType = metaValue(a.metadata, 'physical.dbType');
+  // Shared normalization (services/ai/physicalMapping.ts): PK survives the
+  // legacy `isPrimaryKey` metadata form, column/type come from physical.*.
+  const phys = resolveAttributePhysical(a);
   const resolved = resolveBase(String(a.type || 'string'), a.validation as any, derived);
   return {
     attribute: a.name,
-    column: physName ?? a.name,
-    dbType: physType ?? sqlType(resolved.base, resolved.validation, dialect),
+    column: phys.columnName ?? a.name,
+    dbType: phys.dbType ?? sqlType(resolved.base, resolved.validation, dialect),
     nullable: !a.required,
-    primaryKey: !!a.primaryKey,
-    ...(physName || physType ? {} : { physicalMappingMissing: true }),
+    primaryKey: phys.primaryKey,
+    ...(phys.columnName || phys.dbType ? {} : { physicalMappingMissing: true }),
   };
 }
 
@@ -212,17 +209,24 @@ export async function buildSqlSchema(input: GetSqlSchemaInput, services: SqlSche
   const tables: unknown[] = [];
   const relationships: unknown[] = [];
   let missing = 0;
+  const fallbackTables: string[] = [];
   for (const p of pkgs) {
     const entities = (entitiesByPkg.get(p) ?? []).filter(e => !include || include.has(e.uuid));
     for (const e of entities) {
       // The entity's own physical schema, or the configured default schema.
       const schema = metaValue(e.metadata, 'physical.schema') ?? (opts?.defaultSchema?.trim() || undefined);
       const table = metaValue(e.metadata, 'physical.tableName') ?? e.name;
+      let entityMissing = 0;
       const columns = (e.attributes ?? []).map(a => {
         const c = columnFor(a, derived, dialect);
-        if ('physicalMappingMissing' in c) missing++;
+        if ('physicalMappingMissing' in c) entityMissing++;
         return c;
       });
+      if (entityMissing > 0) {
+        missing += entityMissing;
+        // Two entities may share one physical.tableName — list it once.
+        if (!fallbackTables.includes(table)) fallbackTables.push(table);
+      }
       tables.push({
         entity: e.name,
         package: p,
@@ -257,10 +261,12 @@ export async function buildSqlSchema(input: GetSqlSchemaInput, services: SqlSche
     tables,
     relationships,
     ...(unresolved.length ? { unresolvedEntityNames: unresolved } : {}),
+    ...(fallbackTables.length ? { tablesWithFallbackColumns: fallbackTables } : {}),
     note: 'Use these PHYSICAL table/column names and dbTypes when writing SQL. '
       + (opts?.schemaQualifyTables ? 'Schema-qualify every table (use each table\'s qualifiedName). ' : '')
       + (missing > 0
-        ? `${missing} column(s) have no physical mapping — their dbType is a fallback derived from the logical type; flag this to the user.`
+        ? `${missing} column(s) in table(s) ${nameList(fallbackTables, 6)} have no explicit physical mapping — `
+          + 'their column names/dbTypes are derived from the logical model; WARN the user before relying on them.'
         : 'All columns have an explicit physical mapping.')
       + (unresolved.length
         ? ` Requested entities not found: ${unresolved.join(', ')} — call searchModel({ query: '<name>' }) to locate them.`

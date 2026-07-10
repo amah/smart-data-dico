@@ -73,7 +73,9 @@ describe('buildSqlSchema', () => {
     expect(s.relationships).toEqual([
       { from: 'Customer', to: 'Order', fromCardinality: 'one', toCardinality: 'many', description: 'places' },
     ]);
-    expect(s.note).toMatch(/no physical mapping/);
+    // The note NAMES the affected tables so the model warns instead of guessing.
+    expect(s.note).toMatch(/no explicit physical mapping/);
+    expect(s.tablesWithFallbackColumns).toEqual(['orders', 'Customer']);
     expect(s.summary).toBe('Order, Customer — 1 relationship (generic, all packages)');
   });
 
@@ -89,6 +91,86 @@ describe('buildSqlSchema', () => {
     const customer = s.tables.find((t: any) => t.entity === 'Customer');
     expect(order.qualifiedName).toBe('commerce.orders'); // has physical.schema
     expect(customer.qualifiedName).toBe('Customer');     // no schema, no default
+  });
+
+  // #grounding — fallback surfacing: tables whose columns carry no explicit
+  // physical mapping are NAMED (tablesWithFallbackColumns + WARN note) so the
+  // model warns the user instead of trusting derived names/types.
+  describe('fallback surfacing (tablesWithFallbackColumns + WARN note)', () => {
+    /** Attribute set with a full physical mapping (columnName + dbType). */
+    const mapped = (name: string, column: string) => ({
+      name, type: 'string', required: true,
+      metadata: [
+        { name: 'physical.columnName', value: column },
+        { name: 'physical.dbType', value: 'VARCHAR(50)' },
+      ],
+    });
+
+    function servicesWithEntities(entities: any[]) {
+      return {
+        serviceService: {
+          getServiceEntities: jest.fn(async () => entities),
+          getPackageRelationships: jest.fn(async () => []),
+        },
+        derivedTypes: { list: jest.fn(async () => []) },
+      };
+    }
+
+    it('legacy isPrimaryKey metadata (no primaryKey field, no physical mapping) → PK true, physicalMappingMissing, table named in the WARN note', async () => {
+      const s: any = await buildSqlSchema({}, servicesWithEntities([
+        {
+          uuid: 'l-uuid', name: 'LegacyOrder',
+          metadata: [{ name: 'physical.tableName', value: 'legacy_orders' }],
+          attributes: [
+            { name: 'id', type: 'uuid', required: true,
+              metadata: [{ name: 'isPrimaryKey', value: 'true' }] },
+          ],
+        },
+      ]));
+
+      const id = s.tables.find((t: any) => t.entity === 'LegacyOrder').columns[0];
+      expect(id.primaryKey).toBe(true);            // PK survives the legacy form
+      expect(id.physicalMappingMissing).toBe(true); // no physical.* on the attribute
+      expect(s.tablesWithFallbackColumns).toEqual(['legacy_orders']);
+      expect(s.note).toContain('legacy_orders');
+      expect(s.note).toMatch(/WARN the user/);
+    });
+
+    it('fully mapped model → NO tablesWithFallbackColumns key and no WARN note', async () => {
+      const s: any = await buildSqlSchema({}, servicesWithEntities([
+        {
+          uuid: 'm-uuid', name: 'Invoice',
+          metadata: [{ name: 'physical.tableName', value: 'invoices' }],
+          attributes: [mapped('number', 'invoice_number'), mapped('status', 'status_code')],
+        },
+      ]));
+
+      expect(s).not.toHaveProperty('tablesWithFallbackColumns'); // absent, not empty
+      expect(s.note).toContain('All columns have an explicit physical mapping.');
+      expect(s.note).not.toMatch(/WARN/);
+      for (const c of s.tables[0].columns) {
+        expect(c).not.toHaveProperty('physicalMappingMissing');
+      }
+    });
+
+    it('mixed model → only the affected tables are listed', async () => {
+      const s: any = await buildSqlSchema({}, servicesWithEntities([
+        {
+          uuid: 'm-uuid', name: 'Invoice',
+          metadata: [{ name: 'physical.tableName', value: 'invoices' }],
+          attributes: [mapped('number', 'invoice_number')],
+        },
+        {
+          uuid: 'u-uuid', name: 'Payment',
+          attributes: [{ name: 'amount', type: 'number' }], // unmapped
+        },
+      ]));
+
+      expect(s.tablesWithFallbackColumns).toEqual(['Payment']); // invoices NOT listed
+      expect(s.note).toContain('Payment');
+      expect(s.note).not.toMatch(/invoices.*no explicit physical mapping/);
+      expect(s.note).toMatch(/WARN the user/);
+    });
   });
 
   it('applies the default schema and echoes the qualify flag (#sql-settings)', async () => {

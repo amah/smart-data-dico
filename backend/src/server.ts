@@ -152,6 +152,16 @@ async function mountFrameworkRoutes() {
       } catch (searchError) {
         logger.warn(`SearchIndex initialization failed: ${searchError instanceof Error ? searchError.message : String(searchError)}`);
       }
+
+      // AI model-overview cache (#grounding perf) — invalidated by the SAME
+      // projection bus, so the per-turn snapshot rebuilds only after a change
+      // (TTL backstop inside the module covers unrouted writes).
+      try {
+        const { subscribeModelOverviewCache } = await import('./services/ai/modelOverviewCache.js');
+        subscribeModelOverviewCache(projection);
+      } catch (cacheError) {
+        logger.warn(`ModelOverviewCache subscription failed: ${cacheError instanceof Error ? cacheError.message : String(cacheError)}`);
+      }
     } catch (e) {
       logger.warn(`Projection/UuidIndex initialization failed: ${e instanceof Error ? e.message : String(e)}`);
     }
