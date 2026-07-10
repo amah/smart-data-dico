@@ -5,6 +5,19 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.0] — 2026-07-10
+
+### Fixed
+- **Optional DB drivers now resolve on `npx` runs.** Launched via
+  `npx @hamak/smart-data-dico`, the app runs from the npx cache, where a bare
+  `import('oracledb')` can see neither the directory you launched from nor the
+  global npm root — so "oracledb not found" persisted no matter where the
+  driver was installed. Driver loading now falls back to the launch directory,
+  the global npm root (`npm i -g oracledb` works again), and an explicit
+  `DICO_DRIVER_PATH` override. A driver that is present but fails to load
+  (e.g. a native-binding/Node ABI mismatch) reports its real error instead of
+  "isn't installed".
+
 ## [1.22.0] — 2026-07-10
 
 ### Added
