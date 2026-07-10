@@ -9,28 +9,86 @@
  * verification against an actual instance. The surrounding framework
  * (guards, registry, cache, buffered cursor) IS unit-tested.
  */
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { execFile } from 'node:child_process';
 import type { CursorExecutor, DbConnection, OpenCursor, SqlDialect } from './types.js';
 import { createBufferedRowCursor, type RowSource } from './bufferedRowCursor.js';
 
 function str(v: unknown): string | undefined { return v == null ? undefined : String(v); }
 function num(v: unknown, d: number): number { const n = Number(v); return Number.isFinite(n) ? n : d; }
 
+function isNotFound(e: unknown): boolean {
+  const code = (e as { code?: string })?.code;
+  return code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND';
+}
+
+/** `npm root -g`, resolved once per process; null when npm isn't reachable. */
+let globalRoot: Promise<string | null> | undefined;
+function globalNodeModulesRoot(): Promise<string | null> {
+  if (!globalRoot) {
+    globalRoot = new Promise((resolve) => {
+      execFile('npm', ['root', '-g'], { timeout: 5000 }, (err, stdout) => {
+        resolve(err ? null : stdout.trim() || null);
+      });
+    });
+  }
+  return globalRoot;
+}
+
+/**
+ * Directories to try, in order, when the bare import misses. Bare ESM import
+ * resolves relative to THIS file — when the app runs from the npx cache
+ * (`npx @hamak/smart-data-dico`), neither the user's launch directory nor the
+ * global root (`npm i -g oracledb`) is on that path, and NODE_PATH is ignored
+ * by ESM. So we retry from: an explicit override, the launch directory, and
+ * the global npm root.
+ */
+async function driverFallbackBases(): Promise<string[]> {
+  const bases = [process.env.DICO_DRIVER_PATH, process.cwd(), await globalNodeModulesRoot()];
+  return bases.filter((b): b is string => !!b);
+}
+
 /**
  * The four production drivers are OPTIONAL peer dependencies — a published
  * install only carries the ones the user chose. Load lazily and, when a driver
  * is absent, surface an actionable message instead of a raw module-not-found.
+ * Exported for tests; `bases` overrides the fallback directories.
  */
-async function loadDriver(pkg: string): Promise<any> {
+export async function loadDriver(pkg: string, bases?: string[]): Promise<any> {
   try {
     return await import(pkg);
   } catch (e) {
-    const code = (e as { code?: string })?.code;
-    if (code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND') {
-      const dep = pkg.split('/')[0]; // 'mysql2/promise' → 'mysql2'
-      throw new Error(`The "${dep}" driver isn't installed. Install it to query this dialect:  npm install ${dep}`);
-    }
-    throw e;
+    if (!isNotFound(e)) throw e;
   }
+  for (const base of bases ?? await driverFallbackBases()) {
+    // createRequire walks up from `base` — finds `<base>/node_modules/<pkg>`
+    // and, for the global root itself, the root's own entries.
+    const req = createRequire(path.join(base, 'noop.js'));
+    let resolved: string;
+    try {
+      resolved = req.resolve(pkg);
+    } catch {
+      continue; // not under this base — try the next one
+    }
+    // Resolved: a failure from here on is a REAL error (e.g. a native-binding
+    // ABI mismatch) that must surface, not be masked as "not installed". The
+    // drivers are CJS, so load via the same require and mirror ESM interop
+    // (named exports + default) so both load paths hand callers one shape.
+    const mod = req(resolved);
+    if (mod && (mod.__esModule || 'default' in mod)) return mod;
+    const ns: Record<string, unknown> = { default: mod };
+    if (mod && typeof mod === 'object') {
+      for (const k of Object.keys(mod)) ns[k] = (mod as Record<string, unknown>)[k];
+    }
+    return ns;
+  }
+  const dep = pkg.split('/')[0]; // 'mysql2/promise' → 'mysql2'
+  throw new Error(
+    `The "${dep}" driver isn't installed. Install it to query this dialect: ` +
+    `run "npm install ${dep}" in the directory you launch the app from, ` +
+    `or "npm install -g ${dep}" (both are picked up automatically).`,
+  );
 }
 
 // --- postgres: a NO SCROLL cursor inside a READ ONLY transaction ------------
