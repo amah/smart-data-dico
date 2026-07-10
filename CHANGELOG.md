@@ -5,6 +5,21 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.24.0] — 2026-07-10
+
+### Added
+- **Saved connection library.** Name and reuse database connections across
+  projects: the SQL run dialog gains a "Saved connection" picker that fills the
+  form, a save/update action, and an inline delete. Connection *parameters*
+  live per user in `~/.dico-app/dico-app.json`; *passwords* stay in the secure
+  secret store (OS keychain / encrypted), are stripped from anything persisted
+  or returned — at any nesting depth — and, when connecting by saved entry,
+  are resolved server-side so they never pass through the browser. Editing a
+  saved entry's parameters keeps its password attached. On a shared server
+  each authenticated user sees only their own library. The dialog prefills
+  from the last connection used for the package, falling back to the package's
+  physical config.
+
 ## [1.23.0] — 2026-07-10
 
 ### Fixed
