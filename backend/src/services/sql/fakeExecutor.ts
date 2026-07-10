@@ -20,11 +20,14 @@ export class FakeCursor implements OpenCursor {
 
 export class FakeExecutor implements CursorExecutor {
   public opened: FakeCursor[] = [];
+  /** The exact statement text last handed to the driver (tests assert on it). */
+  public lastSql: string | null = null;
   constructor(
     private dataset: { columns: string[]; rows: unknown[][] },
     private opts: { failOnContains?: string } = {},
   ) {}
   async open(_conn: DbConnection, sql: string): Promise<OpenCursor> {
+    this.lastSql = sql;
     if (this.opts.failOnContains && sql.includes(this.opts.failOnContains)) {
       throw new Error(`fake DB error near "${this.opts.failOnContains}"`);
     }

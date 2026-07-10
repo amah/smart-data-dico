@@ -8,6 +8,7 @@
  * FakeExecutor (no real database).
  */
 import { generateUUID } from '../../utils/uuid.js';
+import { logger } from '../../utils/logger.js';
 import { connectionCache as defaultCache, redact } from './connectionCache.js';
 import { resultRegistry as defaultRegistry } from './resultRegistry.js';
 import { getExecutor as defaultGetExecutor } from './executors.js';
@@ -81,7 +82,14 @@ export class SqlRunService {
     const conn = this.cache.get(packageName);
     if (!conn) throw new NoConnectionError(packageName);
 
-    const cursor = await this.getExecutor(conn.dialect).open(conn, sql, { timeoutMs: this.timeoutMs });
+    // The guard tolerates a trailing ';' but not every driver does: oracledb
+    // rejects it with ORA-00933 before the statement is even parsed (SQL
+    // Developer strips it as a separator, hence "works when pasted"). Strip it
+    // once here so every dialect gets the statement the user sees.
+    const stmt = sql.trim().replace(/\s*;\s*$/, '');
+    logger.debug(`SQL run [${conn.dialect}] on "${packageName}"`, { sql: stmt });
+
+    const cursor = await this.getExecutor(conn.dialect).open(conn, stmt, { timeoutMs: this.timeoutMs });
     try {
       const first = await cursor.fetch(chunk ?? this.defaultChunk);
       if (first.done) {
@@ -89,7 +97,7 @@ export class SqlRunService {
         return { resultId: null, columns: cursor.columns, rows: first.rows, done: true, dialect: conn.dialect };
       }
       const id = this.genId();
-      await this.registry.add(id, { cursor, dialect: conn.dialect, packageName, columns: cursor.columns, sql });
+      await this.registry.add(id, { cursor, dialect: conn.dialect, packageName, columns: cursor.columns, sql: stmt });
       return { resultId: id, columns: cursor.columns, rows: first.rows, done: false, dialect: conn.dialect };
     } catch (e) {
       await cursor.close();

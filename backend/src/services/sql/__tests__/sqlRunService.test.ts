@@ -55,6 +55,21 @@ describe('SqlRunService', () => {
     expect(registry.size).toBe(0); // closed on exhaustion
   });
 
+  it('strips a trailing ";" before handing the statement to the driver (oracledb ORA-00933)', async () => {
+    const { svc, executor } = makeService({ columns: ['id'], rows: [[1]] });
+    await svc.connect('p', conn);
+
+    await svc.run('p', 'SELECT id FROM t;');
+    expect(executor.lastSql).toBe('SELECT id FROM t');
+
+    await svc.run('p', '  SELECT id FROM t ;  \n');
+    expect(executor.lastSql).toBe('SELECT id FROM t');
+
+    // interior semicolons in literals survive — only the trailing separator goes
+    await svc.run('p', "SELECT id FROM t WHERE note = 'a;b';");
+    expect(executor.lastSql).toBe("SELECT id FROM t WHERE note = 'a;b'");
+  });
+
   it('rejects a non-SELECT before touching the DB', async () => {
     const { svc, executor } = makeService({ columns: [], rows: [] });
     await svc.connect('p', conn);
