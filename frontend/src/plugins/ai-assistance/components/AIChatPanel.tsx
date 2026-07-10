@@ -496,7 +496,19 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       if (d) {
         setConversationId(d.id);
         systemContextDigestRef.current = (d as { systemContextDigest?: string }).systemContextDigest ?? null;
-        setMessages(d.messages as any[]);
+        setMessages((d.messages as any[]).map((m: any) => {
+          // #228 — sweep stale in-flight tool states from a prior session
+          // so cards don't keep spinning after a backend restart / page reload.
+          if (m.role !== 'assistant' || !m.toolCalls?.length) return m;
+          return {
+            ...m,
+            toolCalls: m.toolCalls.map((tc: any) =>
+              tc.status === 'starting' || tc.status === 'running'
+                ? { ...tc, status: 'cancelled' }
+                : tc
+            ),
+          };
+        }));
         // Restore the meter chip from the saved conversation (#128).
         // Older conversations saved before the meter shipped have no
         // `usage` key — clear the chip in that case.
@@ -1897,154 +1909,8 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                   )}
                 </div>
 
-                {/* Message content */}
-                <div className={`rounded-lg px-3 py-2 text-sm font-sans ${
-                  msg.role === 'user'
-                    ? 'bg-primary/10 border border-primary/20'
-                    : 'bg-base-200/50 border border-base-300/50'
-                }`}>
-                  {msg.role === 'user' ? (
-                    editingMsgId === msg.id ? (
-                      <div className="space-y-2" data-testid="edit-user-msg">
-                        <textarea
-                          className="textarea textarea-bordered w-full text-sm font-sans"
-                          rows={Math.max(2, Math.min(6, editDraft.split('\n').length))}
-                          value={editDraft}
-                          onChange={(e) => setEditDraft(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                              e.preventDefault();
-                              saveEditAndResend();
-                            } else if (e.key === 'Escape') {
-                              e.preventDefault();
-                              cancelEdit();
-                            }
-                          }}
-                          autoFocus
-                        />
-                        <div className="flex gap-1 justify-end">
-                          <button
-                            type="button"
-                            className="btn btn-xs btn-ghost"
-                            onClick={cancelEdit}
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-xs btn-primary"
-                            data-testid="edit-save-button"
-                            onClick={saveEditAndResend}
-                            disabled={!editDraft.trim() || isLoading}
-                          >
-                            Save &amp; resend
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        className="text-left w-full hover:opacity-80 cursor-text"
-                        title="Click to edit and resend"
-                        data-testid="user-msg-text"
-                        onClick={() => beginEdit(msg.id)}
-                      >
-                        {msg.text}
-                      </button>
-                    )
-                  ) : (
-                    <div className="prose prose-sm max-w-none [&_p]:my-1 [&_ul]:my-1 [&_li]:my-0 [&_pre]:my-1 [&_code]:text-xs [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm">
-                      <Markdown
-                        remarkPlugins={[remarkGfm]}
-                        components={{
-                          code({ inline, className, children, ...rest }: any) {
-                            const lang = /language-(\w+)/.exec(className || '')?.[1];
-                            if (inline || !lang) {
-                              return <code className={className} {...rest}>{children}</code>;
-                            }
-                            const code = String(children).replace(/\n$/, '');
-                            // Render ```mermaid blocks as diagrams instead of code.
-                            if (lang === 'mermaid') {
-                              return <MermaidDiagram code={code} isDark={isDark} />;
-                            }
-                            const isCopied = copiedKey === code;
-                            const isCopyFailed = copyFailedKey === code;
-                            const isSql = lang === 'sql';
-                            return (
-                              <div className="relative group/code">
-                                <div className="absolute right-1 top-1 flex gap-1 z-10">
-                                  {isSql && (
-                                    <button
-                                      type="button"
-                                      className="btn btn-xs btn-primary opacity-90 hover:opacity-100"
-                                      onClick={() => runSqlBlock(code)}
-                                      title="Run this query against the package database"
-                                      data-testid="run-sql-button"
-                                    >
-                                      ▶ Run
-                                    </button>
-                                  )}
-                                  <button
-                                    type="button"
-                                    className={`btn btn-xs btn-ghost transition-opacity ${
-                                      isCopied || isCopyFailed
-                                        ? 'opacity-100'
-                                        : 'opacity-0 group-hover/code:opacity-100'
-                                    }`}
-                                    onClick={() => handleCopy(code)}
-                                    title={isCopyFailed ? 'Copy failed (clipboard unavailable)' : 'Copy'}
-                                    data-testid="copy-code-button"
-                                  >
-                                    {isCopied ? 'Copied!' : isCopyFailed ? 'Copy failed' : 'Copy'}
-                                  </button>
-                                </div>
-                                <SyntaxHighlighter
-                                  language={lang}
-                                  style={isDark ? oneDark : oneLight}
-                                  PreTag="div"
-                                  customStyle={{ margin: 0, fontSize: '11px', borderRadius: '4px' }}
-                                >
-                                  {code}
-                                </SyntaxHighlighter>
-                              </div>
-                            );
-                          },
-                          // #60 — linkify @EntityName tokens inside text-bearing
-                          // elements. Skips code blocks (handled above) so a
-                          // literal `@Foo` in a fenced block stays literal.
-                          p: ({ children, ...rest }: any) => <p {...rest}>{processMentions(children)}</p>,
-                          li: ({ children, ...rest }: any) => <li {...rest}>{processMentions(children)}</li>,
-                          // GFM tables: bordered cells, a strong header band, and
-                          // zebra rows — all theme tokens so it reads in both light
-                          // and dark. `prose` alone leaves tables borderless.
-                          table: ({ children, ...rest }: any) => (
-                            <table {...rest} className="my-2 w-full border-collapse border border-base-content/30 text-xs">{children}</table>
-                          ),
-                          thead: ({ children, ...rest }: any) => (
-                            <thead {...rest} className="bg-primary/15 text-base-content">{children}</thead>
-                          ),
-                          tr: ({ children, ...rest }: any) => (
-                            <tr {...rest} className="even:bg-base-content/5">{children}</tr>
-                          ),
-                          td: ({ children, ...rest }: any) => (
-                            <td {...rest} className="border border-base-content/30 px-2 py-1 align-top">{processMentions(children)}</td>
-                          ),
-                          th: ({ children, ...rest }: any) => (
-                            <th {...rest} className="border border-base-content/30 px-2 py-1 text-left text-[11px] font-bold uppercase tracking-wide">{processMentions(children)}</th>
-                          ),
-                          h1: ({ children, ...rest }: any) => <h1 {...rest}>{processMentions(children)}</h1>,
-                          h2: ({ children, ...rest }: any) => <h2 {...rest}>{processMentions(children)}</h2>,
-                          h3: ({ children, ...rest }: any) => <h3 {...rest}>{processMentions(children)}</h3>,
-                          strong: ({ children, ...rest }: any) => <strong {...rest}>{processMentions(children)}</strong>,
-                          em: ({ children, ...rest }: any) => <em {...rest}>{processMentions(children)}</em>,
-                        }}
-                      >{msg.text}</Markdown>
-                    </div>
-                  )}
-                </div>
-
-                {/* Tool calls */}
-                {msg.toolCalls && msg.toolCalls.length > 0 && (() => {
+                {/* Assistant tool calls — rendered BEFORE the prose bubble so chronological order reads top-to-bottom (#228). */}
+                {msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0 && (() => {
                   const total = msg.toolCalls.length;
                   // "completed" = anything past the running/starting phase.
                   // Cancelled cards are terminal and count as complete so the
@@ -2052,7 +1918,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                   const completed = msg.toolCalls.filter(tc => tc.status !== 'starting' && tc.status !== 'running').length;
                   const showProgress = total > 1 && completed < total;
                   return (
-                  <div className="mt-1.5 space-y-1">
+                  <div className="mb-1.5 space-y-1">
                     {showProgress && (
                       <div data-testid="tool-progress" className="text-[10px] uppercase tracking-wider text-base-content/50 px-1">
                         {completed} of {total}
@@ -2345,6 +2211,152 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                   </div>
                   );
                 })()}
+
+                {/* Message content */}
+                <div className={`rounded-lg px-3 py-2 text-sm font-sans ${
+                  msg.role === 'user'
+                    ? 'bg-primary/10 border border-primary/20'
+                    : 'bg-base-200/50 border border-base-300/50'
+                }`}>
+                  {msg.role === 'user' ? (
+                    editingMsgId === msg.id ? (
+                      <div className="space-y-2" data-testid="edit-user-msg">
+                        <textarea
+                          className="textarea textarea-bordered w-full text-sm font-sans"
+                          rows={Math.max(2, Math.min(6, editDraft.split('\n').length))}
+                          value={editDraft}
+                          onChange={(e) => setEditDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              saveEditAndResend();
+                            } else if (e.key === 'Escape') {
+                              e.preventDefault();
+                              cancelEdit();
+                            }
+                          }}
+                          autoFocus
+                        />
+                        <div className="flex gap-1 justify-end">
+                          <button
+                            type="button"
+                            className="btn btn-xs btn-ghost"
+                            onClick={cancelEdit}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-xs btn-primary"
+                            data-testid="edit-save-button"
+                            onClick={saveEditAndResend}
+                            disabled={!editDraft.trim() || isLoading}
+                          >
+                            Save &amp; resend
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className="text-left w-full hover:opacity-80 cursor-text"
+                        title="Click to edit and resend"
+                        data-testid="user-msg-text"
+                        onClick={() => beginEdit(msg.id)}
+                      >
+                        {msg.text}
+                      </button>
+                    )
+                  ) : (
+                    <div className="prose prose-sm max-w-none [&_p]:my-1 [&_ul]:my-1 [&_li]:my-0 [&_pre]:my-1 [&_code]:text-xs [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm">
+                      <Markdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          code({ inline, className, children, ...rest }: any) {
+                            const lang = /language-(\w+)/.exec(className || '')?.[1];
+                            if (inline || !lang) {
+                              return <code className={className} {...rest}>{children}</code>;
+                            }
+                            const code = String(children).replace(/\n$/, '');
+                            // Render ```mermaid blocks as diagrams instead of code.
+                            if (lang === 'mermaid') {
+                              return <MermaidDiagram code={code} isDark={isDark} />;
+                            }
+                            const isCopied = copiedKey === code;
+                            const isCopyFailed = copyFailedKey === code;
+                            const isSql = lang === 'sql';
+                            return (
+                              <div className="relative group/code">
+                                <div className="absolute right-1 top-1 flex gap-1 z-10">
+                                  {isSql && (
+                                    <button
+                                      type="button"
+                                      className="btn btn-xs btn-primary opacity-90 hover:opacity-100"
+                                      onClick={() => runSqlBlock(code)}
+                                      title="Run this query against the package database"
+                                      data-testid="run-sql-button"
+                                    >
+                                      ▶ Run
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    className={`btn btn-xs btn-ghost transition-opacity ${
+                                      isCopied || isCopyFailed
+                                        ? 'opacity-100'
+                                        : 'opacity-0 group-hover/code:opacity-100'
+                                    }`}
+                                    onClick={() => handleCopy(code)}
+                                    title={isCopyFailed ? 'Copy failed (clipboard unavailable)' : 'Copy'}
+                                    data-testid="copy-code-button"
+                                  >
+                                    {isCopied ? 'Copied!' : isCopyFailed ? 'Copy failed' : 'Copy'}
+                                  </button>
+                                </div>
+                                <SyntaxHighlighter
+                                  language={lang}
+                                  style={isDark ? oneDark : oneLight}
+                                  PreTag="div"
+                                  customStyle={{ margin: 0, fontSize: '11px', borderRadius: '4px' }}
+                                >
+                                  {code}
+                                </SyntaxHighlighter>
+                              </div>
+                            );
+                          },
+                          // #60 — linkify @EntityName tokens inside text-bearing
+                          // elements. Skips code blocks (handled above) so a
+                          // literal `@Foo` in a fenced block stays literal.
+                          p: ({ children, ...rest }: any) => <p {...rest}>{processMentions(children)}</p>,
+                          li: ({ children, ...rest }: any) => <li {...rest}>{processMentions(children)}</li>,
+                          // GFM tables: bordered cells, a strong header band, and
+                          // zebra rows — all theme tokens so it reads in both light
+                          // and dark. `prose` alone leaves tables borderless.
+                          table: ({ children, ...rest }: any) => (
+                            <table {...rest} className="my-2 w-full border-collapse border border-base-content/30 text-xs">{children}</table>
+                          ),
+                          thead: ({ children, ...rest }: any) => (
+                            <thead {...rest} className="bg-primary/15 text-base-content">{children}</thead>
+                          ),
+                          tr: ({ children, ...rest }: any) => (
+                            <tr {...rest} className="even:bg-base-content/5">{children}</tr>
+                          ),
+                          td: ({ children, ...rest }: any) => (
+                            <td {...rest} className="border border-base-content/30 px-2 py-1 align-top">{processMentions(children)}</td>
+                          ),
+                          th: ({ children, ...rest }: any) => (
+                            <th {...rest} className="border border-base-content/30 px-2 py-1 text-left text-[11px] font-bold uppercase tracking-wide">{processMentions(children)}</th>
+                          ),
+                          h1: ({ children, ...rest }: any) => <h1 {...rest}>{processMentions(children)}</h1>,
+                          h2: ({ children, ...rest }: any) => <h2 {...rest}>{processMentions(children)}</h2>,
+                          h3: ({ children, ...rest }: any) => <h3 {...rest}>{processMentions(children)}</h3>,
+                          strong: ({ children, ...rest }: any) => <strong {...rest}>{processMentions(children)}</strong>,
+                          em: ({ children, ...rest }: any) => <em {...rest}>{processMentions(children)}</em>,
+                        }}
+                      >{msg.text}</Markdown>
+                    </div>
+                  )}
+                </div>
 
                 {/* #192 — visible, non-error notice that the agentic loop
                     stopped because it hit its step budget. NOT the red error
