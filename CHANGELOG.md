@@ -5,6 +5,25 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.22.0] — 2026-07-10
+
+### Added
+- **Legacy physical metadata resolves in the AI read path.** A shared resolver
+  now backs both `getSqlSchema` and `getEntityDetails`: the primary-key flag
+  stored as `isPrimaryKey` attribute metadata (eshop-style / older imports) is
+  recognised when the schema field is unset, so PK columns survive into
+  generated SQL. `getSqlSchema` also lists `tablesWithFallbackColumns` and
+  names them in a note, so the agent warns the user about columns with no
+  explicit physical mapping instead of guessing.
+
+### Changed
+- **The AI chat's per-turn model snapshot is cached.** Building it used to
+  re-read every package's entities and relationships on each message — a
+  linear IO tax on large dictionaries. It is now memoized and invalidated by
+  the same change bus that keeps the search index fresh, by the AI's own
+  mutation tools (an entity created in chat appears in the next turn's
+  snapshot), and by a 60-second TTL backstop.
+
 ## [1.21.0] — 2026-07-09
 
 ### Added
