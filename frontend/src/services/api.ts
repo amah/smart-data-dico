@@ -395,8 +395,15 @@ export const ormApi = {
 // fetch results in chunks, and ask the AI to repair a failed query.
 export type SqlDialect = 'postgres' | 'mysql' | 'mssql' | 'oracle' | 'sqlite';
 export interface SqlRunChunk { resultId: string | null; columns: string[]; rows: unknown[][]; done: boolean; dialect?: SqlDialect }
-export interface SqlConnectInput { packageName: string; dialect: SqlDialect; connection: Record<string, unknown>; user: string; password: string; remember?: boolean }
+/** Either explicit fields, or `connectionId` referencing a saved library entry
+ *  (the server resolves its params + saved password — never sent to the client).
+ *  Explicit fields override the entry's values when both are present. */
+export interface SqlConnectInput { packageName: string; connectionId?: string; dialect?: SqlDialect; connection?: Record<string, unknown>; user?: string; password?: string; remember?: boolean }
 export interface SqlSecretCapabilities { canStore: boolean; provider: string | null; reason?: string }
+// Named connection library (#connection-library) — global per-user saved
+// connection parameters; passwords live server-side in the secret store.
+export interface SavedSqlConnection { id: string; name: string; dialect: SqlDialect; connection: Record<string, unknown>; user: string; savedAt: string; hasSavedPassword: boolean }
+export interface SavedSqlConnectionInput { name: string; dialect: SqlDialect; connection: Record<string, unknown>; user?: string; password?: string; rememberPassword?: boolean }
 
 export const sqlRunApi = {
   /** Stored non-secret physical config for a package (dialect/host/db) to prefill the connect form. */
@@ -424,6 +431,19 @@ export const sqlRunApi = {
     catch { return false; }
   },
   forgetSecret: async (pkg: string) => { await api.delete(`/sql/secret/${encodeURIComponent(pkg)}`); },
+  /** The caller's saved connection library + per-package last-used prefill hints. */
+  listSavedConnections: async (): Promise<{ connections: SavedSqlConnection[]; lastUsedByPackage: Record<string, string> }> => {
+    try { const r = await api.get('/sql/connections'); return r.data?.data ?? { connections: [], lastUsedByPackage: {} }; }
+    catch { return { connections: [], lastUsedByPackage: {} }; }
+  },
+  /** Create (no id) or update (id) a saved connection; password → secret store only. */
+  saveConnection: async (input: SavedSqlConnectionInput, id?: string): Promise<SavedSqlConnection> => {
+    const r = id
+      ? await api.put(`/sql/connections/${encodeURIComponent(id)}`, input)
+      : await api.post('/sql/connections', input);
+    return r.data?.data;
+  },
+  deleteSavedConnection: async (id: string) => { await api.delete(`/sql/connections/${encodeURIComponent(id)}`); },
   run: async (packageName: string, sql: string, chunk?: number): Promise<SqlRunChunk> => {
     const r = await api.post('/sql/run', { packageName, sql, ...(chunk ? { chunk } : {}) });
     return r.data?.data;

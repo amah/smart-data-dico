@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { sqlRunApi, type SqlDialect, type SqlRunChunk, type SqlSecretCapabilities } from '../../../services/api';
+import { sqlRunApi, type SavedSqlConnection, type SqlDialect, type SqlRunChunk, type SqlSecretCapabilities } from '../../../services/api';
+import Button from '../../../components/ui/Button';
+import Input from '../../../components/ui/Input';
+import { Field, fieldStyle } from '../../../components/ui/Field';
 
 /**
  * Runs a generated SQL query against a package's database and shows the result.
@@ -67,6 +70,29 @@ export default function SqlRunModal({ open, sql, packageName, onClose }: {
   const [caps, setCaps] = useState<SqlSecretCapabilities | null>(null);
   const [remember, setRemember] = useState(false);
   const [hasSaved, setHasSaved] = useState(false);
+  // saved connection library (#connection-library)
+  const [savedConns, setSavedConns] = useState<SavedSqlConnection[]>([]);
+  const [selectedId, setSelectedId] = useState('');   // '' = new / ad-hoc connection
+  const [modified, setModified] = useState(false);    // form edited since selection
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveName, setSaveName] = useState('');
+  const [savePwd, setSavePwd] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const selectedEntry = savedConns.find(c => c.id === selectedId) ?? null;
+  // Unmodified selection → connect by id (server resolves the saved password).
+  const usingSavedEntry = !!selectedEntry && !modified;
+
+  /** Fill the form from a library entry; password stays blank (server-side secret). */
+  const applyEntry = (e: SavedSqlConnection) => {
+    setSelectedId(e.id);
+    setDialect(e.dialect);
+    setConn(Object.fromEntries(Object.entries(e.connection ?? {}).map(([k, v]) => [k, String(v ?? '')])));
+    setUser(e.user ?? '');
+    setPassword('');
+    setModified(false);
+    setConfirmDelete(false);
+  };
 
   const gridRef = useRef<HTMLDivElement>(null);
   const resultIdRef = useRef<string | null>(null);
@@ -92,23 +118,29 @@ export default function SqlRunModal({ open, sql, packageName, onClose }: {
     }
   }, [packageName]);
 
-  // On open: prefill connect form from physical config, then check connection.
+  // On open: prefill the connect form — last-used saved connection for this
+  // package → package physical config → empty — then check the live connection.
   useEffect(() => {
     if (!open || startedRef.current) return;
     startedRef.current = true;
     setCurrentSql(sql);
     (async () => {
-      const [phys, existing, capabilities] = await Promise.all([
+      const [phys, existing, capabilities, library] = await Promise.all([
         sqlRunApi.getPhysicalConfig(packageName).catch(() => null),
         sqlRunApi.getConnection(packageName).catch(() => null),
         sqlRunApi.secretCapabilities(),
+        sqlRunApi.listSavedConnections(),
       ]);
       setCaps(capabilities);
-      const dial = phys?.dialect ?? 'postgres';
-      const connObj = phys?.connection ? Object.fromEntries(Object.entries(phys.connection).map(([k, v]) => [k, String(v ?? '')])) : {};
-      if (phys?.dialect) setDialect(dial);
-      if (phys?.connection) setConn(connObj);
+      setSavedConns(library.connections);
       if (existing) { setUser(existing.user); await runQuery(sql); return; }
+      const lastUsed = library.connections.find(c => c.id === library.lastUsedByPackage[packageName]);
+      if (lastUsed) {
+        applyEntry(lastUsed);
+      } else {
+        if (phys?.dialect) setDialect(phys.dialect);
+        if (phys?.connection) setConn(Object.fromEntries(Object.entries(phys.connection).map(([k, v]) => [k, String(v ?? '')])));
+      }
       setPhase('connect');
     })();
   }, [open, sql, packageName, runQuery]);
@@ -120,6 +152,7 @@ export default function SqlRunModal({ open, sql, packageName, onClose }: {
     if (resultIdRef.current) { sqlRunApi.close(resultIdRef.current).catch(() => {}); resultIdRef.current = null; }
     setPhase('running'); setChunk(null); setRows([]); setErrorMsg(''); setSentToChat(false); setPassword('');
     setRemember(false); setHasSaved(false);
+    setSelectedId(''); setModified(false); setSaveOpen(false); setSaveName(''); setSavePwd(false); setConfirmDelete(false);
   }, [open]);
 
   // Whether a password is already saved for the current (package, connection, user)
@@ -134,7 +167,12 @@ export default function SqlRunModal({ open, sql, packageName, onClose }: {
   const doConnect = async () => {
     setBusy(true); setErrorMsg('');
     try {
-      await sqlRunApi.connect({ packageName, dialect, connection: conn, user, password, remember });
+      // Unmodified saved connection → connect by id: the server resolves the
+      // entry's params + saved password (it never round-trips through here).
+      // An inline password (typed to override) still wins server-side.
+      await sqlRunApi.connect(usingSavedEntry && selectedEntry
+        ? { packageName, connectionId: selectedEntry.id, ...(password ? { password } : {}), remember }
+        : { packageName, dialect, connection: conn, user, password, remember });
       await runQuery(currentSql);
     } catch (e: any) {
       setErrorMsg(errOf(e).message); setBusy(false);
@@ -143,6 +181,36 @@ export default function SqlRunModal({ open, sql, packageName, onClose }: {
 
   const forgetPassword = async () => {
     try { await sqlRunApi.forgetSecret(packageName); setHasSaved(false); setRemember(false); } catch { /* best-effort */ }
+  };
+
+  // Save (create, or update the selected entry) the current form values as a
+  // named library connection; the password goes along only when opted in.
+  const doSaveConnection = async () => {
+    const name = saveName.trim();
+    if (!name) return;
+    setBusy(true); setErrorMsg('');
+    try {
+      const saved = await sqlRunApi.saveConnection({
+        name, dialect, connection: conn, user,
+        ...(savePwd && password && needsCredentials(dialect) ? { password, rememberPassword: true } : {}),
+      }, selectedId || undefined);
+      const library = await sqlRunApi.listSavedConnections();
+      setSavedConns(library.connections);
+      const entry = library.connections.find(c => c.id === saved.id);
+      if (entry) applyEntry(entry);
+      setSaveOpen(false); setSaveName(''); setSavePwd(false);
+    } catch (e: any) {
+      setErrorMsg(errOf(e).message);
+    } finally { setBusy(false); }
+  };
+
+  const doDeleteConnection = async () => {
+    if (!selectedId) return;
+    try {
+      await sqlRunApi.deleteSavedConnection(selectedId);
+      setSavedConns(cs => cs.filter(c => c.id !== selectedId));
+      setSelectedId(''); setModified(false); setConfirmDelete(false);
+    } catch (e: any) { setErrorMsg(errOf(e).message); }
   };
 
   const onScroll = async () => {
@@ -179,23 +247,50 @@ export default function SqlRunModal({ open, sql, packageName, onClose }: {
         {phase === 'connect' && (
           <div className="space-y-2" data-testid="sql-connect-form">
             <p className="text-xs text-base-content/60">Connect to the <b>{packageName}</b> database (read-only). Credentials are cached in memory for this session; the password is only stored if you tick <i>Remember</i> below.</p>
+            {savedConns.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6 }} data-testid="sql-saved-row">
+                <Field label="Saved connection" grow>
+                  <select
+                    style={fieldStyle}
+                    value={usingSavedEntry ? selectedId : ''}
+                    onChange={e => {
+                      const entry = savedConns.find(c => c.id === e.target.value);
+                      if (entry) applyEntry(entry); else { setSelectedId(''); setModified(false); }
+                    }}
+                    data-testid="sql-saved-select"
+                  >
+                    <option value="">— new connection —</option>
+                    {savedConns.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </Field>
+                {selectedEntry && (confirmDelete ? (
+                  <>
+                    <Button size="md" variant="danger" onClick={doDeleteConnection} data-testid="sql-delete-confirm">Confirm delete?</Button>
+                    <Button size="md" variant="ghost" onClick={() => setConfirmDelete(false)}>Keep</Button>
+                  </>
+                ) : (
+                  <Button size="md" variant="danger" title="Delete saved connection" onClick={() => setConfirmDelete(true)} data-testid="sql-delete-connection">Delete</Button>
+                ))}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-2">
               <label className="form-control"><span className="label-text text-xs">Dialect</span>
-                <select className="select select-sm select-bordered" value={dialect} onChange={e => setDialect(e.target.value as SqlDialect)}>
+                <select className="select select-sm select-bordered" value={dialect} onChange={e => { setDialect(e.target.value as SqlDialect); setModified(true); }}>
                   <option value="postgres">postgres</option><option value="mysql">mysql</option><option value="mssql">mssql</option><option value="oracle">oracle</option><option value="sqlite">sqlite</option>
                 </select>
               </label>
               {dialectFields(dialect).map(f => (
                 <label key={f.key} className="form-control"><span className="label-text text-xs">{f.label}</span>
-                  <input className="input input-sm input-bordered" placeholder={f.placeholder} value={conn[f.key] ?? ''} onChange={e => setConn(c => ({ ...c, [f.key]: e.target.value }))} />
+                  <input className="input input-sm input-bordered" placeholder={f.placeholder} value={conn[f.key] ?? ''} onChange={e => { setConn(c => ({ ...c, [f.key]: e.target.value })); setModified(true); }} />
                 </label>
               ))}
               {needsCredentials(dialect) && (<>
                 <label className="form-control"><span className="label-text text-xs">User</span>
-                  <input className="input input-sm input-bordered" value={user} onChange={e => setUser(e.target.value)} autoComplete="off" />
+                  <input className="input input-sm input-bordered" value={user} onChange={e => { setUser(e.target.value); setModified(true); }} autoComplete="off" />
                 </label>
                 <label className="form-control"><span className="label-text text-xs">Password</span>
-                  <input type="password" className="input input-sm input-bordered" value={password} onChange={e => setPassword(e.target.value)} autoComplete="off" placeholder={hasSaved ? 'leave blank to use saved password' : undefined} />
+                  <input type="password" className="input input-sm input-bordered" value={password} onChange={e => setPassword(e.target.value)} autoComplete="off"
+                    placeholder={usingSavedEntry && selectedEntry?.hasSavedPassword ? 'using saved password — type to override' : hasSaved ? 'leave blank to use saved password' : undefined} />
                 </label>
               </>)}
             </div>
@@ -209,6 +304,33 @@ export default function SqlRunModal({ open, sql, packageName, onClose }: {
                 {!caps?.canStore && <span className="text-warning/80">unavailable here</span>}
                 <span className="flex-1" />
                 {hasSaved && <button type="button" className="btn btn-xs btn-ghost text-error" onClick={forgetPassword} data-testid="sql-forget">Forget saved password</button>}
+              </div>
+            )}
+            {saveOpen ? (
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, flexWrap: 'wrap' }} data-testid="sql-save-row">
+                <Field label="Connection name" grow>
+                  <Input size="md" value={saveName} onChange={e => setSaveName(e.target.value)} placeholder="e.g. Commerce PG (staging)" data-testid="sql-save-name" />
+                </Field>
+                {needsCredentials(dialect) && (
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', height: 28, opacity: caps?.canStore && password ? 1 : 0.5 }}
+                    title={!caps?.canStore ? caps?.reason : !password ? 'Type the password to include it' : undefined}>
+                    <input type="checkbox" checked={savePwd} disabled={!caps?.canStore || !password} onChange={e => setSavePwd(e.target.checked)} />
+                    include password
+                  </label>
+                )}
+                <Button size="md" variant="primary" onClick={doSaveConnection} disabled={busy || !saveName.trim()} data-testid="sql-save-confirm">
+                  {selectedId ? 'Update' : 'Save'}
+                </Button>
+                <Button size="md" variant="ghost" onClick={() => setSaveOpen(false)}>Cancel</Button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex' }}>
+                <Button size="md" variant="ghost" data-testid="sql-save-connection"
+                  onClick={() => { setSaveName(selectedEntry?.name ?? ''); setSaveOpen(true); }}>
+                  {/* Name the target: after an edit the picker shows "new connection"
+                      but this still updates the previously selected entry. */}
+                  {selectedEntry ? `Update “${selectedEntry.name}”…` : 'Save connection…'}
+                </Button>
               </div>
             )}
             {errorMsg && <div className="text-error text-xs" data-testid="sql-connect-error">{errorMsg}</div>}

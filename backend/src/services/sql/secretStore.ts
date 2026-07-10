@@ -222,9 +222,18 @@ export async function capabilities(): Promise<SecretCapabilities> {
 
 /** Short, non-secret tag for the *app* user (the authenticated JWT subject), so
  *  one OS account's saved DB passwords are isolated per app user — user B can't
- *  reuse or forget user A's secret. Defaults to `local` (desktop/single-user). */
-function userTag(appUser: string): string {
+ *  reuse or forget user A's secret. Defaults to `local` (desktop/single-user).
+ *  Exported: the connection library keys its per-user sections with the same tag. */
+export function userTag(appUser: string): string {
   return crypto.createHash('sha256').update(appUser || 'local').digest('hex').slice(0, 12);
+}
+
+/** Secret key for a NAMED library connection (#connection-library) — id-keyed so
+ *  editing host/user keeps the password attached. Distinct `conn::` namespace;
+ *  no clash with package keys is possible in practice (a package literally named
+ *  `conn` would produce `conn::<12-hex-tag>::…` while these are `conn::<uuid>::…`). */
+export function connectionSecretKey(connectionId: string, appUser: string): string {
+  return `conn::${connectionId}::${userTag(appUser)}`;
 }
 
 /** Stable, non-secret key for a (package, app-user, connection identity).
