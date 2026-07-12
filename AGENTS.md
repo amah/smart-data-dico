@@ -2,45 +2,44 @@
 
 ## Project Overview
 
-Smart Data Dictionary is a full-stack TypeScript app for creating, editing, versioning, and sharing data dictionaries. Persistence is file-based: project folders contain `dico.config.json`, package YAML files, and `.dico/` system files. Development defaults to `samples/eshop/`; production selects a project with `DATA_DIR` or `--data-dir`.
+Smart Data Dictionary is a TypeScript application for creating, versioning, and sharing file-backed data dictionaries. Projects contain `dico.config.json`, package YAML files, and `.dico/` system data. Development uses `samples/eshop/`; production selects a project with `DATA_DIR` or `--data-dir`.
 
 ## Project Structure & Module Organization
 
-Backend code lives in `backend/src`: `routes`, `controllers`, `services`, `storage`, `models`, `middleware`, `utils`, and `mcp`. Frontend code lives in `frontend/src`: views in `pages`, UI in `components`, app-framework plugins in `plugins`, and shared state/utilities in `store`, `services`, `hooks`, and `utils`. Tests are colocated in `__tests__`; Playwright specs are in `frontend/e2e`. Docs are in `docs/`, scripts in `scripts/`, CLI entries in `bin/`.
+- `backend/src/`: Express routes, controllers, services, models, middleware, storage adapters, and MCP support. Business services must use `IStorageBackend`.
+- `frontend/src/`: React pages and components, Redux state, API clients, and `@hamak/app-framework` plugins registered in `kernel/bootstrap.ts`.
+- `backend/src/**/__tests__/` and frontend colocated `*.test.ts(x)` files: unit and integration tests.
+- `frontend/e2e/`: Playwright scenarios. Documentation, scripts, CLI entries, and examples live in `docs/`, `scripts/`, `bin/`, and `samples/`.
 
 ## Build, Test, and Development Commands
 
-- `npm run build`: builds frontend and backend.
-- `npm start`: runs the packaged CLI entry point at `bin/cli.js`.
-- `cd backend && npm run dev`: seeds the active project and starts the backend on port 3001.
-- `cd backend && npm test`: runs Jest backend tests.
-- `cd backend && npm run lint`: runs backend ESLint rules.
-- `cd frontend && npm run dev`: starts Vite on port 3000, proxying `/api`, `/fs`, and `/api/git` to backend port 3001.
-- `cd frontend && npm test`: runs Vitest frontend tests once.
-- `cd frontend && npm run e2e`: runs Playwright end-to-end tests.
+- `npm run build`: build both applications; `npm start` runs `bin/cli.js`.
+- `cd backend && npm run dev`: start the API on port 3001. Use `npm test`, `npm run test:coverage`, or `npx jest path/to/test.ts`.
+- `cd frontend && npm run dev`: start Vite on port 3000 with backend proxies. Use `npm test`, `npm run test:watch`, `npm run test:coverage`, or `npx vitest run path/to/test.ts`.
+- Run `npm run lint` in either application. Use `npm ci` in both directories when reproducing CI.
 
-Use `npm ci` in `backend/` and `frontend/` when reproducing CI on Node.js 16.
+## Coding Style & Architecture
 
-## Coding Style & Naming Conventions
+Use TypeScript, two-space indentation, semicolons, PascalCase for components/classes, and camelCase for functions/variables. Frontend imports may use `@/` for `frontend/src`.
 
-Use TypeScript, two-space indentation, and semicolons. Use PascalCase for classes and React components, camelCase for functions and variables, and descriptive service names such as `conversationService.ts`.
+Follow existing layers: routes -> controllers -> services -> storage/models. Prefer established microkernel plugins and dependency-injection tokens over cross-plugin imports. Backend ESLint rejects unused variables unless prefixed `_` and restricts direct `fs` imports; never bypass the storage contract.
 
-Backend ESLint warns on `any`, rejects unused variables unless prefixed with `_`, and restricts direct `fs` or `fs/promises` imports outside the allow-list. Use `IStorageBackend` from `backend/src/storage/contract/` for storage-facing work. Frontend imports can use the `@/` alias for `frontend/src`.
+## Data, Security, and Configuration
 
-## Architecture & Data Model Notes
+YAML loading is content-driven: any package `.yaml` may contain `entities`, `relationships`, `rules`, or `perspectives`; filenames are conventions. Preserve UUIDs and keep `attribute.validation`, `entity.constraints[]`, and first-class business `Rule` objects distinct.
 
-Backend routes are Express endpoints; framework routes mount remote filesystem access at `/fs` and git access at `/api/git`. Swagger UI is available at `/api-docs`.
-
-Any package-level `.yaml` file may include `entities`, `relationships`, `rules`, and `perspectives`; filenames such as `<Name>.model.yaml` are conventions only. Keep validation, persistence constraints, and business rules distinct: `attribute.validation`, `entity.constraints[]`, and first-class `Rule` objects.
+SQL execution must remain read-only. Never persist or log database passwords outside the secret-store mechanism. Development authentication supports `Bearer mock-token-for-testing`; do not commit real credentials.
 
 ## Testing Guidelines
 
-Backend tests use Jest, ts-jest, and Supertest; frontend tests use Vitest, Testing Library, MSW, and Playwright. Name tests `.test.ts` or `.test.tsx` and keep them near changed code. For coverage, run `cd backend && npm run test:coverage` or `cd frontend && npm run test:coverage`.
+Backend tests use Jest, ts-jest, and Supertest. Frontend tests use Vitest, Testing Library, MSW, and Playwright. Name tests `*.test.ts` or `*.test.tsx`, colocate them with changed code, and add focused regression coverage for behavior changes.
+
+## Release & Publishing
+
+Package releases use Semantic Versioning and `v<version>` tags. Update `CHANGELOG.md`, then bump the root `package.json` and `package-lock.json` together. From a clean release commit, run backend and frontend lint/tests, `npm run build`, and `npm publish --dry-run --access public`; inspect the packed file list before publishing `@hamak/smart-data-dico` with `npm publish --access public`. Create and push the matching tag only after the release contents are verified. Publishing is manual; do not publish or tag without explicit maintainer approval.
+
+Desktop releases are separate. A `desktop-v<version>` tag triggers `.github/workflows/desktop-release.yml`, which builds installers and creates the GitHub Release. `workflow_dispatch` validates builds but does not publish a release. Never substitute a package `v*` tag for a desktop tag.
 
 ## Commit & Pull Request Guidelines
 
-Recent history follows Conventional Commits, for example `feat(diagram): ...`, `fix(diagram): ...`, `docs(format-reference): ...`, and `chore(release): ...`. PRs should include a concise description, linked issue when available, test commands run, and screenshots or recordings for UI changes. Call out schema, storage, migration, or configuration changes explicitly.
-
-## Agent-Specific Instructions
-
-Prefer existing package boundaries and plugin patterns. Do not bypass the storage contract with direct filesystem access in production code. Preserve YAML UUID stability and avoid convention-only renames unless required. Development auth supports `Bearer mock-token-for-testing`.
+Use Conventional Commits, such as `feat(diagram): ...`, `fix(sql): ...`, or `docs(format-reference): ...`. PRs should describe the change, link issues, list verification commands, and include screenshots or recordings for UI work. Explicitly call out schema, storage, migration, security, or configuration changes.

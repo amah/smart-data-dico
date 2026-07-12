@@ -5,6 +5,17 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.24.3] — 2026-07-12
+
+### Fixed
+- **Page scroll position carried across routes.** The shell now resets its main
+  scroll container when the pathname changes, keeping page headers and toolbars
+  visible after navigating away from long views such as diagrams.
+
+### Documentation
+- Expanded the contributor guide with architecture, security, testing, and
+  package and desktop release instructions.
+
 ## [1.24.1] — 2026-07-10
 
 ### Fixed

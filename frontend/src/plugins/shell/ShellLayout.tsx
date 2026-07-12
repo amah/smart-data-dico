@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import Navbar from '../../components/Navbar';
 import Sidebar from '../../components/Sidebar';
 import Breadcrumbs from '../../components/Breadcrumbs';
@@ -28,6 +28,18 @@ const ShellLayout: React.FC = () => {
 
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
   const toggleCollapse = () => setSidebarCollapsed(!sidebarCollapsed);
+
+  const location = useLocation();
+  const mainRef = useRef<HTMLElement>(null);
+
+  // #229 — reset the main scroll container to the top on every route change
+  // so a long scroll on the diagram page doesn't carry over to the next page
+  // and hide its header / toolbar.
+  useEffect(() => {
+    if (mainRef.current) {
+      mainRef.current.scrollTop = 0;
+    }
+  }, [location.pathname]);
 
   // Left-nav width — drag the right edge to resize (desktop, when expanded); persisted.
   const SIDEBAR_MIN = 180;
@@ -121,7 +133,7 @@ const ShellLayout: React.FC = () => {
         </div>
 
         {/* Main content slot */}
-        <main className="flex-1 overflow-auto flex flex-col px-4 md:px-5 pb-2" style={{ paddingTop: 5 }}>
+        <main ref={mainRef} className="flex-1 overflow-auto flex flex-col px-4 md:px-5 pb-2" style={{ paddingTop: 5 }}>
           {!pageHasOwnHeader && <Breadcrumbs />}
           <div className="flex-1 min-h-0 flex flex-col">
             <Outlet />
