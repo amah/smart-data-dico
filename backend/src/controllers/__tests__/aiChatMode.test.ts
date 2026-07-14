@@ -95,6 +95,9 @@ describe('chat modes (#55)', () => {
       const s = getModeSystemSuffix('review');
       expect(s).toMatch(/Mode:\s*REVIEW/);
       expect(s).toMatch(/severity/);
+      expect(s).toContain('listDocumentationChunks');
+      expect(s).toContain('getDocumentationReviewCoverage');
+      expect(s).toMatch(/coverage\.complete/);
     });
   });
 

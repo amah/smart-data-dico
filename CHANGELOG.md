@@ -5,6 +5,29 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.24.4] — 2026-07-14
+
+### Added
+- **File-backed business documentation.** Author project- and package-scoped
+  Markdown documents with structured metadata, browse them in the application,
+  index bounded chunks for faceted search, and retrieve them through built-in AI
+  and MCP tools with provenance and review coverage.
+- **macOS desktop installer helper.** A repository script now builds and installs
+  the desktop application locally from the root or desktop package.
+
+### Changed
+- **Private-by-default typography.** The frontend now uses local system font
+  stacks instead of loading Inter and JetBrains Mono from Google Fonts.
+
+### Fixed
+- **Large AI conversations rejected before reaching the provider.** AI chat has
+  a scoped 2 MB JSON limit, configurable with `AI_CHAT_BODY_LIMIT`, while other
+  endpoints retain Express's default limit.
+- **Opaque AI provider failures.** Provider-bound payload sizes, server-added
+  context, and correlation IDs are logged without request content or secrets;
+  the chat UI exposes sanitized provider and size diagnostics, including
+  structured details for pre-stream HTTP 413 responses.
+
 ## [1.24.3] — 2026-07-12
 
 ### Fixed

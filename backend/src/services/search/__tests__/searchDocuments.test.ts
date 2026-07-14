@@ -1,7 +1,7 @@
 /**
  * searchDocuments — pure flattening of a Package into SearchDoc[] (#search-index).
  */
-import { packageToSearchDocs, KIND_TIER } from '../searchDocuments.js';
+import { packageToSearchDocs, documentationToSearchDocs, KIND_TIER } from '../searchDocuments.js';
 import type { Package } from '../../../models/Dictionary.js';
 
 const pkg = {
@@ -87,5 +87,29 @@ describe('packageToSearchDocs', () => {
     const out = packageToSearchDocs(empty);
     expect(out).toHaveLength(1); // just the package doc
     expect(out[0].kind).toBe('package');
+  });
+});
+
+describe('documentationToSearchDocs', () => {
+  it('emits authored documents and derived chunks with provenance and facets', () => {
+    const docs = documentationToSearchDocs([{
+      uuid: 'doc-1', title: 'Cancellation policy', summary: 'When orders can be cancelled',
+      content: 'Policy body', scope: 'package', packageName: 'orders', sourcePath: 'orders/documentation/cancel.md',
+      status: 'approved', language: 'en', tags: ['policy'], concepts: ['Order'], related: [{ ref: 'entity:order' }],
+    }], [{
+      id: 'doc:doc-1#exceptions', documentUuid: 'doc-1', title: 'Exceptions',
+      headingPath: ['Cancellation policy', 'Exceptions'], content: 'Fraud checks cannot be cancelled.',
+      scope: 'package', packageName: 'orders', sourcePath: 'orders/documentation/cancel.md',
+      tags: ['policy'], concepts: ['Order'], descriptors: ['fraud', 'exception'], relatedRefs: ['entity:order'],
+    }]);
+    expect(docs).toHaveLength(2);
+    expect(docs[0]).toMatchObject({ kind: 'document', documentUuid: 'doc-1', scope: 'package', status: 'approved' });
+    expect(docs[1]).toMatchObject({
+      kind: 'documentation-chunk', chunkId: 'doc:doc-1#exceptions', documentUuid: 'doc-1',
+      headingPath: 'Cancellation policy / Exceptions', sourcePath: 'orders/documentation/cancel.md',
+    });
+    expect(docs[1].facets).toEqual(expect.objectContaining({ relatedRef: ['entity:order'] }));
+    expect(docs[1].facets).toEqual(expect.objectContaining({ descriptor: ['fraud', 'exception'] }));
+    expect(docs[1].keywords).toContain('exception');
   });
 });

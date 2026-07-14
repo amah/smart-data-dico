@@ -16,6 +16,7 @@ import { SearchIndex, searchIndexPathFor, type SearchHit, type SearchOptions } f
 import { config } from '../../kernel/config.js';
 import { logger } from '../../utils/logger.js';
 import type { Package } from '../../models/Dictionary.js';
+import { documentationToSearchDocs } from './searchDocuments.js';
 import type {
   LogicalProjection,
   ProjectionInvalidationEvent,
@@ -47,6 +48,14 @@ async function loadOnePackage(name: string): Promise<Package | null> {
   return dictionaryService.getPackageByPath(name, []);
 }
 
+async function loadDocumentationSearchDocs() {
+  const { documentationService } = await import('../documentationService.js');
+  const documents = await documentationService.listDocuments();
+  const chunks = (await Promise.all(documents.map((d) => documentationService.getChunks(d.uuid))))
+    .flat().filter((chunk): chunk is NonNullable<typeof chunk> => chunk !== null);
+  return documentationToSearchDocs(documents, chunks);
+}
+
 /**
  * Open the index and do a full rebuild from disk. Returns true if the index is
  * live afterward. Safe to call again (re-opens only if needed).
@@ -58,6 +67,7 @@ export async function initSearchIndex(): Promise<boolean> {
   try {
     const packages = await loadAllPackages();
     index.rebuildFrom(packages);
+    index.reindexDocumentation(await loadDocumentationSearchDocs());
     logger.info(`SearchIndex: built (${index.count()} docs from ${packages.length} packages)`);
   } catch (e) {
     logger.warn(`SearchIndex: initial build failed — ${e instanceof Error ? e.message : String(e)}`);
@@ -76,6 +86,14 @@ export async function reindexPackageByName(name: string): Promise<void> {
   } catch (e) {
     logger.warn(`SearchIndex: reindex of "${name}" failed — ${e instanceof Error ? e.message : String(e)}`);
   }
+}
+
+/** Rebuild only authored/derived documentation records. */
+export async function reindexDocumentation(): Promise<void> {
+  const idx = getSearchIndex();
+  if (!idx) return;
+  try { idx.reindexDocumentation(await loadDocumentationSearchDocs()); }
+  catch (e) { logger.warn(`SearchIndex: documentation reindex failed — ${e instanceof Error ? e.message : String(e)}`); }
 }
 
 /**
@@ -130,6 +148,7 @@ export function subscribeSearchIndex(projection: LogicalProjection): Unsubscribe
         if (!idx) return;
         try {
           idx.rebuildFrom(await loadAllPackages());
+          idx.reindexDocumentation(await loadDocumentationSearchDocs());
         } catch (e) {
           logger.warn(`SearchIndex: full rebuild failed — ${e instanceof Error ? e.message : String(e)}`);
         }
@@ -139,6 +158,10 @@ export function subscribeSearchIndex(projection: LogicalProjection): Unsubscribe
 
   return projection.onInvalidate((event) => {
     if (!getSearchIndex()) return;
+    if (event.kind === 'raw-changed' && /(^|\/)documentation\//.test(event.physicalPath.replace(/\\/g, '/'))) {
+      void reindexDocumentation();
+      return;
+    }
     const pkg = packageOfEvent(event);
     if (pkg) void reindexPackageByName(pkg);
     else scheduleFullRebuild();

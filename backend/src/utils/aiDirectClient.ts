@@ -9,6 +9,7 @@
  */
 
 import { logger } from './logger.js';
+import { jsonByteLength, recordProviderRequestMeasurement, utf8ByteLength } from './aiPayloadMetrics.js';
 
 interface ToolDef {
   type: 'function';
@@ -30,6 +31,7 @@ interface DirectClientConfig {
   apiKey: string;
   baseURL: string;
   model: string;
+  diagnosticId?: string;
 }
 
 export class AbortError extends Error {
@@ -92,19 +94,33 @@ export async function callWithTools(
 
     let response: Response;
     try {
+      const requestPayload = {
+        model: config.model,
+        messages: currentMessages,
+        tools: tools.length > 0 ? tools : undefined,
+        tool_choice: tools.length > 0 ? 'auto' : undefined,
+        max_tokens: 4096,
+      };
+      const requestBody = JSON.stringify(requestPayload);
+      recordProviderRequestMeasurement({
+        provider: 'openai-compatible',
+        model: config.model,
+        diagnosticId: config.diagnosticId ?? null,
+        endpoint: `${new URL(config.baseURL).host}/chat/completions`,
+        step: step + 1,
+        requestBodyBytes: utf8ByteLength(requestBody),
+        messagesBytes: jsonByteLength(currentMessages),
+        toolsBytes: jsonByteLength(tools),
+        messageCount: currentMessages.length,
+        toolCount: tools.length,
+      });
       response = await fetch(`${config.baseURL}/chat/completions`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${config.apiKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          model: config.model,
-          messages: currentMessages,
-          tools: tools.length > 0 ? tools : undefined,
-          tool_choice: tools.length > 0 ? 'auto' : undefined,
-          max_tokens: 4096,
-        }),
+        body: requestBody,
         signal,
       });
     } catch (err: any) {
@@ -256,18 +272,31 @@ export async function callWithTools(
     ];
 
     try {
+      const requestPayload = {
+        model: config.model,
+        messages: nudgeMessages,
+        max_tokens: 4096,
+      };
+      const requestBody = JSON.stringify(requestPayload);
+      recordProviderRequestMeasurement({
+        provider: 'openai-compatible',
+        model: config.model,
+        diagnosticId: config.diagnosticId ?? null,
+        endpoint: `${new URL(config.baseURL).host}/chat/completions`,
+        phase: 'step-limit-summary',
+        requestBodyBytes: utf8ByteLength(requestBody),
+        messagesBytes: jsonByteLength(nudgeMessages),
+        messageCount: nudgeMessages.length,
+        toolCount: 0,
+      });
       const response = await fetch(`${config.baseURL}/chat/completions`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${config.apiKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          model: config.model,
-          messages: nudgeMessages,
-          // tools omitted on purpose — the model cannot call more tools.
-          max_tokens: 4096,
-        }),
+        // tools omitted on purpose — the model cannot call more tools.
+        body: requestBody,
         signal,
       });
 

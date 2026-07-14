@@ -10,6 +10,7 @@
  */
 
 import { resolveToolCategory, isGatedCategory } from '../aiController';
+import { registerAgentTool } from '../../services/ai/agentToolRegistry';
 
 const noTrust = new Map<string, 'auto' | 'review'>();
 
@@ -83,7 +84,6 @@ describe('resolveToolCategory + isGatedCategory', () => {
   // (e.g. searchModel) must resolve to "read" (not the "modify" default),
   // matching the enforcement path in getToolCategory.
   it('honours a registered plugin tool\'s own category', () => {
-    const { registerAgentTool } = require('../../services/ai/agentToolRegistry');
     registerAgentTool({
       name: 'testReadTool', category: 'read', description: 'x',
       jsonSchema: { type: 'object', properties: {} }, inputSchema: { parse: (v: unknown) => v },

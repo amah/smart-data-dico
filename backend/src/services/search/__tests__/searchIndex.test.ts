@@ -5,6 +5,7 @@
  */
 import { SearchIndex, toMatchQuery, searchIndexPathFor } from '../searchIndex.js';
 import type { Package } from '../../../models/Dictionary.js';
+import { documentationToSearchDocs } from '../searchDocuments.js';
 
 const ordering = {
   id: 'ordering', name: 'ordering', description: 'Order lifecycle', subPackages: [], relationships: [],
@@ -93,6 +94,25 @@ describe('SearchIndex (in-memory)', () => {
     expect(attrs.every((h) => h.kind === 'attribute')).toBe(true);
     const inCatalog = idx.search('s', { package: 'catalog' });
     expect(inCatalog.every((h) => h.package === 'catalog')).toBe(true);
+  });
+
+  it('indexes documentation provenance and exact facets', () => {
+    if (!guard()) return;
+    idx.reindexDocumentation(documentationToSearchDocs([{
+      uuid: 'policy-1', title: 'Cancellation policy', content: 'Cancellation fraud exception',
+      scope: 'package', packageName: 'ordering', sourcePath: 'ordering/documentation/cancel.md',
+      status: 'approved', language: 'en', tags: ['policy'], concepts: ['Order'],
+    }], [{
+      id: 'doc:policy-1#fraud', documentUuid: 'policy-1', title: 'Fraud exception',
+      headingPath: ['Cancellation policy', 'Fraud'], content: 'Fraud orders cannot be cancelled.',
+      scope: 'package', packageName: 'ordering', sourcePath: 'ordering/documentation/cancel.md',
+      tags: ['policy'], concepts: ['Order'], descriptors: ['fraud-review'], relatedRefs: ['entity:u1'],
+    }]));
+    const hits = idx.search('fraud', { kinds: ['documentation-chunk'], tag: 'policy', relatedRef: 'entity:u1' });
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toMatchObject({ documentUuid: 'policy-1', chunkId: 'doc:policy-1#fraud', status: 'approved', sourcePath: 'ordering/documentation/cancel.md' });
+    expect(idx.search('fraud', { tag: 'not-policy' })).toHaveLength(0);
+    expect(idx.search('fraud', { descriptor: 'fraud-review' })).toHaveLength(1);
   });
 
   it('reindexes a single package incrementally without touching others', () => {

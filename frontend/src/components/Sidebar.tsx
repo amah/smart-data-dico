@@ -97,6 +97,7 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
         <CollapsedLink to="/"            icon="home"    label="Home"        active={location.pathname === '/'} />
         <CollapsedLink to="/quality"     icon="shield"  label="Quality"     active={isActive('/quality')} />
         <CollapsedLink to="/integrity"   icon="check"   label="Integrity"   active={isActive('/integrity')} />
+        <CollapsedLink to="/documentation" icon="folder" label="Documentation" active={isActive('/documentation')} />
         <CollapsedLink to="/diff/logical" icon="link"    label="Model Diff" active={isActive('/diff/logical') || isActive('/diff/physical')} />
         <CollapsedLink to="/reverse-engineer" icon="link" label="Reverse-engineer" active={isActive('/reverse-engineer')} />
         <CollapsedLink to="/diagram"     icon="chart"   label="Diagram"     active={isActive('/diagram')} />
@@ -158,6 +159,7 @@ const Sidebar = ({ collapsed = false }: SidebarProps) => {
 
       <NavItem to="/quality"      icon="shield"  active={isActive('/quality')}>Quality</NavItem>
       <NavItem to="/integrity"    icon="check"   active={isActive('/integrity')}>Integrity</NavItem>
+      <NavItem to="/documentation" icon="folder" active={isActive('/documentation')}>Documentation</NavItem>
       <NavItem to="/diff/logical" icon="link"    active={isActive('/diff/logical')}>Model Diff</NavItem>
       <NavItem to="/diff/physical" icon="layers" active={isActive('/diff/physical')}>Physical Sync</NavItem>
       <NavItem to="/reverse-engineer" icon="link" active={isActive('/reverse-engineer')}>Reverse-engineer</NavItem>

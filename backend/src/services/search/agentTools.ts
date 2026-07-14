@@ -14,7 +14,7 @@ import { registerAgentTool } from '../ai/agentToolRegistry.js';
 import { getSearchIndex } from './searchIndexService.js';
 import type { SearchKind } from './searchDocuments.js';
 
-const KINDS: SearchKind[] = ['entity', 'attribute', 'package', 'relationship', 'rule', 'metadata', 'case'];
+const KINDS: SearchKind[] = ['entity', 'attribute', 'package', 'relationship', 'rule', 'metadata', 'case', 'document', 'documentation-chunk'];
 
 let registered = false;
 

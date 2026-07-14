@@ -21,7 +21,9 @@ export type SearchKind =
   | 'relationship'
   | 'rule'
   | 'metadata'
-  | 'case';
+  | 'case'
+  | 'document'
+  | 'documentation-chunk';
 
 export interface SearchDoc {
   /** Stable unique id (also the FTS rowid key + de-dupe key). */
@@ -38,6 +40,16 @@ export interface SearchDoc {
   keywords: string;
   /** Router path to navigate to when the record is chosen. */
   route: string;
+  /** Documentation provenance (empty for model records). */
+  documentUuid?: string;
+  chunkId?: string;
+  headingPath?: string;
+  sourcePath?: string;
+  status?: string;
+  language?: string;
+  scope?: string;
+  /** Exact-match facets, stored outside FTS. */
+  facets?: Record<string, string[]>;
 }
 
 /**
@@ -49,11 +61,104 @@ export const KIND_TIER: Record<SearchKind, number> = {
   entity: 0,
   attribute: 1,
   package: 2,
+  document: 2,
+  'documentation-chunk': 3,
   relationship: 3,
   case: 3,
   rule: 3,
   metadata: 4,
 };
+
+/** Minimal structural types keep this converter independent of the parser implementation. */
+export interface SearchableDocumentation {
+  uuid: string;
+  title: string;
+  summary?: string;
+  content?: string;
+  scope: 'project' | 'package';
+  packageName?: string;
+  status?: string;
+  language?: string;
+  sourcePath: string;
+  audience?: string[];
+  tags?: string[];
+  concepts?: string[];
+  related?: Array<string | { ref: string }>;
+}
+
+export interface SearchableDocumentationChunk {
+  id: string;
+  documentUuid: string;
+  title?: string;
+  headingPath: string[];
+  content: string;
+  scope: 'project' | 'package';
+  packageName?: string;
+  sourcePath: string;
+  status?: string;
+  language?: string;
+  audience?: string[];
+  tags?: string[];
+  concepts?: string[];
+  descriptors?: string[];
+  relatedRefs?: string[];
+}
+
+const documentationFacets = (item: SearchableDocumentation | SearchableDocumentationChunk) => ({
+  audience: item.audience ?? [],
+  tag: item.tags ?? [],
+  concept: item.concepts ?? [],
+  descriptor: (item as SearchableDocumentationChunk).descriptors ?? [],
+  relatedRef: (item as SearchableDocumentationChunk).relatedRefs
+    ?? ((item as SearchableDocumentation).related ?? []).map((r: string | { ref: string }) => typeof r === 'string' ? r : r.ref),
+});
+
+/** Flatten authored documents and replaceable chunks into retrieval records. */
+export function documentationToSearchDocs(
+  documents: SearchableDocumentation[],
+  chunks: SearchableDocumentationChunk[],
+): SearchDoc[] {
+  const byUuid = new Map(documents.map((d) => [d.uuid, d]));
+  const documentDocs = documents.map((d): SearchDoc => ({
+    id: `document:${d.uuid}`,
+    kind: 'document',
+    name: d.title,
+    description: d.summary ?? '',
+    package: d.packageName ?? '',
+    entityName: '',
+    keywords: [d.content ?? '', ...(d.tags ?? []), ...(d.concepts ?? [])].join(' '),
+    route: `/documentation/${d.uuid}`,
+    documentUuid: d.uuid,
+    sourcePath: d.sourcePath,
+    status: d.status ?? '',
+    language: d.language ?? '',
+    scope: d.scope,
+    facets: documentationFacets(d),
+  }));
+  const chunkDocs = chunks.map((c): SearchDoc => {
+    const parent = byUuid.get(c.documentUuid);
+    const heading = c.headingPath.join(' › ');
+    return {
+      id: `documentation-chunk:${c.id}`,
+      kind: 'documentation-chunk',
+      name: c.title || heading || parent?.title || 'Documentation',
+      description: c.content,
+      package: c.packageName ?? parent?.packageName ?? '',
+      entityName: '',
+      keywords: [...c.headingPath, ...(c.tags ?? []), ...(c.concepts ?? []), ...(c.descriptors ?? [])].join(' '),
+      route: `/documentation/${c.documentUuid}#${encodeURIComponent(c.id.split('#').pop() ?? c.id)}`,
+      documentUuid: c.documentUuid,
+      chunkId: c.id,
+      headingPath: c.headingPath.join(' / '),
+      sourcePath: c.sourcePath,
+      status: c.status ?? parent?.status ?? '',
+      language: c.language ?? parent?.language ?? '',
+      scope: c.scope,
+      facets: documentationFacets(c),
+    };
+  });
+  return [...documentDocs, ...chunkDocs];
+}
 
 const entityRoute = (pkg: string, entity: string) =>
   `/packages/${pkg}/entities/${entity}`;

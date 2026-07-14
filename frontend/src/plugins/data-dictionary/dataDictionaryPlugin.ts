@@ -19,6 +19,7 @@ import {
   PUBLISH_SERVICE_TOKEN,
   CASE_SERVICE_TOKEN,
   RULE_SERVICE_TOKEN,
+  DOCUMENTATION_SERVICE_TOKEN,
 } from '../../kernel/tokens';
 import { StereotypeService, type NotifyFn } from './services/StereotypeService';
 import { IntegrityService } from './services/IntegrityService';
@@ -30,6 +31,7 @@ import { PublishService } from './services/PublishService';
 import type { GitService } from '../git/services/GitService';
 import { CaseService } from './services/CaseService';
 import { RuleService } from './services/RuleService';
+import { DocumentationService } from './services/DocumentationService';
 import type { RuleListFilters } from './services/RuleService';
 import type { Stereotype, Case, Rule } from '../../types';
 import type { RootState } from '../../kernel/bootstrap';
@@ -76,6 +78,8 @@ export function createDataDictionaryPlugin(options: DataDictionaryPluginOptions 
           '/cases/**',
           '/rules',
           '/rules/**',
+          '/documentation',
+          '/documentation/**',
         ],
       }));
 
@@ -137,6 +141,11 @@ export function createDataDictionaryPlugin(options: DataDictionaryPluginOptions 
       ctx.provide({
         provide: RULE_SERVICE_TOKEN,
         useValue: new RuleService(),
+      });
+
+      ctx.provide({
+        provide: DOCUMENTATION_SERVICE_TOKEN,
+        useValue: new DocumentationService(),
       });
 
       // ── #163 command registrations ────────────────────────────────────────

@@ -275,6 +275,8 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     providerMessage?: string;
     providerCode?: string | number;
     providerHelpUrl?: string;
+    providerRaw?: string;
+    diagnostics?: Record<string, unknown>;
   } | null>(null);
   const [conversationId, setConversationId] = useState<string>(crypto.randomUUID());
   const [conversationList, setConversationList] = useState<Array<{ id: string; title: string; messageCount: number; updatedAt: string; pinned?: boolean }>>([]);
@@ -826,8 +828,18 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       const response = await runAiCommand('ai.chat.send', { request: chatRequest as any, signal: ac.signal });
 
       if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.message || 'AI request failed');
+        const responseText = await response.text();
+        let responseError: any = {};
+        try { responseError = JSON.parse(responseText); } catch { /* non-JSON server/proxy response */ }
+        const message = responseError.message || responseText || `AI request failed (${response.status})`;
+        setErrorDetails({
+          upstreamStatus: response.status,
+          providerRaw: responseText || undefined,
+          diagnostics: responseError.diagnostics && typeof responseError.diagnostics === 'object'
+            ? { serverResponse: responseError.diagnostics }
+            : { serverResponse: { status: response.status, statusText: response.statusText } },
+        });
+        throw new Error(message);
       }
 
       const reader = response.body?.getReader();
@@ -883,6 +895,10 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                 providerMessage: typeof data.providerMessage === 'string' ? data.providerMessage : undefined,
                 providerCode: data.providerCode,
                 providerHelpUrl: typeof data.providerHelpUrl === 'string' ? data.providerHelpUrl : undefined,
+                providerRaw: typeof data.providerRaw === 'string' ? data.providerRaw : undefined,
+                diagnostics: data.diagnostics && typeof data.diagnostics === 'object'
+                  ? data.diagnostics as Record<string, unknown>
+                  : undefined,
               });
               continue;
             }
@@ -2439,6 +2455,25 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                       <div className="mt-1 text-base-content/60 italic">
                         Tip: rate-limited by the provider — wait a moment and retry, or switch model.
                       </div>
+                    )}
+                    {(errorDetails?.providerRaw || errorDetails?.diagnostics) && (
+                      <details
+                        className="mt-2 text-base-content/80"
+                        data-testid="ai-error-technical-details"
+                      >
+                        <summary className="cursor-pointer select-none font-semibold">
+                          Technical details
+                        </summary>
+                        <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded bg-base-300/60 p-2 text-[10px] text-base-content">
+                          {JSON.stringify({
+                            status: errorDetails.upstreamStatus,
+                            providerCode: errorDetails.providerCode,
+                            providerMessage: errorDetails.providerMessage,
+                            providerRaw: errorDetails.providerRaw,
+                            diagnostics: errorDetails.diagnostics,
+                          }, null, 2)}
+                        </pre>
+                      </details>
                     )}
                   </div>
                   <button

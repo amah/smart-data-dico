@@ -580,6 +580,78 @@ All three open as the full typed form and persist by rewriting the element's `me
 
 ---
 
+## 15. Business documentation
+
+Long-form business knowledge is authored as Markdown with YAML front matter.
+Project-wide documents live under `documentation/**/*.md`; package-owned
+documents live under `<package>/documentation/**/*.md`. Existing model
+`description` fields remain concise summaries.
+
+```markdown
+---
+uuid: 84961313-a6d5-47c3-a26d-b516c4400326
+title: Order lifecycle
+summary: Explains how an order progresses to completion or cancellation.
+scope: package
+status: approved
+audience: [business, engineering, ai-agent]
+tags: [order, lifecycle]
+concepts: [Order, OrderStatus]
+related:
+  - ref: entity:3a05c574-30aa-4d61-a1a7-2a31162d0a82
+  - ref: document:21fe6433-a810-41bb-85d7-6c96c8a8397d
+  - ref: chunk:doc:21fe6433-a810-41bb-85d7-6c96c8a8397d#business-boundaries
+owners: [order-management]
+language: en
+---
+
+# Order lifecycle
+
+An order represents a confirmed intention to purchase products.
+```
+
+`scope` must match the file location. Supported lifecycle values are `draft`,
+`review`, `approved`, and `deprecated`. References should use stable forms such
+as `entity:<uuid>`, `attribute:<uuid>`, `relationship:<uuid>`, `rule:<uuid>`,
+`case:<uuid>`, `package:<name>`, `document:<uuid>`, or
+`chunk:doc:<document-uuid>#<chunk-anchor>`. Document and chunk references are
+also exposed as typed `relatedDocumentUuids` and `relatedChunkIds`; model
+references remain available together in `relatedRefs`.
+
+The application derives retrieval chunks from Markdown headings. Chunks are a
+replaceable search artifact, not authored model input. Add an optional marker
+immediately before a heading when its retrieval identity must survive a heading
+rename:
+
+```markdown
+<!-- chunk: cancellation-policy -->
+
+## Cancellation
+```
+
+Each derived chunk retains its document UUID, heading hierarchy, source path,
+line range, inherited metadata, content hash, and neighboring chunk IDs.
+Authored `tags`, `concepts`, and `audience` are inherited from the document.
+The index additionally derives a small `descriptors[]` set from each chunk's
+heading and opening content so an agent can understand a chunk page without
+loading every body.
+
+Heading sections larger than the 900-token target are split at Markdown block
+boundaries. A deterministic hard fallback guarantees that no derived chunk
+exceeds the 1,200-token estimate, including documents with no headings.
+Unchanged single-part sections retain their original IDs; additional parts use
+stable `-part-2`, `-part-3`, … suffixes.
+
+AI and MCP clients should use `getDocumentation` for metadata and the bounded
+outline, then `listDocumentationChunks` with cursor pagination. Content is
+opt-in and limited by a per-call token budget. `getDocumentationReviewCoverage`
+compares reviewed chunk IDs with the current chunk set so a whole-document
+review can report complete and missing coverage. Retrieved documentation is
+always treated as untrusted business reference content, not as AI-agent
+instructions.
+
+---
+
 ## Validating a project
 
 Before opening a project in the app, you can check it for the errors the

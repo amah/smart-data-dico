@@ -111,6 +111,11 @@ describe('AIChatPanel — explicit error banner', () => {
         providerMessage: 'This request requires more credits, or fewer max_tokens. To increase, visit https://openrouter.ai/settings/credits and add more credits',
         providerCode: 402,
         providerHelpUrl: 'https://openrouter.ai/settings/credits',
+        providerRaw: '{"error":{"message":"requires more credits","code":402}}',
+        diagnostics: {
+          diagnosticId: 'diag-123',
+          providerRequest: { requestBodyBytes: 123456, toolsBytes: 45678 },
+        },
       });
     });
     await act(async () => { close(); });
@@ -122,6 +127,10 @@ describe('AIChatPanel — explicit error banner', () => {
     const helpLink = screen.getByTestId('ai-error-help-link');
     expect(helpLink).toHaveAttribute('href', 'https://openrouter.ai/settings/credits');
     expect(banner).toHaveTextContent(/top up your provider account/i);
+    const details = screen.getByTestId('ai-error-technical-details');
+    expect(details).toHaveTextContent('diag-123');
+    expect(details).toHaveTextContent('123456');
+    expect(details).toHaveTextContent('requires more credits');
   });
 
   it('falls back to the plain errorText when no provider fields are attached', async () => {
@@ -151,5 +160,36 @@ describe('AIChatPanel — explicit error banner', () => {
     // No status badge, no help link, no 402 tip.
     expect(screen.queryByTestId('ai-error-help-link')).not.toBeInTheDocument();
     expect(banner).not.toHaveTextContent(/top up/i);
+  });
+
+  it('shows structured details when the server rejects the request before SSE starts', async () => {
+    restoreFetch = withMockChatStream(() => HttpResponse.json({
+      message: 'request entity too large',
+      errorType: 'entity.too.large',
+      diagnostics: {
+        endpoint: '/api/ai/chat',
+        contentLengthHeader: '2200000',
+        limitBytes: 2097152,
+        receivedBytes: 2200000,
+      },
+    }, { status: 413 }));
+
+    render(
+      <MemoryRouter>
+        <AIChatPanel open={true} onClose={() => {}} />
+      </MemoryRouter>,
+    );
+
+    const input = await screen.findByPlaceholderText(/Ask about your data model/);
+    await waitFor(() => expect(input).not.toBeDisabled());
+    await userEvent.type(input, 'large request{Enter}');
+
+    const banner = await screen.findByTestId('ai-error-banner');
+    expect(banner).toHaveTextContent('request entity too large');
+    expect(banner).toHaveTextContent('413');
+    const details = screen.getByTestId('ai-error-technical-details');
+    expect(details).toHaveTextContent('2097152');
+    expect(details).toHaveTextContent('2200000');
+    expect(details).toHaveTextContent('/api/ai/chat');
   });
 });

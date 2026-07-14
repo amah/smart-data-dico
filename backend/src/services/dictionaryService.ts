@@ -275,15 +275,23 @@ export class DictionaryService {
       logger.warn(`Failed to load package ${packageName}: ${e}`);
     }
 
-    // Walk subdirectories for nested packages (still supported for nested layouts).
+    // Walk marker-bearing subdirectories for nested packages. Plain folders
+    // (for example `documentation/`) are package-owned content, not packages.
+    // This mirrors listPackages(), which uses package.yaml as the package
+    // boundary, and prevents future auxiliary directories from leaking into
+    // the logical package hierarchy.
     // storage.list() returns DirectoryEntry[] with .isDirectory populated —
     // equivalent to readdir with withFileTypes: true, no second stat call needed.
     const subPackages: Package[] = [];
     const dirEntries = await this.storage.list(this.ws, dirPath);
     for (const entry of dirEntries) {
       if (entry.isDirectory) {
-        const subpkg = await this.buildPackageHierarchy(this.childPath(dirPath, entry.name), entry.name);
-        subPackages.push(subpkg);
+        const childDir = this.childPath(dirPath, entry.name);
+        const childMarker = await this.statOrNull(this.childPath(childDir, 'package.yaml'));
+        if (childMarker !== null) {
+          const subpkg = await this.buildPackageHierarchy(childDir, entry.name);
+          subPackages.push(subpkg);
+        }
       }
     }
 

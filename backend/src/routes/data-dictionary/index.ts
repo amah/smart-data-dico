@@ -14,6 +14,7 @@ import publishRoutes from './publish.routes.js';
 import actionRoutes from './action.routes.js';
 import eventRoutes from './event.routes.js';
 import stateMachineRoutes from './state-machine.routes.js';
+import documentationRoutes from './documentation.routes.js';
 
 const router: Router = Router();
 // Ordering: literals before :params within /api/packages/** and /api/entities/**.
@@ -35,4 +36,5 @@ router.use(publishRoutes);
 router.use(actionRoutes);
 router.use(eventRoutes);
 router.use(stateMachineRoutes);
+router.use(documentationRoutes);
 export default router;

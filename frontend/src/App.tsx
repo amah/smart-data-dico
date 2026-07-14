@@ -10,6 +10,7 @@ import MergePage from './pages/MergePage';
 import ImportExportPage from './pages/ImportExportPage';
 import QualityDashboardPage from './pages/QualityDashboardPage';
 import RuleBrowserPage from './plugins/data-dictionary/pages/rules/RuleBrowserPage';
+import DocumentationBrowserPage from './plugins/data-dictionary/pages/documentation/DocumentationBrowserPage';
 import IntegrityPage from './pages/IntegrityPage';
 import LogicalDiffPage from './pages/LogicalDiffPage';
 import PhysicalDiffPage from './pages/PhysicalDiffPage';
@@ -126,6 +127,8 @@ function App() {
 
         {/* Validation Rules (#74) — kept for back-compat; the Integrity page is the new home */}
         <Route path="rules" element={<RuleBrowserPage />} />
+        <Route path="documentation" element={<DocumentationBrowserPage />} />
+        <Route path="documentation/:uuid" element={<DocumentationBrowserPage />} />
 
         {/* Integrity (#85 R5) — unified validation + constraints + rules */}
         <Route path="integrity" element={<IntegrityPage />} />

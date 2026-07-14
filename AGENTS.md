@@ -43,3 +43,13 @@ Desktop releases are separate. A `desktop-v<version>` tag triggers `.github/work
 ## Commit & Pull Request Guidelines
 
 Use Conventional Commits, such as `feat(diagram): ...`, `fix(sql): ...`, or `docs(format-reference): ...`. PRs should describe the change, link issues, list verification commands, and include screenshots or recordings for UI work. Explicitly call out schema, storage, migration, security, or configuration changes.
+
+## Browser testing
+
+- Use Playwright autonomously for UI validation.
+- Run Playwright tests without asking for confirmation.
+- You may start and stop the local development server as needed.
+- You may open the browser, navigate to localhost, interact with the UI,
+  capture screenshots, and inspect browser console/network errors.
+- Do not ask for approval before rerunning Playwright tests.
+- Iterate on failures until the relevant test passes.

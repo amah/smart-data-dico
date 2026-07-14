@@ -146,7 +146,8 @@ async function getGitService() {
   }
 }
 
-async function commitChanges(filePath: string, message: string): Promise<void> {
+/** Shared opt-in auto-commit hook for storage-backed model writers. */
+export async function commitChanges(filePath: string, message: string): Promise<void> {
   if (!config.git.autoCommit) return;
   try {
     const gitService = await getGitService();

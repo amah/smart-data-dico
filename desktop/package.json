@@ -12,6 +12,7 @@
     "start": "npm run build && electron .",
     "electron": "electron .",
     "pack": "npm run build && electron-builder --dir",
+    "install:mac": "node scripts/install-mac.mjs",
     "dist": "npm run build && electron-builder",
     "dist:mac": "npm run build && electron-builder --mac",
     "dist:win": "npm run build && electron-builder --win",

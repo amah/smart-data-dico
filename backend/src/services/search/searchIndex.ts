@@ -29,7 +29,7 @@ import type { Package } from '../../models/Dictionary.js';
 import { packageToSearchDocs, KIND_TIER, type SearchDoc, type SearchKind } from './searchDocuments.js';
 
 /** Bump when the schema/tokenizer changes so an old on-disk index is dropped + rebuilt. */
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 /** Each per-kind tier worsens the effective score by this much (bm25: lower = better). */
 const TIER_PENALTY = 0.5;
@@ -46,6 +46,13 @@ export interface SearchHit {
   score: number;
   /** Highlighted fragment of the best-matching field. */
   snippet: string;
+  documentUuid?: string;
+  chunkId?: string;
+  headingPath?: string;
+  sourcePath?: string;
+  status?: string;
+  language?: string;
+  scope?: string;
 }
 
 export interface SearchOptions {
@@ -53,6 +60,14 @@ export interface SearchOptions {
   kinds?: SearchKind[];
   /** Restrict to one package. */
   package?: string;
+  status?: string;
+  language?: string;
+  scope?: string;
+  audience?: string;
+  tag?: string;
+  concept?: string;
+  descriptor?: string;
+  relatedRef?: string;
   /** Max hits (default 20, hard cap 100). */
   limit?: number;
 }
@@ -132,22 +147,39 @@ export class SearchIndex {
       // Drop any stale-schema table and recreate. The index is derived, so a
       // rebuild follows immediately at boot.
       this.db.exec('DROP TABLE IF EXISTS docs');
+      this.db.exec('DROP TABLE IF EXISTS documentation_search_meta');
       this.db.exec(`CREATE VIRTUAL TABLE docs USING fts5(
         id UNINDEXED, kind UNINDEXED, package UNINDEXED, entityName UNINDEXED, route UNINDEXED,
+        documentUuid UNINDEXED, chunkId UNINDEXED, headingPath UNINDEXED, sourcePath UNINDEXED,
+        status UNINDEXED, language UNINDEXED, scope UNINDEXED,
         name, description, keywords,
         tokenize='unicode61 remove_diacritics 2'
       )`);
+      this.db.exec(`CREATE TABLE documentation_search_meta(
+        search_doc_id TEXT NOT NULL, facet TEXT NOT NULL, value TEXT NOT NULL,
+        PRIMARY KEY(search_doc_id, facet, value)
+      )`);
+      this.db.exec('CREATE INDEX documentation_search_meta_lookup ON documentation_search_meta(facet, value, search_doc_id)');
       this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     }
   }
 
   private insertDocs(docs: SearchDoc[]): void {
     const stmt = this.db.prepare(
-      `INSERT INTO docs(id, kind, package, entityName, route, name, description, keywords)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO docs(id, kind, package, entityName, route, documentUuid, chunkId, headingPath,
+        sourcePath, status, language, scope, name, description, keywords)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    const facetStmt = this.db.prepare(
+      'INSERT OR IGNORE INTO documentation_search_meta(search_doc_id, facet, value) VALUES (?, ?, ?)',
     );
     for (const d of docs) {
-      stmt.run(d.id, d.kind, d.package, d.entityName, d.route, d.name, d.description, d.keywords);
+      stmt.run(d.id, d.kind, d.package, d.entityName, d.route, d.documentUuid ?? '', d.chunkId ?? '',
+        d.headingPath ?? '', d.sourcePath ?? '', d.status ?? '', d.language ?? '', d.scope ?? '',
+        d.name, d.description, d.keywords);
+      for (const [facet, values] of Object.entries(d.facets ?? {})) {
+        for (const value of values) facetStmt.run(d.id, facet, value);
+      }
     }
   }
 
@@ -157,6 +189,7 @@ export class SearchIndex {
     this.db.exec('BEGIN');
     try {
       this.db.exec('DELETE FROM docs');
+      this.db.exec('DELETE FROM documentation_search_meta');
       for (const pkg of packages) this.insertDocs(packageToSearchDocs(pkg));
       this.db.exec('COMMIT');
     } catch (e) {
@@ -170,8 +203,24 @@ export class SearchIndex {
     if (!this.ready) return;
     this.db.exec('BEGIN');
     try {
-      this.db.prepare('DELETE FROM docs WHERE package = ?').run(pkg.name);
+      this.db.prepare("DELETE FROM docs WHERE package = ? AND kind NOT IN ('document','documentation-chunk')").run(pkg.name);
+      this.db.prepare(`DELETE FROM documentation_search_meta WHERE search_doc_id NOT IN (SELECT id FROM docs)`).run();
       this.insertDocs(packageToSearchDocs(pkg));
+      this.db.exec('COMMIT');
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+
+  /** Replace all documentation records without disturbing model records. */
+  reindexDocumentation(docs: SearchDoc[]): void {
+    if (!this.ready) return;
+    this.db.exec('BEGIN');
+    try {
+      this.db.prepare("DELETE FROM documentation_search_meta WHERE search_doc_id IN (SELECT id FROM docs WHERE kind IN ('document','documentation-chunk'))").run();
+      this.db.prepare("DELETE FROM docs WHERE kind IN ('document','documentation-chunk')").run();
+      this.insertDocs(docs);
       this.db.exec('COMMIT');
     } catch (e) {
       this.db.exec('ROLLBACK');
@@ -213,18 +262,32 @@ export class SearchIndex {
       where.push(`kind IN (${opts.kinds.map(() => '?').join(', ')})`);
       params.push(...opts.kinds);
     }
+    for (const facet of ['audience', 'tag', 'concept', 'descriptor', 'relatedRef'] as const) {
+      const value = opts[facet];
+      if (value) {
+        where.push('EXISTS (SELECT 1 FROM documentation_search_meta m WHERE m.search_doc_id = docs.id AND m.facet = ? AND m.value = ?)');
+        params.push(facet, value);
+      }
+    }
+    for (const field of ['status', 'language', 'scope'] as const) {
+      const value = opts[field];
+      if (value) { where.push(`${field} = ?`); params.push(value); }
+    }
 
     // bm25 column weights: name=10, description=2, keywords=4 (indexed columns
     // only, in declared order — the 5 UNINDEXED columns get weight 0).
     // Over-fetch (limit*3) before applying the tier penalty so a strong-tier
     // match can climb past a slightly-better-bm25 low-tier one.
-    const sql = `SELECT id, kind, package, entityName, route, name, description,
-        bm25(docs, 0,0,0,0,0, 10.0, 2.0, 4.0) AS bm,
-        snippet(docs, 6, '[', ']', '…', 8) AS snip
+    const sql = `SELECT id, kind, package, entityName, route, documentUuid, chunkId,
+        headingPath, sourcePath, status, language, scope, name, description,
+        bm25(docs, 0,0,0,0,0,0,0,0,0,0,0,0, 10.0, 2.0, 4.0) AS bm,
+        snippet(docs, 13, '[', ']', '…', 8) AS snip
       FROM docs WHERE ${where.join(' AND ')}
       ORDER BY bm LIMIT ?`;
     const rows = this.db.prepare(sql).all(...params, limit * 3) as Array<{
       id: string; kind: SearchKind; package: string; entityName: string; route: string;
+      documentUuid: string; chunkId: string; headingPath: string; sourcePath: string;
+      status: string; language: string; scope: string;
       name: string; description: string; bm: number; snip: string;
     }>;
 
@@ -239,6 +302,13 @@ export class SearchIndex {
         route: r.route,
         score: r.bm + (KIND_TIER[r.kind] ?? 4) * TIER_PENALTY,
         snippet: r.snip || r.name,
+        documentUuid: r.documentUuid || undefined,
+        chunkId: r.chunkId || undefined,
+        headingPath: r.headingPath || undefined,
+        sourcePath: r.sourcePath || undefined,
+        status: r.status || undefined,
+        language: r.language || undefined,
+        scope: r.scope || undefined,
       }))
       .sort((a, b) => a.score - b.score)
       .slice(0, limit);

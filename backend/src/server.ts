@@ -11,6 +11,7 @@ import { initializeFileSystem, getFileRouter } from './adapters/EntityFileAdapte
 import { createYamlFileInfoEnricher } from './adapters/YamlFileInfoEnricher.js';
 import { registerStorageBackend } from './storage/contract/registerStorageBackend.js';
 import { mcpClientRegistry } from './services/mcpClientRegistry.js';
+import { createAiChatBodyParser } from './middleware/aiChatBodyParser.js';
 export { registerStorageBackend };
 
 // Load environment variables
@@ -54,6 +55,10 @@ app.use((req: Request, res: Response, next) => {
   next();
 });
 
+// AI chat includes accumulated messages and page context, so it needs more
+// room than Express's default 100 KB JSON parser. Parse it first with a scoped,
+// configurable limit; all other JSON endpoints retain the safer default.
+app.use('/api/ai/chat', createAiChatBodyParser());
 app.use(express.json());
 
 // API welcome route (only in dev — production serves frontend at /)
@@ -271,7 +276,21 @@ if (config.isProduction) {
 // Error handling middleware (after static files)
 app.use((err: any, req: Request, res: Response, _next: any) => {
   logger.error(`Unhandled error: ${err.message}`);
-  res.status(500).json({
+  const status = typeof err.status === 'number' ? err.status : 500;
+  if (status === 413 || err.type === 'entity.too.large') {
+    res.status(413).json({
+      message: err.message || 'Request entity too large',
+      errorType: err.type || 'entity.too.large',
+      diagnostics: {
+        endpoint: req.originalUrl,
+        contentLengthHeader: req.get('content-length') ?? null,
+        limitBytes: typeof err.limit === 'number' ? err.limit : null,
+        receivedBytes: typeof err.received === 'number' ? err.received : null,
+      },
+    });
+    return;
+  }
+  res.status(status).json({
     message: 'Internal server error',
     error: config.isProduction ? undefined : err.message
   });

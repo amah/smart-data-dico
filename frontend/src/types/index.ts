@@ -36,6 +36,63 @@ export interface Package {
   updatedAt?: string;
 }
 
+export type DocumentationScope = 'project' | 'package';
+export type DocumentationStatus = 'draft' | 'review' | 'approved' | 'deprecated';
+
+export interface DocumentationReference {
+  ref: string;
+  label?: string;
+}
+
+export interface Documentation {
+  uuid: string;
+  title: string;
+  summary?: string;
+  scope: DocumentationScope;
+  packageName?: string;
+  content: string;
+  status?: DocumentationStatus;
+  audience?: string[];
+  tags?: string[];
+  concepts?: string[];
+  related?: DocumentationReference[];
+  owners?: string[];
+  language?: string;
+  effectiveFrom?: string;
+  effectiveTo?: string;
+  metadata?: MetadataEntry[];
+  sourcePath: string;
+}
+
+export interface DocumentationChunk {
+  id: string;
+  documentUuid: string;
+  scope: DocumentationScope;
+  packageName?: string;
+  title: string;
+  headingPath: string[];
+  anchor: string;
+  content: string;
+  sequence: number;
+  previousChunkId?: string;
+  nextChunkId?: string;
+  contentHash: string;
+  tokenEstimate: number;
+  audience: string[];
+  tags: string[];
+  concepts: string[];
+  descriptors: string[];
+  relatedRefs: string[];
+  relatedDocumentUuids: string[];
+  relatedChunkIds: string[];
+  metadata: MetadataEntry[];
+  status?: DocumentationStatus;
+  language?: string;
+  sourcePath: string;
+  startLine: number;
+  endLine: number;
+}
+
 // API response types
 export interface ApiResponse<T> {
   message: string;

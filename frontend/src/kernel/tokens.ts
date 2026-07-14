@@ -133,3 +133,6 @@ export const CASE_SERVICE_TOKEN = Symbol('CaseService');
  * an eager `useValue` (same shape as `INTEGRITY_SERVICE_TOKEN`).
  */
 export const RULE_SERVICE_TOKEN = Symbol('RuleService');
+
+/** Storage-backed project and package business documentation service. */
+export const DOCUMENTATION_SERVICE_TOKEN = Symbol('DocumentationService');
