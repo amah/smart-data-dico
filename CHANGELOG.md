@@ -5,6 +5,13 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.24.5] — 2026-07-15
+
+### Fixed
+- **AI diagnostics compatibility.** Request header measurement now tolerates
+  lightweight Express-compatible request adapters that do not implement
+  `req.get`, without interrupting chat streaming.
+
 ## [1.24.4] — 2026-07-14
 
 ### Added
