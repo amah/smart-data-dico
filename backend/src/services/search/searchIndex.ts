@@ -203,7 +203,9 @@ export class SearchIndex {
     if (!this.ready) return;
     this.db.exec('BEGIN');
     try {
-      this.db.prepare("DELETE FROM docs WHERE package = ? AND kind NOT IN ('document','documentation-chunk')").run(pkg.name);
+      this.db.prepare(
+        "DELETE FROM docs WHERE (package = ? OR instr(package, ? || '/') = 1) AND kind NOT IN ('document','documentation-chunk')",
+      ).run(pkg.name, pkg.name);
       this.db.prepare(`DELETE FROM documentation_search_meta WHERE search_doc_id NOT IN (SELECT id FROM docs)`).run();
       this.insertDocs(packageToSearchDocs(pkg));
       this.db.exec('COMMIT');
@@ -231,7 +233,7 @@ export class SearchIndex {
   /** Drop every doc for a package (on package delete). */
   removePackage(name: string): void {
     if (!this.ready) return;
-    this.db.prepare('DELETE FROM docs WHERE package = ?').run(name);
+    this.db.prepare("DELETE FROM docs WHERE package = ? OR instr(package, ? || '/') = 1").run(name, name);
   }
 
   /** Total indexed docs (test/health). */
@@ -239,6 +241,16 @@ export class SearchIndex {
     if (!this.ready) return 0;
     const r = this.db.prepare('SELECT count(*) AS c FROM docs').get() as { c: number };
     return r.c;
+  }
+
+  /** Indexed document counts by kind, used by health diagnostics. */
+  countsByKind(): Partial<Record<SearchKind, number>> {
+    if (!this.ready) return {};
+    const rows = this.db.prepare('SELECT kind, count(*) AS count FROM docs GROUP BY kind').all() as Array<{
+      kind: SearchKind;
+      count: number;
+    }>;
+    return Object.fromEntries(rows.map((row) => [row.kind, row.count]));
   }
 
   /**

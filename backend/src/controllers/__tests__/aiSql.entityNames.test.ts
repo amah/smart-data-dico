@@ -195,4 +195,24 @@ describe('buildSqlSchema — entityNames scoping', () => {
     for (const t of s.tables) expect(Object.keys(ENTITIES)).toContain(t.package);
     expect(s.scope).toBe('all packages');
   });
+
+  it('refuses an unscoped schema dump for a large model and directs the agent to search first', async () => {
+    const largeEntities = Array.from({ length: 251 }, (_, i) =>
+      entity(`uuid-${i}`, `Entity${i}`, `entity_${i}`));
+    mockListMicroservices.mockResolvedValue(['large-service']);
+    const services = {
+      serviceService: {
+        getServiceEntities: jest.fn(async () => largeEntities),
+        getPackageRelationships: jest.fn(async () => []),
+      },
+      derivedTypes: { list: jest.fn(async () => []) },
+    };
+
+    const s: any = await buildSqlSchema({}, services as any);
+
+    expect(s.tables).toBeUndefined();
+    expect(s.entityCount).toBe(251);
+    expect(s.error).toContain('searchModel');
+    expect(s.error).toContain('entityNames');
+  });
 });

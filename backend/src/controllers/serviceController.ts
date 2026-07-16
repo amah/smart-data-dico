@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { serviceService } from '../services/serviceService.js';
 import { logger } from '../utils/logger.js';
 import { Entity, Relationship } from '../models/EntitySchema.js';
-import { getSearchIndex } from '../services/search/searchIndexService.js';
+import { getSearchIndex, getSearchIndexHealth } from '../services/search/searchIndexService.js';
 
 /**
  * @swagger
@@ -287,6 +287,11 @@ export const searchEntities = async (req: Request, res: Response) => {
     logger.error(`Error searching entities: ${error}`);
     res.status(500).json({ message: 'Error searching entities', error });
   }
+};
+
+/** Runtime FTS health/counts without exposing the local index path. */
+export const getSearchStatus = (_req: Request, res: Response) => {
+  res.json({ message: 'Success', data: getSearchIndexHealth() });
 };
 
 /**

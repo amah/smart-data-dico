@@ -50,9 +50,10 @@ import {
   type MermaidServices,
 } from './aiMermaid.js';
 import {
-  getSqlSchemaInputSchema, getSqlSchemaParameters, buildSqlSchema,
+  getSqlSchemaInputSchema, getSqlSchemaParameters, executeGetSqlSchema,
   type SqlSchemaServices,
 } from './aiSql.js';
+import { entityDetailsToMarkdown, type AgentOutputFormat } from '../services/ai/compactMarkdown.js';
 
 // --- Tool categories (#59) ---
 //
@@ -390,17 +391,19 @@ export function buildEntityDetails(entity: any, packageName?: string): Record<st
  * list (not an error); none → an error that steers to searchModel.
  */
 export async function executeGetEntityDetails(
-  args: { entityName: string; packageName?: string },
+  args: { entityName: string; packageName?: string; format?: AgentOutputFormat },
   services: any,
-): Promise<Record<string, unknown>> {
-  if (!args?.entityName) return { error: 'entityName is required.' };
+): Promise<string | Record<string, unknown>> {
+  const render = (result: Record<string, unknown>) =>
+    args?.format === 'json' ? result : entityDetailsToMarkdown(result);
+  if (!args?.entityName) return render({ error: 'entityName is required.' });
   const matches: Array<{ entity: any; packageName: string }> =
     await services.serviceService.findEntityMatches(args.entityName, args.packageName || undefined);
   if (matches.length === 1) {
-    return buildEntityDetails(matches[0].entity, matches[0].packageName);
+    return render(buildEntityDetails(matches[0].entity, matches[0].packageName));
   }
   if (matches.length > 1) {
-    return {
+    return render({
       summary: `'${args.entityName}' matches ${matches.length} entities — specify packageName`,
       ambiguous: true,
       candidates: matches.map(m => ({
@@ -409,12 +412,12 @@ export async function executeGetEntityDetails(
         ...(m.entity.description ? { description: m.entity.description } : {}),
       })),
       note: 'Several packages define an entity with this name. Call getEntityDetails again with the intended packageName.',
-    };
+    });
   }
-  return {
+  return render({
     error: `Entity '${args.entityName}' not found in ${args.packageName ? `package '${args.packageName}' or ` : ''}any package. `
       + `Call searchModel({ query: '${args.entityName}' }) to locate it by full-text search — the model may use a different name.`,
-  };
+  });
 }
 
 /**
@@ -422,7 +425,7 @@ export async function executeGetEntityDetails(
  * package is an explicit error steering to searchModel, not a silent empty list.
  */
 export async function executeListEntities(
-  args: { packageName?: string },
+  args: { packageName?: string; query?: string; limit?: number },
   services: any,
 ): Promise<Record<string, unknown>> {
   const { listMicroservices } = await import('../utils/fileOperations.js');
@@ -435,9 +438,22 @@ export async function executeListEntities(
       };
     }
     const entities = await services.serviceService.getServiceEntities(args.packageName);
+    const query = String(args.query ?? '').trim().toLowerCase();
+    const filtered = query
+      ? entities.filter((entity: any) => `${entity.name ?? ''} ${entity.description ?? ''}`.toLowerCase().includes(query))
+      : entities;
+    const limit = Math.min(Math.max(Number(args.limit) || 50, 1), 100);
+    const selected = filtered.slice(0, limit);
+    const truncated = selected.length < filtered.length;
     return {
-      summary: `${args.packageName}: ${nameList(entities.map((e: any) => e.name)) || 'no entities'}`,
-      entities: entities.map((e: any) => ({ name: e.name, description: e.description, attrCount: e.attributes?.length || 0 })),
+      summary: `${args.packageName}: ${filtered.length} matching entit${filtered.length === 1 ? 'y' : 'ies'}${truncated ? ` (showing ${selected.length})` : ''}`,
+      total: filtered.length,
+      count: selected.length,
+      truncated,
+      entities: selected.map((e: any) => ({ name: e.name, description: e.description, attrCount: e.attributes?.length || 0 })),
+      ...(truncated ? {
+        note: 'Result bounded for a large package. Use searchModel with a business term, or retry listEntities with query and limit.',
+      } : {}),
     };
   }
   const packages = await listMicroservices();
@@ -523,6 +539,7 @@ export function formatModelOutline(o: Awaited<ReturnType<typeof buildModelOvervi
  * is worse than none, because the model believes it has the full picture.
  */
 export const MODEL_OUTLINE_MAX_CHARS = 4000;
+export const MODEL_OVERVIEW_TOOL_MAX_ENTITIES = 250;
 
 /**
  * Render the outline within `maxChars` (#grounding at scale). Full outline
@@ -565,6 +582,31 @@ export function formatModelOutlineWithinBudget(
     used += pkgLines[i].length + 1;
   }
   return `${head}\n${banner}\nPackages:\n${lines.join('\n')}`;
+}
+
+/**
+ * Keep the callable overview useful without returning thousands of entity
+ * names as a tool result. The per-turn prompt already carries the same compact
+ * counts and explicitly directs the model to searchModel for discovery.
+ */
+export function modelOverviewForAgent(
+  overview: Awaited<ReturnType<typeof buildModelOverview>>,
+): Record<string, unknown> {
+  if (overview.totals.entities <= MODEL_OVERVIEW_TOOL_MAX_ENTITIES) return overview;
+  return {
+    summary: overview.summary,
+    totals: overview.totals,
+    packages: overview.packages.map((pkg) => ({
+      name: pkg.name,
+      entityCount: pkg.entities.length,
+      relationships: pkg.relationships,
+    })),
+    stereotypes: overview.stereotypes,
+    derivedTypes: overview.derivedTypes,
+    caseCount: overview.cases.length,
+    omittedEntityLists: true,
+    note: `Entity names omitted because the model has ${overview.totals.entities} entities. Use searchModel to locate candidates, then getEntityDetails for exact definitions.`,
+  };
 }
 
 /**
@@ -819,20 +861,20 @@ This system models a RICH domain — not just entities. You can author all of th
 - Events — domain events emitted by aggregates, e.g. OrderPlaced (createEvent)
 - Actions — commands/queries on aggregates with a flow; emitEvent/wait steps wire a saga/process (createAction)
 - State machines — entity lifecycles: states + transitions, e.g. Order PENDING→PAID→SHIPPED (createStateMachine)
-- Read/inspect: searchModel (full-text search across the whole dictionary — use it to LOCATE an entity/attribute/rule when you don't know its exact name, then drill in), getModelOverview (whole-model outline — packages, entities, and concept counts; a current snapshot is already shown to you below), getEntityDetails (one entity in full incl. physical mapping; packageName optional — the name resolves across packages), listEntities, listStereotypes; navigate with navigateTo (call listRoutes first if unsure)
+- Read/inspect: searchModel (full-text search across the whole dictionary — ALWAYS use it to LOCATE an entity/attribute/rule when you don't know its exact name, then drill in), getSearchIndexStatus (verify index coverage when search results look incomplete), getModelOverview (counts and bounded package summaries; a current snapshot is already shown below), getEntityDetails (one entity in full incl. physical mapping; packageName optional — the name resolves across packages), listEntities (bounded), listStereotypes; navigate with navigateTo (call listRoutes first if unsure)
 - Diagram: generateMermaid converts the model to Mermaid source — diagram: "er" (entity-relationship of a package/all), "class" (class diagram), "state" (an entity's state machine, needs entityName), or "flow" (actions+events saga). Use it when the user asks for a diagram, ERD, or visualization, and present the result in a fenced mermaid code block.
 
 A "process" or "saga" is NOT a separate object — it is the graph that emerges from Actions (with emitEvent/wait flow steps) and Events. To model a process, create the Actions and Events; the saga view is derived automatically.
 
 CONCEPTUAL vs PHYSICAL model — keep these two layers distinct:
 - CONCEPTUAL / LOGICAL is the business model: entity names (PascalCase, e.g. Order), attribute names (camelCase, e.g. orderNumber), and logical or derived types (e.g. money, email, currency-code). This is what you author and what users discuss.
-- PHYSICAL is how it is persisted in a database: a table name (physical.tableName) in a schema, per-column physical names (physical.columnName) and DB types (physical.dbType), plus constraints. The two layers can differ completely (logical Order.orderNumber → physical orders.order_no VARCHAR). getEntityDetails returns the physical mapping for one entity; getSqlSchema returns the physical relational schema (scope it with entityNames or packageName on anything but a small model).
+- PHYSICAL is how it is persisted in a database: a table name (physical.tableName) in a schema, per-column physical names (physical.columnName) and DB types (physical.dbType), plus constraints. The two layers can differ completely (logical Order.orderNumber → physical orders.order_no VARCHAR). getEntityDetails returns the physical mapping for one entity; getSqlSchema returns the physical relational schema (scope it with entityNames or packageName on anything but a small model). Both return compact Markdown by default; request format=json only when structured output is necessary.
 - A logical/derived type (money, email) is NOT a DB type — it maps to a physical dbType (money → DECIMAL(12,2), email → VARCHAR(254)).
 - NEVER write DDL or SQL using conceptual names. Always resolve to the physical table/column names and dbTypes first. If an element has no physical mapping yet, getSqlSchema returns a fallback dbType derived from the logical type and flags it — pass that flag on to the user.
 
 Generating database queries: when the user asks for a SQL query (SELECT / INSERT / UPDATE / DELETE), a report, or DDL —
 1. LOCATE the entity first. Unless you already know its owning package (from the snapshot, page context, or an @mention), call searchModel with the entity name or business term to resolve entity → package. NEVER guess a package, entity, or table name — the snapshot above may not list every entity.
-2. Call getSqlSchema scoped NARROWLY: pass entityNames: [...] for the target entities (their directly-related entities are included automatically so you can derive JOINs), or a packageName; pass the target dialect. Do not call it unscoped on a large model — the result gets truncated and misleads you.
+2. Call getSqlSchema scoped NARROWLY: pass entityNames: [...] for the target entities (their directly-related entities are included automatically so you can derive JOINs), or a packageName; pass the target dialect. Do not call it unscoped on a large model — the tool refuses oversized unscoped results.
 3. Write the query using ONLY the physical names returned by the tool; derive JOINs from the relationships (join the PK of the "one" side to the FK on the "many" side) and respect the requested dialect.
 4. If any column is flagged physicalMappingMissing, tell the user those column names/types are unverified fallbacks derived from the logical model — do not silently pass them off as real.
 5. Present the query in a fenced sql code block, and briefly note any assumption (an inferred join column, a missing physical mapping). You generate queries for the user to run — you do NOT execute them against a live database.
@@ -950,6 +992,18 @@ export const DIRECT_TOOL_RESULT_MAX_CHARS = 20_000;
 export const TOOL_RESULT_TRUNCATION_MARKER =
   '…[truncated — result too large; retry with a narrower scope, e.g. packageName or entityNames filter]';
 
+export function boundedToolResult(output: unknown, maxChars = DIRECT_TOOL_RESULT_MAX_CHARS): unknown {
+  const serialized = JSON.stringify(output ?? {});
+  if (serialized.length <= maxChars) return output;
+  const previewBudget = Math.max(maxChars - 500, 0);
+  return {
+    truncated: true,
+    originalChars: serialized.length,
+    preview: serialized.slice(0, previewBudget),
+    note: 'Tool result exceeded the AI context budget. Retry with a narrower scope such as query, packageName, or entityNames.',
+  };
+}
+
 export function buildDirectChatMessages(rawMessages: any[], maxToolResultChars = DIRECT_TOOL_RESULT_MAX_CHARS): any[] {
   const out: any[] = [];
   for (const msg of rawMessages) {
@@ -1007,7 +1061,7 @@ export function buildUiMessagesWithToolParts(rawMessages: any[]): any[] {
       toolCallId: String(tc.id),
       state: 'output-available',
       input: tc.input ?? {},
-      output: tc.output,
+      output: boundedToolResult(tc.output),
     }));
     return { ...rest, parts: [...baseParts, ...toolParts] };
   });
@@ -1055,11 +1109,11 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
     { type: 'function' as const, function: { name: 'createEvent', description: 'Create a domain Event (PascalCase, past tense, e.g. OrderPlaced) emitted by an aggregate entity (ownerEntityName). Optional payload fields.', parameters: createEventParameters as Record<string, unknown> } },
     { type: 'function' as const, function: { name: 'createAction', description: 'Create an Action/command (e.g. PlaceOrder) on an aggregate entity (ownerEntityName), optionally CQRS-classified, with an optional flow of steps. Use flow steps emitEvent {name} and wait {for} to wire a saga/process across actions+events.', parameters: createActionParameters as Record<string, unknown> } },
     { type: 'function' as const, function: { name: 'createStateMachine', description: 'Create a state machine on an entity (ownerEntityName) — its states, initialState, and transitions (from/to/on). Model an entity lifecycle, e.g. Order PENDING→PAID→SHIPPED.', parameters: createStateMachineParameters as Record<string, unknown> } },
-    { type: 'function' as const, function: { name: 'listEntities', description: 'List packages or entities in a package', parameters: { type: 'object', properties: { packageName: { type: 'string', description: 'Package name (omit to list all)' } } } } },
-    { type: 'function' as const, function: { name: 'getEntityDetails', description: 'Get full detail for one entity: attributes with type/required/primaryKey AND field validation, the PHYSICAL mapping (entity table name + schema, each attribute physical column name + DB type), physical constraints, and inline business rules. packageName is OPTIONAL — omit it and the entity name is resolved across every package (ambiguous names return a candidate list). Call this before writing SQL/DDL so you use the real physical names and types.', parameters: { type: 'object', required: ['entityName'], properties: { packageName: { type: 'string', description: 'Owning package if known (optional — resolved across packages when omitted)' }, entityName: { type: 'string' } } } } },
-    { type: 'function' as const, function: { name: 'getModelOverview', description: 'Get a whole-model outline: every package with its entity names, and a count of each concept (entities, relationships, cases, rules, events, actions, state machines, derived types, stereotypes). A snapshot is already in your context; call this to refresh after changes.', parameters: { type: 'object', properties: {} } } },
+    { type: 'function' as const, function: { name: 'listEntities', description: 'List packages, or a bounded entity page within one package. Prefer searchModel for discovery in large projects.', parameters: { type: 'object', properties: { packageName: { type: 'string', description: 'Package name (omit to list packages)' }, query: { type: 'string', description: 'Optional name/description filter' }, limit: { type: 'number', description: 'Maximum entities returned (default 50, max 100)' } } } } },
+    { type: 'function' as const, function: { name: 'getEntityDetails', description: 'Get full detail for one entity as compact Markdown by default: attributes, validation, physical mapping, constraints, and rules. Set format=json only when structured data is required. packageName is optional and resolves across packages when omitted.', parameters: { type: 'object', required: ['entityName'], properties: { packageName: { type: 'string', description: 'Owning package if known (optional — resolved across packages when omitted)' }, entityName: { type: 'string' }, format: { type: 'string', enum: ['markdown', 'json'], description: 'Result format (default markdown)' } } } } },
+    { type: 'function' as const, function: { name: 'getModelOverview', description: 'Get whole-model counts and package summaries. Large projects omit entity names by design; use searchModel to locate candidates. A snapshot is already in your context, so call this only to refresh after changes.', parameters: { type: 'object', properties: {} } } },
     { type: 'function' as const, function: { name: 'generateMermaid', description: 'Convert the model to Mermaid diagram source. diagram: "er" (entity-relationship of a package, or all), "class" (class diagram), "state" (a single entity state machine — pass entityName), "flow" (actions+events saga). Returns { mermaid }. Present it inside a ```mermaid code block.', parameters: generateMermaidParameters as Record<string, unknown> } },
-    { type: 'function' as const, function: { name: 'getSqlSchema', description: 'Get the PHYSICAL relational schema for writing SQL: per-entity table name + schema, each column (physical name, dbType, nullable, primaryKey), and relationships as join hints. PREFER scoping with entityNames (target entities, resolved across packages; directly-related entities are included automatically for JOINs) or packageName — an unscoped call on a large model returns a huge result that may be truncated. Optional dialect. Call this before writing any SQL query or DDL so you use real physical names/types, not the conceptual (logical) names.', parameters: getSqlSchemaParameters as Record<string, unknown> } },
+    { type: 'function' as const, function: { name: 'getSqlSchema', description: 'Get the PHYSICAL relational schema as compact Markdown by default: table/schema, columns, types, flags, and relationship join hints. Set format=json only when structured data is required. Prefer entityNames or packageName scope; oversized unscoped requests are refused.', parameters: getSqlSchemaParameters as Record<string, unknown> } },
     { type: 'function' as const, function: { name: 'listStereotypes', description: 'List available stereotypes', parameters: { type: 'object', properties: {} } } },
     { type: 'function' as const, function: { name: 'navigateTo', description: 'Navigate user to a page. The path MUST be an absolute URL beginning with "/" that matches one of the patterns returned by listRoutes — call listRoutes first if you are unsure of the exact shape.', parameters: { type: 'object', required: ['path', 'reason'], properties: { path: { type: 'string' }, reason: { type: 'string' } } } } },
     { type: 'function' as const, function: { name: 'listRoutes', description: 'List every valid URL pattern in the app with a short description and (where useful) a concrete example. Call this BEFORE navigateTo if you are unsure of the exact path shape — e.g. plural vs singular, where attribute pages live, what the case route is.', parameters: { type: 'object', properties: {} } } },
@@ -1141,13 +1195,13 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
       if (name === 'getModelOverview') {
         // Cached (event-invalidated on mutations + TTL backstop) — a post-
         // change call still sees fresh data because mutations invalidate.
-        return await getModelOverviewCached(() => buildModelOverview(services));
+        return modelOverviewForAgent(await getModelOverviewCached(() => buildModelOverview(services)));
       }
       if (name === 'generateMermaid') {
         return await generateMermaidDiagram(args, services as unknown as MermaidServices);
       }
       if (name === 'getSqlSchema') {
-        return await buildSqlSchema(args, services as unknown as SqlSchemaServices, cfg.sql);
+        return await executeGetSqlSchema(args, services as unknown as SqlSchemaServices, cfg.sql);
       }
       if (name === 'listStereotypes') {
         const stereotypes = await services.stereotypeService.getAllStereotypes();
@@ -1679,9 +1733,11 @@ export const aiChat = async (req: Request, res: Response) => {
         }),
 
         listEntities: tool({
-          description: 'List all entities in a package or all packages',
+          description: 'List packages, or a bounded entity page within one package. Prefer searchModel for discovery in large projects.',
           inputSchema: z.object({
-            packageName: z.string().optional().describe('Package name, or omit to list all packages'),
+            packageName: z.string().optional().describe('Package name, or omit to list packages'),
+            query: z.string().optional().describe('Optional name/description filter'),
+            limit: z.number().optional().describe('Maximum entities returned (default 50, max 100)'),
           }),
           execute: async (params) => {
             try {
@@ -1693,10 +1749,11 @@ export const aiChat = async (req: Request, res: Response) => {
         }),
 
         getEntityDetails: tool({
-          description: 'Get full detail for an entity: attributes with type/required/primaryKey AND field validation, the PHYSICAL mapping (entity table name + schema, each attribute physical column name + DB type), physical constraints, and inline business rules. packageName is OPTIONAL — omit it and the entity name is resolved across every package (ambiguous names return a candidate list). Use this before writing SQL/DDL so you use the real physical names and types.',
+          description: 'Get full detail for an entity as compact Markdown by default: attributes, validation, physical mapping, constraints, and rules. Set format=json only when structured data is required. packageName is optional and resolves across packages when omitted.',
           inputSchema: z.object({
             packageName: z.string().optional().describe('Owning package if known (optional — resolved across packages when omitted)'),
             entityName: z.string(),
+            format: z.enum(['markdown', 'json']).optional().describe('Result format (default markdown)'),
           }),
           execute: async (params) => {
             try {
@@ -1708,13 +1765,13 @@ export const aiChat = async (req: Request, res: Response) => {
         }),
 
         getModelOverview: tool({
-          description: 'Get a whole-model outline: every package with its entity names, and a count of each concept (entities, relationships, cases, rules, events, actions, state machines, derived types, stereotypes). Use to orient yourself before answering; a snapshot is already in your system context, so only call this to refresh after changes.',
+          description: 'Get whole-model counts and package summaries. Large projects omit entity names by design; use searchModel to locate candidates. A snapshot is already in your context, so call this only to refresh after changes.',
           inputSchema: z.object({}),
           execute: async () => {
             try {
               // Cached (event-invalidated on mutations + TTL backstop) — a
               // post-change call still sees fresh data.
-              return await getModelOverviewCached(() => buildModelOverview(services));
+              return modelOverviewForAgent(await getModelOverviewCached(() => buildModelOverview(services)));
             } catch (err: any) {
               return { error: err.message };
             }
@@ -1734,11 +1791,11 @@ export const aiChat = async (req: Request, res: Response) => {
         }),
 
         getSqlSchema: tool({
-          description: 'Get the PHYSICAL relational schema for writing SQL: per-entity table name + schema, each column (physical name, dbType, nullable, primaryKey), and relationships as join hints. PREFER scoping with entityNames (target entities, resolved across packages; directly-related entities are included automatically for JOINs) or packageName — an unscoped call on a large model returns a huge result that may be truncated. Optional dialect. Call this before writing any SQL query or DDL so you use real physical names/types, not the conceptual (logical) names.',
+          description: 'Get the PHYSICAL relational schema as compact Markdown by default: table/schema, columns, types, flags, and relationship join hints. Set format=json only when structured data is required. Prefer entityNames or packageName scope; oversized unscoped requests are refused.',
           inputSchema: getSqlSchemaInputSchema,
           execute: async (params) => {
             try {
-              return await buildSqlSchema(params, services as unknown as SqlSchemaServices, cfg.sql);
+              return await executeGetSqlSchema(params, services as unknown as SqlSchemaServices, cfg.sql);
             } catch (err: any) {
               return { error: err.message };
             }
@@ -2247,24 +2304,27 @@ export const aiTools = async (_req: Request, res: Response) => {
     },
     {
       name: 'listEntities',
-      description: 'List all entities in a package or all packages',
+      description: 'List packages, or a bounded entity page within one package. Prefer searchModel for discovery in large projects.',
       source: 'builtin' as const,
       parameters: [
-        { name: 'packageName', type: 'string', required: false, description: 'Package name (omit to list all packages)' },
+        { name: 'packageName', type: 'string', required: false, description: 'Package name (omit to list packages)' },
+        { name: 'query', type: 'string', required: false, description: 'Optional name/description filter' },
+        { name: 'limit', type: 'number', required: false, description: 'Maximum entities returned (default 50, max 100)' },
       ],
     },
     {
       name: 'getEntityDetails',
-      description: 'Get full entity detail: attributes + validation, the physical mapping (table/schema, column names, DB types), constraints, and inline rules. Use before writing SQL/DDL.',
+      description: 'Get full entity detail as compact Markdown by default: attributes, validation, physical mapping, constraints, and rules. Set format=json for structured compatibility.',
       source: 'builtin' as const,
       parameters: [
         { name: 'packageName', type: 'string', required: false, description: 'Owning package if known (omit to resolve the entity name across all packages)' },
         { name: 'entityName', type: 'string', required: true, description: 'Entity name' },
+        { name: 'format', type: 'markdown|json', required: false, description: 'Result format (default markdown)' },
       ],
     },
     {
       name: 'getModelOverview',
-      description: 'Whole-model outline: every package with its entities, and a count of each concept (entities, relationships, cases, rules, events, actions, state machines, derived types, stereotypes). A snapshot is also injected into the system prompt each turn.',
+      description: 'Whole-model counts and package summary. Entity names are omitted automatically for large projects; use searchModel to locate them.',
       source: 'builtin' as const,
       parameters: [],
     },
@@ -2280,12 +2340,13 @@ export const aiTools = async (_req: Request, res: Response) => {
     },
     {
       name: 'getSqlSchema',
-      description: 'Physical relational schema for writing SQL: tables, columns (physical name + dbType + nullable + PK), and relationships as join hints. Use before generating any SQL query/DDL. Prefer scoping with entityNames or packageName on large models.',
+      description: 'Physical relational schema as compact Markdown by default: tables, columns, flags, and relationship join hints. Set format=json for structured compatibility.',
       source: 'builtin' as const,
       parameters: [
         { name: 'packageName', type: 'string', required: false, description: 'Scope to one package (omit for all)' },
         { name: 'entityNames', type: 'string[]', required: false, description: 'Preferred scope: target entity names, resolved across packages; directly-related entities are included automatically for JOINs' },
         { name: 'dialect', type: 'generic|postgres|mysql|mssql|oracle|sqlite', required: false, description: 'Target SQL dialect (default generic)' },
+        { name: 'format', type: 'markdown|json', required: false, description: 'Result format (default markdown)' },
       ],
     },
     {

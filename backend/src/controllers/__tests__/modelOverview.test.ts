@@ -7,7 +7,7 @@ jest.mock('../../utils/fileOperations.js', () => ({
   listMicroservices: jest.fn(),
 }));
 
-import { buildModelOverview, formatModelOutline } from '../aiController.js';
+import { buildModelOverview, formatModelOutline, modelOverviewForAgent } from '../aiController.js';
 import { listMicroservices } from '../../utils/fileOperations.js';
 
 const mockListMicroservices = listMicroservices as jest.MockedFunction<any>;
@@ -106,5 +106,34 @@ describe('formatModelOutline', () => {
       packages: [], stereotypes: [], derivedTypes: [], cases: [],
     });
     expect(text).toMatch(/empty/i);
+  });
+});
+
+describe('modelOverviewForAgent', () => {
+  it('omits entity names from a 3000-entity callable overview', () => {
+    const packages = Array.from({ length: 40 }, (_, i) => ({
+      name: `package-${i}`,
+      entities: Array.from({ length: 75 }, (_, j) => `Entity_${i}_${j}`),
+      relationships: 0,
+    }));
+    const overview: any = {
+      summary: 'large',
+      totals: { packages: 40, entities: 3000, relationships: 0, cases: 0, rules: 0, events: 0, actions: 0, stateMachines: 0, derivedTypes: 0, stereotypes: 0 },
+      packages, stereotypes: [], derivedTypes: [], cases: [],
+    };
+    const result: any = modelOverviewForAgent(overview);
+    expect(result.omittedEntityLists).toBe(true);
+    expect(result.packages[0]).toEqual({ name: 'package-0', entityCount: 75, relationships: 0 });
+    expect(JSON.stringify(result)).not.toContain('Entity_0_0');
+    expect(result.note).toContain('searchModel');
+  });
+
+  it('preserves the full overview for small models', () => {
+    const overview: any = {
+      summary: 'small',
+      totals: { entities: 1 },
+      packages: [{ name: 'p', entities: ['One'], relationships: 0 }],
+    };
+    expect(modelOverviewForAgent(overview)).toBe(overview);
   });
 });

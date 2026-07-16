@@ -33,9 +33,10 @@ describe('searchModel agent tool', () => {
     expect(t).toBeDefined();
     expect(t.category).toBe('read');
     expect((t.jsonSchema as { required: string[] }).required).toContain('query');
+    expect(getAgentTool('getSearchIndexStatus')).toMatchObject({ category: 'read' });
   });
 
-  it('returns ranked hits for a fuzzy query, incl. an attribute found by name', async () => {
+  it('returns ranked hits for a prefix query, incl. an attribute found by name', async () => {
     const idx = new SearchIndex(':memory:');
     await idx.open();
     if (!idx.isReady()) { console.warn('node:sqlite unavailable — skipping'); return; }
@@ -60,6 +61,19 @@ describe('searchModel agent tool', () => {
     const res = await tool().execute({ query: 'payment', kind: 'entity' }, ctx) as { results: Array<{ kind: string }> };
     expect(res.results.length).toBeGreaterThan(0);
     expect(res.results.every((r) => r.kind === 'entity')).toBe(true);
+  });
+
+  it('exposes index health and per-kind counts to the agent', async () => {
+    const idx = new SearchIndex(':memory:');
+    await idx.open();
+    if (!idx.isReady()) return;
+    idx.rebuildFrom([ordering]);
+    __setSearchIndexForTest(idx);
+    const status = await getAgentTool('getSearchIndexStatus')!.execute({}, ctx) as any;
+    expect(status.ready).toBe(true);
+    expect(status.documentCount).toBeGreaterThan(0);
+    expect(status.countsByKind.entity).toBe(2);
+    expect(status.countsByKind.attribute).toBe(1);
   });
 
   it('degrades gracefully when the index is unavailable', async () => {

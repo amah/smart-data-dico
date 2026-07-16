@@ -7,7 +7,7 @@ jest.mock('../../utils/fileOperations.js', () => ({
   listMicroservices: jest.fn(),
 }));
 
-import { buildSqlSchema } from '../aiSql.js';
+import { buildSqlSchema, executeGetSqlSchema } from '../aiSql.js';
 import { listMicroservices } from '../../utils/fileOperations.js';
 
 const mockListMicroservices = listMicroservices as jest.MockedFunction<any>;
@@ -54,6 +54,16 @@ describe('buildSqlSchema', () => {
     expect(order.schema).toBe('commerce');
     const id = order.columns.find((c: any) => c.attribute === 'id');
     expect(id).toMatchObject({ column: 'order_id', dbType: 'UUID', primaryKey: true, nullable: false });
+  });
+
+  it('returns plain Markdown by default and preserves JSON on request', async () => {
+    const markdown = await executeGetSqlSchema({ entityNames: ['Order'] }, makeServices());
+    expect(typeof markdown).toBe('string');
+    expect(markdown).toContain('# Physical SQL schema');
+    expect(markdown).toContain('## Order — `commerce.orders`');
+
+    const json: any = await executeGetSqlSchema({ entityNames: ['Order'], format: 'json' }, makeServices());
+    expect(json.tables.find((table: any) => table.entity === 'Order')).toBeDefined();
   });
 
   it('falls back to a SQL type derived from the logical/derived type when unmapped', async () => {

@@ -5,11 +5,30 @@
  * each invocation must surface with a distinct toolCallId so the
  * frontend doesn't collapse them onto a single card.
  */
-import { callWithTools } from '../aiDirectClient.js';
+import {
+  boundLiveToolResult,
+  callWithTools,
+  LIVE_TOOL_RESULT_MAX_CHARS,
+} from '../aiDirectClient.js';
 
 jest.mock('../logger');
 
 type FetchMock = jest.MockedFunction<typeof fetch>;
+
+describe('boundLiveToolResult', () => {
+  it('preserves normal tool results', () => {
+    const result = { entities: [{ name: 'Order' }] };
+    expect(boundLiveToolResult(result)).toBe(result);
+  });
+
+  it('bounds oversized live results before they are sent back to the model', () => {
+    const result = boundLiveToolResult({ payload: 'x'.repeat(LIVE_TOOL_RESULT_MAX_CHARS + 1) }) as any;
+    expect(result.truncated).toBe(true);
+    expect(result.originalChars).toBeGreaterThan(LIVE_TOOL_RESULT_MAX_CHARS);
+    expect(result.preview.length).toBeLessThanOrEqual(LIVE_TOOL_RESULT_MAX_CHARS);
+    expect(result.note).toContain('narrower');
+  });
+});
 
 function jsonResponse(body: any): Response {
   return new Response(JSON.stringify(body), {

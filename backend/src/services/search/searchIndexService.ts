@@ -8,9 +8,8 @@
  * warning: if the index can't build, `search()` returns [] and callers fall
  * back to the legacy scan, so search never hard-breaks.
  *
- * Scope note: like the frontend spotlight (`buildRecords`), this indexes each
- * top-level package's own entities/relationships/cases. Deep subpackage entity
- * recursion is a documented follow-up.
+ * Each top-level package is indexed recursively, with nested package paths
+ * retained in every document so agents can search large hierarchical models.
  */
 import { SearchIndex, searchIndexPathFor, type SearchHit, type SearchOptions } from './searchIndex.js';
 import { config } from '../../kernel/config.js';
@@ -26,10 +25,37 @@ import type {
 const RESERVED_DIRS = new Set(['.dico', '.git', 'node_modules']);
 
 let index: SearchIndex | null = null;
+let lastBuildAt: string | null = null;
+let lastBuildError: string | null = null;
+let indexedRootPackages = 0;
+
+export interface SearchIndexHealth {
+  ready: boolean;
+  documentCount: number;
+  countsByKind: Record<string, number>;
+  indexedRootPackages: number;
+  lastBuildAt: string | null;
+  lastBuildError: string | null;
+  nodeVersion: string;
+}
 
 /** The live index, or null before init / when SQLite is unavailable. */
 export function getSearchIndex(): SearchIndex | null {
   return index && index.isReady() ? index : null;
+}
+
+/** Non-sensitive runtime health for UI diagnostics and the AI status tool. */
+export function getSearchIndexHealth(): SearchIndexHealth {
+  const live = getSearchIndex();
+  return {
+    ready: live !== null && lastBuildError === null,
+    documentCount: live?.count() ?? 0,
+    countsByKind: live?.countsByKind() ?? {},
+    indexedRootPackages,
+    lastBuildAt,
+    lastBuildError,
+    nodeVersion: process.version,
+  };
 }
 
 /** Convenience: ranked search, or [] when the index isn't ready. */
@@ -63,16 +89,23 @@ async function loadDocumentationSearchDocs() {
 export async function initSearchIndex(): Promise<boolean> {
   if (!index) index = new SearchIndex(searchIndexPathFor(config.dataDir));
   const ok = await index.open();
-  if (!ok) return false;
+  if (!ok) {
+    lastBuildError = `FTS5 index unavailable on ${process.version}; Node 22.5+ with node:sqlite is required.`;
+    return false;
+  }
   try {
     const packages = await loadAllPackages();
     index.rebuildFrom(packages);
     index.reindexDocumentation(await loadDocumentationSearchDocs());
+    indexedRootPackages = packages.length;
+    lastBuildAt = new Date().toISOString();
+    lastBuildError = null;
     logger.info(`SearchIndex: built (${index.count()} docs from ${packages.length} packages)`);
   } catch (e) {
-    logger.warn(`SearchIndex: initial build failed — ${e instanceof Error ? e.message : String(e)}`);
+    lastBuildError = e instanceof Error ? e.message : String(e);
+    logger.warn(`SearchIndex: initial build failed — ${lastBuildError}`);
   }
-  return index.isReady();
+  return index.isReady() && lastBuildError === null;
 }
 
 /** Re-index a single top-level package by name (or drop it if gone). */
@@ -143,16 +176,7 @@ export function subscribeSearchIndex(projection: LogicalProjection): Unsubscribe
     if (rebuildTimer) return;
     rebuildTimer = setTimeout(() => {
       rebuildTimer = null;
-      void (async () => {
-        const idx = getSearchIndex();
-        if (!idx) return;
-        try {
-          idx.rebuildFrom(await loadAllPackages());
-          idx.reindexDocumentation(await loadDocumentationSearchDocs());
-        } catch (e) {
-          logger.warn(`SearchIndex: full rebuild failed — ${e instanceof Error ? e.message : String(e)}`);
-        }
-      })();
+      void initSearchIndex();
     }, 250);
   };
 
@@ -172,6 +196,9 @@ export function subscribeSearchIndex(projection: LogicalProjection): Unsubscribe
 export function resetSearchIndexForTest(): void {
   index?.close();
   index = null;
+  lastBuildAt = null;
+  lastBuildError = null;
+  indexedRootPackages = 0;
 }
 
 /** Test helper — inject a ready index so tool glue can be exercised in isolation. */

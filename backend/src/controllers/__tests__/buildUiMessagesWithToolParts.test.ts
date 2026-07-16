@@ -55,4 +55,20 @@ describe('buildUiMessagesWithToolParts', () => {
     expect(result).toBeTruthy();
     expect(result.toolCallId).toBe('t1');
   });
+
+  it('bounds oversized historical tool results before restoring them to model context', () => {
+    const largeConvo = [{
+      id: 'a-large',
+      role: 'assistant',
+      parts: [],
+      toolCalls: [{ id: 't-large', name: 'largeTool', input: {}, output: { payload: 'x'.repeat(25_000) } }],
+    }];
+
+    const out = buildUiMessagesWithToolParts(largeConvo);
+    const toolPart: any = out[0].parts[0];
+    expect(toolPart.output.truncated).toBe(true);
+    expect(toolPart.output.originalChars).toBeGreaterThan(20_000);
+    expect(toolPart.output.preview.length).toBeLessThanOrEqual(20_000);
+    expect(toolPart.output.note).toContain('narrower');
+  });
 });

@@ -1,6 +1,6 @@
 /**
  * Search's contribution to the AI chat agent (#search-index): a read-only
- * `searchModel` tool that lets the assistant find model elements by fuzzy
+ * `searchModel` tool that lets the assistant find model elements by ranked
  * full-text query instead of relying on the truncated whole-model outline in
  * its system prompt. Registered from this module (mirrors elementStyle /
  * reverse-engineer) so the AI controller carries no search-specific code.
@@ -11,7 +11,7 @@
  */
 import { z } from 'zod';
 import { registerAgentTool } from '../ai/agentToolRegistry.js';
-import { getSearchIndex } from './searchIndexService.js';
+import { getSearchIndex, getSearchIndexHealth } from './searchIndexService.js';
 import type { SearchKind } from './searchDocuments.js';
 
 const KINDS: SearchKind[] = ['entity', 'attribute', 'package', 'relationship', 'rule', 'metadata', 'case', 'document', 'documentation-chunk'];
@@ -27,7 +27,7 @@ export function registerSearchAgentTools(): void {
     name: 'searchModel',
     category: 'read',
     description:
-      'Full-text search across the whole data dictionary — entities, attributes, packages, relationships, rules, entity metadata and cases. Fuzzy + prefix matching (e.g. "iban", "order tot", "payment"). Use this to LOCATE elements when you don\'t already know the exact package/entity name; then call getEntityDetails for the full definition. Returns ranked hits with the owning package and entity.',
+      'Full-text search across the whole data dictionary — entities, attributes, packages, relationships, rules, entity metadata and cases. Ranked prefix matching supports queries such as "iban", "order tot", and "payment". Use this to LOCATE elements when you don\'t already know the exact package/entity name; then call getEntityDetails for the full definition. Returns ranked hits with the owning package and entity.',
     jsonSchema: {
       type: 'object',
       required: ['query'],
@@ -47,7 +47,11 @@ export function registerSearchAgentTools(): void {
     execute: (args) => {
       const idx = getSearchIndex();
       if (!idx) {
-        return { success: false, error: 'Search index is not available. Use listEntities / getModelOverview instead.' };
+        return {
+          success: false,
+          error: 'Search index is not available. Check getSearchIndexStatus, then use narrowly scoped entity tools.',
+          index: getSearchIndexHealth(),
+        };
       }
       const query = String(args.query ?? '').trim();
       if (!query) return { success: true, count: 0, results: [] };
@@ -60,6 +64,7 @@ export function registerSearchAgentTools(): void {
       return {
         success: true,
         count: hits.length,
+        index: getSearchIndexHealth(),
         results: hits.map((h) => ({
           kind: h.kind,
           name: h.name,
@@ -70,5 +75,15 @@ export function registerSearchAgentTools(): void {
         })),
       };
     },
+  });
+
+  registerAgentTool({
+    name: 'getSearchIndexStatus',
+    category: 'read',
+    description:
+      'Check whether the full-text model index is ready and how many entities, attributes, packages and other records it contains. Use this when searchModel returns no results unexpectedly or before reviewing a very large project.',
+    jsonSchema: { type: 'object', properties: {} },
+    inputSchema: z.object({}),
+    execute: () => ({ success: true, ...getSearchIndexHealth() }),
   });
 }

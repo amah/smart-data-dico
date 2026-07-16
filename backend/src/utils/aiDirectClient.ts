@@ -46,6 +46,21 @@ export interface DirectClientUsage {
   outputTokens: number;
 }
 
+/** Per-call ceiling for results retained in the live agent loop and UI history. */
+export const LIVE_TOOL_RESULT_MAX_CHARS = 50_000;
+
+export function boundLiveToolResult(result: unknown, maxChars = LIVE_TOOL_RESULT_MAX_CHARS): unknown {
+  const serialized = JSON.stringify(result ?? {});
+  if (serialized.length <= maxChars) return result;
+  const previewBudget = Math.max(maxChars - 500, 0);
+  return {
+    truncated: true,
+    originalChars: serialized.length,
+    preview: serialized.slice(0, previewBudget),
+    note: 'Tool result exceeded the live AI context budget. Retry with a narrower query, packageName, or entityNames scope.',
+  };
+}
+
 export async function callWithTools(
   config: DirectClientConfig,
   messages: Message[],
@@ -232,19 +247,19 @@ export async function callWithTools(
         }
 
         const result = await executeToolFn(toolName, toolArgs, toolCallId);
-        allToolCalls.push({ name: toolName, input: toolArgs, output: result });
+        const boundedResult = boundLiveToolResult(result);
+        allToolCalls.push({ name: toolName, input: toolArgs, output: boundedResult });
 
         if (onEvent) {
-          onEvent({ type: 'tool-end', name: toolName, toolCallId, input: toolArgs, output: result });
+          onEvent({ type: 'tool-end', name: toolName, toolCallId, input: toolArgs, output: boundedResult });
         }
 
-        // Add tool result to context. Deliberately uncapped in the live loop
-        // (matching the Vercel path) — DIRECT_TOOL_RESULT_MAX_CHARS only bounds
-        // results reconstructed into history on later turns.
+        // Add the bounded result to context. Large tools must be retried with a
+        // narrower scope instead of expanding every subsequent provider call.
         currentMessages.push({
           role: 'tool',
           tool_call_id: tc.id,
-          content: JSON.stringify(result),
+          content: JSON.stringify(boundedResult),
         });
       }
 

@@ -188,15 +188,15 @@ const withSplit = (keywords: string, name: string): string => {
 };
 
 /**
- * Flatten one loaded package into search documents. Defensive about
- * optional/legacy fields — entities may carry inline `rules` (#106) and
- * metadata that aren't in the strict TS type. Does NOT recurse into
- * subPackages: the caller indexes each package (incl. subpackages) separately
- * so a single package can be re-indexed in isolation on a write.
+ * Flatten one loaded package tree into search documents. `packagePath` is the
+ * routable path from the root package (for example `sales/reference/codes`).
+ * The dictionary loader returns subpackages nested under their root, so this
+ * function must recurse; otherwise large hierarchical projects silently index
+ * only their root-level entities.
  */
-export function packageToSearchDocs(pkg: Package): SearchDoc[] {
+export function packageToSearchDocs(pkg: Package, packagePath: string = pkg.name): SearchDoc[] {
   const docs: SearchDoc[] = [];
-  const service = pkg.name;
+  const service = packagePath;
 
   docs.push({
     id: `package:${service}`,
@@ -289,6 +289,10 @@ export function packageToSearchDocs(pkg: Package): SearchDoc[] {
       keywords: 'case',
       route: `/cases/${c.uuid}`,
     });
+  }
+
+  for (const subPackage of pkg.subPackages ?? []) {
+    docs.push(...packageToSearchDocs(subPackage, `${packagePath}/${subPackage.name}`));
   }
 
   return docs;

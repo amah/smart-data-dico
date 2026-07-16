@@ -13,6 +13,7 @@ import { z } from 'zod';
 import type { Attribute, Entity, Relationship } from '../models/EntitySchema.js';
 import type { DerivedType } from '../services/dicoConfigService.js';
 import { metaValue, resolveAttributePhysical } from '../services/ai/physicalMapping.js';
+import { sqlSchemaToMarkdown, type AgentOutputFormat } from '../services/ai/compactMarkdown.js';
 
 export interface SqlSchemaServices {
   serviceService: {
@@ -30,6 +31,8 @@ export const getSqlSchemaInputSchema = z.object({
     .describe('PREFERRED scope on large models: the target entity names (resolved across all packages). Their directly-related entities are included automatically so JOINs can be derived.'),
   dialect: z.enum(['generic', 'postgres', 'mysql', 'mssql', 'oracle', 'sqlite']).optional()
     .describe('Target SQL dialect — tunes fallback column types (default generic)'),
+  format: z.enum(['markdown', 'json']).optional()
+    .describe('Result format (default markdown; use json for structured compatibility)'),
 });
 export type GetSqlSchemaInput = z.infer<typeof getSqlSchemaInputSchema>;
 
@@ -39,6 +42,7 @@ export const getSqlSchemaParameters = {
     packageName: { type: 'string', description: 'Scope to one package (omit for the whole model)' },
     entityNames: { type: 'array', items: { type: 'string' }, description: 'PREFERRED scope on large models: target entity names, resolved across all packages; directly-related entities are included automatically for JOINs' },
     dialect: { type: 'string', enum: ['generic', 'postgres', 'mysql', 'mssql', 'oracle', 'sqlite'], description: 'Target SQL dialect (default generic)' },
+    format: { type: 'string', enum: ['markdown', 'json'], description: 'Result format (default markdown)' },
   },
 } as const;
 
@@ -119,6 +123,9 @@ export interface SqlSchemaOptions {
   defaultSchema?: string;
 }
 
+/** Prevent an accidental whole-project schema dump from flooding AI context. */
+export const MAX_UNSCOPED_SQL_SCHEMA_ENTITIES = 250;
+
 export async function buildSqlSchema(input: GetSqlSchemaInput, services: SqlSchemaServices, opts?: SqlSchemaOptions): Promise<Record<string, unknown>> {
   const dialect = (input.dialect ?? 'generic') as SqlDialect;
   const { listMicroservices } = await import('../utils/fileOperations.js');
@@ -162,6 +169,20 @@ export async function buildSqlSchema(input: GetSqlSchemaInput, services: SqlSche
     if (!relsByPkg.has(p)) relsByPkg.set(p, await services.serviceService.getPackageRelationships(p).catch(() => []));
     return relsByPkg.get(p)!;
   };
+
+  if (!requestedNames?.length) {
+    const scopePackages = input.packageName ? [input.packageName] : allPkgs;
+    const entityCount = scopePackages.reduce((sum, pkg) => sum + (entitiesByPkg.get(pkg)?.length ?? 0), 0);
+    if (entityCount > MAX_UNSCOPED_SQL_SCHEMA_ENTITIES) {
+      return {
+        error: `Refusing an unscoped SQL schema dump of ${entityCount} entities; the safe limit is ${MAX_UNSCOPED_SQL_SCHEMA_ENTITIES}. `
+          + `Call searchModel({ query: '<entity or business term>' }) to locate targets, then retry with entityNames: ['<EntityName>'].`,
+        entityCount,
+        limit: MAX_UNSCOPED_SQL_SCHEMA_ENTITIES,
+        scope: input.packageName ?? 'all packages',
+      };
+    }
+  }
 
   // Resolve the scope: which packages to scan, and (entityNames mode) the
   // exact entity uuids to emit — the requested entities PLUS every entity
@@ -272,4 +293,14 @@ export async function buildSqlSchema(input: GetSqlSchemaInput, services: SqlSche
         ? ` Requested entities not found: ${unresolved.join(', ')} — call searchModel({ query: '<name>' }) to locate them.`
         : ''),
   };
+}
+
+/** AI-facing SQL schema result: compact Markdown by default, JSON on request. */
+export async function executeGetSqlSchema(
+  input: GetSqlSchemaInput & { format?: AgentOutputFormat },
+  services: SqlSchemaServices,
+  opts?: SqlSchemaOptions,
+): Promise<string | Record<string, unknown>> {
+  const schema = await buildSqlSchema(input, services, opts);
+  return input.format === 'json' ? schema : sqlSchemaToMarkdown(schema);
 }

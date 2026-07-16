@@ -5,6 +5,26 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.24.6] — 2026-07-15
+
+### Added
+- **Search-index diagnostics for agents and operators.** The read-only
+  `getSearchIndexStatus` AI tool and `/api/search/status` endpoint report index
+  readiness, total documents, per-kind counts, build time and errors.
+- **Compact Markdown AI definitions.** `getEntityDetails` and `getSqlSchema`
+  return concise Markdown tables by default, with `format: "json"` retained for
+  structured compatibility.
+
+### Changed
+- **Large-model retrieval is search-first and bounded.** Entity listings,
+  model overviews, SQL-schema requests, and live or historical tool results now
+  enforce explicit limits and direct the agent to `searchModel` for discovery.
+
+### Fixed
+- **Nested packages missing from full-text search.** Search documents are now
+  built recursively with complete package paths, and incremental reindex or
+  removal operations cover the entire package subtree.
+
 ## [1.24.5] — 2026-07-15
 
 ### Fixed

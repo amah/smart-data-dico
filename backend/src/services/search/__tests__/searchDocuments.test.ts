@@ -88,6 +88,31 @@ describe('packageToSearchDocs', () => {
     expect(out).toHaveLength(1); // just the package doc
     expect(out[0].kind).toBe('package');
   });
+
+  it('recursively indexes nested package entities with routable package paths', () => {
+    const tree = {
+      id: 'root', name: 'root', entities: [], relationships: [],
+      subPackages: [{
+        id: 'reference', name: 'reference', relationships: [],
+        entities: [{ uuid: 'country', name: 'CountryCode', attributes: [], metadata: [] }],
+        subPackages: [{
+          id: 'iso', name: 'iso', relationships: [], subPackages: [],
+          entities: [{ uuid: 'currency', name: 'CurrencyCode', attributes: [], metadata: [] }],
+        }],
+      }],
+    } as unknown as Package;
+
+    const out = packageToSearchDocs(tree);
+    expect(out.find((d) => d.name === 'CountryCode')).toMatchObject({
+      package: 'root/reference', route: '/packages/root/reference/entities/CountryCode',
+    });
+    expect(out.find((d) => d.name === 'CurrencyCode')).toMatchObject({
+      package: 'root/reference/iso', route: '/packages/root/reference/iso/entities/CurrencyCode',
+    });
+    expect(out.filter((d) => d.kind === 'package').map((d) => d.package)).toEqual([
+      'root', 'root/reference', 'root/reference/iso',
+    ]);
+  });
 });
 
 describe('documentationToSearchDocs', () => {

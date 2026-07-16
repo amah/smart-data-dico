@@ -1116,6 +1116,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
           // generateMermaid → render the diagram (the markdown code override
           // turns a ```mermaid block into an SVG), even with no model prose.
           if (typeof t.output?.mermaid === 'string') return `\`\`\`mermaid\n${t.output.mermaid}\n\`\`\``;
+          if (typeof t.output === 'string') return t.output;
           // Prefer the canonical structured `summary` over legacy `message` (#191).
           if (t.output?.summary) return `- ${t.output.summary}`;
           if (t.output?.message) return `- ${t.output.message}`;
@@ -2036,7 +2037,9 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                                isCancelled ? 'Cancelled' :
                                isError ? '' :
                                isRunning && tc.input ? inputPreview :
-                               tc.output?.summary || tc.output?.message || ''}
+                               (typeof tc.output === 'string'
+                                 ? tc.output.split('\n')[0].replace(/^#+\s*/, '').slice(0, 120)
+                                 : tc.output?.summary || tc.output?.message || '')}
                             </span>
                             <span className="text-base-content/30">{expandedTools.has(tc.id) ? '▼' : '▶'}</span>
                           </button>
@@ -2141,7 +2144,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                                 {tc.output?.changeKind && tc.output?.elementType ? (
                                   <ChangeSummaryCard output={tc.output} />
                                 ) : (
-                                  <pre className="bg-base-300/30 rounded p-1.5 overflow-x-auto text-[11px]">{JSON.stringify(tc.output, null, 2)}</pre>
+                                  <pre className="bg-base-300/30 rounded p-1.5 overflow-x-auto text-[11px] whitespace-pre-wrap">{typeof tc.output === 'string' ? tc.output : JSON.stringify(tc.output, null, 2)}</pre>
                                 )}
                               </div>
                             )}

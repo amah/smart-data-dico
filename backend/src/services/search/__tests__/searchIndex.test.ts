@@ -133,6 +133,27 @@ describe('SearchIndex (in-memory)', () => {
     expect(idx.search('Product')).toHaveLength(0);
   });
 
+  it('reindexes and removes an entire nested package subtree', () => {
+    if (!guard()) return;
+    const nested = {
+      ...ordering,
+      entities: [],
+      subPackages: [{
+        id: 'child', name: 'child', relationships: [], subPackages: [],
+        entities: [{ uuid: 'nested-1', name: 'NestedEntity', attributes: [], metadata: [] }],
+      }],
+    } as unknown as Package;
+    idx.rebuildFrom([nested]);
+    expect(idx.search('NestedEntity')[0]).toMatchObject({ package: 'ordering/child' });
+
+    idx.reindexPackage({ ...nested, subPackages: [] } as unknown as Package);
+    expect(idx.search('NestedEntity')).toHaveLength(0);
+
+    idx.rebuildFrom([nested]);
+    idx.removePackage('ordering');
+    expect(idx.search('NestedEntity')).toHaveLength(0);
+  });
+
   it('returns [] for a blank query', () => {
     if (!guard()) return;
     expect(idx.search('   ')).toHaveLength(0);
