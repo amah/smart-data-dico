@@ -32,6 +32,7 @@ import {
   Toolbar,
 } from '../components/ui';
 import type { StatusValue } from '../components/ui';
+import type { LogicalDiffOperand } from '../plugins/data-dictionary/services/DiffService';
 
 // ──────────────── Backend shapes ────────────────
 
@@ -56,9 +57,18 @@ interface EntityDiff {
   entityUuid: string;
   entityName: string;
   movedFrom?: string;
+  left?: any;
+  right?: any;
   attributes: AttrDiff[];
-  constraints: any[];
+  constraints: ConstraintDiff[];
   changedFields?: string[];
+}
+
+interface ConstraintDiff {
+  status: 'added' | 'changed' | 'removed' | 'unchanged';
+  key: string;
+  left?: { kind?: string; name?: string; columns?: string[] };
+  right?: { kind?: string; name?: string; columns?: string[] };
 }
 
 interface AttrDiff {
@@ -73,6 +83,8 @@ interface AttrDiff {
 interface RelDiff {
   status: DiffStatus;
   relationshipUuid: string;
+  left?: any;
+  right?: any;
   changedFields?: string[];
 }
 
@@ -80,6 +92,8 @@ interface RuleDiff {
   status: DiffStatus;
   ruleUuid: string;
   ruleName: string;
+  left?: any;
+  right?: any;
   changedFields?: string[];
 }
 
@@ -89,6 +103,18 @@ interface LogicalDiffSummary {
   attributes: Record<string, number>;
   relationships: Record<string, number>;
   rules: Record<string, number>;
+}
+
+interface BranchRefs {
+  current: string;
+  local: string[];
+  remote: string[];
+}
+
+interface RefSelectOption {
+  value: string;
+  label: string;
+  group?: 'Local branches' | 'Remote branches' | 'Commits';
 }
 
 // ──────────────── Derived shapes (for rendering) ────────────────
@@ -113,6 +139,15 @@ const KIND_GLYPH: Record<ChangeKind, string> = {
   meta:   '◎',
 };
 
+const KIND_LABEL: Record<ChangeKind, string> = {
+  add: 'ADDED',
+  remove: 'REMOVED',
+  modify: 'MODIFIED',
+  rename: 'RENAMED',
+  retype: 'RETYPED',
+  meta: 'METADATA MODIFIED',
+};
+
 const KIND_TONE: Record<ChangeKind, StatusValue> = {
   add:    'info',   // additive, not breaking
   remove: 'breaking',
@@ -127,7 +162,7 @@ interface ChangeRow {
   kind: ChangeKind;
   severity: Severity;
   subject: string;    // attribute/entity/rule/rel display name
-  scope: 'entity' | 'attribute' | 'relationship' | 'rule' | 'package';
+  scope: 'entity' | 'attribute' | 'constraint' | 'relationship' | 'rule' | 'package';
   entityName: string;
   packageName: string;
   before?: string;
@@ -155,8 +190,22 @@ const severityFromEntity = (entity: EntityDiff): { severity: Severity; kind: Cha
   return { severity: 'minor', kind: 'modify' };
 };
 
-const fmtAttrValue = (side: any): string => {
+const fmtFieldValue = (value: unknown): string => {
+  if (value === undefined || value === null || value === '') return 'Not set';
+  if (typeof value === 'string') return value.replace(/\s+/g, ' ').trim();
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+};
+
+const fmtChangedFields = (side: any, fields?: string[]): string => {
+  if (!side || !fields?.length) return '';
+  return fields.map(field => `${field}: ${fmtFieldValue(side[field])}`).join(' · ');
+};
+
+const fmtAttrValue = (side: any, fields?: string[]): string => {
   if (!side) return '';
+  const changed = fmtChangedFields(side, fields);
+  if (changed) return changed;
   const parts: string[] = [];
   if (side.name) parts.push(side.name);
   if (side.type) parts.push(`: ${side.type}`);
@@ -167,9 +216,85 @@ const fmtAttrValue = (side: any): string => {
   return parts.join('');
 };
 
-function buildChangeRows(diff: LogicalDiff): ChangeRow[] {
+const fmtConstraintValue = (side: ConstraintDiff['left']): string => {
+  if (!side) return '';
+  const label = side.name || side.kind || 'constraint';
+  return `${label}${side.columns?.length ? ` (${side.columns.join(', ')})` : ''}`;
+};
+
+const fmtEntityValue = (side: any, fields?: string[]): string => {
+  if (!side) return '';
+  const changed = fmtChangedFields(side, fields);
+  if (changed) return changed;
+  return [side.name, side.stereotype && `«${side.stereotype}»`, side.status].filter(Boolean).join(' · ');
+};
+
+const fmtRelationshipValue = (side: any, fields?: string[]): string => {
+  if (!side) return '';
+  const changed = fmtChangedFields(side, fields);
+  if (changed) return changed;
+  const endpoints = side.sourceEntityUuid && side.targetEntityUuid
+    ? `${String(side.sourceEntityUuid).slice(0, 8)} → ${String(side.targetEntityUuid).slice(0, 8)}`
+    : '';
+  return [side.name, endpoints, side.type || side.cardinality].filter(Boolean).join(' · ') || side.uuid || '';
+};
+
+const fmtRuleValue = (side: any, fields?: string[]): string => {
+  if (!side) return '';
+  const changed = fmtChangedFields(side, fields);
+  if (changed) return changed;
+  return [side.name, side.status, side.expression || side.condition].filter(Boolean).join(' · ');
+};
+
+export function buildLogicalOperand(service: string, ref: string): LogicalDiffOperand {
+  if (ref) return { type: 'git-ref', ref, ...(service === '__all__' ? {} : { service }) };
+  return service === '__all__'
+    ? { type: 'all-services' }
+    : { type: 'service', name: service };
+}
+
+export function buildRefOptions(branches: BranchRefs, commits: any[]): RefSelectOption[] {
+  const local = [...new Set(branches.local)].map((branch) => ({
+    value: branch,
+    label: branch === branches.current ? `${branch} (current)` : branch,
+    group: 'Local branches' as const,
+  }));
+  const remote = [...new Set(branches.remote)].map((branch) => ({
+    value: branch,
+    label: branch.replace(/^remotes\//, ''),
+    group: 'Remote branches' as const,
+  }));
+  const commitOptions = commits.map((commit: any) => ({
+    value: commit.hash,
+    label: `${(commit.hash || '').slice(0, 7)} — ${(commit.message || '').slice(0, 40)}`,
+    group: 'Commits' as const,
+  }));
+
+  return [
+    { value: 'HEAD', label: 'HEAD (last published)' },
+    { value: '', label: 'Working copy' },
+    ...local,
+    ...remote,
+    ...commitOptions,
+  ];
+}
+
+export function buildChangeRows(diff: LogicalDiff): ChangeRow[] {
   const rows: ChangeRow[] = [];
   for (const pkg of diff.packages) {
+    if (pkg.status === 'added' || pkg.status === 'removed') {
+      rows.push({
+        key: `p-${pkg.packageName}`,
+        kind: pkg.status === 'added' ? 'add' : 'remove',
+        severity: pkg.status === 'added' ? 'major' : 'breaking',
+        subject: pkg.packageName,
+        scope: 'package',
+        entityName: '(package)',
+        packageName: pkg.packageName,
+        before: pkg.status === 'removed' ? pkg.packageName : undefined,
+        after: pkg.status === 'added' ? pkg.packageName : undefined,
+      });
+    }
     for (const entity of pkg.entities) {
       if (entity.status !== 'unchanged') {
         const { severity, kind } = severityFromEntity(entity);
@@ -181,6 +306,12 @@ function buildChangeRows(diff: LogicalDiff): ChangeRow[] {
           scope: 'entity',
           entityName: entity.entityName,
           packageName: pkg.packageName,
+          before: entity.status === 'moved'
+            ? `${entity.movedFrom} / ${fmtEntityValue(entity.left, entity.changedFields)}`
+            : fmtEntityValue(entity.left, entity.changedFields) || undefined,
+          after: entity.status === 'moved'
+            ? `${pkg.packageName} / ${fmtEntityValue(entity.right, entity.changedFields)}`
+            : fmtEntityValue(entity.right, entity.changedFields) || undefined,
           fields: entity.changedFields,
         });
       }
@@ -195,9 +326,24 @@ function buildChangeRows(diff: LogicalDiff): ChangeRow[] {
           scope: 'attribute',
           entityName: entity.entityName,
           packageName: pkg.packageName,
-          before: fmtAttrValue(attr.left),
-          after: fmtAttrValue(attr.right),
+          before: fmtAttrValue(attr.left, attr.changedFields),
+          after: fmtAttrValue(attr.right, attr.changedFields),
           fields: attr.changedFields,
+        });
+      }
+      for (const constraint of entity.constraints || []) {
+        if (constraint.status === 'unchanged') continue;
+        rows.push({
+          key: `c-${pkg.packageName}-${entity.entityUuid}-${constraint.key}`,
+          kind: constraint.status === 'added' ? 'add' : constraint.status === 'removed' ? 'remove' : 'modify',
+          severity: constraint.status === 'removed' ? 'breaking' : constraint.status === 'changed' ? 'major' : 'info',
+          subject: constraint.right?.name || constraint.left?.name || constraint.key,
+          scope: 'constraint',
+          entityName: entity.entityName,
+          packageName: pkg.packageName,
+          before: fmtConstraintValue(constraint.left),
+          after: fmtConstraintValue(constraint.right),
+          fields: ['constraint'],
         });
       }
     }
@@ -211,6 +357,8 @@ function buildChangeRows(diff: LogicalDiff): ChangeRow[] {
         scope: 'relationship',
         entityName: '(package)',
         packageName: pkg.packageName,
+        before: fmtRelationshipValue(rel.left, rel.changedFields) || undefined,
+        after: fmtRelationshipValue(rel.right, rel.changedFields) || undefined,
         fields: rel.changedFields,
       });
     }
@@ -224,6 +372,8 @@ function buildChangeRows(diff: LogicalDiff): ChangeRow[] {
         scope: 'rule',
         entityName: '(package)',
         packageName: pkg.packageName,
+        before: fmtRuleValue(rule.left, rule.changedFields) || undefined,
+        after: fmtRuleValue(rule.right, rule.changedFields) || undefined,
         fields: rule.changedFields,
       });
     }
@@ -238,9 +388,10 @@ export default function LogicalDiffPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [services, setServices] = useState<string[]>([]);
   const [commits, setCommits] = useState<any[]>([]);
+  const [branches, setBranches] = useState<BranchRefs>({ current: '', local: [], remote: [] });
   const [service, setService] = useState(searchParams.get('service') || '');
-  const [leftRef, setLeftRef] = useState(searchParams.get('left') || '');
-  const [rightRef, setRightRef] = useState(searchParams.get('right') || 'HEAD');
+  const [leftRef, setLeftRef] = useState(searchParams.get('left') ?? 'HEAD');
+  const [rightRef, setRightRef] = useState(searchParams.get('right') ?? '');
   const [diff, setDiff] = useState<LogicalDiff | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -250,20 +401,25 @@ export default function LogicalDiffPage() {
   useEffect(() => {
     servicesApi.getAllServices().then((data: any) => setServices(data.data || [])).catch(() => {});
     run('data-dictionary.git.log', { limit: 50 }).then((data: any) => setCommits(data || [])).catch(() => {});
+    run('data-dictionary.git.listBranches').then((data) => {
+      const current = typeof data.current === 'object' ? data.current.name : data.current;
+      setBranches({
+        current: current || '',
+        local: data.local || data.branches || data.all || [],
+        remote: data.remote || [],
+      });
+    }).catch(() => {});
   }, []);
+
+  const refOptions = useMemo(() => buildRefOptions(branches, commits), [branches, commits]);
 
   const runDiff = useCallback(async () => {
     if (!service) return;
     setLoading(true);
     setError(null);
     try {
-      const allServices = service === '__all__';
-      const left = allServices
-        ? leftRef ? { type: 'git-ref' as const, ref: leftRef } : { type: 'all-services' as const }
-        : leftRef ? { type: 'git-ref' as const, ref: leftRef, service } : { type: 'service' as const, name: service };
-      const right = allServices
-        ? rightRef && rightRef !== 'HEAD' ? { type: 'git-ref' as const, ref: rightRef } : { type: 'all-services' as const }
-        : rightRef && rightRef !== 'HEAD' ? { type: 'git-ref' as const, ref: rightRef, service } : { type: 'service' as const, name: service };
+      const left = buildLogicalOperand(service, leftRef);
+      const right = buildLogicalOperand(service, rightRef);
 
       const result = await run('data-dictionary.diff.getLogical', { left, right });
       // Service contract is intentionally opaque (`unknown`) — page narrows.
@@ -312,8 +468,8 @@ export default function LogicalDiffPage() {
   };
 
   const swapRefs = () => {
-    setLeftRef(rightRef === 'HEAD' ? '' : rightRef);
-    setRightRef(leftRef === '' ? 'HEAD' : leftRef);
+    setLeftRef(rightRef);
+    setRightRef(leftRef);
   };
 
   return (
@@ -327,8 +483,8 @@ export default function LogicalDiffPage() {
           Model diff
         </h1>
         <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', marginTop: 4 }}>
-          Compare two versions of the logical model. Default compare is working
-          copy vs HEAD — pick any git ref, branch, or SHA to swap in.
+          Compare two versions of the logical model. Default compare is HEAD
+          (before) vs working copy (after) — pick any git ref, branch, or SHA.
         </p>
       </div>
 
@@ -344,13 +500,7 @@ export default function LogicalDiffPage() {
           label="Left (before)"
           value={leftRef}
           onChange={setLeftRef}
-          options={[
-            { value: '', label: 'Working copy' },
-            ...commits.map((c: any) => ({
-              value: c.hash,
-              label: `${(c.hash || '').slice(0, 7)} — ${(c.message || '').slice(0, 40)}`,
-            })),
-          ]}
+          options={refOptions}
           width={260}
           mono
         />
@@ -367,14 +517,7 @@ export default function LogicalDiffPage() {
           label="Right (after)"
           value={rightRef}
           onChange={setRightRef}
-          options={[
-            { value: 'HEAD', label: 'HEAD (last published)' },
-            { value: '',     label: 'Working copy' },
-            ...commits.map((c: any) => ({
-              value: c.hash,
-              label: `${(c.hash || '').slice(0, 7)} — ${(c.message || '').slice(0, 40)}`,
-            })),
-          ]}
+          options={refOptions}
           width={260}
           mono
         />
@@ -472,7 +615,7 @@ interface FieldSelectProps {
   label: string;
   value: string;
   onChange: (v: string) => void;
-  options: { value: string; label: string }[];
+  options: RefSelectOption[];
   width?: number;
   mono?: boolean;
 }
@@ -495,9 +638,17 @@ const FieldSelect = ({ label, value, onChange, options, width = 200, mono }: Fie
         borderRadius: 'var(--radius-sm)',
       }}
     >
-      {options.map(o => (
-        <option key={o.value} value={o.value}>{o.label}</option>
+      {options.filter(o => !o.group).map(o => (
+        <option key={o.value || 'working-copy'} value={o.value}>{o.label}</option>
       ))}
+      {(['Local branches', 'Remote branches', 'Commits'] as const).map(group => {
+        const grouped = options.filter(o => o.group === group);
+        return grouped.length > 0 ? (
+          <optgroup key={group} label={group}>
+            {grouped.map(o => <option key={`${group}-${o.value}`} value={o.value}>{o.label}</option>)}
+          </optgroup>
+        ) : null;
+      })}
     </select>
   </label>
 );
@@ -673,8 +824,7 @@ const ChangeRowView = ({ row }: { row: ChangeRow }) => {
     row.kind === 'rename' || row.kind === 'modify' ? 'var(--warning)' :
     row.kind === 'add'                             ? 'var(--success)' :
                                                      'var(--text-muted)';
-  const hasDiff = row.before !== undefined || row.after !== undefined;
-  const showDiff = hasDiff && (row.before || row.after);
+  const showDiff = row.before !== undefined || row.after !== undefined;
 
   return (
     <div
@@ -703,7 +853,7 @@ const ChangeRowView = ({ row }: { row: ChangeRow }) => {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <Chip tone={KIND_TONE[row.kind] === 'breaking' ? 'danger' : KIND_TONE[row.kind] === 'major' ? 'warning' : 'info'}>
-            {row.kind}
+            {KIND_LABEL[row.kind]}
           </Chip>
           <span
             className="mono"
@@ -728,43 +878,49 @@ const ChangeRowView = ({ row }: { row: ChangeRow }) => {
         {showDiff && (
           <div
             style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 2,
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 1fr) 24px minmax(0, 1fr)',
+              gap: 6,
+              alignItems: 'stretch',
               fontSize: 'var(--fs-xs)',
               fontFamily: 'var(--font-mono)',
-              background: 'var(--bg-subtle)',
-              padding: '4px 6px',
-              borderRadius: 'var(--radius-sm)',
-              overflow: 'hidden',
             }}
           >
-            {row.before && (
-              <div
-                style={{
-                  color: 'var(--danger)',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-              >
-                − {row.before}
-              </div>
-            )}
-            {row.after && (
-              <div
-                style={{
-                  color: 'var(--success)',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-              >
-                + {row.after}
-              </div>
-            )}
+            <DiffSide label="Before" value={row.before} tone="before" />
+            <span aria-hidden="true" style={{ alignSelf: 'center', textAlign: 'center', color: 'var(--text-subtle)' }}>→</span>
+            <DiffSide label="After" value={row.after} tone="after" />
           </div>
         )}
+      </div>
+    </div>
+  );
+};
+
+const DiffSide = ({ label, value, tone }: { label: string; value?: string; tone: 'before' | 'after' }) => {
+  const missing = !value;
+  const color = missing ? 'var(--text-subtle)' : tone === 'before' ? 'var(--danger)' : 'var(--success)';
+  const background = missing
+    ? 'var(--bg-subtle)'
+    : tone === 'before' ? 'var(--danger-soft)' : 'var(--success-soft)';
+
+  return (
+    <div
+      style={{
+        minWidth: 0,
+        padding: '5px 7px',
+        borderRadius: 'var(--radius-sm)',
+        border: `1px solid ${missing ? 'var(--border)' : color}`,
+        background,
+      }}
+    >
+      <div style={{ fontFamily: 'inherit', fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-subtle)', marginBottom: 2 }}>
+        {label}
+      </div>
+      <div
+        title={value || 'Not present'}
+        style={{ color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontStyle: missing ? 'italic' : 'normal' }}
+      >
+        {value || 'Not present'}
       </div>
     </div>
   );

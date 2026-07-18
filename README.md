@@ -243,6 +243,31 @@ All files are git-tracked for versioning, branching, and collaboration.
 | **Git** | 2.x+ | Required — dictionaries are versioned in a git repository |
 | **Docker** | 20+ | Optional, only for the containerized deployment path |
 
+#### Verify FTS5 search-index support
+
+Dico's persistent full-text search index uses SQLite FTS5 through Node's built-in
+`node:sqlite` module. The application still runs on Node 18 or 20, but indexed
+search requires Node 22.5 or newer. Official Node 22.20.0 binaries include FTS5.
+
+Check the exact Node binary that will run Dico before starting the application:
+
+```bash
+node -e "const { DatabaseSync } = require('node:sqlite'); const db = new DatabaseSync(':memory:'); db.exec('CREATE VIRTUAL TABLE test USING fts5(content)'); console.log('FTS5 supported')"
+```
+
+Expected output:
+
+```text
+FTS5 supported
+```
+
+If the command reports `No such built-in module: node:sqlite`, upgrade to Node
+22.5 or newer. If it reports `no such module: fts5`, the installed Node binary
+was built without FTS5; use an official Node distribution or another build with
+`SQLITE_ENABLE_FTS5`. When FTS5 is unavailable, Dico disables the persistent
+index and falls back to the slower non-indexed search. The running index state
+is also shown in the application status bar.
+
 #### Database drivers (optional)
 
 Connecting to a live database — for **Physical Sync** (schema introspection) or the **SQL Console / AI ▶ Run** (running read-only queries) — needs the driver for your dialect. They are **optional peer dependencies**: a default install pulls **none** of them, so install only the one(s) you use:

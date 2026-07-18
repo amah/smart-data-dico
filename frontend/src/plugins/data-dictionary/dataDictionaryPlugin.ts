@@ -24,7 +24,7 @@ import {
 import { StereotypeService, type NotifyFn } from './services/StereotypeService';
 import { IntegrityService } from './services/IntegrityService';
 import { DiffService } from './services/DiffService';
-import type { LogicalDiffOperand, PhysicalDiffSource } from './services/DiffService';
+import type { DdlOperation, LogicalDiffOperand, MigrationFormat, PhysicalDiffSource } from './services/DiffService';
 import { ImportExportService } from './services/ImportExportService';
 import type { SchemaImportOptions, DbDialect } from './services/ImportExportService';
 import { PublishService } from './services/PublishService';
@@ -180,7 +180,7 @@ export function createDataDictionaryPlugin(options: DataDictionaryPluginOptions 
       // Integrity — single read.
       ctx.commands.register('data-dictionary.integrity.getReport', () => integrity.getReport());
 
-      // Diff — four reads.
+      // Diff — model comparisons plus impact preview / migration export.
       ctx.commands.register('data-dictionary.diff.getLogical', ({ left, right }: { left: LogicalDiffOperand; right: LogicalDiffOperand }) =>
         diff.getLogical(left, right),
       );
@@ -192,6 +192,18 @@ export function createDataDictionaryPlugin(options: DataDictionaryPluginOptions 
       );
       ctx.commands.register('data-dictionary.diff.getPhysicalAll', ({ sources, services }: { sources: Record<string, PhysicalDiffSource>; services?: string[] }) =>
         diff.getPhysicalAll(sources, services),
+      );
+      ctx.commands.register('data-dictionary.diff.getImpactForService', ({ service, source, dialect }: { service: string; source: PhysicalDiffSource; dialect?: string }) =>
+        diff.getImpactForService(service, source, dialect),
+      );
+      ctx.commands.register('data-dictionary.diff.getImpactAll', ({ sources, services }: { sources: Record<string, PhysicalDiffSource>; services?: string[] }) =>
+        diff.getImpactAll(sources, services),
+      );
+      ctx.commands.register('data-dictionary.diff.exportMigration', ({ operations, format, options, dialect }: { operations: DdlOperation[]; format: MigrationFormat; options?: Record<string, unknown>; dialect?: string }) =>
+        diff.exportMigration(operations, format, options, dialect),
+      );
+      ctx.commands.register('data-dictionary.diff.exportMigrationAll', ({ operations, format, options, mode }: { operations: DdlOperation[]; format: MigrationFormat; options?: Record<string, unknown>; mode?: 'combined' | 'per-service' }) =>
+        diff.exportMigrationAll(operations, format, options, mode),
       );
 
       // Import / Export — eight calls. The commit handler emits an event.

@@ -139,19 +139,24 @@ export function diffModels(left: ModelSnapshot, right: ModelSnapshot): LogicalDi
   // Build global entity→package maps for move detection
   const leftEntityPkg = new Map<string, string>(); // entity UUID → package name
   const rightEntityPkg = new Map<string, string>();
+  const leftEntityByUuid = new Map<string, Entity>();
   for (const pkg of left.packages) {
-    for (const e of pkg.entities) leftEntityPkg.set(e.uuid, pkg.packageName);
+    for (const e of pkg.entities) {
+      leftEntityPkg.set(e.uuid, pkg.packageName);
+      leftEntityByUuid.set(e.uuid, e);
+    }
   }
   for (const pkg of right.packages) {
     for (const e of pkg.entities) rightEntityPkg.set(e.uuid, pkg.packageName);
   }
 
   // Detect moved entities: same UUID, different package
-  const movedEntities = new Map<string, { from: string; to: string }>();
+  const movedEntities = new Map<string, { from: string; to: string; left: Entity }>();
   for (const [uuid, rightPkg] of rightEntityPkg) {
     const leftPkg = leftEntityPkg.get(uuid);
     if (leftPkg && leftPkg !== rightPkg) {
-      movedEntities.set(uuid, { from: leftPkg, to: rightPkg });
+      const leftEntity = leftEntityByUuid.get(uuid);
+      if (leftEntity) movedEntities.set(uuid, { from: leftPkg, to: rightPkg, left: leftEntity });
     }
   }
 
@@ -232,7 +237,7 @@ export function diffModels(left: ModelSnapshot, right: ModelSnapshot): LogicalDi
 function diffEntityLists(
   leftEntities: Entity[],
   rightEntities: Entity[],
-  movedEntities: Map<string, { from: string; to: string }>,
+  movedEntities: Map<string, { from: string; to: string; left: Entity }>,
   currentPkg: string,
 ): EntityLogicalDiff[] {
   const diffs: EntityLogicalDiff[] = [];
@@ -247,19 +252,10 @@ function diffEntityLists(
     if (moveInfo && moveInfo.to === currentPkg) {
       // Entity moved INTO this package
       matched.add(uuid);
-      // Find the left version from the source package (we need to look it up)
-      // The left entity data is passed via leftEntities only if it was in this package
-      // For moved entities, left is in a different package — but we still have the left snapshot
-      // We'll pass the left entity data via the movedEntities map structure
-      // For now, just mark as moved with the right data
-      const left = leftByUuid.get(uuid);
-      const attrs = left
-        ? diffAttributeLists(left.attributes, right.attributes)
-        : right.attributes.map(a => diffAttrAdded(a));
-      const constraints = left
-        ? diffConstraintLists(left.constraints, right.constraints)
-        : (right.constraints || []).map(c => ({ status: 'added' as const, key: constraintKey(c), right: c }));
-      const changedFields = left ? diffEntityFields(left, right) : undefined;
+      const left = moveInfo.left;
+      const attrs = diffAttributeLists(left.attributes, right.attributes);
+      const constraints = diffConstraintLists(left.constraints, right.constraints);
+      const changedFields = diffEntityFields(left, right);
 
       diffs.push({
         status: 'moved',

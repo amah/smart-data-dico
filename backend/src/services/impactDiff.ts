@@ -190,27 +190,48 @@ export function buildImpactDiff(
 
     // Constraint operations
     for (const c of entity.constraints) {
-      if (c.status === 'added' && c.source) {
-        const isFK = c.source.kind === 'foreignKey';
+      if (c.status === 'added' && c.model) {
+        const isFK = c.model.kind === 'foreignKey';
         ops.push({
           order: 0,
           type: isFK ? 'ADD_FOREIGN_KEY' : 'ADD_CONSTRAINT',
           table,
-          details: { kind: c.source.kind, key: c.key },
+          details: { kind: c.model.kind, key: c.key },
           destructive: false,
           risk: isFK ? 'caution' : 'safe',
           riskReason: isFK ? 'May fail if orphan rows exist' : undefined,
         });
-      } else if (c.status === 'removed' && c.model) {
-        const isFK = c.model.kind === 'foreignKey';
+      } else if (c.status === 'removed' && c.source) {
+        const isFK = c.source.kind === 'foreignKey';
         ops.push({
           order: 0,
           type: isFK ? 'DROP_FOREIGN_KEY' : 'DROP_CONSTRAINT',
           table,
-          details: { kind: c.model.kind, key: c.key },
+          details: { kind: c.source.kind, key: c.key },
           destructive: false,
           risk: 'caution',
           riskReason: isFK ? 'Removing FK relaxes referential integrity' : 'Constraint removal',
+        });
+      } else if (c.status === 'drifted' && c.model && c.source) {
+        const sourceIsFK = c.source.kind === 'foreignKey';
+        const modelIsFK = c.model.kind === 'foreignKey';
+        ops.push({
+          order: 0,
+          type: sourceIsFK ? 'DROP_FOREIGN_KEY' : 'DROP_CONSTRAINT',
+          table,
+          details: { kind: c.source.kind, key: c.key },
+          destructive: false,
+          risk: 'caution',
+          riskReason: 'Constraint definition changed',
+        });
+        ops.push({
+          order: 0,
+          type: modelIsFK ? 'ADD_FOREIGN_KEY' : 'ADD_CONSTRAINT',
+          table,
+          details: { kind: c.model.kind, key: c.key },
+          destructive: false,
+          risk: modelIsFK ? 'caution' : 'safe',
+          riskReason: modelIsFK ? 'May fail if orphan rows exist' : undefined,
         });
       }
     }

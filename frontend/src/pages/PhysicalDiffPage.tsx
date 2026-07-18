@@ -10,7 +10,13 @@
 import { useState, useCallback, useEffect, type ReactNode } from 'react';
 import { servicesApi } from '../services/api';
 import { useCommand } from '../kernel/useCommand';
-import type { PhysicalConfig } from '../plugins/data-dictionary/services/DiffService';
+import type {
+  DdlOperation,
+  ImpactDiffResult,
+  MigrationFormat,
+  PhysicalConfig,
+  PhysicalDiffSource,
+} from '../plugins/data-dictionary/services/DiffService';
 import {
   Button,
   Chip,
@@ -22,8 +28,18 @@ type AttrStatus = 'matched' | 'modelOnly' | 'orphaned' | 'dbOnly' | 'drifted';
 
 interface PhysicalDiff {
   entities: EntityDiff[];
-  summary: { matched: number; modelOnly: number; orphaned: number; dbOnly: number; drifted: number; entities: Record<string, number> };
+  summary: {
+    matched: number;
+    modelOnly: number;
+    orphaned: number;
+    dbOnly: number;
+    drifted: number;
+    entities: Record<string, number>;
+    constraints?: ConstraintCounts;
+  };
 }
+
+interface ConstraintCounts { matched: number; added: number; removed: number; drifted: number }
 
 interface EntityDiff {
   status: string;
@@ -31,7 +47,14 @@ interface EntityDiff {
   entityUuid?: string;
   physicalTableName: string;
   attributes: AttrDiff[];
-  constraints: any[];
+  constraints: ConstraintDiff[];
+}
+
+interface ConstraintDiff {
+  status: 'matched' | 'added' | 'removed' | 'drifted';
+  key: string;
+  model?: { kind?: string; name?: string; columns?: string[] };
+  source?: { kind?: string; name?: string; columns?: string[] };
 }
 
 interface AttrDiff {
@@ -62,8 +85,12 @@ interface AllPhysicalDiff {
     modelOnly: number;
     orphaned: number;
     dbOnly: number;
+    constraints?: ConstraintCounts;
   };
 }
+
+const entityDiffKey = (entity: EntityDiff): string =>
+  entity.physicalTableName || entity.entityUuid || `name:${entity.entityName}`;
 
 const STATUS_META: Record<AttrStatus, { label: string; tone: 'success' | 'warning' | 'danger' | 'info' | 'accent'; glyph: string }> = {
   matched:   { label: 'Matched',    tone: 'success', glyph: '✓' },
@@ -73,6 +100,29 @@ const STATUS_META: Record<AttrStatus, { label: string; tone: 'success' | 'warnin
   drifted:   { label: 'Drifted',    tone: 'warning', glyph: '⚠' },
 };
 
+const physicalMetadataValue = (side: any, name: string): unknown =>
+  side?.metadata?.find((entry: any) => entry.name === name)?.value;
+
+export const formatPhysicalAttributeSide = (side: any): string => {
+  if (!side) return '';
+  const dbType = physicalMetadataValue(side, 'physical.dbType');
+  const nullable = physicalMetadataValue(side, 'physical.nullable');
+  return [
+    side.type,
+    dbType && `DB ${dbType}`,
+    side.primaryKey && 'primary key',
+    side.unique && 'unique',
+    side.required === true ? 'required' : side.required === false ? 'optional' : undefined,
+    nullable === true ? 'NULL' : nullable === false ? 'NOT NULL' : undefined,
+    side.defaultValue !== undefined && side.defaultValue !== null ? `default ${JSON.stringify(side.defaultValue)}` : undefined,
+  ].filter(Boolean).join(' · ');
+};
+
+const formatPhysicalConstraintSide = (side: ConstraintDiff['model']): string => {
+  if (!side) return '';
+  return [side.kind, side.columns?.length ? `(${side.columns.join(', ')})` : undefined].filter(Boolean).join(' ');
+};
+
 const ALL = '__all__';
 
 export default function PhysicalDiffPage() {
@@ -80,6 +130,9 @@ export default function PhysicalDiffPage() {
   const [services, setServices] = useState<string[]>([]);
   const [service, setService] = useState('');
   const [sql, setSql] = useState('');
+  const [singleSourceType, setSingleSourceType] = useState<'ddl' | 'live'>('ddl');
+  const [singleCredentials, setSingleCredentials] = useState({ user: '', password: '' });
+  const [singleConfig, setSingleConfig] = useState<PhysicalConfig>(null);
   const [diff, setDiff] = useState<PhysicalDiff | null>(null);
   const [perService, setPerService] = useState<Record<string, PerServiceSourceState>>({});
   const [physicalConfigs, setPhysicalConfigs] = useState<Record<string, PhysicalConfig>>({});
@@ -87,6 +140,10 @@ export default function PhysicalDiffPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [impact, setImpact] = useState<ImpactDiffResult | null>(null);
+  const [impactLoading, setImpactLoading] = useState(false);
+  const [migrationFormat, setMigrationFormat] = useState<MigrationFormat>('sql');
+  const [skipDestructive, setSkipDestructive] = useState(true);
 
   useEffect(() => {
     servicesApi.getAllServices().then((data: any) => setServices(data.data || [])).catch(() => {});
@@ -112,24 +169,47 @@ export default function PhysicalDiffPage() {
     });
   }, [service, services, run]);
 
+  useEffect(() => {
+    if (!service || service === ALL) {
+      setSingleConfig(null);
+      return;
+    }
+    run('data-dictionary.diff.getPhysicalConfig', { service })
+      .then(setSingleConfig)
+      .catch(() => setSingleConfig(null));
+  }, [service, run]);
+
+  const getSingleSource = useCallback((): PhysicalDiffSource | null => {
+    if (singleSourceType === 'ddl') {
+      return sql.trim() ? { type: 'ddl', sql } : null;
+    }
+    return singleCredentials.user && singleCredentials.password
+      ? { type: 'live', credentials: singleCredentials }
+      : null;
+  }, [singleSourceType, singleCredentials, sql]);
+
+  const getAllSources = useCallback((): Record<string, PhysicalDiffSource> => {
+    const sources: Record<string, PhysicalDiffSource> = {};
+    for (const svc of services) {
+      const source = perService[svc];
+      if (!source) continue;
+      if (source.type === 'ddl' && source.sql?.trim()) {
+        sources[svc] = { type: 'ddl', sql: source.sql };
+      } else if (source.type === 'live' && source.user && source.password) {
+        sources[svc] = { type: 'live', credentials: { user: source.user, password: source.password } };
+      }
+    }
+    return sources;
+  }, [perService, services]);
+
   const runDiff = useCallback(async () => {
     if (service === ALL) {
       setLoading(true);
       setError(null);
       setAllDiff(null);
+      setImpact(null);
       try {
-        const sources: Record<string, any> = {};
-        for (const svc of services) {
-          const s = perService[svc];
-          if (!s) continue;
-          if (s.type === 'ddl') {
-            if (!s.sql?.trim()) continue;
-            sources[svc] = { type: 'ddl', sql: s.sql };
-          } else {
-            if (!s.user || !s.password) continue;
-            sources[svc] = { type: 'live', credentials: { user: s.user, password: s.password } };
-          }
-        }
+        const sources = getAllSources();
         if (Object.keys(sources).length === 0) {
           setError('Provide a source for at least one service.');
           setLoading(false);
@@ -142,7 +222,9 @@ export default function PhysicalDiffPage() {
         for (const [svc, r] of Object.entries(allDiff.byService) as [string, any][]) {
           if (r.status === 'ok') {
             for (const e of r.diff.entities) {
-              if (e.attributes.some((a: AttrDiff) => a.status !== 'matched')) exp.add(`${svc}:${e.physicalTableName}`);
+              if (e.attributes.some((a: AttrDiff) => a.status !== 'matched') || e.constraints.some((c: ConstraintDiff) => c.status !== 'matched')) {
+                exp.add(`${svc}:${entityDiffKey(e)}`);
+              }
             }
           }
         }
@@ -155,17 +237,21 @@ export default function PhysicalDiffPage() {
       return;
     }
 
-    if (!service || !sql.trim()) return;
+    const source = getSingleSource();
+    if (!service || !source) return;
     setLoading(true);
     setError(null);
     setAllDiff(null);
+    setImpact(null);
     try {
-      const result = await run('data-dictionary.diff.getPhysicalForService', { service, source: { type: 'ddl', sql } });
+      const result = await run('data-dictionary.diff.getPhysicalForService', { service, source });
       const data = result as PhysicalDiff;
       setDiff(data);
       const exp = new Set<string>();
       for (const e of data.entities) {
-        if (e.attributes.some((a: AttrDiff) => a.status !== 'matched')) exp.add(e.physicalTableName);
+        if (e.attributes.some((a: AttrDiff) => a.status !== 'matched') || e.constraints.some((c: ConstraintDiff) => c.status !== 'matched')) {
+          exp.add(entityDiffKey(e));
+        }
       }
       setExpanded(exp);
     } catch (e: any) {
@@ -173,7 +259,50 @@ export default function PhysicalDiffPage() {
     } finally {
       setLoading(false);
     }
-  }, [service, sql, services, perService, run]);
+  }, [service, services, run, getAllSources, getSingleSource]);
+
+  const previewImpact = useCallback(async () => {
+    setImpactLoading(true);
+    setError(null);
+    try {
+      if (service === ALL) {
+        const sources = getAllSources();
+        const result = await run('data-dictionary.diff.getImpactAll', { sources, services: Object.keys(sources) });
+        setImpact(result);
+      } else {
+        const source = getSingleSource();
+        if (!source) return;
+        const result = await run('data-dictionary.diff.getImpactForService', {
+          service,
+          source,
+          dialect: singleConfig?.dialect,
+        });
+        setImpact(result);
+      }
+    } catch (e: any) {
+      setError(e.response?.data?.message || e.message || 'Failed to build migration preview');
+    } finally {
+      setImpactLoading(false);
+    }
+  }, [getAllSources, getSingleSource, run, service, singleConfig]);
+
+  const downloadMigration = useCallback(async () => {
+    if (!impact) return;
+    try {
+      const options = { skipDestructive };
+      const download = service === ALL
+        ? await run('data-dictionary.diff.exportMigrationAll', { operations: impact.operations, format: migrationFormat, options, mode: 'combined' })
+        : await run('data-dictionary.diff.exportMigration', { operations: impact.operations, format: migrationFormat, options, dialect: singleConfig?.dialect });
+      const url = URL.createObjectURL(download.blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = download.filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setError(e.response?.data?.message || e.message || 'Failed to export migration');
+    }
+  }, [impact, migrationFormat, run, service, singleConfig, skipDestructive]);
 
   const toggle = useCallback((key: string) => {
     setExpanded(prev => {
@@ -221,7 +350,12 @@ export default function PhysicalDiffPage() {
           <Field label="Service">
             <select
               value={service}
-              onChange={(e) => setService(e.target.value)}
+              onChange={(e) => {
+                setService(e.target.value);
+                setDiff(null);
+                setAllDiff(null);
+                setImpact(null);
+              }}
               style={fieldStyle}
             >
               <option value="">Select…</option>
@@ -236,7 +370,7 @@ export default function PhysicalDiffPage() {
             onClick={runDiff}
             disabled={
               loading ||
-              (!isAllMode && (!service || !sql.trim())) ||
+              (!isAllMode && (!service || !getSingleSource())) ||
               (isAllMode && services.length === 0)
             }
           >
@@ -245,20 +379,58 @@ export default function PhysicalDiffPage() {
         </div>
 
         {!isAllMode && (
-          <textarea
-            rows={6}
-            placeholder="Paste SQL DDL here (CREATE TABLE …)"
-            value={sql}
-            onChange={(e) => setSql(e.target.value)}
-            style={{
-              ...fieldStyle,
-              height: 'auto',
-              padding: '8px 10px',
-              fontFamily: 'var(--font-mono)',
-              fontSize: 'var(--fs-xs)',
-              resize: 'vertical',
-            }}
-          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 'var(--fs-xs)' }}>
+                <input type="radio" checked={singleSourceType === 'ddl'} onChange={() => setSingleSourceType('ddl')} />
+                DDL paste
+              </label>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 'var(--fs-xs)', opacity: singleConfig ? 1 : 0.5 }}>
+                <input
+                  type="radio"
+                  checked={singleSourceType === 'live'}
+                  disabled={!singleConfig}
+                  onChange={() => setSingleSourceType('live')}
+                />
+                Live ({singleConfig?.dialect || 'no physical.yaml'})
+              </label>
+            </div>
+            {singleSourceType === 'ddl' ? (
+              <textarea
+                rows={6}
+                placeholder="Paste SQL DDL here (CREATE TABLE …)"
+                value={sql}
+                onChange={(e) => setSql(e.target.value)}
+                style={{
+                  ...fieldStyle,
+                  height: 'auto',
+                  padding: '8px 10px',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 'var(--fs-xs)',
+                  resize: 'vertical',
+                }}
+              />
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <input
+                  type="text"
+                  aria-label="Database user"
+                  placeholder="Database user"
+                  value={singleCredentials.user}
+                  onChange={(e) => setSingleCredentials(value => ({ ...value, user: e.target.value }))}
+                  style={fieldStyle}
+                />
+                <input
+                  type="password"
+                  aria-label="Database password"
+                  placeholder="Database password"
+                  value={singleCredentials.password}
+                  onChange={(e) => setSingleCredentials(value => ({ ...value, password: e.target.value }))}
+                  style={fieldStyle}
+                />
+              </div>
+            )}
+          </div>
         )}
 
         {isAllMode && (
@@ -409,6 +581,11 @@ export default function PhysicalDiffPage() {
             <Tile label="Drifted" value={allDiff.summary.drifted} tone={allDiff.summary.drifted > 0 ? 'warning' : 'muted'} />
             <Tile label="Model only" value={allDiff.summary.modelOnly} tone="info" />
             <Tile label="Orphaned" value={allDiff.summary.orphaned} tone={allDiff.summary.orphaned > 0 ? 'danger' : 'muted'} />
+            <Tile
+              label="Constraint gaps"
+              value={(allDiff.summary.constraints?.added || 0) + (allDiff.summary.constraints?.removed || 0) + (allDiff.summary.constraints?.drifted || 0)}
+              tone="warning"
+            />
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -462,6 +639,78 @@ export default function PhysicalDiffPage() {
         </>
       )}
 
+      {(diff || allDiff) && (
+        <Toolbar>
+          <Button
+            size="md"
+            variant="primary"
+            icon="branch"
+            onClick={previewImpact}
+            disabled={impactLoading}
+          >
+            {impactLoading ? 'Building preview…' : 'Preview migration impact'}
+          </Button>
+          <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>
+            Generates an ordered preview only; nothing is executed against the database.
+          </span>
+        </Toolbar>
+      )}
+
+      {impact && (
+        <section
+          data-testid="migration-impact"
+          style={{
+            background: 'var(--bg-raised)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-md)',
+            overflow: 'hidden',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
+            <strong>Migration impact</strong>
+            <Chip tone="success" soft>{impact.summary.safe} safe</Chip>
+            <Chip tone="warning" soft>{impact.summary.caution} caution</Chip>
+            <Chip tone="danger" soft>{impact.summary.destructive} destructive</Chip>
+            <div style={{ flex: 1 }} />
+            <select
+              aria-label="Migration format"
+              value={migrationFormat}
+              onChange={(e) => setMigrationFormat(e.target.value as MigrationFormat)}
+              style={fieldStyle}
+            >
+              <option value="sql">SQL</option>
+              <option value="flyway-sql">Flyway SQL</option>
+              <option value="liquibase-xml">Liquibase XML</option>
+              <option value="liquibase-yaml">Liquibase YAML</option>
+            </select>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 'var(--fs-xs)' }}>
+              <input type="checkbox" checked={skipDestructive} onChange={(e) => setSkipDestructive(e.target.checked)} />
+              Skip destructive
+            </label>
+            <Button size="sm" variant="secondary" onClick={downloadMigration}>Download</Button>
+          </div>
+          {impact.operations.length === 0 ? (
+            <div style={{ padding: 12, color: 'var(--text-subtle)' }}>No migration operations required.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {impact.operations.map((operation: DdlOperation, index) => (
+                <div
+                  key={`${operation.service || service}-${operation.order}-${index}`}
+                  style={{ display: 'grid', gridTemplateColumns: '36px 140px minmax(120px, 1fr) 100px', gap: 8, padding: '7px 12px', borderBottom: '1px solid var(--border)', alignItems: 'center' }}
+                >
+                  <span className="mono" style={{ color: 'var(--text-subtle)' }}>{operation.order}</span>
+                  <span className="mono">{operation.type}</span>
+                  <span className="mono">{operation.service ? `${operation.service} · ` : ''}{operation.table}{operation.column ? `.${operation.column}` : ''}</span>
+                  <Chip tone={operation.risk === 'destructive' ? 'danger' : operation.risk === 'caution' ? 'warning' : 'success'} soft>
+                    {operation.risk}
+                  </Chip>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
       {!diff && !allDiff && !loading && !error && (
         <Toolbar>
           <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)' }}>
@@ -488,6 +737,11 @@ const SummaryTiles = ({ counts }: { counts: PhysicalDiff['summary'] }) => (
     <Tile label="Model only" value={counts.modelOnly} tone="info" />
     <Tile label="Orphaned"   value={counts.orphaned}  tone={counts.orphaned > 0 ? 'danger' : 'muted'} />
     <Tile label="DB only"    value={counts.dbOnly}    tone={counts.dbOnly > 0 ? 'warning' : 'muted'} />
+    <Tile
+      label="Constraint gaps"
+      value={(counts.constraints?.added || 0) + (counts.constraints?.removed || 0) + (counts.constraints?.drifted || 0)}
+      tone={(counts.constraints?.added || counts.constraints?.removed || counts.constraints?.drifted) ? 'warning' : 'muted'}
+    />
   </div>
 );
 
@@ -561,28 +815,30 @@ const DiffTable = ({ entities, expanded, onToggle, keyPrefix }: DiffTableProps) 
       background: 'var(--bg-raised)',
       border: '1px solid var(--border)',
       borderRadius: 'var(--radius-md)',
-      overflow: 'hidden',
+      overflowX: 'auto',
     }}
   >
     <div
       role="table"
       style={{
         display: 'grid',
-        gridTemplateColumns: 'minmax(200px, 1.4fr) 100px 100px 120px minmax(140px, 1fr)',
+        gridTemplateColumns: 'minmax(200px, 1.2fr) minmax(210px, 1fr) minmax(210px, 1fr) 120px minmax(150px, 0.8fr)',
+        minWidth: 980,
         fontSize: 'var(--fs-md)',
       }}
     >
       <HeaderCell>Element</HeaderCell>
-      <HeaderCell>Model type</HeaderCell>
-      <HeaderCell>DB type</HeaderCell>
+      <HeaderCell>Expected (model)</HeaderCell>
+      <HeaderCell>Actual (database)</HeaderCell>
       <HeaderCell>Status</HeaderCell>
       <HeaderCell>Details</HeaderCell>
 
       {entities.map((entity) => {
-        const key = `${keyPrefix}${entity.physicalTableName}`;
+        const key = `${keyPrefix}${entityDiffKey(entity)}`;
         const isExp = expanded.has(key);
-        const gapCount = entity.attributes.filter(a => a.status !== 'matched').length;
-        const hasChildren = entity.attributes.length > 0;
+        const gapCount = entity.attributes.filter(a => a.status !== 'matched').length
+          + entity.constraints.filter(c => c.status !== 'matched').length;
+        const hasChildren = entity.attributes.length > 0 || entity.constraints.length > 0;
         return (
           <EntityRows
             key={key}
@@ -662,8 +918,16 @@ const EntityRows = ({ entity, isExpanded, hasChildren, gapCount, onToggle }: Ent
           </span>
         )}
       </div>
-      <div role="cell" style={cellStyle} />
-      <div role="cell" style={cellStyle} />
+      <PhysicalValueCell
+        value={entity.status === 'dbOnly' ? '' : entity.physicalTableName || entity.entityName}
+        missing={entity.status === 'dbOnly'}
+        gap={entity.status !== 'matched'}
+      />
+      <PhysicalValueCell
+        value={entity.status === 'modelOnly' ? '' : entity.physicalTableName || entity.entityName}
+        missing={entity.status === 'modelOnly'}
+        gap={entity.status !== 'matched'}
+      />
       <div role="cell" style={cellStyle}>
         {entity.status === 'modelOnly' && <Chip tone="info" soft>model only</Chip>}
         {entity.status === 'dbOnly' && <Chip tone="warning" soft>DB only</Chip>}
@@ -696,12 +960,18 @@ const EntityRows = ({ entity, isExpanded, hasChildren, gapCount, onToggle }: Ent
               </span>
             )}
           </div>
-          <div role="cell" style={{ ...cellStyle, fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>
-            {attr.model?.type || ''}
-          </div>
-          <div role="cell" style={{ ...cellStyle, fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>
-            {attr.source?.type || ''}
-          </div>
+          <PhysicalValueCell
+            value={formatPhysicalAttributeSide(attr.model)}
+            missing={!attr.model}
+            gap={attr.status !== 'matched'}
+            drifted={attr.status === 'drifted'}
+          />
+          <PhysicalValueCell
+            value={formatPhysicalAttributeSide(attr.source)}
+            missing={!attr.source}
+            gap={attr.status !== 'matched'}
+            drifted={attr.status === 'drifted'}
+          />
           <div role="cell" style={cellStyle}>
             <Chip
               tone={meta.tone === 'info' ? 'info' : meta.tone}
@@ -710,13 +980,72 @@ const EntityRows = ({ entity, isExpanded, hasChildren, gapCount, onToggle }: Ent
               {meta.label}
             </Chip>
           </div>
+          <div role="cell" style={{ ...cellStyle, fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)', flexWrap: 'wrap' }}>
+            {attr.driftFields?.map(field => <Chip key={field} tone="warning" soft>{field}</Chip>)}
+            {!attr.driftFields?.length && attr.status !== 'matched' ? 'Missing on one side' : ''}
+          </div>
+        </div>
+      );
+    })}
+    {isExpanded && entity.constraints.map((constraint, i) => {
+      const isGap = constraint.status !== 'matched';
+      const label = constraint.model?.name || constraint.source?.name || constraint.key.replace(/^name:/, '');
+      return (
+        <div key={`${entity.physicalTableName}-constraint-${i}`} role="row" style={{ display: 'contents' }}>
+          <div role="cell" style={{ ...cellStyle, paddingLeft: 30 }}>
+            <span className="mono" style={{ color: isGap ? 'var(--warning)' : 'var(--success)' }}>◇</span>
+            <span className="mono" style={{ marginLeft: 6 }}>{label}</span>
+          </div>
+          <PhysicalValueCell
+            value={formatPhysicalConstraintSide(constraint.model)}
+            missing={!constraint.model}
+            gap={isGap}
+            drifted={constraint.status === 'drifted'}
+          />
+          <PhysicalValueCell
+            value={formatPhysicalConstraintSide(constraint.source)}
+            missing={!constraint.source}
+            gap={isGap}
+            drifted={constraint.status === 'drifted'}
+          />
+          <div role="cell" style={cellStyle}>
+            <Chip tone={constraint.status === 'matched' ? 'success' : constraint.status === 'removed' ? 'danger' : 'warning'} soft>
+              {constraint.status}
+            </Chip>
+          </div>
           <div role="cell" style={{ ...cellStyle, fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>
-            {attr.driftFields?.join(', ')}
+            {constraint.status === 'drifted' ? 'Definitions differ' : isGap ? 'Missing on one side' : 'Same definition'}
           </div>
         </div>
       );
     })}
   </>
+);
+
+const PhysicalValueCell = ({ value, missing, gap, drifted = false }: {
+  value: string;
+  missing: boolean;
+  gap: boolean;
+  drifted?: boolean;
+}) => (
+  <div
+    role="cell"
+    title={value || 'Not present'}
+    style={{
+      ...cellStyle,
+      minWidth: 0,
+      fontFamily: 'var(--font-mono)',
+      fontSize: 'var(--fs-xs)',
+      color: missing ? 'var(--danger)' : 'var(--text)',
+      background: missing ? 'var(--danger-soft)' : drifted ? 'var(--warning-soft)' : gap ? 'var(--bg-subtle)' : 'transparent',
+      fontStyle: missing ? 'italic' : 'normal',
+      whiteSpace: 'nowrap',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+    }}
+  >
+    {value || 'Not present'}
+  </div>
 );
 
 const cellStyle = {

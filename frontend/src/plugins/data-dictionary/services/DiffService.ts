@@ -45,6 +45,34 @@ export type PhysicalDiffResult = unknown;
 /** Whole-result payload of POST /api/diff/physical/all. */
 export type PhysicalDiffAllResult = unknown;
 
+export type MigrationFormat = 'sql' | 'liquibase-xml' | 'liquibase-yaml' | 'flyway-sql';
+
+export interface DdlOperation {
+  order: number;
+  type: string;
+  table: string;
+  column?: string;
+  risk: 'safe' | 'caution' | 'destructive';
+  riskReason?: string;
+  sql?: string;
+  service?: string;
+  [key: string]: unknown;
+}
+
+export interface ImpactDiffResult {
+  operations: DdlOperation[];
+  summary: { safe: number; caution: number; destructive: number; [key: string]: unknown };
+}
+
+export interface ImpactDiffAllResult extends ImpactDiffResult {
+  byService: Record<string, unknown>;
+}
+
+export interface MigrationDownload {
+  blob: Blob;
+  filename: string;
+}
+
 /**
  * Pattern B service — thin axios wrapper over the `/diff/*` endpoints and
  * `/services/:svc/physical-config`. NOT a Store FS facade: every result is
@@ -92,6 +120,48 @@ export class DiffService {
   ): Promise<PhysicalDiffAllResult> {
     const response = await this.http.post<{ data: PhysicalDiffAllResult }>('/diff/physical/all', { sources, services });
     return response.data.data;
+  }
+
+  async getImpactForService(
+    service: string,
+    source: PhysicalDiffSource,
+    dialect?: string,
+  ): Promise<ImpactDiffResult> {
+    const response = await this.http.post<{ data: ImpactDiffResult }>('/diff/impact', { service, source, dialect });
+    return response.data.data;
+  }
+
+  async getImpactAll(
+    sources: Record<string, PhysicalDiffSource>,
+    services?: string[],
+  ): Promise<ImpactDiffAllResult> {
+    const response = await this.http.post<{ data: ImpactDiffAllResult }>('/diff/impact/all', { sources, services });
+    return response.data.data;
+  }
+
+  async exportMigration(
+    operations: DdlOperation[],
+    format: MigrationFormat,
+    options?: Record<string, unknown>,
+    dialect?: string,
+  ): Promise<MigrationDownload> {
+    return this.download('/export/migration', { operations, format, options, dialect });
+  }
+
+  async exportMigrationAll(
+    operations: DdlOperation[],
+    format: MigrationFormat,
+    options?: Record<string, unknown>,
+    mode: 'combined' | 'per-service' = 'combined',
+  ): Promise<MigrationDownload> {
+    return this.download('/export/migration/all', { operations, format, options, mode });
+  }
+
+  private async download(url: string, body: Record<string, unknown>): Promise<MigrationDownload> {
+    const response = await this.http.post<Blob>(url, body, { responseType: 'blob' });
+    const disposition = String(response.headers['content-disposition'] || '');
+    const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || 'migration.sql';
+    return { blob: response.data, filename };
   }
 
   private static createDefaultHttp(): AxiosInstance {

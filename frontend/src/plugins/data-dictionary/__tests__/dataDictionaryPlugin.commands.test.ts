@@ -45,6 +45,10 @@ const ALL_DD_COMMAND_NAMES = [
   'data-dictionary.diff.getPhysicalConfig',
   'data-dictionary.diff.getPhysicalForService',
   'data-dictionary.diff.getPhysicalAll',
+  'data-dictionary.diff.getImpactForService',
+  'data-dictionary.diff.getImpactAll',
+  'data-dictionary.diff.exportMigration',
+  'data-dictionary.diff.exportMigrationAll',
   'data-dictionary.import-export.importJsonSchema',
   'data-dictionary.import-export.importSqlDdl',
   'data-dictionary.import-export.previewSqlDdl',
@@ -77,7 +81,7 @@ beforeAll(async () => {
 
 // ── Acceptance #18 — all data-dictionary commands registered (18 pre-#161 + 13 #161) ──
 
-describe('dataDictionaryPlugin — #163/#161 acceptance — all 31 commands registered', () => {
+describe('dataDictionaryPlugin — all data-dictionary commands registered', () => {
   it('bootstrapApplication() populates host.rootActivationCtx', () => {
     expect(host.rootActivationCtx).toBeDefined();
   });

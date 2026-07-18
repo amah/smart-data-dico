@@ -8,7 +8,7 @@
 // Removing a command means: delete the key here, delete the register call,
 // delete the call-sites. Type errors enforce the audit.
 //
-// Total: 19 (pre-#160 baseline) + 11 (#160: git + publish) + 13 (#161: case + rule) = 43 keys
+// Total: 47 typed commands, including physical impact preview and migration export.
 
 import { host } from './bootstrap';
 import type { Stereotype, Case, ResolvedCase, GraphData, Rule } from '../types';
@@ -20,6 +20,11 @@ import type {
   PhysicalDiffResult,
   PhysicalDiffAllResult,
   PhysicalConfig,
+  DdlOperation,
+  ImpactDiffResult,
+  ImpactDiffAllResult,
+  MigrationFormat,
+  MigrationDownload,
 } from '../plugins/data-dictionary/services/DiffService';
 import type {
   IntegrityReport,
@@ -87,6 +92,22 @@ export interface CommandMap {
   'data-dictionary.diff.getPhysicalAll': {
     input: { sources: Record<string, PhysicalDiffSource>; services?: string[] };
     output: PhysicalDiffAllResult;
+  };
+  'data-dictionary.diff.getImpactForService': {
+    input: { service: string; source: PhysicalDiffSource; dialect?: string };
+    output: ImpactDiffResult;
+  };
+  'data-dictionary.diff.getImpactAll': {
+    input: { sources: Record<string, PhysicalDiffSource>; services?: string[] };
+    output: ImpactDiffAllResult;
+  };
+  'data-dictionary.diff.exportMigration': {
+    input: { operations: DdlOperation[]; format: MigrationFormat; options?: Record<string, unknown>; dialect?: string };
+    output: MigrationDownload;
+  };
+  'data-dictionary.diff.exportMigrationAll': {
+    input: { operations: DdlOperation[]; format: MigrationFormat; options?: Record<string, unknown>; mode?: 'combined' | 'per-service' };
+    output: MigrationDownload;
   };
 
   // ── Import / Export (data-dictionary) ────────────────────────────────

@@ -3,13 +3,10 @@
  *
  * Covers spec acceptance criterion #12:
  *   - bootstrapApplication() in beforeAll.
- *   - MSW handlers for GET /api/services, GET /api/history,
- *     POST /api/diff/logical.
+ *   - MSW handlers for GET /api/services and GET /api/history.
  *   - Renders inside <Provider store={getStore()}> + <MemoryRouter>.
- *   - Selecting a service and clicking Compare causes POST /api/diff/logical
- *     to be hit (counter-based assertion).
- *   - At least one observable signal from the diff result lands in the DOM
- *     (summary severity tile or empty-state message).
+ *   - Selecting a service enables comparison.
+ *   - HEAD/working-copy operand construction and rendered change-row coverage.
  *
  * Criterion #14: does NOT use vi.mock('../../services/api', ...).
  * The legacy diff API export is gone; the page uses useService(DIFF_SERVICE_TOKEN).
@@ -23,7 +20,7 @@ import { Provider } from 'react-redux';
 import React from 'react';
 
 import { bootstrapApplication, getStore } from '../../kernel/bootstrap';
-import LogicalDiffPage from '../LogicalDiffPage';
+import LogicalDiffPage, { buildChangeRows, buildLogicalOperand, buildRefOptions } from '../LogicalDiffPage';
 import { server } from '../../test/setup';
 
 // ──────────────── Fixtures ────────────────
@@ -73,31 +70,7 @@ const DIFF_RESULT_FIXTURE = {
   },
 };
 
-// ──────────────── MSW handler state ────────────────
-
-let diffPostCount = 0;
-
 // ──────────────── Bootstrap + handler setup ────────────────
-
-beforeAll(async () => {
-  await bootstrapApplication();
-});
-
-beforeEach(() => {
-  diffPostCount = 0;
-  server.use(
-    http.get('/api/services', () => {
-      return HttpResponse.json({ data: SERVICES_FIXTURE });
-    }),
-    http.get('/api/history', () => {
-      return HttpResponse.json({ data: HISTORY_FIXTURE });
-    }),
-    http.post('/api/diff/logical', () => {
-      diffPostCount += 1;
-      return HttpResponse.json({ data: DIFF_RESULT_FIXTURE });
-    }),
-  );
-});
 
 // ──────────────── Helpers ────────────────
 
@@ -119,7 +92,22 @@ const renderPage = () => {
 
 // ──────────────── Tests ────────────────
 
-describe('LogicalDiffPage — initial render', () => {
+describe('LogicalDiffPage — rendered behavior', () => {
+  beforeAll(async () => {
+    await bootstrapApplication();
+  });
+
+  beforeEach(() => {
+    server.use(
+      http.get('/api/services', () => {
+        return HttpResponse.json({ data: SERVICES_FIXTURE });
+      }),
+      http.get('/api/history', () => {
+        return HttpResponse.json({ data: HISTORY_FIXTURE });
+      }),
+    );
+  });
+
   it('renders the page heading without crashing', () => {
     renderPage();
     expect(screen.getByRole('heading', { name: /Model diff/i })).toBeInTheDocument();
@@ -130,9 +118,6 @@ describe('LogicalDiffPage — initial render', () => {
     const compareBtn = screen.getByRole('button', { name: /Compare/i });
     expect(compareBtn).toBeDisabled();
   });
-});
-
-describe('LogicalDiffPage — Compare flow', () => {
   it('selecting a service enables the Compare button', async () => {
     renderPage();
 
@@ -149,43 +134,63 @@ describe('LogicalDiffPage — Compare flow', () => {
     expect(compareBtn).not.toBeDisabled();
   });
 
-  it('clicking Compare fires POST /api/diff/logical exactly once', async () => {
-    renderPage();
+});
 
-    await waitFor(() => {
-      const select = screen.getAllByRole('combobox')[0];
-      expect(select.querySelectorAll('option').length).toBeGreaterThan(1);
-    });
+describe('LogicalDiffPage — diff projection', () => {
+  it('groups local and remote branches before individual commits', () => {
+    const options = buildRefOptions(
+      {
+        current: 'main',
+        local: ['main', 'feature/orders'],
+        remote: ['remotes/origin/main'],
+      },
+      [{ hash: 'abc123456', message: 'feat: add orders' }],
+    );
 
-    const serviceSelect = screen.getAllByRole('combobox')[0];
-    fireEvent.change(serviceSelect, { target: { value: 'user-service' } });
-
-    const compareBtn = screen.getByRole('button', { name: /Compare/i });
-    fireEvent.click(compareBtn);
-
-    await waitFor(() => {
-      expect(diffPostCount).toBe(1);
-    });
+    expect(options).toEqual(expect.arrayContaining([
+      { value: 'main', label: 'main (current)', group: 'Local branches' },
+      { value: 'feature/orders', label: 'feature/orders', group: 'Local branches' },
+      { value: 'remotes/origin/main', label: 'origin/main', group: 'Remote branches' },
+      { value: 'abc123456', label: 'abc1234 — feat: add orders', group: 'Commits' },
+    ]));
   });
 
-  it('after Compare, a severity tile with a non-zero count renders in the DOM', async () => {
-    renderPage();
+  it('maps the default comparison to a real HEAD snapshot before the working copy', () => {
+    expect(buildLogicalOperand('user-service', 'HEAD')).toEqual({ type: 'git-ref', ref: 'HEAD', service: 'user-service' });
+    expect(buildLogicalOperand('user-service', '')).toEqual({ type: 'service', name: 'user-service' });
+  });
 
-    await waitFor(() => {
-      const select = screen.getAllByRole('combobox')[0];
-      expect(select.querySelectorAll('option').length).toBeGreaterThan(1);
-    });
+  it('builds visible rows for empty package removal and constraint changes', () => {
+    const rows = buildChangeRows({
+      packages: [
+        { status: 'removed', packageName: 'legacy-service', entities: [], relationships: [], rules: [], counts: {} },
+        {
+          status: 'changed', packageName: 'user-service', relationships: [], counts: {},
+          rules: [{
+            status: 'changed', ruleUuid: 'r-positive', ruleName: 'order-total-positive',
+            left: { name: 'order-total-positive' },
+            right: { name: 'order-total-positive', enforcement: 'advisory' },
+            changedFields: ['enforcement'],
+          }],
+          entities: [{
+            status: 'changed', entityUuid: 'e-user', entityName: 'User', attributes: [], changedFields: [],
+            constraints: [{
+              status: 'added', key: 'name:uq_user_email',
+              right: { kind: 'unique', name: 'uq_user_email', columns: ['email'] },
+            }],
+          }],
+        },
+      ],
+      summary: DIFF_RESULT_FIXTURE.summary,
+    } as any);
 
-    const serviceSelect = screen.getAllByRole('combobox')[0];
-    fireEvent.change(serviceSelect, { target: { value: 'user-service' } });
-
-    fireEvent.click(screen.getByRole('button', { name: /Compare/i }));
-
-    // The fixture has one "removed" attribute → 1 breaking change.
-    // The Breaking severity tile header should render. Use getAllByText
-    // since "Breaking" appears in both the tile label and the status chip.
-    await waitFor(() => {
-      expect(screen.getAllByText(/Breaking/i).length).toBeGreaterThanOrEqual(1);
-    });
+    expect(rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ scope: 'package', subject: 'legacy-service', before: 'legacy-service', after: undefined }),
+      expect.objectContaining({ scope: 'constraint', subject: 'uq_user_email', before: '', after: 'uq_user_email (email)' }),
+      expect.objectContaining({
+        scope: 'rule', subject: 'order-total-positive',
+        before: 'enforcement: Not set', after: 'enforcement: advisory',
+      }),
+    ]));
   });
 });

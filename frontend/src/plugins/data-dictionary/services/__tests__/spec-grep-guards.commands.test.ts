@@ -118,11 +118,11 @@ describe('#163 acceptance #2 — typed CommandMap exists with 30 entries', () =>
     expect(content).toMatch(/export interface CommandMap\b/);
   });
 
-  it('CommandMap has exactly 43 command keys (19 pre-#160 + 11 #160 git/publish + 13 #161 case/rule)', () => {
+  it('CommandMap has exactly 47 command keys', () => {
     const content = read(COMMANDS_TS);
     // Count quoted keys ending in `: {` pattern (command entries in interface)
     const matches = content.match(/^\s*['"][a-z][^'"]+['"]\s*:/gm) ?? [];
-    expect(matches.length).toBe(43);
+    expect(matches.length).toBe(47);
   });
 
   const commandNames = [
@@ -135,6 +135,10 @@ describe('#163 acceptance #2 — typed CommandMap exists with 30 entries', () =>
     'data-dictionary.diff.getPhysicalConfig',
     'data-dictionary.diff.getPhysicalForService',
     'data-dictionary.diff.getPhysicalAll',
+    'data-dictionary.diff.getImpactForService',
+    'data-dictionary.diff.getImpactAll',
+    'data-dictionary.diff.exportMigration',
+    'data-dictionary.diff.exportMigrationAll',
     'data-dictionary.import-export.importJsonSchema',
     'data-dictionary.import-export.importSqlDdl',
     'data-dictionary.import-export.previewSqlDdl',
@@ -542,10 +546,10 @@ describe('#163 acceptance #21 — no commands.execute calls in frontend/src', ()
     ).toEqual([]);
   });
 
-  it('dataDictionaryPlugin.ts has 42 ctx.commands.register calls (18 pre-#160 + 11 #160 git/publish + 13 #161 case/rule)', () => {
+  it('dataDictionaryPlugin.ts has 46 ctx.commands.register calls', () => {
     const content = read(DATA_DICTIONARY_PLUGIN);
     const matches = content.match(/ctx\.commands\.register\s*\(/g) ?? [];
-    expect(matches.length).toBe(42);
+    expect(matches.length).toBe(46);
   });
 
   it('searchPlugin.ts has 1 ctx.commands.register call (per-plugin total)', () => {

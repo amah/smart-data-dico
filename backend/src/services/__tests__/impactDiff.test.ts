@@ -114,9 +114,7 @@ describe('buildImpactDiff (#89)', () => {
     expect(alterCol!.sql).toContain('ALTER COLUMN total TYPE DECIMAL(10,2)');
   });
 
-  it('generates ADD COLUMN ops for entity whose table is not in source', () => {
-    // When the model has a table not in source, physicalDiff marks all physical
-    // attrs as 'orphaned' → impact generates ADD COLUMN for each
+  it('generates CREATE TABLE for a mapped model entity absent from the source', () => {
     const model = [entity({
       name: 'Discount', tableName: 'discounts', attributes: [
         attr({ name: 'id', columnName: 'id', dbType: 'INT', primaryKey: true }),
@@ -126,9 +124,10 @@ describe('buildImpactDiff (#89)', () => {
     const source: Entity[] = [];
     const physDiff = diffPhysicalModel(model, source);
     const impact = buildImpactDiff(physDiff);
-    const addCols = impact.operations.filter(o => o.type === 'ADD_COLUMN');
-    expect(addCols).toHaveLength(2);
-    expect(addCols.map(o => o.column).sort()).toEqual(['code', 'id']);
+    const create = impact.operations.find(o => o.type === 'CREATE_TABLE');
+    expect(create).toBeDefined();
+    expect(create?.table).toBe('discounts');
+    expect(create?.sql).toContain('CREATE TABLE discounts');
   });
 
   it('orders operations: DROP FK before DROP COLUMN before ADD COLUMN before ADD FK', () => {
@@ -161,9 +160,13 @@ describe('buildImpactDiff (#89)', () => {
     const dropColIdx = types.indexOf('DROP_COLUMN');
     const addColIdx = types.indexOf('ADD_COLUMN');
     const addFkIdx = types.indexOf('ADD_FOREIGN_KEY');
-    if (dropFkIdx >= 0 && dropColIdx >= 0) expect(dropFkIdx).toBeLessThan(dropColIdx);
-    if (dropColIdx >= 0 && addColIdx >= 0) expect(dropColIdx).toBeLessThan(addColIdx);
-    if (addColIdx >= 0 && addFkIdx >= 0) expect(addColIdx).toBeLessThan(addFkIdx);
+    expect(dropFkIdx).toBeGreaterThanOrEqual(0);
+    expect(dropColIdx).toBeGreaterThanOrEqual(0);
+    expect(addColIdx).toBeGreaterThanOrEqual(0);
+    expect(addFkIdx).toBeGreaterThanOrEqual(0);
+    expect(dropFkIdx).toBeLessThan(dropColIdx);
+    expect(dropColIdx).toBeLessThan(addColIdx);
+    expect(addColIdx).toBeLessThan(addFkIdx);
   });
 
   it('generates dialect-specific SQL for MySQL', () => {

@@ -61,6 +61,7 @@ export interface PhysicalDiffSummary {
   dbOnly: number;
   drifted: number;
   entities: { matched: number; modelOnly: number; dbOnly: number };
+  constraints: { matched: number; added: number; removed: number; drifted: number };
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -186,7 +187,7 @@ function diffEntityOrphaned(modelEntity: Entity, tableName: string): PhysicalEnt
   });
 
   return {
-    status: 'matched', // entity exists in model with physical mapping, just table missing
+    status: 'modelOnly',
     entityName: modelEntity.name,
     entityUuid: modelEntity.uuid,
     physicalTableName: tableName,
@@ -337,22 +338,40 @@ function diffConstraints(
   const sourceByKey = new Map(sourceList.map(c => [constraintKey(c), c]));
   const matched = new Set<string>();
 
-  for (const [key, s] of sourceByKey) {
-    const m = modelByKey.get(key);
-    if (!m) {
-      diffs.push({ status: 'added', key, source: s });
+  for (const [key, m] of modelByKey) {
+    const s = sourceByKey.get(key);
+    if (!s) {
+      diffs.push({ status: 'added', key, model: m });
       continue;
     }
     matched.add(key);
-    diffs.push({ status: 'matched', key, model: m, source: s });
+    diffs.push({
+      status: constraintsEqual(m, s) ? 'matched' : 'drifted',
+      key,
+      model: m,
+      source: s,
+    });
   }
 
-  for (const [key, m] of modelByKey) {
+  for (const [key, s] of sourceByKey) {
     if (matched.has(key)) continue;
-    diffs.push({ status: 'removed', key, model: m });
+    diffs.push({ status: 'removed', key, source: s });
   }
 
   return diffs;
+}
+
+function constraintsEqual(model: PhysicalConstraint, source: PhysicalConstraint): boolean {
+  if (model.kind !== source.kind) return false;
+  if ((model.columns || []).join(',') !== (source.columns || []).join(',')) return false;
+  if ((model.expression || '').replace(/\s+/g, ' ').trim() !== (source.expression || '').replace(/\s+/g, ' ').trim()) return false;
+  const modelRef = model.references
+    ? `${model.references.table}|${(model.references.columns || []).join(',')}`
+    : '';
+  const sourceRef = source.references
+    ? `${source.references.table}|${(source.references.columns || []).join(',')}`
+    : '';
+  return modelRef === sourceRef;
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -367,12 +386,16 @@ function buildSummary(entities: PhysicalEntityDiff[]): PhysicalDiffSummary {
     dbOnly: 0,
     drifted: 0,
     entities: { matched: 0, modelOnly: 0, dbOnly: 0 },
+    constraints: { matched: 0, added: 0, removed: 0, drifted: 0 },
   };
 
   for (const e of entities) {
     summary.entities[e.status]++;
     for (const a of e.attributes) {
       summary[a.status]++;
+    }
+    for (const constraint of e.constraints) {
+      summary.constraints[constraint.status]++;
     }
   }
 

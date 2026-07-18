@@ -38,7 +38,7 @@ describe('dataDictionaryPlugin — DIFF_SERVICE_TOKEN bootstrap (#155-diff crite
     expect(host.rootActivationCtx).toBeDefined();
   });
 
-  it('host.rootActivationCtx.resolve(DIFF_SERVICE_TOKEN) returns a service with all four methods', () => {
+  it('host.rootActivationCtx.resolve(DIFF_SERVICE_TOKEN) returns the complete diff service', () => {
     const ctx = host.rootActivationCtx!;
     const service = ctx.resolve<DiffService>(DIFF_SERVICE_TOKEN);
 
@@ -47,6 +47,10 @@ describe('dataDictionaryPlugin — DIFF_SERVICE_TOKEN bootstrap (#155-diff crite
     expect(typeof service.getPhysicalConfig).toBe('function');
     expect(typeof service.getPhysicalForService).toBe('function');
     expect(typeof service.getPhysicalAll).toBe('function');
+    expect(typeof service.getImpactForService).toBe('function');
+    expect(typeof service.getImpactAll).toBe('function');
+    expect(typeof service.exportMigration).toBe('function');
+    expect(typeof service.exportMigrationAll).toBe('function');
   });
 
   it('resolves the same singleton instance on repeated lookups (useValue provider)', () => {

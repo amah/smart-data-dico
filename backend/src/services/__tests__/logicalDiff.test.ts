@@ -154,14 +154,23 @@ describe('entity-level diff', () => {
   });
 
   it('detects entity moved between packages', () => {
-    const entity = buildEntity({ uuid: 'e1', name: 'SharedEntity' });
+    const before = buildEntity({
+      uuid: 'e1',
+      name: 'SharedEntity',
+      attributes: [buildAttr({ uuid: 'a1', name: 'value', type: AttributeType.STRING })],
+    });
+    const after = buildEntity({
+      uuid: 'e1',
+      name: 'SharedEntity',
+      attributes: [buildAttr({ uuid: 'a1', name: 'value', type: AttributeType.INTEGER })],
+    });
     const left = snap(
-      buildPkg({ packageName: 'svc-a', entities: [entity] }),
+      buildPkg({ packageName: 'svc-a', entities: [before] }),
       buildPkg({ packageName: 'svc-b' }),
     );
     const right = snap(
       buildPkg({ packageName: 'svc-a' }),
-      buildPkg({ packageName: 'svc-b', entities: [entity] }),
+      buildPkg({ packageName: 'svc-b', entities: [after] }),
     );
     const diff = diffModels(left, right);
 
@@ -175,6 +184,9 @@ describe('entity-level diff', () => {
     expect(moved).toBeDefined();
     expect(moved!.movedFrom).toBe('svc-a');
     expect(moved!.entityName).toBe('SharedEntity');
+    expect(moved!.left).toBe(before);
+    expect(moved!.attributes[0].status).toBe('changed');
+    expect(moved!.attributes[0].changedFields).toContain('type');
     expect(diff.summary.entities.moved).toBe(1);
   });
 });

@@ -57,6 +57,13 @@ describe('diffPhysicalModel (#88)', () => {
       expect(diff.summary.entities.modelOnly).toBe(1);
     });
 
+    it('detects a mapped model table that is absent from the source', () => {
+      const model = [buildEntity({ tableName: 'orders', attributes: [buildAttr({ columnName: 'id' })] })];
+      const diff = diffPhysicalModel(model, []);
+      expect(diff.entities[0].status).toBe('modelOnly');
+      expect(diff.summary.entities.modelOnly).toBe(1);
+    });
+
     it('detects DB-only entities (source table not in model)', () => {
       const source = [buildEntity({ tableName: 'new_table', attributes: [buildAttr({ columnName: 'id' })] })];
       const diff = diffPhysicalModel([], source);
@@ -172,7 +179,7 @@ describe('diffPhysicalModel (#88)', () => {
   });
 
   describe('constraint gaps', () => {
-    it('detects constraints added in source', () => {
+    it('marks source-only constraints as removed from the desired model', () => {
       const model = [buildEntity({ tableName: 'orders', attributes: [buildAttr({ columnName: 'id' })] })];
       const source = [buildEntity({
         tableName: 'orders',
@@ -180,10 +187,11 @@ describe('diffPhysicalModel (#88)', () => {
         constraints: [{ kind: 'unique', name: 'uq_id', columns: ['id'] }],
       })];
       const diff = diffPhysicalModel(model, source);
-      expect(diff.entities[0].constraints[0].status).toBe('added');
+      expect(diff.entities[0].constraints[0].status).toBe('removed');
+      expect(diff.summary.constraints.removed).toBe(1);
     });
 
-    it('detects constraints removed from source', () => {
+    it('marks model-only constraints as additions required in the source', () => {
       const model = [buildEntity({
         tableName: 'orders',
         attributes: [buildAttr({ columnName: 'id' })],
@@ -191,7 +199,24 @@ describe('diffPhysicalModel (#88)', () => {
       })];
       const source = [buildEntity({ tableName: 'orders', attributes: [buildAttr({ columnName: 'id' })] })];
       const diff = diffPhysicalModel(model, source);
-      expect(diff.entities[0].constraints[0].status).toBe('removed');
+      expect(diff.entities[0].constraints[0].status).toBe('added');
+      expect(diff.summary.constraints.added).toBe(1);
+    });
+
+    it('detects a changed definition for a named constraint', () => {
+      const model = [buildEntity({
+        tableName: 'orders',
+        attributes: [buildAttr({ columnName: 'id' }), buildAttr({ columnName: 'code' })],
+        constraints: [{ kind: 'unique', name: 'uq_order', columns: ['code'] }],
+      })];
+      const source = [buildEntity({
+        tableName: 'orders',
+        attributes: [buildAttr({ columnName: 'id' }), buildAttr({ columnName: 'code' })],
+        constraints: [{ kind: 'unique', name: 'uq_order', columns: ['id'] }],
+      })];
+      const diff = diffPhysicalModel(model, source);
+      expect(diff.entities[0].constraints[0].status).toBe('drifted');
+      expect(diff.summary.constraints.drifted).toBe(1);
     });
   });
 

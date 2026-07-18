@@ -232,8 +232,38 @@ describe('DiffService — unit (constructor-injected http)', () => {
     });
   });
 
+  describe('impact and migration methods', () => {
+    it('requests a single-service impact preview', async () => {
+      const impact = { operations: [], summary: { safe: 0, caution: 0, destructive: 0 } };
+      const postMock = vi.fn().mockResolvedValue({ data: { data: impact } });
+      const service = new DiffService(makeStubHttp({ post: postMock }));
+
+      expect(await service.getImpactForService('user-service', ddlSource, 'postgres')).toEqual(impact);
+      expect(postMock).toHaveBeenCalledWith('/diff/impact', {
+        service: 'user-service', source: ddlSource, dialect: 'postgres',
+      });
+    });
+
+    it('downloads a migration with its response filename', async () => {
+      const blob = new Blob(['SELECT 1;'], { type: 'text/sql' });
+      const postMock = vi.fn().mockResolvedValue({
+        data: blob,
+        headers: { 'content-disposition': 'attachment; filename="model-migration.sql"' },
+      });
+      const service = new DiffService(makeStubHttp({ post: postMock }));
+
+      const result = await service.exportMigration([], 'sql', { skipDestructive: true }, 'postgres');
+      expect(result).toEqual({ blob, filename: 'model-migration.sql' });
+      expect(postMock).toHaveBeenCalledWith(
+        '/export/migration',
+        { operations: [], format: 'sql', options: { skipDestructive: true }, dialect: 'postgres' },
+        { responseType: 'blob' },
+      );
+    });
+  });
+
   describe('default construction (no http arg)', () => {
-    it('does not throw and produces an instance with all four public methods', () => {
+    it('does not throw and produces an instance with the complete public surface', () => {
       // Production callsite: `new DiffService()` builds the default axios
       // instance via createDefaultHttp(). We only assert the constructor
       // does not throw and the public surface is present — an actual HTTP
@@ -244,6 +274,10 @@ describe('DiffService — unit (constructor-injected http)', () => {
       expect(typeof service.getPhysicalConfig).toBe('function');
       expect(typeof service.getPhysicalForService).toBe('function');
       expect(typeof service.getPhysicalAll).toBe('function');
+      expect(typeof service.getImpactForService).toBe('function');
+      expect(typeof service.getImpactAll).toBe('function');
+      expect(typeof service.exportMigration).toBe('function');
+      expect(typeof service.exportMigrationAll).toBe('function');
     });
   });
 });

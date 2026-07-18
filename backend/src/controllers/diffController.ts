@@ -107,8 +107,17 @@ export const physicalDiff = async (req: Request, res: Response) => {
         return res.status(400).json({ message: parsed.errors[0], data: parsed });
       }
       sourceEntities = parsed.entities;
+    } else if (source.type === 'live') {
+      if (!source.credentials?.user || !source.credentials?.password) {
+        return res.status(400).json({ message: 'source.credentials.user and password are required for type live' });
+      }
+      sourceEntities = await introspectServiceLive(
+        service,
+        source.credentials,
+        source.connectionOverrides,
+      );
     } else {
-      return res.status(400).json({ message: `Unsupported source type: ${source.type}. Supported: ddl` });
+      return res.status(400).json({ message: `Unsupported source type: ${source.type}. Supported: ddl, live` });
     }
 
     const diff = diffPhysicalModel(modelEntities, sourceEntities);
@@ -152,6 +161,15 @@ export const impactDiffEndpoint = async (req: Request, res: Response) => {
       if (!source.sql) return res.status(400).json({ message: 'source.sql is required' });
       const parsed = importService.parseSqlDdl(source.sql, source.options || {});
       sourceEntities = parsed.entities;
+    } else if (source.type === 'live') {
+      if (!source.credentials?.user || !source.credentials?.password) {
+        return res.status(400).json({ message: 'source.credentials.user and password are required for type live' });
+      }
+      sourceEntities = await introspectServiceLive(
+        service,
+        source.credentials,
+        source.connectionOverrides,
+      );
     } else {
       return res.status(400).json({ message: `Unsupported source type: ${source.type}` });
     }
@@ -365,6 +383,7 @@ export const physicalDiffAll = async (req: Request, res: Response) => {
     const serviceList = services && services.length > 0 ? services : await listMicroservices();
     const byService: Record<string, { status: 'ok'; diff: PhysicalDiff } | { status: 'error'; error: string }> = {};
     const agg = { matched: 0, drifted: 0, modelOnly: 0, orphaned: 0, dbOnly: 0 };
+    const constraintAgg = { matched: 0, added: 0, removed: 0, drifted: 0 };
     let ok = 0;
     let failed = 0;
 
@@ -390,6 +409,10 @@ export const physicalDiffAll = async (req: Request, res: Response) => {
       agg.modelOnly += diff.summary.modelOnly;
       agg.orphaned += diff.summary.orphaned;
       agg.dbOnly += diff.summary.dbOnly;
+      constraintAgg.matched += diff.summary.constraints.matched;
+      constraintAgg.added += diff.summary.constraints.added;
+      constraintAgg.removed += diff.summary.constraints.removed;
+      constraintAgg.drifted += diff.summary.constraints.drifted;
     }
 
     res.json({
@@ -401,6 +424,7 @@ export const physicalDiffAll = async (req: Request, res: Response) => {
           ok,
           failed,
           ...agg,
+          constraints: constraintAgg,
         },
       },
     });
