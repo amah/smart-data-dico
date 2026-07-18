@@ -45,6 +45,8 @@ function LongPage({ label, nextTo }: { label: string; nextTo?: string }) {
 describe('ShellLayout — scroll restoration (#229)', () => {
   beforeEach(() => {
     localStorage.removeItem('sdd-sidebar-width');
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
   });
 
   it('resets main scroll to top after navigating to a new pathname', async () => {
@@ -64,6 +66,9 @@ describe('ShellLayout — scroll restoration (#229)', () => {
 
     // Scroll down the diagram page.
     main.scrollTop = 500;
+    main.scrollLeft = 80;
+    document.documentElement.scrollTop = 400;
+    document.body.scrollTop = 300;
     expect(main.scrollTop).toBe(500);
 
     // Navigate to entity page.
@@ -75,5 +80,23 @@ describe('ShellLayout — scroll restoration (#229)', () => {
 
     // The scroll position should have been reset to top.
     expect(main.scrollTop).toBe(0);
+    expect(main.scrollLeft).toBe(0);
+    expect(document.documentElement.scrollTop).toBe(0);
+    expect(document.body.scrollTop).toBe(0);
+  });
+
+  it('keeps scrolling inside the viewport-height shell', () => {
+    render(
+      <MemoryRouter initialEntries={['/diagram']}>
+        <Routes>
+          <Route path="/" element={<ShellLayout />}>
+            <Route path="diagram" element={<LongPage label="diagram" />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const shell = screen.getByTestId('navbar').parentElement;
+    expect(shell).toHaveClass('h-screen', 'overflow-hidden');
   });
 });

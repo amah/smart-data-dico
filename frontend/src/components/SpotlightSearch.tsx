@@ -28,13 +28,47 @@ import {
 } from '../plugins/search/services/searchIndex';
 
 /** Unified display row produced by both the server and the Fuse fallback. */
-interface SpotlightHit {
+export interface SpotlightHit {
   id: string;
   kind: string;
   name: string;
   entityName?: string;
   service: string;
   route: string;
+}
+
+const DISPLAY_LIMIT = 8;
+const CANDIDATE_LIMIT = 30;
+
+/**
+ * Promote the strongest label match before the backend/Fuse relevance order.
+ * Compact comparison makes `OrderItem`, `order-item`, and `order item`
+ * equivalent while retaining the original ranking as a stable tie-breaker.
+ */
+export function rankSpotlightHits(hits: SpotlightHit[], query: string): SpotlightHit[] {
+  const compact = (value: string) => value
+    .normalize('NFKD')
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '');
+  const q = compact(query);
+  if (!q) return hits;
+
+  const matchTier = (hit: SpotlightHit): number => {
+    const name = compact(hit.name);
+    const entity = compact(hit.entityName ?? '');
+    if (name === q) return 0;
+    if (name.startsWith(q)) return 1;
+    if (entity === q) return 2;
+    if (name.includes(q)) return 3;
+    if (entity.startsWith(q)) return 4;
+    if (entity.includes(q)) return 5;
+    return 6;
+  };
+
+  return hits
+    .map((hit, index) => ({ hit, index, tier: matchTier(hit) }))
+    .sort((a, b) => a.tier - b.tier || a.index - b.index)
+    .map(({ hit }) => hit);
 }
 
 const fromServer = (h: SearchSuggestHit): SpotlightHit => ({
@@ -95,20 +129,22 @@ const KIND_BADGE: Record<string, string> = {
 
 /**
  * Run a query server-first, falling back to the Fuse index. Returns the ranked
- * hits (already capped by the server; the Fuse path uses rankedSearch's cap).
+ * hits. We over-fetch a small candidate set, then promote exact/prefix label
+ * matches before applying the eight-row display cap.
  */
 async function runSearch(q: string): Promise<SpotlightHit[]> {
   if (!preferFuse) {
     try {
-      const { ready, hits } = await entityApi.suggest(q, 8);
-      if (ready) return hits.map(fromServer);
+      const { ready, hits } = await entityApi.suggest(q, CANDIDATE_LIMIT);
+      if (ready) return rankSpotlightHits(hits.map(fromServer), q).slice(0, DISPLAY_LIMIT);
       // Index not built yet — fall through to the client index this round.
     } catch {
       preferFuse = true; // server unreachable → use Fuse for the rest of the session
     }
   }
   const fuse = await getFuseIndex();
-  return rankedSearch(fuse, q).map(fromRecord);
+  const hits = rankedSearch(fuse, q, CANDIDATE_LIMIT).map(fromRecord);
+  return rankSpotlightHits(hits, q).slice(0, DISPLAY_LIMIT);
 }
 
 export default function SpotlightSearch() {
@@ -268,6 +304,7 @@ export default function SpotlightSearch() {
                 key={r.id}
                 role="option"
                 aria-selected={i === active}
+                data-best-match={i === 0 ? 'true' : undefined}
                 onMouseEnter={() => setActive(i)}
                 onMouseDown={(e) => { e.preventDefault(); go(r); }}
                 style={{

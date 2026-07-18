@@ -43,6 +43,26 @@ export function jsonByteLength(value: unknown): number {
   }
 }
 
+/** Derive non-sensitive shape/size metrics from a serialized provider body. */
+export function providerPayloadBreakdown(body: string): Pick<
+  AIProviderRequestMeasurement,
+  'messagesBytes' | 'toolsBytes' | 'messageCount' | 'toolCount'
+> {
+  try {
+    const parsed = JSON.parse(body) as { messages?: unknown; tools?: unknown };
+    const messages = Array.isArray(parsed.messages) ? parsed.messages : [];
+    const tools = Array.isArray(parsed.tools) ? parsed.tools : [];
+    return {
+      messagesBytes: jsonByteLength(messages),
+      toolsBytes: jsonByteLength(tools),
+      messageCount: messages.length,
+      toolCount: tools.length,
+    };
+  } catch {
+    return {};
+  }
+}
+
 /**
  * Wrap an AI SDK provider's fetch so the final serialized request size is
  * visible without logging prompts, messages, tool arguments, or credentials.
@@ -67,6 +87,7 @@ export function createMeasuredProviderFetch(provider: string, model: string, dia
       endpoint = `${url.host}${url.pathname}`;
     } catch { /* retain the non-sensitive raw value */ }
 
+    const breakdown = typeof body === 'string' ? providerPayloadBreakdown(body) : {};
     recordProviderRequestMeasurement({
       provider,
       model,
@@ -74,6 +95,7 @@ export function createMeasuredProviderFetch(provider: string, model: string, dia
       endpoint,
       requestBodyBytes,
       contentLengthHeader: new Headers(init?.headers).get('content-length'),
+      ...breakdown,
     });
 
     return fetch(input, init);

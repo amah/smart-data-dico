@@ -4,6 +4,7 @@ import type { LayoutName, LayoutDirection } from './CytoscapeGraph.types';
 import type { DiagramLayout } from '../../types';
 import type { ElementStyle } from '../../utils/elementStyle';
 import { CLEAR_STYLE, type FormatPainter } from './useFormatPainter';
+import { recenterDiagram } from './diagramViewport';
 
 interface CytoscapeToolbarProps {
   cyRef: React.RefObject<Core | null>;
@@ -78,8 +79,7 @@ export default function CytoscapeToolbar({
   };
 
   const handleFit = () => {
-    const cy = cyRef.current;
-    if (cy) cy.fit(undefined, 40);
+    recenterDiagram(cyRef.current);
   };
 
   const filenameBase = (exportFilenameBase || 'diagram').replace(/[^a-z0-9-_]/gi, '_');
@@ -213,7 +213,7 @@ export default function CytoscapeToolbar({
       <div className="join">
         <button className="join-item btn btn-xs btn-ghost" onClick={handleZoomIn} title="Zoom in">+</button>
         <button className="join-item btn btn-xs btn-ghost" onClick={handleZoomOut} title="Zoom out">-</button>
-        <button className="join-item btn btn-xs btn-ghost" onClick={handleFit} title="Fit to screen">Fit</button>
+        <button className="join-item btn btn-xs btn-ghost" onClick={handleFit} title="Recenter and fit the model">Recenter</button>
       </div>
 
       <div className="divider divider-horizontal mx-0 h-6" />

@@ -5,7 +5,7 @@
  * Renders existing Navbar, Sidebar, Breadcrumbs, Footer as slot content.
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import Navbar from '../../components/Navbar';
 import Sidebar from '../../components/Sidebar';
@@ -32,14 +32,20 @@ const ShellLayout: React.FC = () => {
   const location = useLocation();
   const mainRef = useRef<HTMLElement>(null);
 
-  // #229 — reset the main scroll container to the top on every route change
-  // so a long scroll on the diagram page doesn't carry over to the next page
-  // and hide its header / toolbar.
-  useEffect(() => {
+  // Reset before paint so navigation never briefly renders a shorter target at
+  // the previous page's scroll offset. Reset the document as well as <main>:
+  // older layouts and browser overflow can otherwise make window the scroll
+  // owner, leaving the new page above the visible viewport.
+  useLayoutEffect(() => {
     if (mainRef.current) {
       mainRef.current.scrollTop = 0;
+      mainRef.current.scrollLeft = 0;
     }
-  }, [location.pathname]);
+    document.documentElement.scrollTop = 0;
+    document.documentElement.scrollLeft = 0;
+    document.body.scrollTop = 0;
+    document.body.scrollLeft = 0;
+  }, [location.pathname, location.search]);
 
   // Left-nav width — drag the right edge to resize (desktop, when expanded); persisted.
   const SIDEBAR_MIN = 180;
@@ -82,7 +88,7 @@ const ShellLayout: React.FC = () => {
   }, []);
 
   return (
-    <div className="min-h-screen flex flex-col bg-base-200">
+    <div className="h-screen overflow-hidden flex flex-col bg-base-200">
       {/* Header slot */}
       <Navbar toggleSidebar={toggleSidebar} toggleChat={() => setChatOpen(o => !o)} chatOpen={chatOpen} />
 

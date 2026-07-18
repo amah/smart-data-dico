@@ -252,6 +252,22 @@ function buildAiErrorDiagnostics(
   };
 }
 
+/** Safe subset of the last provider request for the composer's telemetry row. */
+function providerRequestTelemetry(diagnosticId: string | undefined) {
+  if (!diagnosticId) return null;
+  const measurement = getProviderRequestMeasurement(diagnosticId);
+  if (!measurement) return null;
+  return {
+    requestBodyBytes: measurement.requestBodyBytes,
+    messagesBytes: measurement.messagesBytes,
+    toolsBytes: measurement.toolsBytes,
+    messageCount: measurement.messageCount,
+    toolCount: measurement.toolCount,
+    step: measurement.step,
+    phase: measurement.phase,
+  };
+}
+
 export function getToolCategory(toolName: string): AIToolCategory {
   // Strip "functions." prefix (some providers wrap tool names) and any
   // ":n" suffix (the AI SDK appends the call index when a tool runs
@@ -1352,6 +1368,16 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
         });
       }
 
+      const requestMetrics = providerRequestTelemetry(diagnosticId);
+      if (requestMetrics) {
+        sendEvent({
+          type: 'request-metrics',
+          model: cfg.model,
+          provider: cfg.provider,
+          ...requestMetrics,
+        });
+      }
+
       // Visible, non-error notice that the turn ended because the agentic
       // loop hit its step budget (#192). The model's summary text was already
       // streamed above via the `text` event; this just flags the cause. Mirror
@@ -1988,6 +2014,17 @@ export const aiChat = async (req: Request, res: Response) => {
                   model: cfg.model,
                   provider: cfg.provider,
                   ...(cost !== undefined ? { cost } : {}),
+                })}\n\n`);
+              } catch { /* response already closed */ }
+            }
+            const requestMetrics = providerRequestTelemetry(diagnosticId);
+            if (requestMetrics) {
+              try {
+                res.write(`data: ${JSON.stringify({
+                  type: 'request-metrics',
+                  model: cfg.model,
+                  provider: cfg.provider,
+                  ...requestMetrics,
                 })}\n\n`);
               } catch { /* response already closed */ }
             }

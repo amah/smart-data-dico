@@ -122,6 +122,16 @@ describe('AIChatPanel — usage meter (#128)', () => {
     await act(async () => {
       // Emit a usage event with no cost field — simulates "pricing not configured".
       push({ type: 'usage', inputTokens: 3200, outputTokens: 1100, model: 'claude', provider: 'anthropic' });
+      push({
+        type: 'request-metrics',
+        requestBodyBytes: 920000,
+        messagesBytes: 700000,
+        toolsBytes: 200000,
+        messageCount: 24,
+        toolCount: 18,
+        model: 'claude',
+        provider: 'anthropic',
+      });
     });
     await act(async () => { close(); });
 
@@ -133,6 +143,9 @@ describe('AIChatPanel — usage meter (#128)', () => {
     expect(meter.textContent).toMatch(/1\.1k\s*out/);
     // No cost chunk should appear when the backend didn't send one.
     expect(screen.queryByTestId('ai-usage-cost')).not.toBeInTheDocument();
+    expect(screen.getByTestId('ai-request-size')).toHaveTextContent('920 KB last request');
+    expect(screen.getByTestId('ai-composer-telemetry')).toHaveAttribute('title', expect.stringContaining('24 messages'));
+    expect(screen.getByTestId('ai-composer-telemetry')).toHaveAttribute('title', expect.stringContaining('18 tools'));
   });
 
   it('renders the cost portion when the usage event carries a cost field', async () => {

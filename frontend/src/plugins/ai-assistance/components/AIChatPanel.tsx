@@ -34,7 +34,7 @@ import {
   buildHelpMessage,
 } from '../utils/aiSlashCommands';
 import { runAiCommand } from '../commands';
-import type { AIToolDef, Conversation } from '../services/AIService';
+import type { AIStatus, AIToolDef, Conversation } from '../services/AIService';
 import { conversationToMarkdown, conversationFilename } from '../utils/conversationExport';
 
 SyntaxHighlighter.registerLanguage('ts', typescript);
@@ -168,6 +168,29 @@ interface UsageMeter {
   cost?: number;
 }
 
+interface RequestMetrics {
+  requestBodyBytes: number;
+  messagesBytes?: number;
+  toolsBytes?: number;
+  messageCount?: number;
+  toolCount?: number;
+  step?: number;
+  phase?: string;
+  model?: string;
+  provider?: string;
+}
+
+/** Cheap, explicitly approximate draft count; actual usage comes from the provider. */
+export function estimateDraftTokens(text: string): number {
+  return text ? Math.ceil(text.length / 4) : 0;
+}
+
+export function formatBytes(bytes: number): string {
+  if (bytes < 1000) return `${bytes} B`;
+  if (bytes < 1_000_000) return `${(bytes / 1000).toFixed(1).replace(/\.0$/, '')} KB`;
+  return `${(bytes / 1_000_000).toFixed(1).replace(/\.0$/, '')} MB`;
+}
+
 /**
  * Format a token count compactly: 1234 → "1.2k", 1_200_000 → "1.2M".
  * Below 1000 we render the integer untouched so small chats don't read
@@ -255,13 +278,14 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     const el = inputRef.current;
     if (!el) return;
     const saved = Number(localStorage.getItem('ai-composer-height'));
-    if (saved >= 28 && saved <= window.innerHeight) el.style.height = `${saved}px`;
+    if (saved >= 84 && saved <= window.innerHeight) el.style.height = `${saved}px`;
   }, []);
   const persistComposerHeight = useCallback(() => {
     const el = inputRef.current;
     if (el?.style.height) localStorage.setItem('ai-composer-height', String(parseInt(el.style.height, 10)));
   }, []);
   const [aiAvailable, setAiAvailable] = useState<boolean | null>(null);
+  const [aiRuntime, setAiRuntime] = useState<AIStatus | null>(null);
   // #run-sql — the ```sql block to run (Run button), opens SqlRunModal.
   const [sqlToRun, setSqlToRun] = useState<{ sql: string; packageName: string } | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -290,6 +314,8 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   // Reset when the user starts or loads a different conversation; the
   // header chip (`~3.2k in / 1.1k out · $0.012`) is bound to this state.
   const [usage, setUsage] = useState<UsageMeter | null>(null);
+  const [lastRequestMetrics, setLastRequestMetrics] = useState<RequestMetrics | null>(null);
+  const [telemetryExpanded, setTelemetryExpanded] = useState(false);
   const [view, setView] = useState<PanelView>('chat');
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
   // Tracks which error-state tool cards have "Show raw" expanded (separate
@@ -427,8 +453,14 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
 
   useEffect(() => {
     runAiCommand('ai.status.get')
-      .then(d => setAiAvailable(d.available))
-      .catch(() => setAiAvailable(false));
+      .then(d => {
+        setAiRuntime(d);
+        setAiAvailable(d.available);
+      })
+      .catch(() => {
+        setAiRuntime(null);
+        setAiAvailable(false);
+      });
   }, [open]);
 
   // Load conversation list and auto-resume the most recent one on first open
@@ -523,6 +555,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
         } else {
           setUsage(null);
         }
+        setLastRequestMetrics(null);
         // #127 — restore per-conversation system prompt override.
         setSystemPromptOverride(typeof d.systemPrompt === 'string' ? d.systemPrompt : '');
         setSystemPromptEditing(false);
@@ -539,6 +572,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     systemContextDigestRef.current = null;
     setMessages([]);
     setUsage(null);
+    setLastRequestMetrics(null);
     setSystemPromptOverride('');
     setSystemPromptEditing(false);
     // #55 — reset chat mode to Designer so a new conversation doesn't
@@ -945,6 +979,21 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
                 outputTokens: Number(data.outputTokens) || 0,
                 ...(typeof data.cost === 'number' ? { cost: data.cost } : {}),
               };
+              continue;
+            }
+
+            if (data.type === 'request-metrics') {
+              setLastRequestMetrics({
+                requestBodyBytes: Number(data.requestBodyBytes) || 0,
+                ...(typeof data.messagesBytes === 'number' ? { messagesBytes: data.messagesBytes } : {}),
+                ...(typeof data.toolsBytes === 'number' ? { toolsBytes: data.toolsBytes } : {}),
+                ...(typeof data.messageCount === 'number' ? { messageCount: data.messageCount } : {}),
+                ...(typeof data.toolCount === 'number' ? { toolCount: data.toolCount } : {}),
+                ...(typeof data.step === 'number' ? { step: data.step } : {}),
+                ...(typeof data.phase === 'string' ? { phase: data.phase } : {}),
+                ...(typeof data.model === 'string' ? { model: data.model } : {}),
+                ...(typeof data.provider === 'string' ? { provider: data.provider } : {}),
+              });
               continue;
             }
 
@@ -1684,6 +1733,22 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     setInput('');
   };
 
+  const draftTokens = estimateDraftTokens(input);
+  const activeModel = lastRequestMetrics?.model || aiRuntime?.model || 'Model unknown';
+  const activeProvider = lastRequestMetrics?.provider || aiRuntime?.name || aiRuntime?.provider || '';
+  const telemetryTitle = [
+    `Draft estimate: ~${draftTokens.toLocaleString()} tokens (${input.length.toLocaleString()} characters)`,
+    `Model: ${activeModel}${activeProvider ? ` (${activeProvider})` : ''}`,
+    usage
+      ? `Conversation usage: ${usage.inputTokens.toLocaleString()} input / ${usage.outputTokens.toLocaleString()} output tokens${usage.cost !== undefined ? ` · ${formatCost(usage.cost)}` : ''}`
+      : 'Conversation usage: waiting for provider report',
+    lastRequestMetrics
+      ? `Last provider request: ${formatBytes(lastRequestMetrics.requestBodyBytes)} (${lastRequestMetrics.requestBodyBytes.toLocaleString()} bytes)${lastRequestMetrics.messageCount !== undefined ? ` · ${lastRequestMetrics.messageCount} messages` : ''}${lastRequestMetrics.toolCount !== undefined ? ` · ${lastRequestMetrics.toolCount} tools` : ''}`
+      : 'Last provider request: none yet',
+    `Page context: ${pageContext && includePageContext ? 'included' : 'not included'}`,
+    `Mode: ${mode}`,
+  ].join(' · ');
+
   if (!open) return null;
 
   const selectedRaw = selectedMsgId ? messages.find(m => m.id === selectedMsgId)?.rawEvents : null;
@@ -1701,7 +1766,10 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
         className="absolute left-0 top-0 bottom-0 w-1 -ml-0.5 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors z-50"
       />
       {/* Header — IDE style */}
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-base-300 bg-base-200/80 gap-2">
+      <div
+        className="flex items-center justify-between px-3 py-1.5 border-b border-base-300 bg-base-200/80 gap-2"
+        data-testid="ai-panel-toolbar"
+      >
         <div className="flex items-center gap-2 min-w-0 overflow-hidden">
           <span className="text-primary font-bold text-xs tracking-wide hidden sm:inline">AI</span>
           {/* #55 — chat mode selector. Designer (full toolset, default),
@@ -1741,26 +1809,6 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
             {autonomous ? '● auto' : '○ auto'}
           </button>
           {isLoading && <span className="loading loading-dots loading-xs text-primary"></span>}
-          {/* Cost / token meter (#128). Hidden until at least one turn
-              has reported usage. The cost half is only rendered when
-              the backend has per-model pricing configured. */}
-          {usage && (usage.inputTokens > 0 || usage.outputTokens > 0) && (
-            <span
-              data-testid="ai-usage-meter"
-              className="badge badge-xs badge-ghost font-sans font-normal text-[10px] gap-1"
-              title={`Tokens used this conversation: ${usage.inputTokens} in / ${usage.outputTokens} out${usage.cost !== undefined ? ` — estimated cost ${formatCost(usage.cost)}` : ' (configure ai.pricing in dico-app.json to see cost)'}`}
-            >
-              <span>~{formatTokens(usage.inputTokens)} in</span>
-              <span className="text-base-content/40">/</span>
-              <span>{formatTokens(usage.outputTokens)} out</span>
-              {usage.cost !== undefined && (
-                <>
-                  <span className="text-base-content/40">·</span>
-                  <span data-testid="ai-usage-cost">{formatCost(usage.cost)}</span>
-                </>
-              )}
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
           <button className={`btn btn-ghost btn-xs ${view === 'chat' ? 'btn-active' : ''}`} onClick={() => setView('chat')} title="Chat">
@@ -1822,6 +1870,76 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
           <button className="btn btn-ghost btn-xs" onClick={startNewConversation} title="New">+</button>
           <button className="btn btn-ghost btn-xs" onClick={onClose} title="Close">&times;</button>
         </div>
+      </div>
+
+      <div
+        className="border-b border-base-300 bg-base-200/35 font-sans text-[10px] text-base-content/60"
+        data-testid="ai-composer-telemetry"
+        title={telemetryTitle}
+      >
+        <div className="flex h-7 min-w-0 items-center gap-2 px-3 whitespace-nowrap">
+          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+            <span className="shrink-0" data-testid="ai-draft-tokens" title="Approximate draft tokens (estimated at about 4 characters per token)">
+              ~{draftTokens.toLocaleString()} draft token{draftTokens === 1 ? '' : 's'}
+            </span>
+            <span className="shrink-0 text-base-content/30" aria-hidden="true">·</span>
+            <span className="truncate" data-testid="ai-active-model">
+              {activeModel}{activeProvider ? ` · ${activeProvider}` : ''}
+            </span>
+            {usage && (usage.inputTokens > 0 || usage.outputTokens > 0) && (
+              <>
+                <span className="shrink-0 text-base-content/30" aria-hidden="true">·</span>
+                <span data-testid="ai-usage-meter" className="inline-flex shrink-0 items-center gap-1">
+                  <span>{formatTokens(usage.inputTokens)} in</span>
+                  <span className="text-base-content/40">/</span>
+                  <span>{formatTokens(usage.outputTokens)} out</span>
+                  {usage.cost !== undefined && (
+                    <>
+                      <span className="text-base-content/40">·</span>
+                      <span data-testid="ai-usage-cost">{formatCost(usage.cost)}</span>
+                    </>
+                  )}
+                </span>
+              </>
+            )}
+            {lastRequestMetrics && (
+              <>
+                <span className="shrink-0 text-base-content/30" aria-hidden="true">·</span>
+                <span className="shrink-0" data-testid="ai-request-size">{formatBytes(lastRequestMetrics.requestBodyBytes)} last request</span>
+              </>
+            )}
+          </div>
+          <button
+            type="button"
+            className="btn btn-ghost btn-xs h-5 min-h-0 w-5 shrink-0 p-0"
+            onClick={() => setTelemetryExpanded(value => !value)}
+            aria-expanded={telemetryExpanded}
+            aria-controls="ai-telemetry-details"
+            aria-label={telemetryExpanded ? 'Collapse AI status details' : 'Expand AI status details'}
+            data-testid="ai-telemetry-toggle"
+            title={telemetryExpanded ? 'Collapse status details' : 'Expand status details'}
+          >
+            <span aria-hidden="true">{telemetryExpanded ? '▴' : '▾'}</span>
+          </button>
+        </div>
+        {telemetryExpanded && (
+          <div id="ai-telemetry-details" data-testid="ai-telemetry-details" className="grid grid-cols-1 gap-x-4 gap-y-1 border-t border-base-300/60 px-3 py-2 sm:grid-cols-2">
+            <span>Draft: ~{draftTokens.toLocaleString()} tokens · {input.length.toLocaleString()} characters</span>
+            <span>Model: {activeModel}{activeProvider ? ` · ${activeProvider}` : ''}</span>
+            <span>
+              Usage: {usage
+                ? `${usage.inputTokens.toLocaleString()} in / ${usage.outputTokens.toLocaleString()} out${usage.cost !== undefined ? ` · ${formatCost(usage.cost)}` : ''}`
+                : 'waiting for provider report'}
+            </span>
+            <span>
+              Request: {lastRequestMetrics
+                ? `${formatBytes(lastRequestMetrics.requestBodyBytes)} (${lastRequestMetrics.requestBodyBytes.toLocaleString()} bytes)${lastRequestMetrics.messageCount !== undefined ? ` · ${lastRequestMetrics.messageCount} messages` : ''}${lastRequestMetrics.toolCount !== undefined ? ` · ${lastRequestMetrics.toolCount} tools` : ''}`
+                : 'none yet'}
+            </span>
+            <span>Page context: {pageContext && includePageContext ? 'included' : 'not included'}</span>
+            <span>Mode: {mode}</span>
+          </div>
+        )}
       </div>
 
       {/* Content area */}
@@ -2903,13 +3021,13 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
          * focus ring.
          */}
         <div
-          className="flex flex-col border border-base-300 rounded-md bg-base-100 focus-within:border-primary/50 transition-colors"
+          className="flex flex-col border border-base-content/30 rounded-lg bg-base-100 shadow-sm focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/30 transition-colors"
           data-testid="ai-composer-wrapper"
         >
           <textarea
             ref={inputRef}
-            rows={1}
-            className="textarea textarea-ghost textarea-xs font-mono focus:outline-none bg-transparent resize-y min-h-[1.75rem] max-h-[60vh] w-full px-2 py-1"
+            rows={3}
+            className="textarea textarea-ghost font-mono text-sm leading-5 focus:outline-none bg-transparent resize-y min-h-[5.25rem] max-h-[50vh] w-full px-3 py-2"
             placeholder={aiAvailable ? "Ask about your data model... (⌘↵ send · ⇧↵ newline · @entity, @package)" : "AI not configured"}
             value={input}
             onChange={handleComposerChange}

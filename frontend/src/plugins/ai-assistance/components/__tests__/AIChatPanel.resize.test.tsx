@@ -8,6 +8,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import AIChatPanel from '../AIChatPanel';
 
@@ -56,5 +57,38 @@ describe('AIChatPanel resize', () => {
     mount();
     const input = await screen.findByTestId('ai-composer-input');
     await waitFor(() => expect((input as HTMLTextAreaElement).style.height).toBe('220px'));
+  });
+
+  it('starts at three visible lines and remains vertically resizable', async () => {
+    mount();
+    const input = await screen.findByTestId('ai-composer-input') as HTMLTextAreaElement;
+
+    expect(input.rows).toBe(3);
+    expect(input).toHaveClass('resize-y', 'min-h-[5.25rem]', 'max-h-[50vh]');
+  });
+
+  it('places a one-line expandable telemetry row below the panel toolbar', async () => {
+    mount();
+    const toolbar = await screen.findByTestId('ai-panel-toolbar');
+    const telemetry = screen.getByTestId('ai-composer-telemetry');
+    const toggle = screen.getByTestId('ai-telemetry-toggle');
+
+    expect(toolbar.nextElementSibling).toBe(telemetry);
+    expect(telemetry.firstElementChild).toHaveClass('whitespace-nowrap');
+    expect(screen.queryByTestId('ai-telemetry-details')).not.toBeInTheDocument();
+
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('ai-telemetry-details')).toBeInTheDocument();
+  });
+
+  it('shows the active model and a live approximate draft-token count', async () => {
+    mount();
+    const input = await screen.findByTestId('ai-composer-input');
+    await waitFor(() => expect(input).not.toBeDisabled());
+
+    expect(screen.getByTestId('ai-active-model')).toHaveTextContent('test');
+    await userEvent.type(input, '123456789');
+    expect(screen.getByTestId('ai-draft-tokens')).toHaveTextContent('~3 draft tokens');
   });
 });

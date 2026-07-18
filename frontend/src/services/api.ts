@@ -19,6 +19,25 @@ const api = axios.create({
   },
 });
 
+export interface SearchIndexHealth {
+  ready: boolean;
+  documentCount: number;
+  countsByKind: Record<string, number>;
+  indexedRootPackages: number;
+  lastBuildAt: string | null;
+  lastBuildError: string | null;
+  nodeVersion: string;
+}
+
+export const searchApi = {
+  getStatus: async (): Promise<SearchIndexHealth> => {
+    // Health is live process state; bypass ETag/304 caching so every poll has a
+    // complete payload (Axios treats a bare 304 as a rejected response).
+    const response = await api.get('/search/status', { params: { _: Date.now() } });
+    return response.data.data;
+  },
+};
+
 // Add auth token to requests if available
 api.interceptors.request.use((config) => {
   // For development/testing: use a mock token if no token is in localStorage

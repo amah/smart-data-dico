@@ -22,6 +22,7 @@ import { useCytoscapeEdgeCreation } from './useCytoscapeEdgeCreation';
 import CreateRelationshipModal from './CreateRelationshipModal';
 import { useCytoscapeEntityCreation } from './useCytoscapeEntityCreation';
 import CreateEntityModal from './CreateEntityModal';
+import DiagramViewportControl from './DiagramViewportControl';
 
 export default function CytoscapeGraph({
   service: serviceProp,
@@ -314,6 +315,10 @@ export default function CytoscapeGraph({
 
         {/* Cytoscape container */}
         <div ref={containerRef} className="w-full h-full" style={{ cursor: 'pointer' }} />
+
+        {/* Persistent recovery action: remains available even when every model
+            element has been panned outside the visible canvas. */}
+        {elements.length > 0 && <DiagramViewportControl cyRef={cyRef} />}
 
         {/* Legend overlay */}
         {elements.length > 0 && (

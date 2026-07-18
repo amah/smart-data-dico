@@ -1,13 +1,16 @@
 import { Link } from 'react-router-dom';
+import SearchIndexStatus from './SearchIndexStatus';
 
 const Footer = () => {
   const currentYear = new Date().getFullYear();
   
   return (
-    <footer className="footer footer-center p-4 bg-base-200 text-base-content border-t border-base-300">
+    <footer className="footer footer-center px-4 py-2 bg-base-200 text-base-content border-t border-base-300">
       <div className="flex flex-col md:flex-row items-center justify-between w-full">
-        <div className="text-sm">
+        <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-3 text-sm">
           <p>Copyright © {currentYear} - Data Dictionary Management System</p>
+          <span className="hidden sm:inline text-base-content/30" aria-hidden="true">•</span>
+          <SearchIndexStatus />
         </div>
         <div className="flex gap-4 text-sm">
           <Link to="/about">About</Link>
