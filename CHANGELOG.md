@@ -5,6 +5,34 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.25.0] — 2026-07-19
+
+### Added
+- **Branch-to-branch dictionary comparison.** Logical and physical diff views
+  can compare branch heads as well as individual commits.
+- **AI and indexing visibility.** The agent panel reports model and token usage,
+  while the shell exposes compact search-index status and build diagnostics.
+- **Diagram recovery controls.** Model diagrams can be recentered when their
+  content has moved outside the visible viewport.
+
+### Changed
+- **Human-readable diff review.** Comparisons use clear `ADDED`, `REMOVED`, and
+  `MODIFIED` states, show values from both sides, highlight gaps, and provide
+  more informative physical migration previews.
+- **Search result ranking.** The global search places the strongest match first.
+- **More usable agent composer.** The prompt area is taller, vertically
+  resizable, and keeps its compact status line directly below the toolbar.
+
+### Fixed
+- **Bulk actions lost during long package scrolling.** Entity bulk-operation
+  controls now remain visible at the top of the package content area.
+- **Short-page navigation and diagram positioning.** Route changes reset the
+  content scroll position, avoiding pages that initially appear blank.
+
+### Documentation
+- Added instructions for checking SQLite FTS5 availability on the active Node.js
+  runtime.
+
 ## [1.24.6] — 2026-07-15
 
 ### Added

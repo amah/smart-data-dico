@@ -469,7 +469,11 @@ export default function PackageDetailPage({ packagePath }: PackageDetailPageProp
               <>
                 {/* Bulk style bar — appears once entities are selected. */}
                 {selected.size > 0 && (
-                  <div className="flex flex-wrap items-center gap-2 mb-2 p-2 rounded-lg bg-base-200 border border-base-300">
+                  <div
+                    role="region"
+                    aria-label="Bulk entity actions"
+                    className="sticky top-0 z-30 flex flex-wrap items-center gap-2 mb-2 p-2 rounded-lg bg-base-200 border border-base-300 shadow-md"
+                  >
                     <span className="text-sm font-medium">{selected.size} selected</span>
                     {/* Pick a style → applies to all selected immediately (no Apply button).
                         Each option is a visual excerpt of the style, not just its name. */}
