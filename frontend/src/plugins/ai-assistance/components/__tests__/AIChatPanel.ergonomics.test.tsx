@@ -66,6 +66,7 @@ if (!('scrollIntoView' in HTMLElement.prototype)) {
 interface SSEHandle {
   stream: ReadableStream<Uint8Array>;
   push: (evt: unknown) => void;
+  pushRaw: (raw: string) => void;
   close: () => void;
 }
 
@@ -78,6 +79,7 @@ function makeStream(): SSEHandle {
   return {
     stream,
     push: (evt: unknown) => controller?.enqueue(encoder.encode(`data: ${JSON.stringify(evt)}\n\n`)),
+    pushRaw: (raw: string) => controller?.enqueue(encoder.encode(raw)),
     close: () => controller?.close(),
   };
 }
@@ -394,6 +396,34 @@ describe('AIChatPanel — #126 ergonomics', () => {
       // The assistant message bubble holds the merged "abcde" text.
       const allText = document.body.textContent || '';
       expect(allText).toContain('abcde');
+    });
+
+    await act(async () => { stream!.close(); });
+  });
+
+  it('renders an SSE text delta split across network chunks', async () => {
+    let stream: SSEHandle | null = null;
+    const env = withFetchMock({
+      onChat: () => {
+        stream = makeStream();
+        return new Response(stream.stream, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+      },
+    });
+    restore = env.restore;
+
+    mountPanel();
+    const input = await screen.findByPlaceholderText(/Ask about your data model/);
+    await waitFor(() => expect(input).not.toBeDisabled());
+    await userEvent.type(input, 'stream this{Enter}');
+    await waitFor(() => expect(stream).not.toBeNull());
+
+    await act(async () => {
+      stream!.pushRaw('data: {"type":"text-delta","delta":"split');
+      stream!.pushRaw(' payload"}\n\n');
+    });
+
+    await waitFor(() => {
+      expect(document.body.textContent || '').toContain('split payload');
     });
 
     await act(async () => { stream!.close(); });

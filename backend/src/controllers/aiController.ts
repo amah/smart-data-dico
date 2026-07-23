@@ -1279,6 +1279,8 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
 
   const sendEvent = (data: any) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
@@ -1297,6 +1299,8 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
   // #confab-guard — accumulate streamed assistant text so we can check, at the
   // end of the turn, whether it claimed a change that no successful tool made.
   let assistantText = '';
+  const textPartId = crypto.randomUUID();
+  let textStarted = false;
 
   try {
     const result = await callWithTools(
@@ -1306,11 +1310,14 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
       executeTool,
       AI_MAX_STEPS,
       (event) => {
-        // NOTE: callWithTools deliberately never emits `text` events — the loop
-        // streams only tool events and the final reply is emitted ONCE below (from
-        // result.text), so tool calls always precede the answer. Do NOT re-add a
-        // `text` handler here: doing so streams the reply twice and the assistant
-        // message is saved doubled (the pre-fix bug behind old duplicated turns).
+        if (event.type === 'text' && typeof event.delta === 'string' && event.delta) {
+          if (!textStarted) {
+            textStarted = true;
+            sendEvent({ type: 'text-start', id: textPartId });
+          }
+          assistantText += event.delta;
+          sendEvent({ type: 'text-delta', id: textPartId, delta: event.delta });
+        }
         if (event.type === 'tool-start') {
           // Emit tool category so the frontend can apply per-category
           // auto-approve policy without duplicating the switch (#59). Use the
@@ -1330,16 +1337,15 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
     if (result.aborted) {
       sendEvent({ type: 'cancelled' });
     } else {
-      // The loop no longer streams text itself (so tool calls always precede the
-      // reply). Emit the final reply ONCE here, after all tool events, for every
-      // turn — with or without tool calls.
-      if (result.text) {
-        const id = crypto.randomUUID();
-        sendEvent({ type: 'text-start', id });
+      // JSON-only providers cannot deliver upstream deltas. Keep the legacy
+      // fallback for them, but never replay text already forwarded by the
+      // streaming direct client.
+      if (result.text && !result.textStreamed) {
+        sendEvent({ type: 'text-start', id: textPartId });
         for (const word of result.text.split(' ')) {
-          sendEvent({ type: 'text-delta', id, delta: word + ' ' });
+          sendEvent({ type: 'text-delta', id: textPartId, delta: word + ' ' });
         }
-        assistantText += ' ' + result.text;
+        assistantText += result.text;
       }
 
       // #confab-guard — the model asserted it changed the model but no mutating
@@ -1918,6 +1924,7 @@ export const aiChat = async (req: Request, res: Response) => {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       const seenTextParts = new Set<string>();
+      let upstreamSseBuffer = '';
 
       const cleanup = () => {
         req.off('close', onAbort);
@@ -2041,10 +2048,11 @@ export const aiChat = async (req: Request, res: Response) => {
             break;
           }
 
-          const text = decoder.decode(value, { stream: true });
+          upstreamSseBuffer += decoder.decode(value, { stream: true });
 
           // Process each SSE line to inject text-start before first text-delta
-          const lines = text.split('\n');
+          const lines = upstreamSseBuffer.split(/\r?\n/);
+          upstreamSseBuffer = lines.pop() ?? '';
           const output: string[] = [];
 
           for (const line of lines) {
@@ -2101,7 +2109,7 @@ export const aiChat = async (req: Request, res: Response) => {
             output.push(line);
           }
 
-          res.write(output.join('\n'));
+          if (output.length > 0) res.write(`${output.join('\n')}\n`);
         }
       };
 

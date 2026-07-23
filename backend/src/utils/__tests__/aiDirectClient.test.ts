@@ -37,6 +37,78 @@ function jsonResponse(body: any): Response {
   });
 }
 
+function streamingResponse(): {
+  response: Response;
+  push: (raw: string) => void;
+  close: () => void;
+} {
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(c) { controller = c; },
+  });
+  return {
+    response: new Response(stream, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    }),
+    push: (raw) => controller.enqueue(encoder.encode(raw)),
+    close: () => controller.close(),
+  };
+}
+
+describe('callWithTools — upstream text streaming', () => {
+  let originalFetch: typeof fetch;
+
+  beforeEach(() => {
+    originalFetch = global.fetch;
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('forwards text deltas before the upstream response finishes and preserves split SSE records', async () => {
+    const upstream = streamingResponse();
+    global.fetch = jest.fn().mockResolvedValue(upstream.response) as unknown as typeof fetch;
+    const events: any[] = [];
+
+    const pending = callWithTools(
+      { apiKey: 'k', baseURL: 'https://example.test/v1', model: 'm' },
+      [{ role: 'user', content: 'hello' }],
+      [],
+      jest.fn(),
+      5,
+      (event) => events.push(event),
+    );
+
+    // Deliberately split the JSON payload across network chunks.
+    upstream.push('data: {"choices":[{"delta":{"content":"Hel');
+    await Promise.resolve();
+    expect(events).toHaveLength(0);
+
+    upstream.push('lo"}}]}\n\n');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(events).toContainEqual({ type: 'text', delta: 'Hello' });
+
+    upstream.push('data: {"choices":[{"delta":{"content":" world"}}]}\n\n');
+    upstream.push('data: {"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":2}}\n\n');
+    upstream.push('data: [DONE]\n\n');
+    upstream.close();
+
+    const result = await pending;
+    expect(result.text).toBe('Hello world');
+    expect(result.textStreamed).toBe(true);
+    expect(result.usage).toEqual({ inputTokens: 7, outputTokens: 2 });
+
+    const request = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
+    expect(request).toMatchObject({
+      stream: true,
+      stream_options: { include_usage: true },
+    });
+  });
+});
+
 describe('callWithTools — toolCallId uniqueness (#124)', () => {
   let originalFetch: typeof fetch;
   let fetchMock: FetchMock;

@@ -880,15 +880,20 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       if (!reader) throw new Error('No response body');
 
       const decoder = new TextDecoder();
+      // Network chunks do not align with SSE records. Keep an incomplete line
+      // for the next read instead of dropping a split JSON payload.
+      let sseBuffer = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n').filter(l => l.startsWith('data: '));
+        sseBuffer += decoder.decode(value, { stream: true });
+        const lines = sseBuffer.split(/\r?\n/);
+        sseBuffer = lines.pop() ?? '';
 
         for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
           try {
             const data = JSON.parse(line.slice(6));
             rawEvents.push(data);

@@ -95,6 +95,38 @@ beforeEach(() => {
 });
 
 describe('aiChat (direct path) — usage SSE event (#128)', () => {
+  it('forwards live direct-client deltas without replaying the completed text', async () => {
+    mockConfig.ai = {
+      provider: 'openai-compatible',
+      apiKey: 'sk-test',
+      model: 'm',
+      baseURL: 'https://example.test/v1',
+    };
+
+    callWithToolsMock.mockImplementationOnce(async (...args: any[]) => {
+      const onEvent = args[5];
+      onEvent({ type: 'text', delta: 'Hello' });
+      onEvent({ type: 'text', delta: ' live' });
+      return {
+        text: 'Hello live',
+        textStreamed: true,
+        toolCalls: [],
+        usage: { inputTokens: 0, outputTokens: 0 },
+        stoppedAtStepLimit: false,
+      };
+    });
+
+    const { req, res, writes } = makeReqRes({
+      messages: [{ id: '1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }],
+    });
+
+    await aiChat(req, res);
+
+    const events = parseEvents(writes);
+    expect(events.filter(e => e.type === 'text-start')).toHaveLength(1);
+    expect(events.filter(e => e.type === 'text-delta').map(e => e.delta)).toEqual(['Hello', ' live']);
+  });
+
   it('emits a usage event with inputTokens / outputTokens / model / provider before done', async () => {
     mockConfig.ai = {
       provider: 'openai-compatible',

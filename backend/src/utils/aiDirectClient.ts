@@ -46,6 +46,104 @@ export interface DirectClientUsage {
   outputTokens: number;
 }
 
+interface ParsedCompletion {
+  message: {
+    content: string;
+    tool_calls: any[];
+  };
+  usage?: any;
+  textStreamed: boolean;
+}
+
+/**
+ * Read either an OpenAI-compatible SSE completion or the legacy JSON shape.
+ * Tool-call argument fragments are reassembled by index; content deltas are
+ * forwarded immediately so the browser sees the provider's real cadence.
+ */
+async function readCompletion(
+  response: Response,
+  onTextDelta?: (delta: string) => void,
+): Promise<ParsedCompletion> {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('text/event-stream') || !response.body) {
+    const data: any = await response.json();
+    const choice = data.choices?.[0];
+    if (!choice) throw new Error('No response from model');
+    return {
+      message: {
+        content: choice.message?.content || '',
+        tool_calls: choice.message?.tool_calls || [],
+      },
+      usage: data.usage,
+      textStreamed: false,
+    };
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const toolCalls: any[] = [];
+  let buffer = '';
+  let content = '';
+  let usage: any;
+  let textStreamed = false;
+
+  const processLine = (line: string) => {
+    if (!line.startsWith('data:')) return;
+    const payload = line.slice(5).trimStart();
+    if (!payload || payload === '[DONE]') return;
+
+    const data = JSON.parse(payload);
+    if (data.usage) usage = data.usage;
+    const choice = data.choices?.[0];
+    if (!choice) return;
+    const delta = choice.delta ?? choice.message ?? {};
+
+    // Assemble tool fragments before considering content. Providers normally
+    // announce tool calls in the first meaningful chunk; suppress any preamble
+    // carried in the same chunk so tools stay ahead of the closing answer.
+    if (Array.isArray(delta.tool_calls)) {
+      for (const fragment of delta.tool_calls) {
+        const index = typeof fragment.index === 'number' ? fragment.index : 0;
+        const current = toolCalls[index] ?? {
+          id: '',
+          type: 'function',
+          function: { name: '', arguments: '' },
+        };
+        if (fragment.id) current.id += fragment.id;
+        if (fragment.type) current.type = fragment.type;
+        if (fragment.function?.name) current.function.name += fragment.function.name;
+        if (fragment.function?.arguments) current.function.arguments += fragment.function.arguments;
+        toolCalls[index] = current;
+      }
+    }
+
+    const text = typeof delta.content === 'string' ? delta.content : '';
+    content += text;
+    if (text && !Array.isArray(delta.tool_calls) && onTextDelta) {
+      textStreamed = true;
+      onTextDelta(text);
+    }
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const lines = buffer.split(/\r?\n/);
+    buffer = done ? '' : (lines.pop() ?? '');
+    for (const line of lines) processLine(line);
+    if (done) {
+      if (buffer) processLine(buffer);
+      break;
+    }
+  }
+
+  return {
+    message: { content, tool_calls: toolCalls.filter(Boolean) },
+    usage,
+    textStreamed,
+  };
+}
+
 /** Per-call ceiling for results retained in the live agent loop and UI history. */
 export const LIVE_TOOL_RESULT_MAX_CHARS = 50_000;
 
@@ -83,6 +181,8 @@ export async function callWithTools(
    * tool-less call, and the caller should surface a visible step-limit notice.
    */
   stoppedAtStepLimit: boolean;
+  /** True when `text` has already been delivered through `onEvent`. */
+  textStreamed: boolean;
 }> {
   const currentMessages = [...messages];
   const allToolCalls: Array<{ name: string; input: any; output: any }> = [];
@@ -101,10 +201,11 @@ export async function callWithTools(
   // no tool calls). If the `for` condition expires first, it stays true and we
   // run a graceful summary turn below (#192).
   let stoppedAtStepLimit = true;
+  let textStreamed = false;
 
   for (let step = 0; step < maxSteps; step++) {
     if (signal?.aborted) {
-      return { text: finalText, toolCalls: allToolCalls, aborted: true, usage, stoppedAtStepLimit: false };
+      return { text: finalText, toolCalls: allToolCalls, aborted: true, usage, stoppedAtStepLimit: false, textStreamed };
     }
 
     let response: Response;
@@ -115,6 +216,8 @@ export async function callWithTools(
         tools: tools.length > 0 ? tools : undefined,
         tool_choice: tools.length > 0 ? 'auto' : undefined,
         max_tokens: 4096,
+        stream: true,
+        stream_options: { include_usage: true },
       };
       const requestBody = JSON.stringify(requestPayload);
       recordProviderRequestMeasurement({
@@ -141,7 +244,7 @@ export async function callWithTools(
     } catch (err: any) {
       // fetch throws on abort with name === 'AbortError' (or DOMException)
       if (err?.name === 'AbortError' || signal?.aborted) {
-        return { text: finalText, toolCalls: allToolCalls, aborted: true, usage, stoppedAtStepLimit: false };
+        return { text: finalText, toolCalls: allToolCalls, aborted: true, usage, stoppedAtStepLimit: false, textStreamed };
       }
       throw err;
     }
@@ -180,15 +283,18 @@ export async function callWithTools(
       throw err;
     }
 
-    const data: any = await response.json();
-    const choice = data.choices?.[0];
-    if (!choice) throw new Error('No response from model');
+    const completion = await readCompletion(response, onEvent
+      ? (delta) => {
+          textStreamed = true;
+          onEvent({ type: 'text', delta });
+        }
+      : undefined);
 
     // Capture per-step usage (#128). OpenAI-compatible providers
     // return prompt_tokens/completion_tokens; some name them
     // input_tokens/output_tokens — accept both shapes.
-    if (data.usage) {
-      const u = data.usage;
+    if (completion.usage) {
+      const u = completion.usage;
       const inTok = typeof u.prompt_tokens === 'number'
         ? u.prompt_tokens
         : (typeof u.input_tokens === 'number' ? u.input_tokens : 0);
@@ -199,16 +305,11 @@ export async function callWithTools(
       usage.outputTokens += outTok;
     }
 
-    const msg = choice.message;
+    const msg = completion.message;
     finalText = msg.content || '';
 
-    // Deliberately do NOT emit `finalText` here. Weak tool-callers return a
-    // preamble/"reply" in the SAME response as their tool calls; emitting it now
-    // would stream the reply BEFORE the tools run — the reported bug where "tool
-    // calls happen after the model reply". The loop emits only tool events; the
-    // controller streams the returned `result.text` ONCE after the loop (i.e.
-    // after all tools), so the reply always follows the tools. The step content
-    // is still added to the model's own context below.
+    // JSON-only providers leave this for the controller's fallback. Streaming
+    // providers have already forwarded content deltas through `onEvent`.
 
     // Check for tool calls
     if (msg.tool_calls && msg.tool_calls.length > 0) {
@@ -222,7 +323,7 @@ export async function callWithTools(
       // Execute each tool call
       for (const tc of msg.tool_calls) {
         if (signal?.aborted) {
-          return { text: finalText, toolCalls: allToolCalls, aborted: true, usage, stoppedAtStepLimit: false };
+          return { text: finalText, toolCalls: allToolCalls, aborted: true, usage, stoppedAtStepLimit: false, textStreamed };
         }
 
         const toolName = tc.function.name;
@@ -291,6 +392,8 @@ export async function callWithTools(
         model: config.model,
         messages: nudgeMessages,
         max_tokens: 4096,
+        stream: true,
+        stream_options: { include_usage: true },
       };
       const requestBody = JSON.stringify(requestPayload);
       recordProviderRequestMeasurement({
@@ -316,9 +419,14 @@ export async function callWithTools(
       });
 
       if (response.ok) {
-        const data: any = await response.json();
-        if (data.usage) {
-          const u = data.usage;
+        const completion = await readCompletion(response, onEvent
+          ? (delta) => {
+              textStreamed = true;
+              onEvent({ type: 'text', delta });
+            }
+          : undefined);
+        if (completion.usage) {
+          const u = completion.usage;
           const inTok = typeof u.prompt_tokens === 'number'
             ? u.prompt_tokens
             : (typeof u.input_tokens === 'number' ? u.input_tokens : 0);
@@ -328,12 +436,8 @@ export async function callWithTools(
           usage.inputTokens += inTok;
           usage.outputTokens += outTok;
         }
-        const summary = data.choices?.[0]?.message?.content || '';
+        const summary = completion.message.content || '';
         if (summary) {
-          // Set finalText ONLY — do not also push through onEvent. The
-          // controller streams the returned `result.text` once after
-          // callWithTools (tool calls always precede a cap-stop), so emitting
-          // here too would duplicate the summary in the bubble (#192 review).
           finalText = summary;
         }
       }
@@ -346,5 +450,5 @@ export async function callWithTools(
     }
   }
 
-  return { text: finalText, toolCalls: allToolCalls, usage, stoppedAtStepLimit };
+  return { text: finalText, toolCalls: allToolCalls, usage, stoppedAtStepLimit, textStreamed };
 }
