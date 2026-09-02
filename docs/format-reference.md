@@ -431,7 +431,7 @@ actions:
 
 ## 12. State machines (#179)
 
-Models an entity's lifecycle — states and transitions, transitions may invoke actions by UUID. **Modeling only in v1.** Multiple machines can exist on one entity (bound to different attributes). Stored in a `stateMachines:` section.
+Models an entity's lifecycle — states and transitions, transitions may invoke actions by UUID. **Modeling only in v1:** transitions and guards are not executed. Multiple machines can exist on one entity (bound to different attributes). Stored in a `stateMachines:` section.
 
 ```yaml
 stateMachines:
@@ -445,7 +445,7 @@ stateMachines:
       - { name: PENDING }
       - { name: PROCESSING }
       - { name: SHIPPED }
-      - { name: DELIVERED, terminal: true }           # sinks — no outgoing transitions
+      - { name: DELIVERED, terminal: true }           # terminal presentation marker
       - { name: CANCELLED, terminal: true }
     transitions:
       - { uuid: tr-f-1, from: PENDING,    to: PROCESSING, on: "payment.authorized", invoke: [act-order-reserveStock] }
@@ -453,9 +453,28 @@ stateMachines:
       - { uuid: tr-f-4, from: "*",        to: CANCELLED,  on: "order.cancel", guard: "not terminal", invoke: [act-order-cancel] }
 ```
 
-- `from: "*"` is the wildcard — taken from any non-terminal state when its event fires.
-- `guard` is opaque (not evaluated in v1); `invoke[]` is an ordered list of action UUIDs, resolved post-merge within the package.
-- Load-time invariants: unique state names, `initialState`/`from`/`to` reference declared states (or `*`), `(ownerRef, name)` unique per entity, all `invoke[]` UUIDs resolve to known actions.
+| Field | Required | Meaning |
+|---|---:|---|
+| `uuid` | yes | Machine identifier. Slugs are accepted; unique among state machines in the package. |
+| `name` | yes | Machine name. The `(ownerRef, name)` pair must be unique in the package. |
+| `ownerRef` | yes | UUID of the owning entity. Case ownership is not supported. |
+| `description` | no | Human-readable description. |
+| `stateAttribute` | no | Name of an attribute on the owner that records the current state. |
+| `initialState` | yes | Name of a declared state. |
+| `states` | yes | At least one `{ name, description?, terminal? }` entry. State names are unique within the machine. |
+| `transitions` | yes | Array of transitions; it may be empty. |
+| `createdAt`, `updatedAt` | no | ISO timestamps maintained by API writes. |
+
+Every transition has `uuid`, `from`, `to`, and `on`. Transition UUIDs need only be unique **within their machine**. `from` is a declared state name or `"*"`; `to` is a declared state name. `on` and optional `guard` are opaque strings: `on` does not reference a first-class `Event` UUID. Optional `invoke[]` is an ordered list of action UUIDs.
+
+`terminal: true` is a modeling and presentation marker. The state-machine UI renders terminal states distinctly and excludes them when it expands a wildcard edge. The current validator does **not** reject an explicit transition whose `from` is terminal. Because v1 has no execution engine, terminal and wildcard semantics do not control runtime behavior.
+
+### Validation behavior
+
+- Package loading enforces duplicate machine `uuid` and duplicate `(ownerRef, name)` collisions across files. Entries missing `uuid`, `name`, or `ownerRef` are currently ignored by the loader.
+- Package loading does not validate the remaining machine shape or resolve `ownerRef`, `stateAttribute`, or `invoke[]` references.
+- API create/update validates the owner entity, the optional `stateAttribute`, at least one state, unique state names, `initialState`, transition UUID uniqueness within the machine, required `from`/`to`/`on`, declared state references, and `invoke[]` action references.
+- Consequently, hand-authored YAML must be self-checked against the rules above; a successful application boot is not by itself proof that a state machine is valid.
 
 ---
 

@@ -1,5 +1,5 @@
 /**
- * State machine model (#179) — N per entity/Case owner.
+ * State machine model (#179) — N per entity owner.
  *
  * A state machine models the lifecycle of an entity: states it can be in
  * and transitions between those states. Transitions may invoke actions by
@@ -16,9 +16,9 @@
 /**
  * A single state in the machine.
  *
- * `terminal: true` marks the state as a sink — no outgoing transitions
- * should leave a terminal state (validation raises a warning, not an error,
- * since authors may still be modelling).
+ * `terminal: true` is a modeling/presentation marker. The state-machine UI
+ * excludes terminal states when expanding wildcard edges, but validation does
+ * not reject explicit outgoing transitions from a terminal state.
  */
 export interface State {
   name: string;
@@ -29,8 +29,8 @@ export interface State {
 /**
  * A transition between two states.
  *
- * `from: "*"` is the wildcard — the transition is taken from any
- * non-terminal state when its event fires.
+ * `from: "*"` is the wildcard marker. The state-machine UI displays it from
+ * every non-terminal state; v1 has no transition execution semantics.
  * `to` must be a declared state name.
  * `invoke[]` is an ordered list of action UUIDs to call when the
  * transition is taken. Resolved post-merge within the package.
@@ -46,9 +46,9 @@ export interface Transition {
 }
 
 /**
- * A state machine owned by an entity or Case.
+ * A state machine owned by an entity.
  *
- * Invariants enforced at load time:
+ * Invariants enforced by the CRUD service on create/update:
  *   - `ownerRef` resolves to an existing entity UUID
  *   - `states[*].name` are unique within the machine
  *   - `initialState` is a declared state name
@@ -58,7 +58,7 @@ export interface Transition {
  *   - `transitions[*].to` is a declared state
  *   - `transitions[*].invoke[]` UUIDs resolve to known actions
  *
- * Collision rules enforced across the package:
+ * Collision rules enforced by the package loader:
  *   - `uuid` is globally unique
  *   - `(ownerRef, name)` pair is unique (no two machines on the same
  *     entity can share a name)

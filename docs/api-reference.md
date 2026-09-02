@@ -440,6 +440,113 @@ Authorization: Bearer your-token
 }
 ```
 
+### State Machines
+
+State machines are entity-owned, modeling-only lifecycle definitions. The application stores them
+in package YAML under `stateMachines:`; it does not execute transitions or evaluate guards.
+
+#### State-machine shape
+
+```json
+{
+  "uuid": "sm-order-fulfillment",
+  "name": "fulfillment",
+  "description": "Tracks fulfillment",
+  "ownerRef": "96a3ac78-d30b-4bf5-bb61-bf3174212f6c",
+  "stateAttribute": "status",
+  "initialState": "PENDING",
+  "states": [
+    { "name": "PENDING" },
+    { "name": "DELIVERED", "terminal": true }
+  ],
+  "transitions": [
+    {
+      "uuid": "tr-deliver",
+      "from": "PENDING",
+      "to": "DELIVERED",
+      "on": "delivery.confirmed",
+      "guard": "addressVerified",
+      "invoke": ["act-order-notifyDelivered"]
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z"
+}
+```
+
+`ownerRef` is an entity UUID and `stateAttribute`, when supplied, is an attribute name on that
+entity. Each state requires a name. Each transition requires `uuid`, `from`, `to`, and `on`;
+transition UUIDs are unique within the machine. `from` accepts a state name or `"*"`, while `to`
+must name a state. `on` and `guard` are opaque strings, not Event references. `invoke` is an
+ordered list of action UUIDs from the same package.
+
+`terminal` is currently a presentation marker rather than a validation rule. The state-machine
+diagram excludes terminal states when displaying a wildcard transition, but explicitly authored
+outgoing transitions from a terminal state are accepted.
+
+#### List machines for an entity
+
+```http
+GET /entities/{entityUuid}/state-machines
+```
+
+Returns `{ "message": "Success", "data": [<state-machine>, ...] }`.
+
+#### Get one machine
+
+```http
+GET /state-machines/{uuid}
+```
+
+Returns `{ "message": "Success", "data": <state-machine> }`, or `404` when it does not exist.
+
+#### Create a machine
+
+```http
+POST /state-machines
+Authorization: Bearer your-token
+Content-Type: application/json
+
+{
+  "name": "fulfillment",
+  "ownerRef": "96a3ac78-d30b-4bf5-bb61-bf3174212f6c",
+  "stateAttribute": "status",
+  "initialState": "PENDING",
+  "states": [{ "name": "PENDING" }, { "name": "DONE", "terminal": true }],
+  "transitions": []
+}
+```
+
+The machine UUID is generated when omitted; `transitions` defaults to an empty array. Requires the
+editor or administrator role. Returns `201` with the created machine, or `400` with field-level
+`errors` when validation fails.
+
+#### Update a machine
+
+```http
+PUT /state-machines/{uuid}
+Authorization: Bearer your-token
+Content-Type: application/json
+
+{ "description": "Updated description" }
+```
+
+Updates the supplied fields and preserves the UUID from the URL. Requires the editor or
+administrator role. Returns `404` when absent and `400` for validation errors.
+
+#### Delete a machine
+
+```http
+DELETE /state-machines/{uuid}
+Authorization: Bearer your-token
+```
+
+Requires the administrator role. Returns `404` when absent.
+
+The validation above applies to API writes. Direct YAML loading only detects duplicate machine
+UUIDs and duplicate `(ownerRef, name)` pairs; it does not perform the same reference and structural
+validation, and ignores entries missing `uuid`, `name`, or `ownerRef`.
+
 ### Graph Data
 
 #### Get Graph Data

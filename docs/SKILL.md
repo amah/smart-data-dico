@@ -31,7 +31,8 @@ This skill folder bundles the project's docs. The authoritative format spec is
   cases, and to relationship/rule targets that reference by UUID. **Never hand-invent UUIDs by
   typing hex** — generate them: `node -e "console.log(crypto.randomUUID())"` (or `uuidgen`).
   Action/state-machine/transition UUIDs are author-chosen slugs (e.g. `act-order-cancel`,
-  `tr-f-1`) but must be **unique within the package**.
+  `tr-f-1`). Action and state-machine UUIDs must be unique within their kind across the package;
+  transition UUIDs must be unique within their state machine.
 - **Identifiers are unique across the whole package**, not per file. Duplicate entity name, or
   duplicate rule/case/relationship/action/state-machine UUID anywhere in the package folder is a
   **hard load error citing both paths**. The loader merges all files in a package, so a collision
@@ -78,9 +79,16 @@ This skill folder bundles the project's docs. The authoritative format spec is
 - **Action** (`<Name>.actions.yaml`): `uuid`, `name`, `ownerRef` (entity UUID); flow steps must use
   a valid `kind` (`assign emitEvent invokeAction branch wait callExternal`) with that kind's fields.
   `invokeAction.actionRef` must resolve within the package. Modeling only — strings are opaque.
-- **State machine** (`<Name>.statemachine.yaml`): `uuid`, `name`, `ownerRef`, `initialState` (a
-  declared state), `states[]`, `transitions[]`. `from` is a declared state or `"*"`; `to` is a
-  declared state; `invoke[]` are action UUIDs. `(ownerRef, name)` must be unique per entity.
+- **State machine** (`<Name>.statemachine.yaml`): `uuid`, `name`, entity `ownerRef`, `initialState`
+  (a declared state), at least one `states[]` entry, and `transitions[]` (which may be empty).
+  `stateAttribute`, when present, is an attribute name on the owner. States are `{ name,
+  description?, terminal? }`; names are unique within the machine. Every transition requires
+  `{ uuid, from, to, on }`: `from` is a declared state or `"*"`, `to` is a declared state, and
+  transition UUIDs are unique within the machine. `on` and optional `guard` are opaque strings;
+  `on` is not an Event UUID. Optional `invoke[]` is an ordered list of action UUIDs. The
+  `(ownerRef, name)` pair must be unique per entity. `terminal` is currently a presentation
+  marker: explicit outgoing transitions are accepted, while the UI omits terminal states when
+  expanding wildcard edges. State machines are modeling-only and are not executed.
 - **Stereotype**: canonical form is a **schema-entity** under `.dico/schemas/<slug>.entity.yaml`
   tagged `stereotype: metadata-schema`, with an `appliesTo` metadata entry and `displayName` when
   the label differs from the slug. UUIDs are minted once and never regenerated. The legacy
@@ -101,10 +109,13 @@ There is no standalone validate CLI. Verify by these means, in order:
    `format-reference.md` (§3 entities, §6 relationships). Confirm: all UUIDs well-formed and
    unique package-wide; every reference resolves; required fields present; validation vs.
    constraint vs. rule not conflated.
-2. **End-to-end (the real pass):** load the project in the Smart Data Dictionary app
+2. **End-to-end:** load the project in the Smart Data Dictionary app
    (`smart-data-dico --data-dir <project>`, or point the dev server's `DATA_DIR` at it). The
-   content-driven loader parses every package file and **throws on UUID/name collisions and
-   unresolved references** — a clean boot is the definitive validation.
+   content-driven loader detects supported UUID/name collisions. It does **not** resolve every
+   reference and, specifically for state machines, only enforces machine UUID and
+   `(ownerRef, name)` collisions. It ignores state-machine entries missing `uuid`, `name`, or
+   `ownerRef`; it does not validate their states, transitions, `stateAttribute`, or `invoke[]`.
+   A clean boot is therefore useful but is not definitive validation.
 3. **Programmatic (only if the app source is on hand):** from the app's `backend/`, run the
    exported `validateEntity` / `validateRelationship` on your YAML. Write a small `tsx` script
    (the inline `tsx -e` form does NOT resolve the `.js`→`.ts` import — use a file):

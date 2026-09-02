@@ -10,12 +10,13 @@ This guide provides comprehensive instructions for using the Data Dictionary Man
 4. [Working with Services](#working-with-services)
 5. [Managing Entities](#managing-entities)
 6. [Attributes and Relationships](#attributes-and-relationships)
-7. [Version Control](#version-control)
-8. [Visualization](#visualization)
-9. [Search](#search)
-10. [Running Generated SQL](#running-generated-sql)
-11. [API Reference](#api-reference)
-12. [Troubleshooting](#troubleshooting)
+7. [State Machines](#state-machines)
+8. [Version Control](#version-control)
+9. [Visualization](#visualization)
+10. [Search](#search)
+11. [Running Generated SQL](#running-generated-sql)
+12. [API Reference](#api-reference)
+13. [Troubleshooting](#troubleshooting)
 
 ## Introduction
 
@@ -178,6 +179,26 @@ Relationships define how entities are connected to each other.
 1. In the entity editor, find the relationship you want to delete
 2. Click the "Delete" button next to the relationship
 3. Confirm the deletion
+
+## State Machines
+
+State machines document an entity's lifecycle. Open an entity and select the **State Machines**
+tab to view its machines, expand their diagrams, or create and edit them. Each machine defines an
+initial state, one or more named states, and zero or more transitions.
+
+- `stateAttribute` optionally identifies the entity attribute that stores the current state.
+- Marking a state terminal changes its presentation and keeps wildcard edges from originating
+  there in the state-machine diagram. Explicit outgoing transitions from a terminal state are
+  currently allowed.
+- A transition's `on` and `guard` values are descriptive strings; the application does not execute
+  them. `on` is not a reference to a modeled Event UUID.
+- A transition can invoke an ordered list of modeled actions. Those action UUIDs must belong to
+  the same package.
+
+Editors and administrators can create and update machines. Only administrators can delete them.
+API/UI writes validate entity, attribute, state, transition, and action references. Directly edited
+YAML receives only collision checks when loaded, so use the format-reference checklist when
+authoring files by hand.
 
 ## Version Control
 
@@ -344,6 +365,14 @@ Authorization: Bearer your-token
 - `POST /api/services/:service/entities`: Create a new entity
 - `PUT /api/services/:service/entities/:entity`: Update an entity
 - `DELETE /api/services/:service/entities/:entity`: Delete an entity
+
+#### State Machines
+
+- `GET /api/entities/:uuid/state-machines`: List an entity's state machines
+- `GET /api/state-machines/:uuid`: Get a state machine
+- `POST /api/state-machines`: Create a state machine (editor or administrator)
+- `PUT /api/state-machines/:uuid`: Update a state machine (editor or administrator)
+- `DELETE /api/state-machines/:uuid`: Delete a state machine (administrator only)
 
 #### Version Control
 
