@@ -1,8 +1,9 @@
 /**
- * ActionFlowDiagram — top-down flowchart view of an action's flow (#201, Phase 1).
+ * ActionFlowDiagram — left-to-right flowchart view of an action's flow (#201, Phase 1).
  *
  * Renders the action's `FlowStep[]` tree (via the pure {@link flowToGraph}
- * mapper) on the shared Cytoscape stack with a `dagre` top-down layout. Pure
+ * mapper) on the shared Cytoscape stack with a `dagre` left-to-right layout,
+ * matching the wide entity-detail card. Pure
  * view: nothing is executed or validated — the opaque step strings are shown
  * as-is, mirroring the per-kind colours of {@link ActionFlowList}.
  *
@@ -148,14 +149,14 @@ function createFlowStylesheet(): StylesheetStyle[] {
         'text-valign': 'center',
         'text-halign': 'center',
         'text-wrap': 'wrap',
-        'text-max-width': '150px',
+        'text-max-width': '115px',
         'font-size': 12,
         'font-family': 'monospace',
         color: fg,
         'background-color': bgRaised,
         'border-width': 2,
-        width: 170,
-        height: 48,
+        width: 135,
+        height: 50,
         shape: 'roundrectangle',
       } as any,
     },
@@ -193,6 +194,9 @@ function createFlowStylesheet(): StylesheetStyle[] {
         'border-color': color,
         'background-color': color,
         'background-opacity': 0.14,
+        ...(kind === 'branch'
+          ? { width: 200, height: 84, 'text-max-width': '150px', 'font-size': 10 }
+          : {}),
       } as any,
     });
   }
@@ -282,11 +286,13 @@ export function ActionFlowDiagram({
   const { cyRef, cy } = useCytoscapeInstance(containerRef, elements, stylesheet);
   const { runLayout } = useCytoscapeLayout(cyRef);
 
-  // Run the top-down layout once the instance + elements are ready.
+  // Run the left-to-right layout once the instance + elements are ready.
   useEffect(() => {
     if (!cy || cy.destroyed() || elements.length === 0) return;
     const timer = setTimeout(() => {
-      if (!cy.destroyed()) runLayout('dagre', 'TB');
+      if (!cy.destroyed()) {
+        runLayout('dagre', 'LR', { rankSep: 44, nodeSep: 40, edgeSep: 20, padding: 24 });
+      }
     }, 50);
     return () => clearTimeout(timer);
   }, [cy, elements, runLayout]);

@@ -35,16 +35,29 @@ function FlowViewToggle({ value, onChange }: { value: FlowView; onChange: (v: Fl
       }}
     >
       {options.map((o, i) => (
-        <Button
+        <button
           key={o.value}
-          size="sm"
-          variant={value === o.value ? 'primary' : 'ghost'}
-          icon={o.icon}
+          type="button"
+          aria-pressed={value === o.value}
           onClick={() => onChange(o.value)}
-          style={{ borderRadius: 0, borderLeft: i === 0 ? 0 : '1px solid var(--border)' }}
+          style={{
+            height: 22,
+            padding: '3px 8px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            border: 0,
+            borderLeft: i === 0 ? 0 : '1px solid var(--border)',
+            background: value === o.value ? 'var(--accent)' : 'transparent',
+            color: value === o.value ? 'var(--accent-fg)' : 'var(--text-muted)',
+            fontSize: 'var(--fs-xs)',
+            fontWeight: 500,
+            cursor: 'pointer',
+          }}
         >
+          <Icon name={o.icon} size={12} />
           {o.label}
-        </Button>
+        </button>
       ))}
     </div>
   );

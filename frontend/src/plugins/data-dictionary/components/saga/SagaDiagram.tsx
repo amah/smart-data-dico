@@ -48,16 +48,17 @@ export function sagaGraphToElements(graph: SagaGraph, hidden: Hidden = {}): Elem
       (graph.nodes.find((n) => n.id === e.target)?.type !== 'action' || keptActionIds.has(e.target)),
   );
 
-  // Events with at least one surviving edge.
-  const liveEventIds = new Set<string>();
+  // The process canvas is about modeled orchestration. Drop every isolated
+  // node (including actions with only assign/callExternal steps) so unrelated
+  // components do not consume layout space and scatter the connected flows.
+  const connectedNodeIds = new Set<string>();
   for (const e of edges) {
-    for (const id of [e.source, e.target]) {
-      if (graph.nodes.find((n) => n.id === id)?.type === 'event') liveEventIds.add(id);
-    }
+    connectedNodeIds.add(e.source);
+    connectedNodeIds.add(e.target);
   }
 
   const nodeEls: ElementDefinition[] = graph.nodes
-    .filter((n) => (n.type === 'action' ? keptActionIds.has(n.id) : liveEventIds.has(n.id)))
+    .filter((n) => connectedNodeIds.has(n.id))
     .map((n) => ({
       data: {
         id: n.id,

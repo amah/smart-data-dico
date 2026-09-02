@@ -35,9 +35,10 @@ vi.mock('../../../../../services/api', () => ({
 describe('sagaGraphToElements', () => {
   const graph = actionsToSagaGraph(actionsFixture, eventsFixture);
 
-  it('emits an element per node + edge with no filter', () => {
+  it('emits connected nodes and edges while dropping isolated actions', () => {
     const els = sagaGraphToElements(graph);
-    expect(els.filter((e) => e.data.nodeType === 'action')).toHaveLength(3);
+    expect(els.filter((e) => e.data.nodeType === 'action')).toHaveLength(2);
+    expect(els.some((e) => e.data.label === 'status')).toBe(false);
     expect(els.some((e) => e.data.nodeType === 'event')).toBe(true);
     expect(els.some((e) => e.data.kind === 'emit')).toBe(true);
     expect(els.some((e) => e.data.kind === 'react')).toBe(true);
@@ -57,7 +58,13 @@ describe('sagaGraphToElements', () => {
   });
 
   it('tags internal actions for dashed styling', () => {
-    const g = actionsToSagaGraph([{ uuid: 'x', name: 'x', ownerRef: 'e', internal: true }]);
+    const g = actionsToSagaGraph([{
+      uuid: 'x',
+      name: 'x',
+      ownerRef: 'e',
+      internal: true,
+      flow: [{ kind: 'emitEvent', name: 'x.done' }],
+    }]);
     const el = sagaGraphToElements(g).find((e) => e.data.nodeType === 'action')!;
     expect(el.data.internal).toBe(1);
   });

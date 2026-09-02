@@ -5,7 +5,7 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.26.0] — 2026-09-02
+## [1.26.0] — 2026-09-03
 
 ### Added
 - **Claude-compatible instructions and skills in AI chat.** The in-app assistant
@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Optional workspace context interrupting AI chat.** Chat continues without
   project instruction files when the active storage backend is unavailable.
+- **Unreadable and scattered behavior diagrams.** State-machine transition
+  labels now use resolved canvas colors and a wide left-to-right layout;
+  per-action flow toggles no longer lock the browser; action flows use readable
+  horizontal spacing; and package process maps omit unrelated isolated actions.
 
 ## [1.25.1] — 2026-07-23
 

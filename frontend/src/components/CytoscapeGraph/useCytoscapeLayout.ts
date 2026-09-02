@@ -4,7 +4,11 @@ import type { LayoutName, LayoutDirection } from './CytoscapeGraph.types';
 
 export function useCytoscapeLayout(cyRef: React.RefObject<Core | null>) {
   const runLayout = useCallback(
-    (name: LayoutName = 'dagre', direction: LayoutDirection = 'TB') => {
+    (
+      name: LayoutName = 'dagre',
+      direction: LayoutDirection = 'TB',
+      overrides: Record<string, unknown> = {},
+    ) => {
       const cy = cyRef.current;
       if (!cy || cy.nodes().length === 0) return;
 
@@ -20,6 +24,7 @@ export function useCytoscapeLayout(cyRef: React.RefObject<Core | null>) {
           padding: 40,
           animate: true,
           animationDuration: 300,
+          ...overrides,
         };
       } else if (name === 'elk') {
         // ELK 'layered' algorithm: orthogonal routing, structured hierarchical layout
@@ -41,6 +46,7 @@ export function useCytoscapeLayout(cyRef: React.RefObject<Core | null>) {
             'elk.layered.spacing.nodeNodeBetweenLayers': 80,
             'elk.edgeRouting': 'ORTHOGONAL',
           },
+          ...overrides,
         };
       } else {
         // fcose
@@ -52,6 +58,7 @@ export function useCytoscapeLayout(cyRef: React.RefObject<Core | null>) {
           idealEdgeLength: 150,
           nodeRepulsion: 8000,
           padding: 40,
+          ...overrides,
         };
       }
 

@@ -20,6 +20,12 @@ import type { Action } from '../../../../../types';
 import type { Entity } from '../../../../../types';
 import { EntityActionsTab } from '../EntityActionsTab';
 
+vi.mock('../ActionFlowDiagram', () => ({
+  ActionFlowDiagram: ({ action }: { action: Action }) => (
+    <div data-testid="action-flow-diagram">{action.name} flow diagram</div>
+  ),
+}));
+
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
 const ENTITY_UUID = '96a3ac78-d30b-4bf5-bb61-bf3174212f6c';
@@ -89,6 +95,19 @@ describe('EntityActionsTab', () => {
 
     expect(screen.getByText('notifyShipped')).toBeInTheDocument();
     expect(screen.getByText('internal')).toBeInTheDocument();
+  });
+
+  it('switches an expanded action between list and diagram views', () => {
+    render(<EntityActionsTab entity={entity} actions={[makeAction()]} onActionsChanged={noop} />);
+
+    fireEvent.click(screen.getByText('cancel'));
+    fireEvent.click(screen.getByRole('button', { name: 'Diagram' }));
+
+    expect(screen.getByTestId('action-flow-diagram')).toHaveTextContent('cancel flow diagram');
+    expect(screen.getByRole('button', { name: 'Diagram' })).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'List' }));
+    expect(screen.queryByTestId('action-flow-diagram')).not.toBeInTheDocument();
   });
 
   // ── AC: Clicking a row opens the editor side panel ──────────────────────────
