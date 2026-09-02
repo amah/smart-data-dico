@@ -63,6 +63,11 @@ module.exports = {
         // IStorageBackend (which may be git-backed or in-memory). Same layer as
         // appDir.ts / secretStore.ts. Only fs use is mkdir for the cache dir.
         'src/services/search/searchIndex.ts',
+        // Personal Claude-compatible skills live under ~/.claude/skills,
+        // outside the active project workspace. This infrastructure adapter
+        // is the narrow filesystem boundary; project skills still use
+        // IStorageBackend.
+        'src/storage/skills/**',
       ],
       rules: { 'no-restricted-imports': 'off' },
     },

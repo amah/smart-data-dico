@@ -97,8 +97,8 @@ export function extractSlashToken(value: string): string | null {
  * Filter commands by case-insensitive prefix-then-substring on the name,
  * matching the same ranking the mention picker uses (#54).
  */
-export function filterSlashCommands(token: string): readonly SlashCommand[] {
-  if (!token) return SLASH_COMMANDS;
+export function filterSlashCommands(token: string, commands: readonly SlashCommand[] = SLASH_COMMANDS): readonly SlashCommand[] {
+  if (!token) return commands;
   const tl = token.toLowerCase();
   const rank = (name: string): number => {
     const n = name.toLowerCase();
@@ -107,7 +107,7 @@ export function filterSlashCommands(token: string): readonly SlashCommand[] {
     if (n.includes(tl)) return 2;
     return 99;
   };
-  return SLASH_COMMANDS
+  return commands
     .map(c => ({ c, r: rank(c.name) }))
     .filter(x => x.r < 99)
     .sort((a, b) => a.r - b.r || a.c.name.localeCompare(b.c.name))
@@ -139,7 +139,7 @@ export function expandTemplate(template: string, pageContext?: string): string {
  * registered command with its description so the user can see what's
  * available without leaving the chat.
  */
-export function buildHelpMessage(): string {
-  const lines = SLASH_COMMANDS.map(c => `\`/${c.name}\` — ${c.description}`);
+export function buildHelpMessage(commands: readonly SlashCommand[] = SLASH_COMMANDS): string {
+  const lines = commands.map(c => `\`/${c.name}\` — ${c.description}`);
   return `**Slash commands**\n\n${lines.join('\n')}`;
 }

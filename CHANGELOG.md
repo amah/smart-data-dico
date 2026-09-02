@@ -5,6 +5,28 @@ All notable changes to **@hamak/smart-data-dico** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.26.0] — 2026-09-02
+
+### Added
+- **Claude-compatible instructions and skills in AI chat.** The in-app assistant
+  now loads project `CLAUDE.md` and `AGENTS.md` guidance, discovers project and
+  personal skills, exposes skill instructions and text resources through
+  read-only agent tools, and adds discovered skills to the slash-command palette.
+
+### Changed
+- **Safe, bounded skill loading.** Personal skills override project skills of
+  the same name; instruction, skill, resource, and catalog sizes are capped;
+  resource paths remain confined to their skill; and embedded scripts,
+  `allowed-tools`, and dynamic shell substitutions are never executed.
+- **State-machine documentation matches runtime behavior.** The format guide,
+  authoring skill, user guide, API reference, and model comments now distinguish
+  API validation from loader collision checks and describe terminal markers,
+  wildcard presentation, entity ownership, and transition UUID scope precisely.
+
+### Fixed
+- **Optional workspace context interrupting AI chat.** Chat continues without
+  project instruction files when the active storage backend is unavailable.
+
 ## [1.25.1] — 2026-07-23
 
 ### Fixed

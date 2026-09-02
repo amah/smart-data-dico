@@ -55,7 +55,13 @@ describe('AIChatPanel — slash command palette (#56)', () => {
 
   beforeEach(() => {
     server.use(
-      http.get('/api/ai/status', () => HttpResponse.json({ available: true })),
+      http.get('/api/ai/status', () => HttpResponse.json({
+        available: true,
+        agentContext: {
+          projectInstructions: ['AGENTS.md'],
+          skills: [{ name: 'retro-model', description: 'Reverse engineer a model', source: 'project' }],
+        },
+      })),
       http.get('/api/ai/conversations', () => HttpResponse.json({ data: [] })),
       http.post('/api/ai/conversations', () => HttpResponse.json({ message: 'ok' })),
     );
@@ -82,6 +88,7 @@ describe('AIChatPanel — slash command palette (#56)', () => {
     // Every built-in command should be visible for the empty token.
     expect(screen.getByTestId('ai-slash-option-help')).toBeInTheDocument();
     expect(screen.getByTestId('ai-slash-option-quality')).toBeInTheDocument();
+    expect(screen.getByTestId('ai-slash-option-retro-model')).toBeInTheDocument();
   });
 
   it('filters the palette as the user types', async () => {
@@ -117,6 +124,22 @@ describe('AIChatPanel — slash command palette (#56)', () => {
     expect(screen.queryByTestId('ai-slash-picker')).not.toBeInTheDocument();
     expect(input.value).toMatch(/quality review/i);
     expect(input.value).not.toMatch(/^\//); // no longer a slash command
+  });
+
+  it('keeps a selected project skill as an explicit slash invocation', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <AIChatPanel open={true} onClose={() => {}} />
+      </MemoryRouter>,
+    );
+
+    const input = await screen.findByPlaceholderText(/Ask about your data model/) as HTMLTextAreaElement;
+    await waitFor(() => expect(input).not.toBeDisabled());
+    await user.type(input, '/retro');
+    await user.click(screen.getByTestId('ai-slash-option-retro-model'));
+
+    expect(input.value).toBe('/retro-model');
   });
 
   it('renders an inline help message when /help is selected without contacting AI', async () => {

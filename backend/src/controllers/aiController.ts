@@ -8,6 +8,7 @@ import { getAgentTools, getAgentTool, jsonSchemaToParamList } from '../services/
 import { AUTHORING_RULES } from '../services/ai/authoringRules.js';
 import { resolveAttributePhysical } from '../services/ai/physicalMapping.js';
 import { getModelOverviewCached, invalidateModelOverviewCache } from '../services/ai/modelOverviewCache.js';
+import { loadAgentWorkspaceContext } from '../services/ai/skillService.js';
 import { systemPromptStore } from '../services/systemPromptStore.js';
 import { getConfigSection, setConfigSection, CONFIG_FILE } from '../utils/appDir.js';
 import { conversationService } from '../services/conversationService.js';
@@ -950,10 +951,10 @@ export function sqlSettingsInstruction(cfg: { sql?: { schemaQualifyTables?: bool
  * The STANDING part of the system prompt — canonical body (or the per-conversation
  * override) + mode suffix + AUTHORING_RULES (designer) + SQL settings. Excludes the
  * per-turn model outline and page context. This is what gets content-addressed and
- * persisted for the conversation export (#ai-export) — it's identical across every
- * conversation sharing a mode/config, so the store dedupes it.
+ * persisted for the conversation export (#ai-export). The content-addressed
+ * store dedupes conversations that share the same mode/config/workspace context.
  */
-export function standingSystemPrompt(conversationSystemPrompt?: string, mode: AIChatMode = 'designer', sqlInstruction?: string): string {
+export function standingSystemPrompt(conversationSystemPrompt?: string, mode: AIChatMode = 'designer', sqlInstruction?: string, workspacePrompt?: string): string {
   // #127 — per-conversation override replaces the canonical body when set.
   const base = (typeof conversationSystemPrompt === 'string' && conversationSystemPrompt.trim().length > 0)
     ? conversationSystemPrompt.trim().slice(0, 8000)
@@ -965,13 +966,16 @@ export function standingSystemPrompt(conversationSystemPrompt?: string, mode: AI
   if (typeof sqlInstruction === 'string' && sqlInstruction.trim().length > 0) {
     out += `\n\n${sqlInstruction.trim()}`;
   }
+  if (typeof workspacePrompt === 'string' && workspacePrompt.trim().length > 0) {
+    out += `\n\n${workspacePrompt.trim()}`;
+  }
   return out;
 }
 
-function buildSystemPrompt(pageContext?: string, conversationSystemPrompt?: string, mode: AIChatMode = 'designer', modelOutline?: string, sqlInstruction?: string): string {
+function buildSystemPrompt(pageContext?: string, conversationSystemPrompt?: string, mode: AIChatMode = 'designer', modelOutline?: string, sqlInstruction?: string, workspacePrompt?: string): string {
   // Standing part first, then the per-turn lines. Page context stays LAST so the
   // model weights "what is the user looking at right now" most heavily.
-  let out = standingSystemPrompt(conversationSystemPrompt, mode, sqlInstruction);
+  let out = standingSystemPrompt(conversationSystemPrompt, mode, sqlInstruction, workspacePrompt);
   // Per-turn model snapshot (#grounding) — a compact outline so the model is
   // oriented without spending tool calls to discover the model. The outline is
   // produced within budget (formatModelOutlineWithinBudget); the slice here is
@@ -1084,7 +1088,7 @@ export function buildUiMessagesWithToolParts(rawMessages: any[]): any[] {
 }
 
 // Direct chat handler for OpenAI-compatible providers (bypasses AI SDK)
-async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawMessages: any[], services: any, pageContext?: string, conversationSystemPrompt?: string, mode: AIChatMode = 'designer', modelOutline?: string, sqlInstruction?: string, diagnosticId?: string) {
+async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawMessages: any[], services: any, pageContext?: string, conversationSystemPrompt?: string, mode: AIChatMode = 'designer', modelOutline?: string, sqlInstruction?: string, workspacePrompt?: string, diagnosticId?: string) {
   const { callWithTools } = await import('../utils/aiDirectClient.js');
   // Per-stream id used to target server-side tool-approval decisions. Emitted
   // to the client on the `start` event so the frontend can POST approvals.
@@ -1105,7 +1109,7 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
   // Convert UIMessages to OpenAI format. #confab-fix — prior tool calls +
   // results are reconstructed (not just text) so the model sees what it did.
   const messages: any[] = [
-    { role: 'system', content: buildSystemPrompt(pageContext, conversationSystemPrompt, mode, modelOutline, sqlInstruction) },
+    { role: 'system', content: buildSystemPrompt(pageContext, conversationSystemPrompt, mode, modelOutline, sqlInstruction, workspacePrompt) },
     ...buildDirectChatMessages(rawMessages),
   ];
 
@@ -1292,7 +1296,7 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
   // hand the client its digest so the saved conversation can reference it for the
   // export/audit. Guarded: this must never break the chat stream.
   try {
-    const digest = await systemPromptStore.put(standingSystemPrompt(conversationSystemPrompt, mode, sqlInstruction));
+    const digest = await systemPromptStore.put(standingSystemPrompt(conversationSystemPrompt, mode, sqlInstruction, workspacePrompt));
     sendEvent({ type: 'system-context', digest, mode });
   } catch { /* non-fatal */ }
 
@@ -1416,7 +1420,7 @@ async function handleDirectChat(req: Request, res: Response, cfg: AIConfig, rawM
           rawMessages,
           pageContext,
           conversationSystemPrompt,
-          buildSystemPrompt(pageContext, conversationSystemPrompt, mode, modelOutline, sqlInstruction),
+          buildSystemPrompt(pageContext, conversationSystemPrompt, mode, modelOutline, sqlInstruction, workspacePrompt),
         ),
       });
     }
@@ -1477,6 +1481,11 @@ export const aiChat = async (req: Request, res: Response) => {
     const modelOutline = await safeModelOutline(services);
     // #sql-settings — config-driven standing instruction (e.g. schema-qualify tables).
     const sqlInstruction = sqlSettingsInstruction(cfg);
+    // Project instructions are always-on; skill metadata is discoverable on
+    // every turn, while an explicit /skill-name invocation loads that skill's
+    // full SKILL.md body for this request.
+    const workspaceContext = await loadAgentWorkspaceContext(rawMessages);
+    const workspacePrompt = workspaceContext.prompt;
 
     logger.info('AI server context size', {
       diagnosticId,
@@ -1486,14 +1495,18 @@ export const aiChat = async (req: Request, res: Response) => {
       enrichedPageContextBytes: utf8ByteLength(enrichedPageContext),
       modelOutlineBytes: utf8ByteLength(modelOutline),
       sqlInstructionBytes: utf8ByteLength(sqlInstruction),
+      workspacePromptBytes: utf8ByteLength(workspacePrompt),
+      projectInstructionFiles: Object.keys(workspaceContext.instructions),
+      skillCount: workspaceContext.skills.length,
+      explicitSkill: workspaceContext.explicitSkill ?? null,
       finalSystemPromptBytes: utf8ByteLength(
-        buildSystemPrompt(enrichedPageContext, conversationSystemPrompt, mode, modelOutline, sqlInstruction),
+        buildSystemPrompt(enrichedPageContext, conversationSystemPrompt, mode, modelOutline, sqlInstruction, workspacePrompt),
       ),
     });
 
     // For OpenAI-compatible providers, use direct client (AI SDK has tool-calling bugs)
     if (cfg.provider === 'openai-compatible' && cfg.baseURL) {
-      return await handleDirectChat(req, res, cfg, rawMessages, services, enrichedPageContext, conversationSystemPrompt, mode, modelOutline, sqlInstruction, diagnosticId);
+      return await handleDirectChat(req, res, cfg, rawMessages, services, enrichedPageContext, conversationSystemPrompt, mode, modelOutline, sqlInstruction, workspacePrompt, diagnosticId);
     }
 
     // For Anthropic/OpenAI, use Vercel AI SDK (works correctly)
@@ -1616,7 +1629,7 @@ export const aiChat = async (req: Request, res: Response) => {
 
     const result = streamText({
       model,
-      system: buildSystemPrompt(enrichedPageContext, conversationSystemPrompt, mode, modelOutline, sqlInstruction),
+      system: buildSystemPrompt(enrichedPageContext, conversationSystemPrompt, mode, modelOutline, sqlInstruction, workspacePrompt),
       messages,
       abortSignal: ac.signal,
       onFinish: (event) => {
@@ -1916,7 +1929,7 @@ export const aiChat = async (req: Request, res: Response) => {
 
     // #ai-export — persist + reference the standing system prompt (see the direct path).
     try {
-      const digest = await systemPromptStore.put(standingSystemPrompt(conversationSystemPrompt, mode, sqlInstruction));
+      const digest = await systemPromptStore.put(standingSystemPrompt(conversationSystemPrompt, mode, sqlInstruction, workspacePrompt));
       res.write(`data: ${JSON.stringify({ type: 'system-context', digest, mode })}\n\n`);
     } catch { /* non-fatal */ }
 
@@ -1968,7 +1981,7 @@ export const aiChat = async (req: Request, res: Response) => {
                 const prior = await result.response;
                 const summary = await generateText({
                   model,
-                  system: buildSystemPrompt(enrichedPageContext, conversationSystemPrompt, mode, modelOutline, sqlInstruction),
+                  system: buildSystemPrompt(enrichedPageContext, conversationSystemPrompt, mode, modelOutline, sqlInstruction, workspacePrompt),
                   messages: [
                     ...messages,
                     ...prior.messages,
@@ -2080,7 +2093,7 @@ export const aiChat = async (req: Request, res: Response) => {
                       rawMessages,
                       enrichedPageContext,
                       conversationSystemPrompt,
-                      buildSystemPrompt(enrichedPageContext, conversationSystemPrompt, mode, modelOutline, sqlInstruction),
+                      buildSystemPrompt(enrichedPageContext, conversationSystemPrompt, mode, modelOutline, sqlInstruction, workspacePrompt),
                     ),
                   })}`);
                   continue;
@@ -2132,7 +2145,7 @@ export const aiChat = async (req: Request, res: Response) => {
               rawMessages,
               enrichedPageContext,
               conversationSystemPrompt,
-              buildSystemPrompt(enrichedPageContext, conversationSystemPrompt, mode, modelOutline, sqlInstruction),
+              buildSystemPrompt(enrichedPageContext, conversationSystemPrompt, mode, modelOutline, sqlInstruction, workspacePrompt),
             ),
           })}\n\n`);
         } catch { /* response may already be closed */ }
@@ -2174,6 +2187,22 @@ export const aiChatApprove = async (req: Request, res: Response) => {
 
 export const aiStatus = async (_req: Request, res: Response) => {
   const cfg = loadAIConfig();
+  let agentContext: {
+    projectInstructions: string[];
+    skills: Array<{ name: string; description: string; source: 'project' | 'user' }>;
+  } = { projectInstructions: [], skills: [] };
+  try {
+    const context = await loadAgentWorkspaceContext();
+    agentContext = {
+      projectInstructions: [
+        ...(context.instructions.claude ? ['CLAUDE.md'] : []),
+        ...(context.instructions.agents ? ['AGENTS.md'] : []),
+      ],
+      skills: context.skills,
+    };
+  } catch (error) {
+    logger.warn(`AI workspace context discovery failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
   // configPath intentionally omitted (#125): the absolute path under the user's
   // home directory leaks layout. The path is backend-internal — the frontend
   // only needs to know whether AI is configured.
@@ -2183,6 +2212,7 @@ export const aiStatus = async (_req: Request, res: Response) => {
     model: cfg?.model || null,
     name: cfg?.name || cfg?.provider || null,
     baseURL: cfg?.baseURL || null,
+    agentContext,
     ...(cfg ? {} : { message: configReadyError() }),
   });
 };

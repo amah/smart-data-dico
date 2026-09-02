@@ -8,6 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   SLASH_COMMANDS,
+  type SlashCommand,
   buildHelpMessage,
   expandTemplate,
   extractSlashToken,
@@ -65,6 +66,16 @@ describe('filterSlashCommands', () => {
   it('is case-insensitive', () => {
     expect(filterSlashCommands('HELP').map(c => c.name)).toContain('help');
   });
+
+  it('filters dynamically supplied project skills', () => {
+    const skill: SlashCommand = {
+      name: 'retro-model',
+      description: 'Reverse engineer a model',
+      template: '/retro-model',
+      kind: 'prompt',
+    };
+    expect(filterSlashCommands('retro', [skill])).toEqual([skill]);
+  });
 });
 
 describe('expandTemplate', () => {
@@ -96,5 +107,15 @@ describe('buildHelpMessage', () => {
       expect(msg).toContain(`/${cmd.name}`);
       expect(msg).toContain(cmd.description);
     });
+  });
+
+  it('includes dynamically supplied project skills', () => {
+    const skill: SlashCommand = {
+      name: 'retro-model',
+      description: 'Reverse engineer a model',
+      template: '/retro-model',
+      kind: 'prompt',
+    };
+    expect(buildHelpMessage([skill])).toContain('`/retro-model` — Reverse engineer a model');
   });
 });

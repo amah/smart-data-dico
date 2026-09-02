@@ -27,6 +27,7 @@ import MermaidDiagram from './MermaidDiagram';
 import SqlRunModal from './SqlRunModal';
 import { getAllPackageHierarchies } from '../../../services/api';
 import {
+  SLASH_COMMANDS,
   SlashCommand,
   extractSlashToken,
   filterSlashCommands,
@@ -403,6 +404,19 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
     for (const def of toolDefs) m.set(def.name, def);
     return m;
   }, [toolDefs]);
+  const slashCommands = useMemo<readonly SlashCommand[]>(() => {
+    const skills = aiRuntime?.agentContext?.skills ?? [];
+    const builtInNames = new Set(SLASH_COMMANDS.map(command => command.name.toLowerCase()));
+    const skillCommands: SlashCommand[] = skills
+      .filter(skill => !builtInNames.has(skill.name.toLowerCase()))
+      .map(skill => ({
+        name: skill.name,
+        description: `${skill.description} (${skill.source} skill)`,
+        template: `/${skill.name}`,
+        kind: 'prompt',
+      }));
+    return [...SLASH_COMMANDS, ...skillCommands];
+  }, [aiRuntime?.agentContext?.skills]);
 
   // === #126 ergonomics state ===
   // Editing a previous user message: id of the message currently in
@@ -1566,7 +1580,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       // Render `/help` as a fake user/assistant pair so it shows up in
       // the conversation thread without burning a real model turn.
       const userMsg: ChatMessage = { id: crypto.randomUUID(), role: 'user', text: '/help' };
-      const assistantMsg: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', text: buildHelpMessage() };
+      const assistantMsg: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', text: buildHelpMessage(slashCommands) };
       setMessages(prev => [...prev, userMsg, assistantMsg]);
       setInput('');
       setTimeout(() => inputRef.current?.focus(), 0);
@@ -1580,7 +1594,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       el.focus();
       el.setSelectionRange(expanded.length, expanded.length);
     }, 0);
-  }, [pageContext]);
+  }, [pageContext, slashCommands]);
 
   // Replace the partial `@xxx` at the cursor with `@<name>` and close the picker.
   const insertMention = useCallback((name: string) => {
@@ -2957,7 +2971,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
         {/* #56 slash command palette — anchored above the composer.
             Mutually exclusive with the mention picker (slash only fires
             at start of input, mention only after whitespace). */}
-        {slashToken !== null && filterSlashCommands(slashToken).length > 0 && (
+        {slashToken !== null && filterSlashCommands(slashToken, slashCommands).length > 0 && (
           <div
             data-testid="ai-slash-picker"
             className="absolute left-3 right-3 bottom-full mb-1 bg-base-100 border border-base-300 rounded shadow-md z-10 max-h-60 overflow-auto text-xs"
@@ -2965,7 +2979,7 @@ export default function AIChatPanel({ open, onClose }: AIChatPanelProps) {
             <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-base-content/40 bg-base-200/40">
               Commands
             </div>
-            {filterSlashCommands(slashToken).map(cmd => (
+            {filterSlashCommands(slashToken, slashCommands).map(cmd => (
               <button
                 key={cmd.name}
                 type="button"

@@ -403,7 +403,7 @@ The dictionary ships with three AI-aware surfaces, all optional. They share one 
 | Surface | What it is | Where to find it |
 |---|---|---|
 | **In-app AI chat panel** | Sidebar chat that grounds against the live dictionary — list packages, describe entities, generate docs, propose edits | Toolbar button **AI Assistant** in the running web app |
-| **Slash commands** | Built-in chat shortcuts (`/list`, `/quality`, `/describe`, `/create`, `/relate`, `/export`, `/diagram`, `/help`) + your own saved prompts | Type `/` in the chat composer |
+| **Slash commands and skills** | Built-in chat shortcuts plus Claude-compatible project and personal skills | Type `/` in the chat composer |
 | **MCP server** (`dico-mcp`) | A [Model Context Protocol](https://modelcontextprotocol.io) stdio server that exposes the same operations to external clients — Claude Desktop, Cursor, Roo Code, Claude Code | `npx @hamak/smart-data-dico-mcp` or `node bin/dico-mcp.js` from source |
 
 ### Configure the in-app chat (one-time)
@@ -416,6 +416,24 @@ The dictionary ships with three AI-aware surfaces, all optional. They share one 
 Alternatively, if you set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` before launching the server, the provider is auto-detected for the first session — but the **Settings dialog is the source of truth**; saving overrides env-var defaults.
 
 Conversations and saved prompts live under `~/.dico-app/storage/` as JSON files — portable, diffable, deletable.
+
+### Project instructions and skills
+
+The in-app assistant reads always-on instructions from the active data-dictionary project root:
+
+- `<project>/CLAUDE.md`
+- `<project>/AGENTS.md` (takes precedence when the two conflict)
+
+It discovers Claude-compatible skills from both locations:
+
+- `<project>/.claude/skills/<skill-name>/SKILL.md`
+- `~/.claude/skills/<skill-name>/SKILL.md`
+
+Personal skills take precedence over project skills with the same name. Skill names appear in
+the `/` palette; `/skill-name optional arguments` explicitly loads that skill for the turn.
+The assistant can also load a relevant skill and its referenced text resources on demand.
+Files are rescanned for each chat request. Skill scripts, frontmatter `allowed-tools`, and
+dynamic shell substitutions are deliberately not executed.
 
 ### Slash commands
 

@@ -72,6 +72,10 @@ export interface AIStatus {
   provider?: string;
   model?: string;
   name?: string;
+  agentContext?: {
+    projectInstructions: string[];
+    skills: Array<{ name: string; description: string; source: 'project' | 'user' }>;
+  };
 }
 
 export interface AIConfigInput {
